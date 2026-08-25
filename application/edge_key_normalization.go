@@ -229,6 +229,39 @@ type eventRow struct {
 
 func (eventRow) TableName() string { return pericarpinfra.GormEventModel{}.TableName() }
 
+// readEdgeEventsAfter pages the edge-carrying events in global position
+// order. On Postgres it withholds rows whose inserting transaction may still
+// be in flight, exactly as pericarp's own reader does: a position is taken at
+// INSERT and becomes visible at COMMIT, so without the guard a row committed
+// late would fall below the cursor and never be read — never rewritten, never
+// counted. SQLite assigns positions inside the write transaction and needs no
+// guard.
+func readEdgeEventsAfter(ctx context.Context, db *gorm.DB, after int64, batch int) ([]eventRow, error) {
+	q := db.WithContext(ctx).Model(&eventRow{}).
+		Where("position > ? AND event_type IN ?", after, edgeCarryingEventTypes)
+	if db.Name() == "postgres" {
+		q = q.Where("xact_id < pg_snapshot_xmin(pg_current_snapshot())")
+	}
+	var rows []eventRow
+	if err := q.Order("position ASC").Limit(batch).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// edgesNodeShape reports a stored document's edges node and whether the
+// document is corrupt — a @graph whose second member is not an object. The
+// two are told apart so a corrupt document is counted as skipped rather than
+// read as "no edges".
+func edgesNodeShape(data map[string]any) (edges map[string]any, corrupt bool) {
+	graph, _ := data["@graph"].([]any)
+	if len(graph) < 2 {
+		return nil, false
+	}
+	edges, ok := graph[1].(map[string]any)
+	return edges, !ok
+}
+
 // decodePayload decodes an event payload keeping numbers as json.Number.
 func decodePayload(raw json.RawMessage) (map[string]any, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
@@ -271,10 +304,7 @@ func NormalizeEdgeKeys(
 
 	var last int64
 	for {
-		var rows []eventRow
-		err := rt.DB.WithContext(ctx).Model(&eventRow{}).
-			Where("position > ? AND event_type IN ?", last, edgeCarryingEventTypes).
-			Order("position ASC").Limit(batch).Find(&rows).Error
+		rows, err := readEdgeEventsAfter(ctx, rt.DB, last, batch)
 		if err != nil {
 			return run.report, fmt.Errorf("normalize-edge-keys: read after position %d: %w", last, err)
 		}
@@ -381,11 +411,9 @@ func (run *edgeKeyRun) rewriteEvent(ctx context.Context, row *eventRow) (pericar
 		run.skip("Data is not a JSON object")
 		return nil, nil
 	}
-	if graph, has := data["@graph"].([]any); has && len(graph) > 1 {
-		if _, isMap := graph[1].(map[string]any); !isMap {
-			run.skip("@graph[1] is not an edges node")
-			return nil, nil
-		}
+	if _, corrupt := edgesNodeShape(data); corrupt {
+		run.skip("@graph[1] is not an edges node")
+		return nil, nil
 	}
 	resolver, err := run.types.resolverFor(ctx, slug)
 	if err != nil {
@@ -608,13 +636,10 @@ func normalizeEdgeKeys(data map[string]any, resolver *edgeKeyResolver) (bool, []
 }
 
 // storedEdgesNode returns a stored document's edges node, or nil when the
-// document has none or it is not an object.
+// document has none or it is not an object. Callers that must tell those two
+// apart use edgesNodeShape.
 func storedEdgesNode(data map[string]any) map[string]any {
-	graph, _ := data["@graph"].([]any)
-	if len(graph) < 2 {
-		return nil
-	}
-	edges, _ := graph[1].(map[string]any)
+	edges, _ := edgesNodeShape(data)
 	return edges
 }
 

@@ -208,3 +208,21 @@ func TestEdgeKeyResolver_SharedAliasIsAmbiguous(t *testing.T) {
 		t.Fatalf("a historical IRI two properties recorded must be ambiguous; got (%q, %v, %v)", name, candidates, ok)
 	}
 }
+
+func TestClassifyEdgeKey_AgreesWithTheMigration(t *testing.T) {
+	r := edgeKeyTestResolver(t, `{"@vocab":"https://schema.org/",
+	  "maker":{"@id":"https://schema.org/associated","@type":"@id"},
+	  "partner":{"@id":"https://schema.org/associated","@type":"@id"}}`, widgetSchema)
+	edges := map[string]any{"@id": "urn:widget:1", "supplier": map[string]any{"@id": "urn:vendor:2"}}
+	cases := map[string]EdgeKeyClass{
+		"https://schema.org/associated":  EdgeKeyAmbiguous,
+		"https://example.org/legacy#x":   EdgeKeyUnmapped,
+		"https://schema.org/supplier":    EdgeKeyCollision, // the document already keys "supplier"
+		"https://schema.org/distributor": EdgeKeyResolvable,
+	}
+	for key, want := range cases {
+		if got, _ := classifyEdgeKey(r, edges, key); got != want {
+			t.Errorf("classifyEdgeKey(%q) = %s, want %s", key, got, want)
+		}
+	}
+}

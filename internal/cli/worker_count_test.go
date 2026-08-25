@@ -40,12 +40,12 @@ func TestPrintIRIEdgeKeyCountReport_FailCarriesTheMarkers(t *testing.T) {
 		Skipped:         map[string]int{"canonical record is not a JSON object": 1},
 	}
 	var out bytes.Buffer
-	printIRIEdgeKeyCountReport(&out, report)
+	printIRIEdgeKeyCountReport(&out, report, true)
 	text := out.String()
 	for _, want := range []string{
 		"skipped 1 row(s): canonical record is not a JSON object",
-		"1 / 1 / 1",
-		"2 resource(s) hold an ambiguous or unmapped key",
+		"1 / 1 / 1 / 0",
+		"2 resource(s) hold an ambiguous, unmapped or colliding key",
 		"ambiguous edge key https://schema.org/associated on urn:widget:1 (widget): candidates maker, partner",
 		"unmapped edge key https://example.org/legacy#x on urn:widget:2 (widget)",
 		"… and 3 more not listed",
@@ -63,7 +63,7 @@ func TestPrintIRIEdgeKeyCountReport_TheReprojectWindow(t *testing.T) {
 		RecordsTotal: 1,
 	}
 	var out bytes.Buffer
-	printIRIEdgeKeyCountReport(&out, report)
+	printIRIEdgeKeyCountReport(&out, report, true)
 	if !strings.Contains(out.String(), "run `weos worker reproject`") || !strings.Contains(out.String(), "check: FAIL") {
 		t.Errorf("the reproject window is not named:\n%s", out.String())
 	}
@@ -71,8 +71,25 @@ func TestPrintIRIEdgeKeyCountReport_TheReprojectWindow(t *testing.T) {
 
 func TestPrintIRIEdgeKeyCountReport_Pass(t *testing.T) {
 	var out bytes.Buffer
-	printIRIEdgeKeyCountReport(&out, application.IRIEdgeKeyCountReport{})
+	printIRIEdgeKeyCountReport(&out, application.IRIEdgeKeyCountReport{}, true)
 	if !strings.Contains(out.String(), "check: PASS") {
 		t.Errorf("an empty report must pass:\n%s", out.String())
+	}
+}
+
+func TestPrintIRIEdgeKeyCountReport_SkippedRowsNeverPass(t *testing.T) {
+	report := application.IRIEdgeKeyCountReport{Skipped: map[string]int{"event names no resource type": 3}}
+	if report.Passes() {
+		t.Fatal("a report with skipped rows must not pass")
+	}
+	var out bytes.Buffer
+	printIRIEdgeKeyCountReport(&out, report, true)
+	if !strings.Contains(out.String(), "check: INCONCLUSIVE") || strings.Contains(out.String(), "check: PASS") {
+		t.Errorf("skipped rows must print INCONCLUSIVE:\n%s", out.String())
+	}
+	out.Reset()
+	printIRIEdgeKeyCountReport(&out, report, false)
+	if strings.Contains(out.String(), "check:") {
+		t.Errorf("a scan that did not finish must print no verdict:\n%s", out.String())
 	}
 }

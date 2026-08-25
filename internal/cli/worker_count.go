@@ -43,13 +43,17 @@ events are clean and the records are not — this report shows that window.
 
 Each IRI-keyed edge is classified the way the normalization will treat it:
 resolvable (one property claims it; it will be rewritten), ambiguous (several
-names claim it; it will be reported, never rewritten) or unmapped (nothing
-names it; likewise). Resources holding an ambiguous or unmapped key are the
-residue the normalization leaves behind.
+names claim it; it will be reported, never rewritten), unmapped (nothing
+names it; likewise) or collision (the document already keys another edge by
+that property name; likewise). Resources holding any of the last three are
+the residue the normalization leaves behind.
 
-The check PASSES — exit code 0 — only when both surfaces count zero; it exits
-2 on FAIL and 1 when it could not run (unreachable database, empty store), so
-a script can tell the two apart. Events of a resource type the store no
+The check PASSES — exit code 0 — only when every row was read and both
+surfaces count zero; it exits 2 on FAIL and 1 when it could not conclude (a
+row it could not read, an unreachable database, an empty store), so a script
+can tell the three apart. The records surface covers live rows only, and a
+PASS vouches for the rows present when the scan started — for the
+authoritative check, run it with the server stopped. Events of a resource type the store no
 longer holds are reported as orphaned and do not fail the check: nothing can
 rewrite them and nothing serves them.
 
@@ -60,7 +64,8 @@ resource type and no event, since a mistyped DSN would otherwise open an
 empty database and pass.
 
 Cost: the events surface reads every Resource.Created/Updated payload in the
-history. Run the full check before the normalization and after "worker
+history, and the working set grows with the number of resources met, not with
+the batch size. Run the full check before the normalization and after "worker
 reproject"; for a scheduled gate afterwards pass --records-only, which reads
 only the canonical records.`,
 	Args:         cobra.NoArgs,
@@ -100,31 +105,51 @@ func runWorkerCountIRIEdgeKeys(cmd *cobra.Command, _ []string) error {
 	report, err := application.CountIRIEdgeKeys(cmd.Context(), rt,
 		application.IRIEdgeKeyCountOptions{BatchSize: batch, RecordsOnly: recordsOnly})
 	if err != nil {
-		_, _ = fmt.Fprintln(os.Stdout, "check: ERROR")
+		// The partial numbers are printed so the operator sees how far the
+		// scan got, but no verdict: a scan that stopped cannot vouch for
+		// what it never read.
+		printIRIEdgeKeyCountReport(os.Stdout, report, false)
+		_, _ = fmt.Fprintln(os.Stdout, "\ncheck: ERROR — the scan did not finish")
 		return err
 	}
-	printIRIEdgeKeyCountReport(os.Stdout, report)
-	if !report.Passes() {
-		// Exit 2, distinct from the 1 cobra uses for an error: a scheduled
-		// gate must tell "the data is not clean" from "the check did not run".
+	printIRIEdgeKeyCountReport(os.Stdout, report, true)
+	if verdict := report.Verdict(); verdict != application.VerdictPass {
+		// Exit 2 on FAIL, distinct from the 1 cobra uses for an error: a
+		// scheduled gate must tell "the data is not clean" from "the check
+		// did not run". INCONCLUSIVE could not conclude, so it exits 1.
 		stopCtx, stopCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
 		_ = app.Stop(stopCtx)
 		stopCancel()
-		os.Exit(2)
+		if verdict == application.VerdictFail {
+			os.Exit(2)
+		}
+		return fmt.Errorf("%d row(s) could not be read, so the check is inconclusive", skippedRows(report))
 	}
 	return nil
 }
 
+func skippedRows(r application.IRIEdgeKeyCountReport) int {
+	n := 0
+	for _, c := range r.Skipped {
+		n += c
+	}
+	return n
+}
+
 // printIRIEdgeKeyCountReport renders a run for the operator. "check: PASS" /
-// "check: FAIL" and the "ambiguous edge key" / "unmapped edge key" markers are
-// the command's contract for scripts; the printer test pins them.
-func printIRIEdgeKeyCountReport(out io.Writer, r application.IRIEdgeKeyCountReport) {
+// "check: FAIL" / "check: INCONCLUSIVE" and the "ambiguous edge key" /
+// "unmapped edge key" markers are the command's contract for scripts; the
+// printer test pins them. withVerdict is false for a scan that did not
+// finish, which prints its partial numbers and no verdict.
+func printIRIEdgeKeyCountReport(out io.Writer, r application.IRIEdgeKeyCountReport, withVerdict bool) {
 	for _, reason := range sortedKeys(r.Skipped) {
-		_, _ = fmt.Fprintf(out, "skipped %d row(s): %s\n", r.Skipped[reason], reason)
+		_, _ = fmt.Fprintf(out, "skipped %d row(s): %s — not read, so not vouched for\n", r.Skipped[reason], reason)
 	}
 	if len(r.Types) == 0 {
-		_, _ = fmt.Fprintln(out, "no resource keys an edge by predicate IRI.")
-		_, _ = fmt.Fprintln(out, "check: PASS")
+		_, _ = fmt.Fprintln(out, "no resource read keys an edge by predicate IRI.")
+		if withVerdict {
+			_, _ = fmt.Fprintf(out, "check: %s\n", r.Verdict())
+		}
 		return
 	}
 	if r.RecordsOnly {
@@ -137,11 +162,11 @@ func printIRIEdgeKeyCountReport(out io.Writer, r application.IRIEdgeKeyCountRepo
 		}
 	}
 	_, _ = fmt.Fprintf(out, "%-*s %8s %8s   %s\n", width, "resource type", "events", "records",
-		"IRI edge keys: resolvable / ambiguous / unmapped")
+		"IRI edge keys: resolvable / ambiguous / unmapped / collision")
 	for _, slug := range r.TypeSlugs() {
 		t := r.Types[slug]
-		_, _ = fmt.Fprintf(out, "%-*s %8d %8d   %d / %d / %d", width, slug, t.Events, t.Records,
-			t.Resolvable, t.Ambiguous, t.Unmapped)
+		_, _ = fmt.Fprintf(out, "%-*s %8d %8d   %d / %d / %d / %d", width, slug, t.Events, t.Records,
+			t.Resolvable, t.Ambiguous, t.Unmapped, t.Collision)
 		if t.Orphaned > 0 {
 			_, _ = fmt.Fprintf(out, "   (%d orphaned: type not stored)", t.Orphaned)
 		}
@@ -152,8 +177,8 @@ func printIRIEdgeKeyCountReport(out io.Writer, r application.IRIEdgeKeyCountRepo
 		_, _ = fmt.Fprintf(out, "\n%d resource(s) of a type the store no longer holds still key an edge by IRI in "+
 			"their events; nothing can rewrite or read them, and they do not fail the check.\n", r.OrphanedTotal)
 	}
-	_, _ = fmt.Fprintf(out, "\n%d resource(s) hold an ambiguous or unmapped key — normalization will leave them "+
-		"IRI-keyed until the type's @context is fixed.\n", r.ResidueTotal)
+	_, _ = fmt.Fprintf(out, "\n%d resource(s) hold an ambiguous, unmapped or colliding key — normalization will "+
+		"leave them IRI-keyed until the type's @context (or the record) is fixed.\n", r.ResidueTotal)
 	for _, c := range r.Classified {
 		line := fmt.Sprintf("%s edge key %s on %s (%s)", c.Class, c.Key, c.ResourceID, c.TypeSlug)
 		if len(c.Candidates) > 0 {
@@ -168,9 +193,7 @@ func printIRIEdgeKeyCountReport(out io.Writer, r application.IRIEdgeKeyCountRepo
 	if r.EventsTotal == 0 && r.RecordsTotal > 0 {
 		_, _ = fmt.Fprintln(out, "\nevents are clean but canonical records are not: run `weos worker reproject`.")
 	}
-	if r.Passes() {
-		_, _ = fmt.Fprintln(out, "\ncheck: PASS")
-	} else {
-		_, _ = fmt.Fprintln(out, "\ncheck: FAIL")
+	if withVerdict {
+		_, _ = fmt.Fprintf(out, "\ncheck: %s\n", r.Verdict())
 	}
 }

@@ -123,6 +123,9 @@ const (
 	// EdgeKeyUnmapped — no term, alias or @vocab prefix names it, including
 	// every edge of a type the store no longer holds; #523 declines it.
 	EdgeKeyUnmapped EdgeKeyClass = "unmapped"
+	// EdgeKeyCollision — it resolves, but the document already keys another
+	// edge by that property name, so #523 declines to merge the two.
+	EdgeKeyCollision EdgeKeyClass = "collision"
 )
 
 // EdgeKeyClassification is one IRI-keyed edge on the events surface, counted
@@ -142,9 +145,9 @@ type IRIEdgeKeyTypeCount struct {
 	Events int
 	// Records is the resources whose canonical record keys an edge by IRI.
 	Records int
-	// Resolvable, Ambiguous and Unmapped count distinct (resource, key)
-	// pairs on the events surface by class.
-	Resolvable, Ambiguous, Unmapped int
+	// Resolvable, Ambiguous, Unmapped and Collision count distinct
+	// (resource, key) pairs on the events surface by class.
+	Resolvable, Ambiguous, Unmapped, Collision int
 	// Residue is the resources holding at least one ambiguous or unmapped
 	// key — what normalization will leave IRI-keyed.
 	Residue int
@@ -170,11 +173,37 @@ type IRIEdgeKeyCountReport struct {
 	Skipped map[string]int
 }
 
-// Passes reports whether both scanned surfaces are clean. Orphaned resources
-// — IRI-keyed events of a type the store no longer holds — do not fail the
-// check: nothing can rewrite them, nothing serves them, and a gate that can
-// never go green is one nobody keeps.
-func (r IRIEdgeKeyCountReport) Passes() bool { return r.EventsTotal == 0 && r.RecordsTotal == 0 }
+// Verdict is the check's outcome.
+type Verdict string
+
+const (
+	// VerdictPass — every row was read and both surfaces count zero.
+	VerdictPass Verdict = "PASS"
+	// VerdictFail — a resource still keys an edge by IRI.
+	VerdictFail Verdict = "FAIL"
+	// VerdictInconclusive — the totals are zero but rows were skipped, so
+	// the run cannot say the instance is clean; it never looked inside them.
+	VerdictInconclusive Verdict = "INCONCLUSIVE"
+)
+
+// Verdict reports the outcome. Orphaned resources — IRI-keyed events of a
+// type the store no longer holds — do not fail the check: nothing can
+// rewrite them, nothing serves them, and a gate that can never go green is
+// one nobody keeps. Skipped rows never PASS: a row the run could not read is
+// a row it cannot vouch for.
+func (r IRIEdgeKeyCountReport) Verdict() Verdict {
+	switch {
+	case r.EventsTotal > 0 || r.RecordsTotal > 0:
+		return VerdictFail
+	case len(r.Skipped) > 0:
+		return VerdictInconclusive
+	default:
+		return VerdictPass
+	}
+}
+
+// Passes reports whether the verdict is PASS.
+func (r IRIEdgeKeyCountReport) Passes() bool { return r.Verdict() == VerdictPass }
 
 // TypeSlugs returns the report's type slugs in a stable order.
 func (r IRIEdgeKeyCountReport) TypeSlugs() []string {
@@ -207,10 +236,12 @@ func CountIRIEdgeKeys(
 	}
 	if !opts.RecordsOnly {
 		if err := run.scanEvents(ctx, batch); err != nil {
+			run.total() // a partial report still adds up
 			return run.report, err
 		}
 	}
 	if err := run.scanRecords(ctx, batch); err != nil {
+		run.total()
 		return run.report, err
 	}
 	run.total()
@@ -247,7 +278,9 @@ type iriEdgeKeyCount struct {
 	types  *resourceTypeIndex
 	// seen maps resource id → what the events surface learned about it, so
 	// a key met on a Created and again on an Updated event is classified and
-	// counted once.
+	// counted once. It holds one entry per IRI-keyed resource for the whole
+	// run — the working set the command's help text warns about — because
+	// a Created and its Updated can be arbitrarily far apart in the feed.
 	seen map[string]*seenResource
 }
 
@@ -272,10 +305,7 @@ func (run *iriEdgeKeyCount) skip(reason string) {
 func (run *iriEdgeKeyCount) scanEvents(ctx context.Context, batch int) error {
 	var last int64
 	for {
-		var rows []eventRow
-		err := run.rt.DB.WithContext(ctx).Model(&eventRow{}).
-			Where("position > ? AND event_type IN ?", last, edgeCarryingEventTypes).
-			Order("position ASC").Limit(batch).Find(&rows).Error
+		rows, err := readEdgeEventsAfter(ctx, run.rt.DB, last, batch)
 		if err != nil {
 			return fmt.Errorf("count-iri-edge-keys: read events after position %d: %w", last, err)
 		}
@@ -307,7 +337,12 @@ func (run *iriEdgeKeyCount) countEvent(ctx context.Context, row *eventRow) error
 		run.skip("event Data is not a JSON object")
 		return nil
 	}
-	keys := iriEdgeKeys(storedEdgesNode(data))
+	edges, corrupt := edgesNodeShape(data)
+	if corrupt {
+		run.skip("event @graph[1] is not an edges node")
+		return nil
+	}
+	keys := iriEdgeKeys(edges)
 	if len(keys) == 0 {
 		return nil
 	}
@@ -333,7 +368,7 @@ func (run *iriEdgeKeyCount) countEvent(ctx context.Context, row *eventRow) error
 		if _, done := seen.byKey[key]; done {
 			continue
 		}
-		class, candidates := classifyEdgeKey(resolver, key)
+		class, candidates := classifyEdgeKey(resolver, edges, key)
 		seen.byKey[key] = class
 		run.recordClass(t, slug, row.AggregateID, key, class, candidates)
 	}
@@ -341,17 +376,19 @@ func (run *iriEdgeKeyCount) countEvent(ctx context.Context, row *eventRow) error
 }
 
 // classifyEdgeKey answers how one IRI key would fare under normalization,
-// through the same resolver #523 rewrites with.
-func classifyEdgeKey(resolver *edgeKeyResolver, key string) (EdgeKeyClass, []string) {
-	_, candidates, ok := resolver.resolve(key)
+// through the same resolver #523 rewrites with and the same collision rule.
+func classifyEdgeKey(resolver *edgeKeyResolver, edges map[string]any, key string) (EdgeKeyClass, []string) {
+	name, candidates, ok := resolver.resolve(key)
 	switch {
 	case len(candidates) > 1:
 		return EdgeKeyAmbiguous, candidates
-	case ok:
-		return EdgeKeyResolvable, nil
-	default:
+	case !ok:
 		return EdgeKeyUnmapped, nil
 	}
+	if _, taken := edges[name]; taken {
+		return EdgeKeyCollision, []string{name}
+	}
+	return EdgeKeyResolvable, nil
 }
 
 func (run *iriEdgeKeyCount) recordClass(
@@ -363,6 +400,8 @@ func (run *iriEdgeKeyCount) recordClass(
 		return
 	case EdgeKeyAmbiguous:
 		t.Ambiguous++
+	case EdgeKeyCollision:
+		t.Collision++
 	default:
 		t.Unmapped++
 	}
@@ -410,7 +449,12 @@ func (run *iriEdgeKeyCount) countRecord(row canonicalRow) {
 		run.skip("canonical record is not a JSON object")
 		return
 	}
-	if len(iriEdgeKeys(storedEdgesNode(data))) == 0 {
+	edges, corrupt := edgesNodeShape(data)
+	if corrupt {
+		run.skip("canonical record @graph[1] is not an edges node")
+		return
+	}
+	if len(iriEdgeKeys(edges)) == 0 {
 		return
 	}
 	run.typeCount(row.TypeSlug).Records++
