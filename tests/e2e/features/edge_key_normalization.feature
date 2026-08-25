@@ -1,4 +1,4 @@
-@wip @issue-523
+@issue-523
 Feature: One migration rewrites stored edges to property-name keys
   As an operator whose instance predates the compact edge storage change
   I want one command that rewrites every stored event's edges to property-name keys
@@ -221,16 +221,20 @@ Feature: One migration rewrites stored edges to property-name keys
   # --- the branches that report rather than rewrite ---
 
   # Two reference properties on one predicate with DIFFERENT target types. #521
-  # accepts this shape at boot — compact storage makes it safe for new writes,
+  # accepts this shape at boot. The shared predicate is set in the STORED
+  # context by the operator: a preset that renames a stored term is a Conflict
+  # the boot holds at the stored definition (#513), so declaring it in the
+  # preset never reaches the stored context — amended 2026-08-25 with Akeem's
+  # approval. Compact storage makes the shape safe for new writes —
   # each property keeps its own key. It is exactly the shape a legacy edge cannot
   # be attributed to: the key names the predicate, and the predicate names two
   # properties. The target's `urn:<typeSlug>:…` would let a reader guess; this
   # contract says report instead.
   Scenario: An edge on a shared predicate is reported with both candidates, never rewritten
     Given the "catalog" preset adds a "partner" reference property to "widget" targeting "widget"
-    And the "catalog" preset declares "maker" as "https://schema.org/associated" in the "widget" context
     And the "catalog" preset declares "partner" as "https://schema.org/associated" in the "widget" context
     And the twin restarts against the same database
+    And the operator maps "maker" to "https://schema.org/associated" in the stored "widget" context
     And a "widget" named "Bolt cutter" written by the pre-#515 binary with "maker" referring to the "vendor" "Acme"
     When the operator normalizes the stored edge keys and writes
     Then the normalization reports the "widget" "Bolt cutter" as ambiguous on "https://schema.org/associated", naming "maker" and "partner"
@@ -241,10 +245,10 @@ Feature: One migration rewrites stored edges to property-name keys
   # the clean types migrated and the faulty one named, in one pass.
   Scenario: An ambiguous type does not stop a clean one being rewritten
     Given the "catalog" preset adds a "partner" reference property to "widget" targeting "widget"
-    And the "catalog" preset declares "maker" as "https://schema.org/associated" in the "widget" context
     And the "catalog" preset declares "partner" as "https://schema.org/associated" in the "widget" context
     And the "catalog" preset adds a "flagship" reference property to "vendor" targeting "widget"
     And the twin restarts against the same database
+    And the operator maps "maker" to "https://schema.org/associated" in the stored "widget" context
     And a "widget" named "Bolt cutter" written by the pre-#515 binary with "maker" referring to the "vendor" "Acme"
     And a "vendor" named "Globex" written by the pre-#515 binary with "flagship" referring to the "widget" "Bolt cutter"
     When the operator normalizes the stored edge keys and writes
