@@ -1,4 +1,4 @@
-@wip @issue-519
+@issue-519
 Feature: One check counts the resources whose edges still key by predicate IRI
   As an operator running the edge-key normalization on a live instance
   I want one read-only command that counts the resources still keyed by predicate IRI
@@ -25,12 +25,11 @@ Feature: One check counts the resources whose edges still key by predicate IRI
   #    There are two things that phrase can mean and they disagree for a real
   #    window of the migration, so the check reports BOTH, labelled:
   #
-  #      - CANONICAL RECORDS — the `data` column of every projection table plus
-  #        the generic `resources` table. This is what every reader serves, so
-  #        it is the number that answers "is my instance still on the old
-  #        shape". A count that walked only the projection tables would report
-  #        zero while pre-projection-table records sat unmigrated, so it must
-  #        walk both.
+  #      - CANONICAL RECORDS — the `data` column of the generic `resources`
+  #        table, which is the canonical store for EVERY resource (projection
+  #        tables hold typed columns, never the document). This is what every
+  #        reader serves, so it is the number that answers "is my instance
+  #        still on the old shape".
   #      - EVENTS — the Resource.Created and Resource.Updated payloads, which
   #        are what #523 rewrites and what a reprojection replays from. A
   #        canonical record that reads clean is meaningless if the event behind

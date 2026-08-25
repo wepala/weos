@@ -139,6 +139,12 @@ type contextWorld struct {
 	eventsAfterNormalize  []storedEvent
 	capturedReads         map[string]string
 
+	// Issue #519: the count's report and the canonical records on either
+	// side of it.
+	countReport        *application.IRIEdgeKeyCountReport
+	recordsBeforeCount map[string]string
+	recordsAfterCount  map[string]string
+
 	// vendorProps and widgetProps are the two types' schema properties in
 	// declaration order, as the preset would declare them on the next boot.
 	vendorProps []contextProperty
@@ -272,6 +278,7 @@ func initPresetContextScenario(sc *godog.ScenarioContext) {
 	// reads are the ones every scenario above writes.
 	w.registerCompactEdgeSteps(sc)
 	w.registerEdgeKeyNormalizationSteps(sc)
+	w.registerIRIEdgeKeyCountSteps(sc)
 }
 
 // --- preset shaping ---

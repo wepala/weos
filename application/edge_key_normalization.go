@@ -263,11 +263,10 @@ func NormalizeEdgeKeys(
 		batch = 500
 	}
 	run := &edgeKeyRun{
-		rt:        rt,
-		write:     opts.Write,
-		report:    NormalizeEdgeKeysReport{DryRun: !opts.Write, Types: map[string]*EdgeKeyTypeReport{}},
-		slugOf:    map[string]string{},
-		resolvers: map[string]*edgeKeyResolver{},
+		rt:     rt,
+		write:  opts.Write,
+		report: NormalizeEdgeKeysReport{DryRun: !opts.Write, Types: map[string]*EdgeKeyTypeReport{}},
+		types:  newResourceTypeIndex(rt.RTRepo, rt.Links, rt.Logger),
 	}
 
 	var last int64
@@ -294,11 +293,28 @@ func NormalizeEdgeKeys(
 
 // edgeKeyRun carries one run's state across batches.
 type edgeKeyRun struct {
-	rt        NormalizeEdgeKeysRuntime
-	write     bool
-	report    NormalizeEdgeKeysReport
+	rt     NormalizeEdgeKeysRuntime
+	write  bool
+	report NormalizeEdgeKeysReport
+	types  *resourceTypeIndex
+}
+
+// resourceTypeIndex learns each event's resource type and holds one resolver
+// per type for the length of a scan. It is shared by the normalization and
+// the count (#519) so the two can never classify an edge differently.
+type resourceTypeIndex struct {
+	rtRepo    repositories.ResourceTypeRepository
+	links     *LinkRegistry
+	logger    entities.Logger
 	slugOf    map[string]string           // aggregate id → type slug, from Resource.Created
 	resolvers map[string]*edgeKeyResolver // type slug → resolver; nil entry = type not stored
+}
+
+func newResourceTypeIndex(
+	rtRepo repositories.ResourceTypeRepository, links *LinkRegistry, logger entities.Logger,
+) *resourceTypeIndex {
+	return &resourceTypeIndex{rtRepo: rtRepo, links: links, logger: logger,
+		slugOf: map[string]string{}, resolvers: map[string]*edgeKeyResolver{}}
 }
 
 // processBatch examines one page of events and, when writing, applies every
@@ -344,7 +360,7 @@ func (run *edgeKeyRun) rewriteEvent(ctx context.Context, row *eventRow) (pericar
 		return nil, fmt.Errorf("normalize-edge-keys: event %s at position %d: payload is not a JSON object: %w",
 			row.ID, row.Position, err)
 	}
-	slug := run.typeSlugFor(row, payload)
+	slug := run.types.slugFor(row, payload)
 	if slug == "" {
 		// An orphan Resource.Updated whose aggregate id names no resource
 		// type (a page's five-part URN, say) with no Created event in the
@@ -371,9 +387,9 @@ func (run *edgeKeyRun) rewriteEvent(ctx context.Context, row *eventRow) (pericar
 			return nil, nil
 		}
 	}
-	resolver, err := run.resolverFor(ctx, slug)
+	resolver, err := run.types.resolverFor(ctx, slug)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("normalize-edge-keys: %w", err)
 	}
 	changed, problems := normalizeEdgeKeys(data, resolver)
 	for i := range problems {
@@ -421,15 +437,15 @@ func (run *edgeKeyRun) record(p EdgeKeyProblem) {
 	}
 }
 
-// typeSlugFor learns an event's resource type: the Created payload names it,
-// and a later Updated event for the same aggregate reuses that answer. The
-// URN is the fallback for an aggregate whose Created event the feed lacks.
-func (run *edgeKeyRun) typeSlugFor(row *eventRow, payload map[string]any) string {
+// slugFor learns an event's resource type: the Created payload names it, and
+// a later Updated event for the same aggregate reuses that answer. The URN is
+// the fallback for an aggregate whose Created event the feed lacks.
+func (ix *resourceTypeIndex) slugFor(row *eventRow, payload map[string]any) string {
 	if slug, ok := payload["TypeSlug"].(string); ok && slug != "" {
-		run.slugOf[row.AggregateID] = slug
+		ix.slugOf[row.AggregateID] = slug
 		return slug
 	}
-	if slug, ok := run.slugOf[row.AggregateID]; ok {
+	if slug, ok := ix.slugOf[row.AggregateID]; ok {
 		return slug
 	}
 	return identity.ExtractResourceTypeSlug(row.AggregateID)
@@ -438,24 +454,24 @@ func (run *edgeKeyRun) typeSlugFor(row *eventRow, payload map[string]any) string
 // resolverFor loads a type's context once per run. A type the store no longer
 // holds yields a nil resolver: every IRI key on its events is then reported
 // unresolved rather than guessed at.
-func (run *edgeKeyRun) resolverFor(ctx context.Context, slug string) (*edgeKeyResolver, error) {
-	if r, seen := run.resolvers[slug]; seen {
+func (ix *resourceTypeIndex) resolverFor(ctx context.Context, slug string) (*edgeKeyResolver, error) {
+	if r, seen := ix.resolvers[slug]; seen {
 		return r, nil
 	}
-	rtype, err := run.rt.RTRepo.FindBySlug(ctx, slug)
+	rtype, err := ix.rtRepo.FindBySlug(ctx, slug)
 	var resolver *edgeKeyResolver
 	switch {
 	case errors.Is(err, repositories.ErrNotFound):
 		// Deleted types keep their events forever. Their edges are reported,
 		// not rewritten, and the run carries on with the types that exist.
-		run.rt.Logger.Warn(ctx, "normalize-edge-keys: resource type not stored; its edges are reported, not rewritten",
+		ix.logger.Warn(ctx, "resource type not stored; its IRI-keyed edges are reported, not resolved",
 			"slug", slug)
 	case err != nil:
-		return nil, fmt.Errorf("normalize-edge-keys: load resource type %q: %w", slug, err)
+		return nil, fmt.Errorf("load resource type %q: %w", slug, err)
 	default:
-		resolver = newEdgeKeyResolver(rtype.Context(), rtype.Schema(), run.rt.Links.BySource(slug))
+		resolver = newEdgeKeyResolver(rtype.Context(), rtype.Schema(), ix.links.BySource(slug))
 	}
-	run.resolvers[slug] = resolver
+	ix.resolvers[slug] = resolver
 	return resolver, nil
 }
 
@@ -551,21 +567,11 @@ func (r *edgeKeyResolver) resolve(key string) (name string, candidates []string,
 // was. A resource with one unresolvable edge keeps its resolvable ones
 // rewritten: the problem is reported per edge, not per document.
 func normalizeEdgeKeys(data map[string]any, resolver *edgeKeyResolver) (bool, []EdgeKeyProblem) {
-	graph, _ := data["@graph"].([]any)
-	if len(graph) < 2 {
+	edges := storedEdgesNode(data)
+	if edges == nil {
 		return false, nil
 	}
-	edges, ok := graph[1].(map[string]any)
-	if !ok {
-		return false, nil
-	}
-	keys := make([]string, 0, len(edges))
-	for key := range edges {
-		if key != "@id" && jsonld.IsIRIKey(key) {
-			keys = append(keys, key)
-		}
-	}
-	sort.Strings(keys)
+	keys := iriEdgeKeys(edges)
 
 	var problems []EdgeKeyProblem
 	changed := false
@@ -595,10 +601,32 @@ func normalizeEdgeKeys(data map[string]any, resolver *edgeKeyResolver) (bool, []
 	if !changed {
 		return false, problems
 	}
-	graph[1] = edges
-	data["@graph"] = graph
 	if resolver.storable != nil {
 		data["@context"] = resolver.storable
 	}
 	return true, problems
+}
+
+// storedEdgesNode returns a stored document's edges node, or nil when the
+// document has none or it is not an object.
+func storedEdgesNode(data map[string]any) map[string]any {
+	graph, _ := data["@graph"].([]any)
+	if len(graph) < 2 {
+		return nil
+	}
+	edges, _ := graph[1].(map[string]any)
+	return edges
+}
+
+// iriEdgeKeys lists an edges node's keys that are predicate IRIs, sorted.
+// `@id` is the node's own subject, not an edge, and is never one of them.
+func iriEdgeKeys(edges map[string]any) []string {
+	var keys []string
+	for key := range edges {
+		if key != "@id" && jsonld.IsIRIKey(key) {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return keys
 }
