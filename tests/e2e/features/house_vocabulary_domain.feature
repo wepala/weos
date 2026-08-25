@@ -63,11 +63,11 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
   #    stored definition and reported on the "context terms diverge" warn line.
   #    That half of the criterion is fully testable now — every scenario
   #    under "AN EXISTING INSTALL — the hold".
-  #    Adoption is not: `HeldContextTerms` builds its result from `rec.Moves`
-  #    only, so `weos resource-type held-terms` reports nothing for a Conflict
-  #    and `adopt-term` refuses it as "not held". Reaching the Conflict is
-  #    story #518. The scenarios that need it are tagged @needs-518 and stay
-  #    @wip after the rest of this story goes green.
+  #    Adoption was not, while `HeldContextTerms` built its result from
+  #    `rec.Moves` only: `weos resource-type held-terms` reported nothing for a
+  #    Conflict and `adopt-term` refused it as "not held". Story #518 reaches
+  #    the Conflict, and the scenarios under "AN EXISTING INSTALL — the
+  #    adoption" are tagged @issue-518 and go green with it.
   #
   # 5. WHY #523 DOES NOT REMOVE THE NEED FOR #518 HERE. Normalizing the event
   #    store keys edges by PROPERTY NAME, which is what makes a rename cost no
@@ -592,12 +592,13 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
     And reading the "food-item" "Garlic head" back through the projection returns "ingredient" as the "ingredient" "Garlic"
 
   # ===========================================================================
-  # AN EXISTING INSTALL — the adoption. Blocked on #518: `HeldContextTerms`
-  # reads `rec.Moves`, so a Conflict is invisible to `held-terms` and refused by
-  # `adopt-term` (CONTRACT 4). These stay @wip when the rest goes green.
+  # AN EXISTING INSTALL — the adoption. Delivered by #518, which teaches
+  # `HeldContextTerms` to report `rec.Conflicts` beside `rec.Moves` and
+  # `AdoptContextTerms` to take them (CONTRACT 4). Promoted out of @wip with
+  # that story; before it lands these fail, which is the point.
   # ===========================================================================
 
-  @wip @needs-518
+  @issue-518
   Scenario: The held prefix is reported by held-terms so the operator can see the decision
     Given a WeOS database provisioned by the build before the vocabulary moved
     And the operator installs the "meal-planning" preset
@@ -605,7 +606,7 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
     When the operator lists the held terms for "meal-planning" "food-item"
     Then "mp" is reported as held, stored at "https://weos.org/vocab/meal-planning#" and offered at "https://weos.io/vocab/meal-planning#"
 
-  @wip @needs-518
+  @issue-518
   Scenario: Adopting the held prefix moves the stored context and records what the edges use
     Given a WeOS database provisioned by the build before the vocabulary moved
     And the operator installs the "meal-planning" preset
@@ -620,7 +621,7 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
     When the operator reprojects the event feed
     Then reading the "food-item" "Garlic head" back through the projection returns "ingredient" as the "ingredient" "Garlic"
 
-  @wip @needs-518
+  @issue-518
   Scenario: A write made after adoption lands on weos.io beside an edge that predates it
     Given a WeOS database provisioned by the build before the vocabulary moved
     And the operator installs the "meal-planning" preset
@@ -634,12 +635,24 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
     And reading the "food-item" "Lime wedge" back through the projection returns "ingredient" as the "ingredient" "Garlic"
     And reading the "food-item" "Garlic head" back through the projection returns "ingredient" as the "ingredient" "Garlic"
 
-  @wip @needs-518
-  Scenario: The boot settles once every held term is adopted
+  # Amended 2026-08-25 while writing #518's contract. The original expected one
+  # sweep to settle the type. It cannot, and must not: `playbook` declares
+  # `"@type":"mem:Playbook"`, so the `mem` prefix moves the RDF class as well as
+  # the literal predicates, and #521's rule — a sweep never moves the class —
+  # applies to a Conflict prefix exactly as it applies to a Move. The sweep
+  # therefore takes the absolute terms (`trigger` and its siblings) and hands
+  # `mem` back with the command that takes it. Settling the boot is two steps,
+  # and the second one is a decision the operator makes knowingly.
+  @issue-518
+  Scenario: The boot settles once the sweep and the class-moving prefix are both adopted
     Given a WeOS database provisioned by the build before the vocabulary moved
     And the operator installs the "memory" preset
     And the twin restarts on the build that moved the vocabulary
     When the operator adopts every held context term for "memory" "playbook"
+    Then the operator is told the class was not adopted and how to adopt it
+    And the stored "playbook" context maps "trigger" to "https://weos.io/vocab/memory#triggerCondition"
+    And the stored "playbook" context maps "mem" to "https://weos.org/vocab/memory#"
+    When the operator adopts the held "mem" context term for "memory" "playbook"
     And the twin restarts on the build that moved the vocabulary again
     Then the boot reconcile does not report the "mem" context term as held for "playbook"
     And the boot reconcile does not report the "trigger" context term as held for "playbook"
@@ -652,7 +665,7 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
   # every historical IRI and reprojecting must change nothing. If it does, the
   # epic's "normalize before you alias" claim is false for the presets that
   # actually ship.
-  @wip @needs-518
+  @issue-518
   Scenario: On a normalized instance the adoption needs no alias at all
     Given a WeOS database provisioned by the build before the vocabulary moved
     And the operator installs the "meal-planning" preset
@@ -667,13 +680,16 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
     And the API read of the "food-item" "Garlic head" returns "ingredient" as the "ingredient" "Garlic"
     And the JSON-LD representation of the "food-item" "Garlic head" still carries an "ingredient" edge to the "ingredient" "Garlic"
 
-  # THE OPEN QUESTION. `@type` is `"mp:FoodItem"` on both sides, so it never
-  # diverges and is never held — the class moves as a consequence of adopting
-  # the prefix, on the one path `selectTermsToAdopt`'s `@type` exclusion cannot
-  # see. Whatever #518 decides, the operator must be told: this scenario asserts
-  # the class move is REPORTED at adoption time, not discovered later in the
-  # graph.
-  @wip @needs-518
+  # THE OPEN QUESTION, SETTLED BY #518. `@type` is `"mp:FoodItem"` on both
+  # sides, so it never diverges and is never held — the class moves as a
+  # consequence of adopting the `mp` prefix, on the one path
+  # `selectTermsToAdopt`'s `@type` exclusion could not see. The rule #518
+  # adopts is #521's, extended to Conflicts: a SWEEP never takes a term the
+  # class expands through (see the sweep scenario above), and NAMING it takes
+  # it and reports the class move with the migration that applies it. This
+  # scenario asserts the second half — reported at adoption time, not
+  # discovered later in the graph.
+  @issue-518
   Scenario: Adopting a prefix that also moves the class says so
     Given a WeOS database provisioned by the build before the vocabulary moved
     And the operator installs the "meal-planning" preset
