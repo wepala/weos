@@ -51,7 +51,7 @@ func TestAdoptRemedy_NamesACommandThatAdoptsTheClass(t *testing.T) {
 		t.Errorf("a held class alone must name --term @type, got %q", got)
 	}
 	if got := AdoptRemedy("core", "person", []string{"maker", "@type"}, nil); got !=
-		"weos resource-type adopt-term core person --all && weos resource-type adopt-term core person --term @type" {
+		"weos resource-type adopt-term core person --term @type && weos resource-type adopt-term core person --all" {
 		t.Errorf("a held class beside other terms needs both commands, copy-pasteable, got %q", got)
 	}
 	// A prefix the stored @type expands through moves the class too; a

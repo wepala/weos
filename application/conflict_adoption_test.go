@@ -187,3 +187,87 @@ func TestAdoptTerms_NoAliasWhenTheIRIDidNotMoveOrForANamespace(t *testing.T) {
 		t.Errorf("no alias keyed by a prefix: %v", jsonld.TermAliases(adopted))
 	}
 }
+
+// An ADDED prefix (the movedBy path) that repoints two stored terms holds one
+// move per property, and adopting it aliases both — the second used to be
+// orphaned when the term was blamed once and its later moves dropped.
+func TestReconcileAdditiveContext_AnAddedPrefixMovesEveryPropertyThroughIt(t *testing.T) {
+	stored := json.RawMessage(`{"@vocab":"https://schema.org/","maker":"cat:madeBy","supplier":"cat:suppliedBy"}`)
+	preset := json.RawMessage(`{"@vocab":"https://schema.org/","cat":"https://example.org/catalog#",
+	  "maker":"cat:madeBy","supplier":"cat:suppliedBy"}`)
+	rec, err := reconcileAdditiveContext(stored, preset, json.RawMessage(widgetRefSchema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, m := range rec.Moves {
+		if m.Term != "cat" {
+			t.Fatalf("every move belongs to the added prefix: %+v", rec.Moves)
+		}
+		got[m.Property] = true
+	}
+	if len(rec.Moves) != 2 || !got["maker"] || !got["supplier"] {
+		t.Fatalf("Moves = %+v, want one per property (maker, supplier)", rec.Moves)
+	}
+	merged, adopted, err := adoptTerms(stored, preset, rec.Moves)
+	if err != nil || len(adopted) != 1 || adopted[0] != "cat" {
+		t.Fatalf("adopted = %v, %v", adopted, err)
+	}
+	aliases := jsonld.TermAliases(merged)
+	if len(aliases["maker"]) != 1 || len(aliases["supplier"]) != 1 {
+		t.Fatalf("aliases = %v, want one for maker and one for supplier", aliases)
+	}
+}
+
+// A redefined prefix nothing expands through yet is held with nothing to
+// alias: adopting it must not record an alias keyed by the prefix itself.
+func TestAdoptTerms_AnUnusedRedefinedPrefixRecordsNoAlias(t *testing.T) {
+	stored := json.RawMessage(`{"@vocab":"https://schema.org/","cat":{"@id":"https://schema.org/"}}`)
+	preset := json.RawMessage(`{"@vocab":"https://schema.org/","cat":"https://example.org/catalog#"}`)
+	moves := conflictMoves(stored, preset, json.RawMessage(widgetRefSchema), []string{"cat"})
+	if len(moves) != 1 || !moves[0].Unaliased {
+		t.Fatalf("moves = %+v, want one unaliased self-move", moves)
+	}
+	merged, adopted, err := adoptTerms(stored, preset, moves)
+	if err != nil || len(adopted) != 1 {
+		t.Fatalf("adopted = %v, %v", adopted, err)
+	}
+	if aliases := jsonld.TermAliases(merged); len(aliases) != 0 {
+		t.Fatalf("aliases = %v, want none", aliases)
+	}
+	if !isNamespaceDefinition(json.RawMessage(`{"@id":"https://schema.org/"}`)) {
+		t.Error("the object form of a prefix definition is a namespace too")
+	}
+}
+
+// A conflicting term written against a prefix the boot is still holding
+// resolves to the IRI the preset means, not through @vocab.
+func TestConflictMoves_PresetIRIResolvesThroughAHeldPrefix(t *testing.T) {
+	stored := json.RawMessage(`{"@vocab":"https://schema.org/","@type":"cat:Widget","supplier":"https://schema.org/supplier"}`)
+	preset := json.RawMessage(`{"@vocab":"https://schema.org/","cat":"https://example.org/catalog#",
+	  "@type":"cat:Widget","supplier":"cat:suppliedBy"}`)
+	moves := conflictMoves(stored, preset, json.RawMessage(widgetRefSchema), []string{"supplier"})
+	if len(moves) != 1 || moves[0].PresetIRI != "https://example.org/catalog#suppliedBy" {
+		t.Fatalf("moves = %+v, want the preset's IRI through the held prefix", moves)
+	}
+}
+
+// A sweep leaves a term behind its held prefix instead of merging it
+// without one, and a named adoption of that term alone is refused.
+func TestSelectTermsToAdopt_ATermBehindAHeldPrefixWaits(t *testing.T) {
+	stored := json.RawMessage(`{"@vocab":"https://schema.org/","@type":"cat:Widget","supplier":"https://schema.org/supplier"}`)
+	preset := json.RawMessage(`{"@vocab":"https://schema.org/","cat":"https://example.org/catalog#",
+	  "@type":"cat:Widget","supplier":"cat:suppliedBy"}`)
+	held := []movedPredicate{
+		{Term: "cat", Property: "@type", StoredIRI: "https://schema.org/cat:Widget", PresetIRI: "https://example.org/catalog#Widget"},
+		{Term: "supplier", Property: "supplier", StoredIRI: "https://schema.org/supplier",
+			PresetIRI: "https://example.org/catalog#suppliedBy"},
+	}
+	selected, stillHeld, err := selectTermsToAdopt(held, nil, stored, preset, "widget")
+	if err != nil || len(selected) != 0 || len(stillHeld) != 2 || stillHeld[0] != "cat" || stillHeld[1] != "supplier" {
+		t.Fatalf("selected = %+v, stillHeld = %v, err = %v", selected, stillHeld, err)
+	}
+	if _, _, err := adoptTerms(stored, preset, held[1:]); err == nil {
+		t.Fatal("adopting supplier without its prefix must be refused")
+	}
+}

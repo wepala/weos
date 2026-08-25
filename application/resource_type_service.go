@@ -545,12 +545,13 @@ func (s *resourceTypeService) recordHeldDefinitions(
 		if result.Repointed == nil {
 			result.Repointed = make(map[string][]string)
 		}
-		result.Repointed[slug] = append(result.Repointed[slug], moved.Term)
+		// One held TERM per report line, however many properties it moves.
+		result.Repointed[slug] = appendMissing(result.Repointed[slug], moved.Term)
 		if moved.Property == "@type" && moved.Term != "@type" {
 			if result.ClassMovers == nil {
 				result.ClassMovers = make(map[string][]string)
 			}
-			result.ClassMovers[slug] = append(result.ClassMovers[slug], moved.Term)
+			result.ClassMovers[slug] = appendMissing(result.ClassMovers[slug], moved.Term)
 		}
 	}
 }
@@ -1022,7 +1023,8 @@ func heldTermsOf(rec contextReconciliation, stored, preset, schema json.RawMessa
 	storedTerms, _ := splitContext(stored)
 	presetTerms, _ := splitContext(preset)
 	for _, term := range rec.Conflicts {
-		if h := byTerm[term]; h != nil && (term == "@vocab" || len(h.Moves) > 1 || h.Moves[0].Property != term) {
+		h := byTerm[term]
+		if h != nil && len(h.Moves) > 0 && (term == "@vocab" || len(h.Moves) > 1 || h.Moves[0].Property != term) {
 			h.StoredIRI, h.PresetIRI = rawTermValue(storedTerms[term]), rawTermValue(presetTerms[term])
 		}
 	}
@@ -1088,8 +1090,15 @@ func (s *resourceTypeService) AdoptContextTerms(
 		return result, fmt.Errorf("failed to store the adopted context for %q: %w", typeSlug, err)
 	}
 	result.Adopted = adopted
+	// The class moved only if a class-moving term was actually APPLIED: a
+	// selected term adoptTerms skipped as already equivalent moved nothing,
+	// and sending the operator to a re-stamp for it would be wrong.
+	applied := map[string]bool{}
+	for _, term := range adopted {
+		applied[term] = true
+	}
 	for _, m := range selected {
-		if m.Property == "@type" {
+		if m.Property == "@type" && applied[m.Term] {
 			move := HeldMove{Property: "@type", StoredIRI: m.StoredIRI, PresetIRI: m.PresetIRI}
 			result.ClassMove = &move
 			break
@@ -1123,10 +1132,32 @@ func selectTermsToAdopt(
 			movesClass[m.Term] = true
 		}
 	}
+	storedTerms, sErr := splitContext(stored)
+	presetTerms, pErr := splitContext(preset)
 	if len(requested) == 0 {
-		seenHeld := map[string]bool{}
+		blocked := map[string]bool{}
 		for _, m := range held {
 			if m.Term == "@type" || m.Term == "@vocab" || movesClass[m.Term] {
+				blocked[m.Term] = true
+			}
+		}
+		// A term written against a prefix the sweep leaves held cannot be
+		// taken either: merged without its prefix it would resolve through
+		// @vocab to an IRI nobody meant. It waits for the prefix.
+		for changed := true; changed && pErr == nil; {
+			changed = false
+			for _, m := range held {
+				prefix := prefixOf(presetTerms[m.Term])
+				_, stored := storedTerms[prefix]
+				if !blocked[m.Term] && prefix != "" && blocked[prefix] && !stored {
+					blocked[m.Term] = true
+					changed = true
+				}
+			}
+		}
+		seenHeld := map[string]bool{}
+		for _, m := range held {
+			if blocked[m.Term] {
 				if !seenHeld[m.Term] {
 					seenHeld[m.Term] = true
 					stillHeld = append(stillHeld, m.Term)
@@ -1139,8 +1170,6 @@ func selectTermsToAdopt(
 		return selected, stillHeld, nil
 	}
 
-	storedTerms, sErr := splitContext(stored)
-	presetTerms, pErr := splitContext(preset)
 	for _, term := range requested {
 		var forTerm []movedPredicate
 		for _, m := range held {

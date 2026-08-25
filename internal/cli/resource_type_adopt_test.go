@@ -64,8 +64,8 @@ func TestPrintHeldTerms_ARepointedClassBesideATerm(t *testing.T) {
 	for _, want := range []string{
 		"data written as https://schema.org/supplier",
 		"class today     https://schema.org/Thing",
-		"Adopt with:  weos resource-type adopt-term catalog widget --all && " +
-			"weos resource-type adopt-term catalog widget --term @type",
+		"Adopt with:  weos resource-type adopt-term catalog widget --term @type && " +
+			"weos resource-type adopt-term catalog widget --all",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("held-terms output lacks %q:\n%s", want, text)
@@ -139,5 +139,41 @@ func TestPrintAdoptOutcome_ASweepThatLeftVocabNamesIt(t *testing.T) {
 	if !strings.Contains(text, "@vocab is still held") || !strings.Contains(text, "--term @vocab") ||
 		strings.Contains(text, "--all") {
 		t.Errorf("a sweep that skipped @vocab must name --term @vocab:\n%s", text)
+	}
+}
+
+func TestPrintHeldTerms_ARedefinedPrefixListsEveryMove(t *testing.T) {
+	var out bytes.Buffer
+	printHeldTerms(&out, "catalog", "widget", "", []application.HeldTerm{
+		{Term: "cat", Kind: application.HeldTermRedefined, Property: "maker",
+			StoredIRI: "https://schema.org/", PresetIRI: "https://example.org/catalog#",
+			Moves: []application.HeldMove{
+				{Property: "maker", StoredIRI: "https://schema.org/madeBy", PresetIRI: "https://example.org/catalog#madeBy"},
+				{Property: "@type", StoredIRI: "https://schema.org/Widget", PresetIRI: "https://example.org/catalog#Widget"},
+			}},
+		{Term: "empty", Kind: application.HeldTermRedefined},
+	})
+	text := out.String()
+	for _, want := range []string{
+		"stored as       https://schema.org/", "preset wants    https://example.org/catalog#",
+		"property        maker", "adopting keeps edges under https://schema.org/madeBy readable",
+		"moves the class https://schema.org/Widget -> https://example.org/catalog#Widget",
+		"--term cat",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("missing %q in:\n%s", want, text)
+		}
+	}
+}
+
+func TestPrintAdoptOutcome_ASweepThatLeftATermBehindItsPrefixSaysSo(t *testing.T) {
+	var out bytes.Buffer
+	printAdoptOutcome(&out, "catalog", "widget", true, application.AdoptResult{StillHeld: []string{"cat", "supplier"}},
+		[]application.HeldTerm{{Term: "cat", Property: "@type", Moves: []application.HeldMove{{Property: "@type"}}}})
+	text := out.String()
+	if !strings.Contains(text, "cat, supplier (the class) is still held") ||
+		!strings.Contains(text, "prefix it left held") ||
+		!strings.Contains(text, "--term cat && weos resource-type adopt-term catalog widget --all") {
+		t.Errorf("the prefix must be named before the sweep:\n%s", text)
 	}
 }

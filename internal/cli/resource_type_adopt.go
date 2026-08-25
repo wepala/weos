@@ -94,7 +94,7 @@ func printHeldTerms(out io.Writer, preset, slug, currentClass string, held []app
 			_, _ = fmt.Fprintln(out)
 			continue
 		}
-		if h.Kind == application.HeldTermRedefined && (len(h.Moves) > 1 || h.Moves[0].Property != h.Term) {
+		if h.Kind == application.HeldTermRedefined && (len(h.Moves) > 1 || len(h.Moves) == 0 || h.Moves[0].Property != h.Term) {
 			_, _ = fmt.Fprintf(out, "    stored as       %s\n", h.StoredIRI)
 			_, _ = fmt.Fprintf(out, "    preset wants    %s\n", h.PresetIRI)
 		}
@@ -127,18 +127,25 @@ func printHeldTerms(out io.Writer, preset, slug, currentClass string, held []app
 // as well.
 func printAdoptOutcome(out io.Writer, preset, slug string, sweep bool, result application.AdoptResult,
 	stillHeld []application.HeldTerm) {
-	var classMovers, leftHeld []string
-	classStillHeld := false
+	// What the sweep left is the service's own answer (result.StillHeld);
+	// the held-terms listing only says which of them move the class.
+	leftHeld := append([]string(nil), result.StillHeld...)
+	var classMovers []string
+	classStillHeld, dependent := false, false
 	for _, h := range stillHeld {
-		if !h.MovesClass() && h.Term != "@vocab" {
-			continue
-		}
-		leftHeld = append(leftHeld, h.Term)
 		if h.MovesClass() {
 			classStillHeld = true
 			if h.Term != "@type" {
 				classMovers = append(classMovers, h.Term)
 			}
+		}
+		if h.MovesClass() || h.Term == "@vocab" {
+			leftHeld = appendUnique(leftHeld, h.Term)
+		}
+	}
+	for _, term := range leftHeld {
+		if term != "@type" && term != "@vocab" && !contains(classMovers, term) {
+			dependent = true
 		}
 	}
 	if sweep && len(leftHeld) > 0 {
@@ -146,8 +153,12 @@ func printAdoptOutcome(out io.Writer, preset, slug string, sweep bool, result ap
 		if classStillHeld {
 			what += " (the class)"
 		}
-		_, _ = fmt.Fprintf(out, "%s is still held for %q: a sweep never moves the class or @vocab. Adopt it with: %s\n",
-			what, slug, application.AdoptRemedy(preset, slug, leftHeld, classMovers))
+		why := "a sweep never moves the class or @vocab"
+		if dependent {
+			why += ", nor a term written against a prefix it left held"
+		}
+		_, _ = fmt.Fprintf(out, "%s is still held for %q: %s. Adopt it with: %s\n",
+			what, slug, why, application.AdoptRemedy(preset, slug, leftHeld, classMovers))
 	}
 	if len(result.Adopted) == 0 {
 		if len(leftHeld) > 0 {
@@ -202,8 +213,12 @@ var adoptTermCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		// The service already says what a sweep left; the listing is only
+		// consulted to tell which of those move the class, so failing to
+		// fetch it degrades the wording, not the answer — and says so.
 		stillHeld, hErr := deps.ResourceTypeService.HeldContextTerms(cmd.Context(), args[0], args[1])
 		if hErr != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "warning: could not list the held terms after adoption: %v\n", hErr)
 			stillHeld = nil
 		}
 		printAdoptOutcome(os.Stdout, args[0], args[1], all, result, stillHeld)
@@ -215,4 +230,20 @@ func init() {
 	adoptTermCmd.Flags().StringSlice("term", nil, "Term to adopt; repeat for several")
 	adoptTermCmd.Flags().Bool("all", false, "Adopt every term the boot is holding for this type")
 	resourceTypeCmd.AddCommand(heldTermsCmd, adoptTermCmd)
+}
+
+func appendUnique(list []string, s string) []string {
+	if contains(list, s) {
+		return list
+	}
+	return append(list, s)
+}
+
+func contains(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }

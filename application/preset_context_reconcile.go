@@ -241,6 +241,11 @@ type movedPredicate struct {
 	// Property names the thing whose resolution moves. Usually Term itself; for
 	// a prefix it is the stored term that expands through that prefix.
 	Property string
+	// Unaliased marks a held term nothing resolves through yet (an unused
+	// prefix, or a redefinition that leaves every IRI where it was): it is
+	// still adoptable, but adoption records no alias, because there is no
+	// old IRI any edge is keyed by.
+	Unaliased bool
 }
 
 // holdMovingTerms removes, from an already-merged context, every added term
@@ -600,7 +605,7 @@ func adoptTerms(
 		// A class IRI is not an edge key: the alias map is for predicates,
 		// and a class recorded there would be handed back by BuildReverseMap
 		// as a property named "@type" (issue #521).
-		if move.Property != "" && move.Property != "@type" && !jsonld.ControlKeywords[move.Property] &&
+		if !move.Unaliased && move.Property != "" && move.Property != "@type" && !jsonld.ControlKeywords[move.Property] &&
 			move.StoredIRI != "" && move.StoredIRI != move.PresetIRI &&
 			!isNamespaceDefinition(storedTerms[move.Property]) && move.Property != "@vocab" {
 			aliases[move.Property] = appendMissing(aliases[move.Property], move.StoredIRI)
@@ -613,6 +618,19 @@ func adoptTerms(
 	}
 	if len(adopted) == 0 {
 		return nil, nil, nil
+	}
+	// A term written against a prefix the merged context does not define
+	// would resolve through @vocab to an IRI nobody meant (the fabrication
+	// dropDanglingPrefixTerms exists to stop at boot). Refuse it here too:
+	// the prefix has to be adopted first, or with it.
+	for _, term := range adopted {
+		if prefix := prefixOf(merged[term]); prefix != "" {
+			if _, defined := merged[prefix]; !defined {
+				return nil, nil, fmt.Errorf(
+					"adopting %q needs the prefix %q, which the stored context does not define; adopt %q first",
+					term, prefix, prefix)
+			}
+		}
 	}
 
 	encodedAliases, err := json.Marshal(aliases)
@@ -728,20 +746,44 @@ func conflictMoves(stored, preset, storedSchema json.RawMessage, conflicts []str
 		}
 		// The stored context with only THIS term taken from the preset: what
 		// resolves differently against it is what adopting the term moves.
-		candidate := make(map[string]json.RawMessage, len(storedTerms))
+		// The preset's prefixes ride along where the stored context lacks
+		// them, so a definition written against a prefix the boot is still
+		// holding expands to the IRI the preset means, not through @vocab.
+		baseline := make(map[string]json.RawMessage, len(storedTerms))
 		for k, v := range storedTerms {
-			candidate[k] = v
+			baseline[k] = v
 		}
-		candidate[term] = presetTerms[term]
-		encoded, err := json.Marshal(candidate)
+		for k, v := range presetTerms {
+			if _, stored := storedTerms[k]; !stored && isNamespaceDefinition(v) {
+				baseline[k] = v
+			}
+		}
+		baselineEncoded, err := json.Marshal(baseline)
 		if err != nil {
 			continue
 		}
-		moves := movesBetween(stored, encoded, storedSchema, term)
+		baseline[term] = presetTerms[term]
+		encoded, err := json.Marshal(baseline)
+		if err != nil {
+			continue
+		}
+		// What the borrowed prefixes move on their own belongs to THEM (they
+		// are held in their own right), not to this term.
+		byPrefixes := map[string]bool{}
+		for _, m := range movesBetween(stored, baselineEncoded, storedSchema, term) {
+			byPrefixes[m.Property] = true
+		}
+		var moves []movedPredicate
+		for _, m := range movesBetween(stored, encoded, storedSchema, term) {
+			if !byPrefixes[m.Property] {
+				moves = append(moves, m)
+			}
+		}
 		if len(moves) == 0 {
-			// Nothing stored resolves through it yet (an unused prefix): the
-			// term is still held and still adoptable, with nothing to alias.
-			moves = []movedPredicate{{Term: term, Property: term,
+			// Nothing stored resolves through it yet (an unused prefix, or a
+			// redefinition that leaves every IRI in place): the term is still
+			// held and still adoptable, with nothing to alias.
+			moves = []movedPredicate{{Term: term, Property: term, Unaliased: true,
 				StoredIRI: rawTermValue(storedTerms[term]), PresetIRI: rawTermValue(presetTerms[term])}}
 		}
 		out = append(out, moves...)
@@ -791,11 +833,12 @@ func rawTermValue(raw json.RawMessage) string {
 }
 
 // isNamespaceDefinition reports whether a raw context value is a namespace
-// IRI — a prefix definition, ending in "#" or "/" — rather than a term.
+// IRI — a prefix definition, ending in "#" or "/" — rather than a term. The
+// object form, `{"@id": "https://…/"}`, counts the same as the string form.
 func isNamespaceDefinition(raw json.RawMessage) bool {
-	var s string
-	if json.Unmarshal(raw, &s) != nil {
+	if len(raw) == 0 {
 		return false
 	}
+	s := rawTermValue(raw)
 	return strings.HasSuffix(s, "#") || strings.HasSuffix(s, "/")
 }

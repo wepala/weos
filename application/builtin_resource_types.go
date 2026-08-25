@@ -265,9 +265,9 @@ func AdoptRemedy(presetName, slug string, held, classMovers []string) string {
 	base := "weos resource-type adopt-term " + presetName + " " + slug
 	kinds := heldKinds(held, classMovers)
 	var commands []string
-	if kinds.others {
-		commands = append(commands, base+" --all")
-	}
+	// The named terms go first: a term written against a held prefix waits
+	// for that prefix, so a sweep that runs after it takes everything in one
+	// pass, where a sweep that runs before it leaves the term for next boot.
 	if kinds.class {
 		commands = append(commands, base+" --term @type")
 	}
@@ -276,6 +276,9 @@ func AdoptRemedy(presetName, slug string, held, classMovers []string) string {
 	}
 	if kinds.vocab {
 		commands = append(commands, base+" --term @vocab")
+	}
+	if kinds.others {
+		commands = append(commands, base+" --all")
 	}
 	return strings.Join(commands, " && ")
 }
