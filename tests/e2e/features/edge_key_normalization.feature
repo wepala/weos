@@ -48,19 +48,20 @@ Feature: One migration rewrites stored edges to property-name keys
   #    claimed by more than one property as ambiguous FOR EVERY EDGE keyed by it.
   #
   # 3. AMBIGUOUS MEANS SHARED PREDICATE — the target type does not rescue it.
-  #    #521 refuses at boot only when two reference properties share a predicate
-  #    AND a target type slug, so that shape cannot reach this command: the
-  #    instance does not start. The shape that DOES reach it is two properties
-  #    sharing a predicate with different targets, which boots happily. A reader
-  #    could in principle guess from the target's `urn:<typeSlug>:…`, and this
-  #    contract says do not: guessing is the failure the epic exists to stop.
+  #    The boot check from #515 REPORTS (it does not refuse) two reference
+  #    properties that share a predicate AND a target type slug, so that shape
+  #    reaches this command too and is handled the same way. The shape these
+  #    scenarios exercise is two properties sharing a predicate with different
+  #    targets, which the boot accepts silently. A reader could in principle
+  #    guess from the target's `urn:<typeSlug>:…`, and this contract says do
+  #    not: guessing is the failure the epic exists to stop.
   #
   # 4. THE REWRITTEN EVENT IS INDISTINGUISHABLE FROM A FRESH WRITE. The edges
   #    node is keyed by property name AND the document's embedded `@context`
   #    gains the same term mappings `buildStorableContext` writes today. Without
   #    that second half the document no longer expands to a graph and the
-  #    knowledge graph — which loads this payload verbatim — silently loses every
-  #    predicate. Consequence, and it is intended: for an edge that resolved
+  #    knowledge graph — which loads the folded document through its own
+  #    `@context`, never the type's — silently loses every predicate. Consequence, and it is intended: for an edge that resolved
   #    through an ALIAS, the predicate in the graph moves to the term's CURRENT
   #    IRI. That is the rename the operator already adopted, and it is why no
   #    alias is needed after normalization.
@@ -73,6 +74,8 @@ Feature: One migration rewrites stored edges to property-name keys
   #        the predicate IRI, and both candidate property names
   #      - unresolvable: a line containing "unresolved edge key", the resource id
   #        and the IRI
+  #      - collision (the property name is already a key on the document): a
+  #        line containing "colliding edge key"
   #    A problem on one resource type never stops another from being rewritten.
   # ---------------------------------------------------------------------------
 
@@ -220,8 +223,8 @@ Feature: One migration rewrites stored edges to property-name keys
 
   # --- the branches that report rather than rewrite ---
 
-  # Two reference properties on one predicate with DIFFERENT target types. #521
-  # accepts this shape at boot. The shared predicate is set in the STORED
+  # Two reference properties on one predicate with DIFFERENT target types. The
+  # boot accepts this shape without a word. The shared predicate is set in the STORED
   # context by the operator: a preset that renames a stored term is a Conflict
   # the boot holds at the stored definition (#513), so declaring it in the
   # preset never reaches the stored context — amended 2026-08-25 with Akeem's

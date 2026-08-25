@@ -16,8 +16,10 @@
 package application
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 
@@ -68,11 +70,16 @@ import (
 //     resolves it, so a migration that left it behind would fail at its job.
 //   - Ambiguity is detected FORWARD. BuildReverseMap is a map[string]string:
 //     two properties on one predicate collapse into one entry and the winner
-//     is map-iteration order, so it cannot report its own ambiguity. The
-//     type's properties are grouped by resolved predicate instead, and an IRI
-//     claimed by more than one property is never rewritten — it is reported
-//     with both candidates for the operator to decide. Guessing from the
+//     is map-iteration order, so it cannot report its own ambiguity. Every
+//     name the type's context and schema resolve — reference properties,
+//     plain terms, recorded aliases — is grouped by predicate instead, and an
+//     IRI claimed by more than one name is never rewritten: it is reported
+//     with the candidates for the operator to decide. Guessing from the
 //     target's URN would be exactly the silent choice this epic exists to stop.
+//
+// The payload is decoded with json.Number so a rewrite re-encodes every other
+// value exactly: pericarp's JSONB scan goes through float64, and an integer
+// above 2^53 in an intrinsic property would otherwise change on the way back.
 
 // NormalizeEdgeKeysRuntime bundles what NormalizeEdgeKeys needs; populate it
 // from an fx app built with NormalizeEdgeKeysModule.
@@ -122,7 +129,7 @@ type NormalizeEdgeKeysOptions struct {
 }
 
 // EdgeKeyProblem is one edge the run declined to rewrite, with enough for the
-// operator to act on it.
+// operator to find the event and act on it.
 type EdgeKeyProblem struct {
 	TypeSlug   string
 	ResourceID string
@@ -130,10 +137,13 @@ type EdgeKeyProblem struct {
 	Position   int64
 	// Key is the edges-node key as stored — the predicate IRI.
 	Key string
-	// Candidates lists the properties that claim Key, for an ambiguous edge.
+	// Candidates lists the names that claim Key: several for an ambiguous
+	// edge, the one taken name for a collision, none for an unresolved edge.
 	Candidates []string
 	// Reason is a short operator-facing explanation.
 	Reason string
+
+	kind edgeKeyProblemKind
 }
 
 // EdgeKeyTypeReport counts one resource type's share of a run.
@@ -150,14 +160,34 @@ type NormalizeEdgeKeysReport struct {
 	DryRun bool
 	// Scanned is every Resource.Created/Updated event examined.
 	Scanned int
+	// Skipped counts events the run could not read, by reason: a payload
+	// whose Data is not an object, an edges node that is not an object, an
+	// update whose aggregate names no resource type.
+	Skipped map[string]int
 	// Rewritten is the events with at least one edge key changed, all types.
 	Rewritten int
 	// Types is the per-type breakdown, keyed by type slug.
 	Types map[string]*EdgeKeyTypeReport
-	// Ambiguous are edges whose IRI more than one property claims.
+	// Ambiguous are edges whose IRI more than one name claims.
 	Ambiguous []EdgeKeyProblem
-	// Unresolved are edges no term, alias or @vocab prefix names.
+	// Unresolved are edges no term, alias or @vocab prefix names — including
+	// every edge of a type the store no longer holds.
 	Unresolved []EdgeKeyProblem
+	// Collisions are edges that resolved to a property name the document
+	// already keys another edge by, so rewriting would have to merge values.
+	Collisions []EdgeKeyProblem
+	// AmbiguousTotal, UnresolvedTotal and CollisionTotal count every problem
+	// found; the lists above keep the first MaxReportedProblems of each so a
+	// store with one missing type does not hold a struct per edge in memory.
+	AmbiguousTotal, UnresolvedTotal, CollisionTotal int
+}
+
+// MaxReportedProblems bounds each problem list on a report.
+const MaxReportedProblems = 500
+
+// Problems reports whether the run declined to rewrite anything.
+func (r NormalizeEdgeKeysReport) Problems() int {
+	return r.AmbiguousTotal + r.UnresolvedTotal + r.CollisionTotal
 }
 
 // TypeSlugs returns the report's type slugs in a stable order.
@@ -172,8 +202,43 @@ func (r NormalizeEdgeKeysReport) TypeSlugs() []string {
 
 // Event types whose payload carries a resource graph. Triple.* events carry a
 // predicate and an object, not an edges node; the projection folds them into
-// the graph at read time, so they are not rewritten.
+// the stored record when it handles Resource.Published, so they are not
+// rewritten here.
 var edgeCarryingEventTypes = []string{"Resource.Created", "Resource.Updated"}
+
+// edgeKeyProblemKind separates the three reasons an edge is left alone.
+type edgeKeyProblemKind int
+
+const (
+	problemUnresolved edgeKeyProblemKind = iota
+	problemAmbiguous
+	problemCollision
+)
+
+// eventRow reads the columns the run needs from the events table with the
+// payload as raw bytes, so it can be decoded with json.Number rather than
+// through pericarp's float64 scan.
+type eventRow struct {
+	ID          string
+	AggregateID string
+	EventType   string
+	SequenceNo  int
+	Position    int64
+	Payload     json.RawMessage
+}
+
+func (eventRow) TableName() string { return pericarpinfra.GormEventModel{}.TableName() }
+
+// decodePayload decodes an event payload keeping numbers as json.Number.
+func decodePayload(raw json.RawMessage) (map[string]any, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var payload map[string]any
+	if err := dec.Decode(&payload); err != nil {
+		return nil, err
+	}
+	return payload, nil
+}
 
 // NormalizeEdgeKeys walks every Resource.Created and Resource.Updated event in
 // global position order and rewrites each edges-node key that is a predicate
@@ -207,8 +272,8 @@ func NormalizeEdgeKeys(
 
 	var last int64
 	for {
-		var rows []pericarpinfra.GormEventModel
-		err := rt.DB.WithContext(ctx).Model(&pericarpinfra.GormEventModel{}).
+		var rows []eventRow
+		err := rt.DB.WithContext(ctx).Model(&eventRow{}).
 			Where("position > ? AND event_type IN ?", last, edgeCarryingEventTypes).
 			Order("position ASC").Limit(batch).Find(&rows).Error
 		if err != nil {
@@ -240,20 +305,19 @@ type edgeKeyRun struct {
 // changed payload in a single transaction so a batch lands whole or not at
 // all. Only the payload column is touched: id, aggregate, sequence, type,
 // transaction and position stay exactly as they were.
-func (run *edgeKeyRun) processBatch(ctx context.Context, rows []pericarpinfra.GormEventModel) error {
+func (run *edgeKeyRun) processBatch(ctx context.Context, rows []eventRow) error {
 	type change struct {
 		id      string
 		payload pericarpinfra.JSONB
 	}
 	var changes []change
 	for i := range rows {
-		row := rows[i]
-		changed, err := run.rewriteEvent(ctx, &row)
+		payload, err := run.rewriteEvent(ctx, &rows[i])
 		if err != nil {
 			return err
 		}
-		if changed && run.write {
-			changes = append(changes, change{id: row.ID, payload: row.Payload})
+		if payload != nil && run.write {
+			changes = append(changes, change{id: rows[i].ID, payload: payload})
 		}
 	}
 	if len(changes) == 0 {
@@ -270,13 +334,23 @@ func (run *edgeKeyRun) processBatch(ctx context.Context, rows []pericarpinfra.Go
 	})
 }
 
-// rewriteEvent normalizes one event's payload in place and reports whether
-// anything changed. Problems are recorded on the report; they never stop the
-// run, because an ambiguous type must not quarantine the clean ones.
-func (run *edgeKeyRun) rewriteEvent(ctx context.Context, row *pericarpinfra.GormEventModel) (bool, error) {
-	slug := run.typeSlugFor(row)
+// rewriteEvent normalizes one event's payload and returns the rewritten
+// payload, or nil when nothing changed. Problems are recorded on the report;
+// they never stop the run, because an ambiguous type must not quarantine the
+// clean ones.
+func (run *edgeKeyRun) rewriteEvent(ctx context.Context, row *eventRow) (pericarpinfra.JSONB, error) {
+	payload, err := decodePayload(row.Payload)
+	if err != nil {
+		return nil, fmt.Errorf("normalize-edge-keys: event %s at position %d: payload is not a JSON object: %w",
+			row.ID, row.Position, err)
+	}
+	slug := run.typeSlugFor(row, payload)
 	if slug == "" {
-		return false, nil // not a resource aggregate at all; nothing to key
+		// An orphan Resource.Updated whose aggregate id names no resource
+		// type (a page's five-part URN, say) with no Created event in the
+		// feed to say what it is. Counted, so the operator sees it.
+		run.skip("event names no resource type")
+		return nil, nil
 	}
 	run.report.Scanned++
 	tr := run.report.Types[slug]
@@ -286,13 +360,20 @@ func (run *edgeKeyRun) rewriteEvent(ctx context.Context, row *pericarpinfra.Gorm
 	}
 	tr.Scanned++
 
-	data, ok := row.Payload["Data"].(map[string]any)
+	data, ok := payload["Data"].(map[string]any)
 	if !ok {
-		return false, nil
+		run.skip("Data is not a JSON object")
+		return nil, nil
+	}
+	if graph, has := data["@graph"].([]any); has && len(graph) > 1 {
+		if _, isMap := graph[1].(map[string]any); !isMap {
+			run.skip("@graph[1] is not an edges node")
+			return nil, nil
+		}
 	}
 	resolver, err := run.resolverFor(ctx, slug)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	changed, problems := normalizeEdgeKeys(data, resolver)
 	for i := range problems {
@@ -300,26 +381,51 @@ func (run *edgeKeyRun) rewriteEvent(ctx context.Context, row *pericarpinfra.Gorm
 		problems[i].ResourceID = row.AggregateID
 		problems[i].EventID = row.ID
 		problems[i].Position = row.Position
-		if len(problems[i].Candidates) > 1 {
-			run.report.Ambiguous = append(run.report.Ambiguous, problems[i])
-		} else {
-			run.report.Unresolved = append(run.report.Unresolved, problems[i])
-		}
+		run.record(problems[i])
 	}
 	if !changed {
-		return false, nil
+		return nil, nil
 	}
-	row.Payload["Data"] = data
+	payload["Data"] = data
 	tr.Rewritten++
 	run.report.Rewritten++
-	return true, nil
+	return pericarpinfra.JSONB(payload), nil
+}
+
+// skip counts an event whose payload the run could not read, by reason, so
+// the summary never claims a feed is clean on the strength of rows it never
+// looked inside.
+func (run *edgeKeyRun) skip(reason string) {
+	if run.report.Skipped == nil {
+		run.report.Skipped = map[string]int{}
+	}
+	run.report.Skipped[reason]++
+}
+
+// record files a problem in its bucket, keeping the list bounded.
+func (run *edgeKeyRun) record(p EdgeKeyProblem) {
+	r := &run.report
+	var list *[]EdgeKeyProblem
+	var total *int
+	switch p.kind {
+	case problemAmbiguous:
+		list, total = &r.Ambiguous, &r.AmbiguousTotal
+	case problemCollision:
+		list, total = &r.Collisions, &r.CollisionTotal
+	default:
+		list, total = &r.Unresolved, &r.UnresolvedTotal
+	}
+	*total++
+	if len(*list) < MaxReportedProblems {
+		*list = append(*list, p)
+	}
 }
 
 // typeSlugFor learns an event's resource type: the Created payload names it,
 // and a later Updated event for the same aggregate reuses that answer. The
 // URN is the fallback for an aggregate whose Created event the feed lacks.
-func (run *edgeKeyRun) typeSlugFor(row *pericarpinfra.GormEventModel) string {
-	if slug, ok := row.Payload["TypeSlug"].(string); ok && slug != "" {
+func (run *edgeKeyRun) typeSlugFor(row *eventRow, payload map[string]any) string {
+	if slug, ok := payload["TypeSlug"].(string); ok && slug != "" {
 		run.slugOf[row.AggregateID] = slug
 		return slug
 	}
@@ -337,15 +443,17 @@ func (run *edgeKeyRun) resolverFor(ctx context.Context, slug string) (*edgeKeyRe
 		return r, nil
 	}
 	rtype, err := run.rt.RTRepo.FindBySlug(ctx, slug)
-	if err != nil {
-		return nil, fmt.Errorf("normalize-edge-keys: load resource type %q: %w", slug, err)
-	}
 	var resolver *edgeKeyResolver
-	if rtype != nil {
-		resolver = newEdgeKeyResolver(rtype.Context(), rtype.Schema(), run.rt.Links.BySource(slug))
-	} else {
+	switch {
+	case errors.Is(err, repositories.ErrNotFound):
+		// Deleted types keep their events forever. Their edges are reported,
+		// not rewritten, and the run carries on with the types that exist.
 		run.rt.Logger.Warn(ctx, "normalize-edge-keys: resource type not stored; its edges are reported, not rewritten",
 			"slug", slug)
+	case err != nil:
+		return nil, fmt.Errorf("normalize-edge-keys: load resource type %q: %w", slug, err)
+	default:
+		resolver = newEdgeKeyResolver(rtype.Context(), rtype.Schema(), run.rt.Links.BySource(slug))
 	}
 	run.resolvers[slug] = resolver
 	return resolver, nil
@@ -375,10 +483,13 @@ func newEdgeKeyResolver(ldContext, schema json.RawMessage, links []PresetLinkDef
 	}
 	// A term the context declares on the same predicate as a reference is a
 	// second claimant too — it need not be a reference to make the edge's
-	// owner uncertain. Prefix definitions and control keys are not properties.
+	// owner uncertain. A name with a colon (a control key such as
+	// rdfs:subClassOf, or a compact IRI) is never a property name; a prefix
+	// definition passes, harmlessly, since a namespace IRI is never an edge
+	// key.
 	_, forward := jsonld.ParseContext(ldContext)
 	for name, iri := range forward {
-		if jsonld.ControlKeywords[name] || jsonld.IsIRIKey(name) {
+		if jsonld.IsIRIKey(name) {
 			continue
 		}
 		claim(iri, name)
@@ -416,13 +527,18 @@ func (r *edgeKeyResolver) resolve(key string) (name string, candidates []string,
 	if r == nil {
 		return "", nil, false
 	}
-	if names := r.claims[key]; len(names) > 1 {
+	switch names := r.claims[key]; len(names) {
+	case 0:
+		// Nothing declares it; only the @vocab prefix can still name it.
+		if name, found := jsonld.EdgeProperty(key, r.ldContext); found {
+			return name, nil, true
+		}
+		return "", nil, false
+	case 1:
+		return names[0], nil, true
+	default:
 		return "", names, false
 	}
-	if name, found := jsonld.EdgeProperty(key, r.ldContext); found {
-		return name, nil, true
-	}
-	return "", nil, false
 }
 
 // normalizeEdgeKeys rewrites the edges node of one stored document in place.
@@ -430,9 +546,10 @@ func (r *edgeKeyResolver) resolve(key string) (name string, candidates []string,
 //
 // The entity node (@graph[0]) is never touched. When at least one key moves,
 // the document's `@context` becomes what a fresh write embeds, so the compact
-// keys still expand to predicates for the knowledge graph. A resource with
-// one unresolvable edge keeps its resolvable ones rewritten: the problem is
-// reported per edge, not per document.
+// keys still expand to predicates for the knowledge graph; a type whose
+// context has nothing storable leaves the document's own `@context` as it
+// was. A resource with one unresolvable edge keeps its resolvable ones
+// rewritten: the problem is reported per edge, not per document.
 func normalizeEdgeKeys(data map[string]any, resolver *edgeKeyResolver) (bool, []EdgeKeyProblem) {
 	graph, _ := data["@graph"].([]any)
 	if len(graph) < 2 {
@@ -456,18 +573,18 @@ func normalizeEdgeKeys(data map[string]any, resolver *edgeKeyResolver) (bool, []
 		name, candidates, resolved := resolver.resolve(key)
 		switch {
 		case len(candidates) > 1:
-			problems = append(problems, EdgeKeyProblem{Key: key, Candidates: candidates,
-				Reason: "more than one property resolves to this predicate; decide which owns the edge"})
+			problems = append(problems, EdgeKeyProblem{Key: key, Candidates: candidates, kind: problemAmbiguous,
+				Reason: "more than one name resolves to this predicate; decide which property owns the edge"})
 		case !resolved:
-			problems = append(problems, EdgeKeyProblem{Key: key,
+			problems = append(problems, EdgeKeyProblem{Key: key, kind: problemUnresolved,
 				Reason: "no term, alias or @vocab prefix in the type's context names this predicate"})
 		default:
 			if _, taken := edges[name]; taken {
 				// Both forms present for one property — an edge added after
 				// the write through AddEdgeToGraph, say. Merging would choose
 				// which value wins; report instead.
-				problems = append(problems, EdgeKeyProblem{Key: key, Candidates: []string{name},
-					Reason: fmt.Sprintf("the document already holds a %q key; merging would pick a value", name)})
+				problems = append(problems, EdgeKeyProblem{Key: key, Candidates: []string{name}, kind: problemCollision,
+					Reason: fmt.Sprintf("the document already keys an edge by %q; merging would pick a value", name)})
 				continue
 			}
 			edges[name] = edges[key]
@@ -482,8 +599,6 @@ func normalizeEdgeKeys(data map[string]any, resolver *edgeKeyResolver) (bool, []
 	data["@graph"] = graph
 	if resolver.storable != nil {
 		data["@context"] = resolver.storable
-	} else {
-		delete(data, "@context")
 	}
 	return true, problems
 }

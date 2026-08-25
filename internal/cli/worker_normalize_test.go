@@ -31,19 +31,32 @@ func TestPrintNormalizeEdgeKeysReport_DryRunCarriesTheMarkers(t *testing.T) {
 			"vendor": {Scanned: 1, Rewritten: 0},
 		},
 		Ambiguous: []application.EdgeKeyProblem{{TypeSlug: "widget", ResourceID: "urn:widget:1",
+			EventID: "evt-1", Position: 7,
 			Key: "https://schema.org/associated", Candidates: []string{"maker", "partner"}, Reason: "decide"}},
+		AmbiguousTotal: 3,
 		Unresolved: []application.EdgeKeyProblem{{TypeSlug: "vendor", ResourceID: "urn:vendor:1",
-			Key: "https://example.org/legacy#x", Reason: "nothing names it"}},
+			EventID: "evt-2", Position: 9, Key: "https://example.org/legacy#x", Reason: "nothing names it"}},
+		UnresolvedTotal: 1,
+		Collisions: []application.EdgeKeyProblem{{TypeSlug: "widget", ResourceID: "urn:widget:2",
+			EventID: "evt-3", Position: 11, Key: "https://schema.org/maker", Candidates: []string{"maker"},
+			Reason: "taken"}},
+		CollisionTotal: 1,
+		Skipped:        map[string]int{"Data is not a JSON object": 2},
 	}
 	var out bytes.Buffer
 	printNormalizeEdgeKeysReport(&out, report)
 	text := out.String()
 	for _, want := range []string{
 		"DRY RUN",
-		"would rewrite 1 of 2 event(s); 1 ambiguous edge(s)",
+		"skipped 2 event(s): Data is not a JSON object",
+		"would rewrite 1 of 2 event(s); 1 ambiguous edge(s); 1 colliding edge(s)",
 		"vendor", "1 unresolved edge(s)",
-		"ambiguous edge key https://schema.org/associated on urn:widget:1 (widget): candidates maker, partner",
-		"unresolved edge key https://example.org/legacy#x on urn:vendor:1 (vendor)",
+		"ambiguous edge key https://schema.org/associated on urn:widget:1 (widget) in event evt-1 at position 7: " +
+			"candidates maker, partner",
+		"… and 2 more ambiguous edge key line(s) not listed",
+		"unresolved edge key https://example.org/legacy#x on urn:vendor:1 (vendor) in event evt-2 at position 9",
+		"colliding edge key https://schema.org/maker on urn:widget:2 (widget) in event evt-3 at position 11",
+		"5 edge(s) were not rewritten",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("report lacks %q:\n%s", want, text)
