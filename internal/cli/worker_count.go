@@ -47,10 +47,22 @@ names claim it; it will be reported, never rewritten) or unmapped (nothing
 names it; likewise). Resources holding an ambiguous or unmapped key are the
 residue the normalization leaves behind.
 
-The check PASSES — exit code 0 — only when both surfaces count zero. It writes
-nothing and never boots the full application, so it is safe on a live
-instance. Run it before the normalization to size it, after "worker reproject"
-to prove it, and on a schedule to keep the number at zero.`,
+The check PASSES — exit code 0 — only when both surfaces count zero; it exits
+2 on FAIL and 1 when it could not run (unreachable database, empty store), so
+a script can tell the two apart. Events of a resource type the store no
+longer holds are reported as orphaned and do not fail the check: nothing can
+rewrite them and nothing serves them.
+
+It writes no row and never boots the full application — like every weos
+command it applies pending schema migrations on open, and nothing else — so
+it is safe on a live instance. It refuses to run against a store with no
+resource type and no event, since a mistyped DSN would otherwise open an
+empty database and pass.
+
+Cost: the events surface reads every Resource.Created/Updated payload in the
+history. Run the full check before the normalization and after "worker
+reproject"; for a scheduled gate afterwards pass --records-only, which reads
+only the canonical records.`,
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
 	RunE:         runWorkerCountIRIEdgeKeys,
@@ -58,11 +70,14 @@ to prove it, and on a schedule to keep the number at zero.`,
 
 func init() {
 	workerCountIRIEdgeKeysCmd.Flags().Int("batch-size", 500, "rows read per batch")
+	workerCountIRIEdgeKeysCmd.Flags().Bool("records-only", false,
+		"skip the events surface; check only the canonical records (the cheap steady-state gate)")
 	workerCmd.AddCommand(workerCountIRIEdgeKeysCmd)
 }
 
 func runWorkerCountIRIEdgeKeys(cmd *cobra.Command, _ []string) error {
 	batch, _ := cmd.Flags().GetInt("batch-size")
+	recordsOnly, _ := cmd.Flags().GetBool("records-only")
 	appCfg := GetConfig().Config
 
 	var rt application.IRIEdgeKeyCountRuntime
@@ -82,14 +97,20 @@ func runWorkerCountIRIEdgeKeys(cmd *cobra.Command, _ []string) error {
 		_ = app.Stop(stopCtx)
 	}()
 
-	report, err := application.CountIRIEdgeKeys(cmd.Context(), rt, application.IRIEdgeKeyCountOptions{BatchSize: batch})
-	printIRIEdgeKeyCountReport(os.Stdout, report)
+	report, err := application.CountIRIEdgeKeys(cmd.Context(), rt,
+		application.IRIEdgeKeyCountOptions{BatchSize: batch, RecordsOnly: recordsOnly})
 	if err != nil {
+		_, _ = fmt.Fprintln(os.Stdout, "check: ERROR")
 		return err
 	}
+	printIRIEdgeKeyCountReport(os.Stdout, report)
 	if !report.Passes() {
-		return fmt.Errorf("%d resource(s) in events and %d in canonical records still key an edge by IRI",
-			report.EventsTotal, report.RecordsTotal)
+		// Exit 2, distinct from the 1 cobra uses for an error: a scheduled
+		// gate must tell "the data is not clean" from "the check did not run".
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
+		_ = app.Stop(stopCtx)
+		stopCancel()
+		os.Exit(2)
 	}
 	return nil
 }
@@ -106,14 +127,31 @@ func printIRIEdgeKeyCountReport(out io.Writer, r application.IRIEdgeKeyCountRepo
 		_, _ = fmt.Fprintln(out, "check: PASS")
 		return
 	}
-	_, _ = fmt.Fprintf(out, "%-24s %8s %8s   %s\n", "resource type", "events", "records",
+	if r.RecordsOnly {
+		_, _ = fmt.Fprintln(out, "events surface not scanned (--records-only).")
+	}
+	width := 13
+	for _, slug := range r.TypeSlugs() {
+		if len(slug) > width {
+			width = len(slug)
+		}
+	}
+	_, _ = fmt.Fprintf(out, "%-*s %8s %8s   %s\n", width, "resource type", "events", "records",
 		"IRI edge keys: resolvable / ambiguous / unmapped")
 	for _, slug := range r.TypeSlugs() {
 		t := r.Types[slug]
-		_, _ = fmt.Fprintf(out, "%-24s %8d %8d   %d / %d / %d\n", slug, t.Events, t.Records,
+		_, _ = fmt.Fprintf(out, "%-*s %8d %8d   %d / %d / %d", width, slug, t.Events, t.Records,
 			t.Resolvable, t.Ambiguous, t.Unmapped)
+		if t.Orphaned > 0 {
+			_, _ = fmt.Fprintf(out, "   (%d orphaned: type not stored)", t.Orphaned)
+		}
+		_, _ = fmt.Fprintln(out)
 	}
-	_, _ = fmt.Fprintf(out, "%-24s %8d %8d\n", "total", r.EventsTotal, r.RecordsTotal)
+	_, _ = fmt.Fprintf(out, "%-*s %8d %8d\n", width, "total", r.EventsTotal, r.RecordsTotal)
+	if r.OrphanedTotal > 0 {
+		_, _ = fmt.Fprintf(out, "\n%d resource(s) of a type the store no longer holds still key an edge by IRI in "+
+			"their events; nothing can rewrite or read them, and they do not fail the check.\n", r.OrphanedTotal)
+	}
 	_, _ = fmt.Fprintf(out, "\n%d resource(s) hold an ambiguous or unmapped key — normalization will leave them "+
 		"IRI-keyed until the type's @context is fixed.\n", r.ResidueTotal)
 	for _, c := range r.Classified {

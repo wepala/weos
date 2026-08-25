@@ -18,6 +18,7 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 
@@ -95,7 +96,19 @@ func IRIEdgeKeyCountModule(cfg config.Config, registry *PresetRegistry) fx.Optio
 type IRIEdgeKeyCountOptions struct {
 	// BatchSize is rows per read on either surface; <= 0 uses 500.
 	BatchSize int
+	// RecordsOnly skips the events surface. The events matter until the
+	// normalization has run; afterwards the canonical records are the cheap,
+	// steady-state gate, and a scheduled check need not re-read the whole
+	// history every time.
+	RecordsOnly bool
 }
+
+// ErrNothingToCheck is returned when the store holds no resource type and no
+// event at all. An empty store cannot pass a check — it is far more likely
+// the command opened the wrong database (a mistyped DSN creates an empty
+// SQLite file) than that an instance has nothing in it.
+var ErrNothingToCheck = errors.New("count-iri-edge-keys: the store holds no resource type and no event; " +
+	"is DATABASE_DSN pointing at the right database?")
 
 // EdgeKeyClass is how an IRI-keyed edge would fare under normalization.
 type EdgeKeyClass string
@@ -135,13 +148,20 @@ type IRIEdgeKeyTypeCount struct {
 	// Residue is the resources holding at least one ambiguous or unmapped
 	// key — what normalization will leave IRI-keyed.
 	Residue int
+	// Orphaned is the resources of this type whose events still key an edge
+	// by IRI while the type itself is no longer stored. Nothing can rewrite
+	// them and nothing reads them; they are reported, not gated on.
+	Orphaned int
 }
 
 // IRIEdgeKeyCountReport is what a run found.
 type IRIEdgeKeyCountReport struct {
 	Types map[string]*IRIEdgeKeyTypeCount
-	// EventsTotal, RecordsTotal and ResidueTotal sum the per-type counts.
-	EventsTotal, RecordsTotal, ResidueTotal int
+	// EventsTotal, RecordsTotal, ResidueTotal and OrphanedTotal sum the
+	// per-type counts. Orphaned resources are excluded from EventsTotal.
+	EventsTotal, RecordsTotal, ResidueTotal, OrphanedTotal int
+	// RecordsOnly records that the events surface was not scanned.
+	RecordsOnly bool
 	// Classified lists the first MaxReportedProblems non-resolvable edges,
 	// so the operator can find them; ClassifiedTotal counts them all.
 	Classified      []EdgeKeyClassification
@@ -150,7 +170,10 @@ type IRIEdgeKeyCountReport struct {
 	Skipped map[string]int
 }
 
-// Passes reports whether both surfaces are clean.
+// Passes reports whether both scanned surfaces are clean. Orphaned resources
+// — IRI-keyed events of a type the store no longer holds — do not fail the
+// check: nothing can rewrite them, nothing serves them, and a gate that can
+// never go green is one nobody keeps.
 func (r IRIEdgeKeyCountReport) Passes() bool { return r.EventsTotal == 0 && r.RecordsTotal == 0 }
 
 // TypeSlugs returns the report's type slugs in a stable order.
@@ -175,12 +198,17 @@ func CountIRIEdgeKeys(
 	}
 	run := &iriEdgeKeyCount{
 		rt:     rt,
-		report: IRIEdgeKeyCountReport{Types: map[string]*IRIEdgeKeyTypeCount{}},
+		report: IRIEdgeKeyCountReport{Types: map[string]*IRIEdgeKeyTypeCount{}, RecordsOnly: opts.RecordsOnly},
 		types:  newResourceTypeIndex(rt.RTRepo, rt.Links, rt.Logger),
-		seen:   map[string]map[string]EdgeKeyClass{},
+		seen:   map[string]*seenResource{},
 	}
-	if err := run.scanEvents(ctx, batch); err != nil {
+	if err := run.refuseEmptyStore(ctx); err != nil {
 		return run.report, err
+	}
+	if !opts.RecordsOnly {
+		if err := run.scanEvents(ctx, batch); err != nil {
+			return run.report, err
+		}
 	}
 	if err := run.scanRecords(ctx, batch); err != nil {
 		return run.report, err
@@ -189,13 +217,38 @@ func CountIRIEdgeKeys(
 	return run.report, nil
 }
 
+// refuseEmptyStore guards the gate against passing on a database that is not
+// the instance's — see ErrNothingToCheck.
+func (run *iriEdgeKeyCount) refuseEmptyStore(ctx context.Context) error {
+	var types, events int64
+	if err := run.rt.DB.WithContext(ctx).Model(&models.ResourceType{}).Count(&types).Error; err != nil {
+		return fmt.Errorf("count-iri-edge-keys: count resource types: %w", err)
+	}
+	if err := run.rt.DB.WithContext(ctx).Model(&eventRow{}).Count(&events).Error; err != nil {
+		return fmt.Errorf("count-iri-edge-keys: count events: %w", err)
+	}
+	if types == 0 && events == 0 {
+		return ErrNothingToCheck
+	}
+	return nil
+}
+
+// seenResource is one resource met on the events surface: its type, and
+// each IRI key classified once.
+type seenResource struct {
+	slug     string
+	orphaned bool
+	byKey    map[string]EdgeKeyClass
+}
+
 type iriEdgeKeyCount struct {
 	rt     IRIEdgeKeyCountRuntime
 	report IRIEdgeKeyCountReport
 	types  *resourceTypeIndex
-	// seen maps resource id → IRI key → class, so a key met on a Created and
-	// again on an Updated event is classified and counted once.
-	seen map[string]map[string]EdgeKeyClass
+	// seen maps resource id → what the events surface learned about it, so
+	// a key met on a Created and again on an Updated event is classified and
+	// counted once.
+	seen map[string]*seenResource
 }
 
 func (run *iriEdgeKeyCount) typeCount(slug string) *IRIEdgeKeyTypeCount {
@@ -263,18 +316,25 @@ func (run *iriEdgeKeyCount) countEvent(ctx context.Context, row *eventRow) error
 		return fmt.Errorf("count-iri-edge-keys: %w", err)
 	}
 	t := run.typeCount(slug)
-	byKey := run.seen[row.AggregateID]
-	if byKey == nil {
-		byKey = map[string]EdgeKeyClass{}
-		run.seen[row.AggregateID] = byKey
-		t.Events++
+	seen := run.seen[row.AggregateID]
+	if seen == nil {
+		seen = &seenResource{slug: slug, orphaned: resolver == nil, byKey: map[string]EdgeKeyClass{}}
+		run.seen[row.AggregateID] = seen
+		if seen.orphaned {
+			t.Orphaned++
+		} else {
+			t.Events++
+		}
+	}
+	if seen.orphaned {
+		return nil // nothing can classify, rewrite or read these; counted once above
 	}
 	for _, key := range keys {
-		if _, done := byKey[key]; done {
+		if _, done := seen.byKey[key]; done {
 			continue
 		}
 		class, candidates := classifyEdgeKey(resolver, key)
-		byKey[key] = class
+		seen.byKey[key] = class
 		run.recordClass(t, slug, row.AggregateID, key, class, candidates)
 	}
 	return nil
@@ -358,19 +418,15 @@ func (run *iriEdgeKeyCount) countRecord(row canonicalRow) {
 
 func (run *iriEdgeKeyCount) total() {
 	residueOf := map[string]map[string]struct{}{}
-	for resourceID, byKey := range run.seen {
-		for _, class := range byKey {
+	for resourceID, seen := range run.seen {
+		for _, class := range seen.byKey {
 			if class == EdgeKeyResolvable {
 				continue
 			}
-			slug := run.types.slugOf[resourceID]
-			if slug == "" {
-				slug = run.slugFromClassified(resourceID)
+			if residueOf[seen.slug] == nil {
+				residueOf[seen.slug] = map[string]struct{}{}
 			}
-			if residueOf[slug] == nil {
-				residueOf[slug] = map[string]struct{}{}
-			}
-			residueOf[slug][resourceID] = struct{}{}
+			residueOf[seen.slug][resourceID] = struct{}{}
 		}
 	}
 	for slug, t := range run.report.Types {
@@ -378,16 +434,6 @@ func (run *iriEdgeKeyCount) total() {
 		run.report.EventsTotal += t.Events
 		run.report.RecordsTotal += t.Records
 		run.report.ResidueTotal += t.Residue
+		run.report.OrphanedTotal += t.Orphaned
 	}
-}
-
-// slugFromClassified recovers a resource's type for the residue count when
-// the feed learned it from the URN rather than a Created event.
-func (run *iriEdgeKeyCount) slugFromClassified(resourceID string) string {
-	for _, c := range run.report.Classified {
-		if c.ResourceID == resourceID {
-			return c.TypeSlug
-		}
-	}
-	return ""
 }

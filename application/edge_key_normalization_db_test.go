@@ -18,6 +18,7 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -74,7 +75,7 @@ func (e *normalizeTestEnv) append(t testing.TB, id, aggregate, eventType string,
 	}
 }
 
-func (e *normalizeTestEnv) run(t testing.TB, opts NormalizeEdgeKeysOptions) NormalizeEdgeKeysReport {
+func (e *normalizeTestEnv) run(t testing.TB, opts NormalizeEdgeKeysOptions) (NormalizeEdgeKeysReport, error) {
 	t.Helper()
 	var rt NormalizeEdgeKeysRuntime
 	app := fx.New(fx.NopLogger, NormalizeEdgeKeysModule(config.Config{DatabaseDSN: e.dsn}, NewPresetRegistry()),
@@ -89,7 +90,12 @@ func (e *normalizeTestEnv) run(t testing.TB, opts NormalizeEdgeKeysOptions) Norm
 		defer stopCancel()
 		_ = app.Stop(stopCtx)
 	}()
-	report, err := NormalizeEdgeKeys(context.Background(), rt, opts)
+	return NormalizeEdgeKeys(context.Background(), rt, opts)
+}
+
+func (e *normalizeTestEnv) mustRun(t testing.TB, opts NormalizeEdgeKeysOptions) NormalizeEdgeKeysReport {
+	t.Helper()
+	report, err := e.run(t, opts)
 	if err != nil {
 		t.Fatalf("normalize: %v", err)
 	}
@@ -146,7 +152,7 @@ func TestNormalizeEdgeKeys_AgainstAStore(t *testing.T) {
 
 	before := env.rawPayload(t, "evt-c-urn:widget:a")
 
-	dry := env.run(t, NormalizeEdgeKeysOptions{BatchSize: 2})
+	dry := env.mustRun(t, NormalizeEdgeKeysOptions{BatchSize: 2})
 	if !dry.DryRun || dry.Types["widget"].Rewritten != 4 || dry.Rewritten != 4 {
 		t.Fatalf("dry run: %+v", dry)
 	}
@@ -157,7 +163,7 @@ func TestNormalizeEdgeKeys_AgainstAStore(t *testing.T) {
 		t.Fatalf("the missing type must be reported unresolved: %+v", dry.Unresolved)
 	}
 
-	written := env.run(t, NormalizeEdgeKeysOptions{BatchSize: 2, Write: true})
+	written := env.mustRun(t, NormalizeEdgeKeysOptions{BatchSize: 2, Write: true})
 	if written.Rewritten != 4 || written.Types["widget"].Rewritten != 4 || written.Types["widget"].Scanned != 4 {
 		t.Fatalf("write: %+v", written)
 	}
@@ -180,8 +186,97 @@ func TestNormalizeEdgeKeys_AgainstAStore(t *testing.T) {
 		t.Errorf("the update event in the last batch was not rewritten:\n%s", u)
 	}
 
-	again := env.run(t, NormalizeEdgeKeysOptions{BatchSize: 2, Write: true})
+	again := env.mustRun(t, NormalizeEdgeKeysOptions{BatchSize: 2, Write: true})
 	if again.Rewritten != 0 || env.rawPayload(t, "evt-c-urn:widget:a") != after {
 		t.Fatalf("second run must change nothing: %+v", again)
+	}
+}
+
+func (e *normalizeTestEnv) count(t testing.TB, opts IRIEdgeKeyCountOptions) (IRIEdgeKeyCountReport, error) {
+	t.Helper()
+	var rt IRIEdgeKeyCountRuntime
+	app := fx.New(fx.NopLogger, IRIEdgeKeyCountModule(config.Config{DatabaseDSN: e.dsn}, NewPresetRegistry()),
+		fx.Populate(&rt))
+	ctx, cancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
+	defer cancel()
+	if err := app.Start(ctx); err != nil {
+		t.Fatalf("start count runtime: %v", err)
+	}
+	defer func() {
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
+		defer stopCancel()
+		_ = app.Stop(stopCtx)
+	}()
+	return CountIRIEdgeKeys(context.Background(), rt, opts)
+}
+
+func TestCountIRIEdgeKeys_RefusesAnEmptyStore(t *testing.T) {
+	env := newNormalizeTestEnv(t)
+	if _, err := env.count(t, IRIEdgeKeyCountOptions{}); !errors.Is(err, ErrNothingToCheck) {
+		t.Fatalf("an empty store must be refused, got %v", err)
+	}
+}
+
+func TestCountIRIEdgeKeys_AgainstAStore(t *testing.T) {
+	env := newNormalizeTestEnv(t)
+	ctx := context.Background()
+	env.append(t, "evt-rt", "urn:type:widget", "ResourceType.Created", 1, entities.ResourceTypeCreated{
+		Name: "Widget", Slug: "widget", Timestamp: time.Now().UTC(),
+		Context: json.RawMessage(`{"@vocab":"https://schema.org/","maker":{"@id":"https://schema.org/maker","@type":"@id"}}`),
+		Schema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},` +
+			`"maker":{"type":"string","x-resource-type":"vendor"}}}`),
+	})
+	for _, id := range []string{"urn:widget:a", "urn:widget:b", "urn:widget:c"} {
+		env.append(t, "evt-c-"+id, id, "Resource.Created", 1, entities.ResourceCreated{
+			TypeSlug: "widget", Data: json.RawMessage(strings.ReplaceAll(legacyWidgetDoc, "%s", id)),
+			Timestamp: time.Now().UTC()})
+	}
+	env.append(t, "evt-u-c", "urn:widget:c", "Resource.Updated", 2, entities.ResourceUpdated{
+		Data: json.RawMessage(strings.ReplaceAll(legacyWidgetDoc, "%s", "urn:widget:c")), Timestamp: time.Now().UTC()})
+	env.append(t, "evt-ghost", "urn:ghost:1", "Resource.Created", 1, entities.ResourceCreated{
+		TypeSlug: "ghost", Data: json.RawMessage(strings.ReplaceAll(legacyWidgetDoc, "%s", "urn:ghost:1")),
+		Timestamp: time.Now().UTC()})
+	var rt ReprojectRuntime
+	seed := fx.New(fx.NopLogger, ReprojectModule(config.Config{DatabaseDSN: env.dsn}), fx.Populate(&rt))
+	if err := seed.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Reproject(ctx, rt, ReprojectOptions{}); err != nil {
+		t.Fatalf("reproject: %v", err)
+	}
+	_ = seed.Stop(ctx)
+
+	report, err := env.count(t, IRIEdgeKeyCountOptions{BatchSize: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := report.Types["widget"]
+	if w == nil || w.Events != 3 || w.Resolvable != 3 || w.Residue != 0 {
+		t.Fatalf("widget: %+v", w)
+	}
+	g := report.Types["ghost"]
+	if g == nil || g.Orphaned != 1 || g.Events != 0 {
+		t.Fatalf("the missing type must be reported orphaned, not counted: %+v", g)
+	}
+	if report.EventsTotal != 3 || report.OrphanedTotal != 1 || report.Passes() {
+		t.Fatalf("totals: %+v", report)
+	}
+
+	if _, err := env.run(t, NormalizeEdgeKeysOptions{Write: true}); err != nil {
+		t.Fatal(err)
+	}
+	after, err := env.count(t, IRIEdgeKeyCountOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.EventsTotal != 0 || after.OrphanedTotal != 1 || !after.Passes() {
+		t.Fatalf("after normalization the events surface must be clean and the orphan must not fail it: %+v", after)
+	}
+	recordsOnly, err := env.count(t, IRIEdgeKeyCountOptions{RecordsOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !recordsOnly.RecordsOnly || recordsOnly.EventsTotal != 0 || !recordsOnly.Passes() {
+		t.Fatalf("records-only: %+v", recordsOnly)
 	}
 }
