@@ -113,16 +113,17 @@ func runWorkerCountIRIEdgeKeys(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	printIRIEdgeKeyCountReport(os.Stdout, report, true)
-	if verdict := report.Verdict(); verdict != application.VerdictPass {
+	switch report.Verdict() {
+	case application.VerdictFail:
 		// Exit 2 on FAIL, distinct from the 1 cobra uses for an error: a
 		// scheduled gate must tell "the data is not clean" from "the check
-		// did not run". INCONCLUSIVE could not conclude, so it exits 1.
+		// did not run". os.Exit skips the deferred Stop, so stop here first.
 		stopCtx, stopCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
 		_ = app.Stop(stopCtx)
 		stopCancel()
-		if verdict == application.VerdictFail {
-			os.Exit(2)
-		}
+		os.Exit(2)
+	case application.VerdictInconclusive:
+		// Exits 1 through cobra; the deferred Stop runs on the way out.
 		return fmt.Errorf("%d row(s) could not be read, so the check is inconclusive", skippedRows(report))
 	}
 	return nil
