@@ -87,9 +87,14 @@ Feature: One check counts the resources whose edges still key by predicate IRI
   #
   # 6. IT IS A GATE, NOT A REPORT. "A permanent check keeps that number at zero"
   #    means the check has a pass/fail, so a runbook step, a cron or a CI job can
-  #    depend on it: it PASSES when both surface totals are zero and FAILS
-  #    otherwise, and the command exits non-zero when it fails — the same
-  #    convention `normalize-edge-keys` already uses for a declined edge. The
+  #    depend on it: it PASSES when every row was read and both surface totals
+  #    are zero, FAILS when a resource still keys an edge by IRI, and is
+  #    INCONCLUSIVE when a row could not be read — a row the run never looked
+  #    inside is a row it cannot vouch for. Exit codes: 0 / 2 / 1. Two
+  #    populations are reported but never gated on, because a gate that can
+  #    never go green is one nobody keeps: resources of a type the store no
+  #    longer holds (orphaned — nothing can rewrite or read them), which are
+  #    pinned by the store-backed unit test rather than a scenario here. The
   #    scenarios below say "the check passes / fails"; the CLI exit path and the
   #    printed report markers are pinned by a printer unit test, as
   #    `worker_normalize_test.go` does for #523.

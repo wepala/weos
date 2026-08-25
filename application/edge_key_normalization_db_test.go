@@ -68,8 +68,16 @@ func newNormalizeTestEnv(t testing.TB) *normalizeTestEnv {
 
 func (e *normalizeTestEnv) append(t testing.TB, id, aggregate, eventType string, seq int, payload any) {
 	t.Helper()
+	e.appendInTx(t, id, aggregate, eventType, seq, "tx-"+id, payload)
+}
+
+// appendInTx appends with an explicit transaction id, so a Resource.Created
+// and its Resource.Published can share one — which is what makes the
+// projection write a canonical record on replay.
+func (e *normalizeTestEnv) appendInTx(t testing.TB, id, aggregate, eventType string, seq int, tx string, payload any) {
+	t.Helper()
 	env := domain.EventEnvelope[any]{ID: id, AggregateID: aggregate, EventType: eventType,
-		Payload: payload, Created: time.Now().UTC(), SequenceNo: seq}
+		Payload: payload, Created: time.Now().UTC(), SequenceNo: seq, TransactionID: tx}
 	if err := e.store.Append(context.Background(), aggregate, seq-1, env); err != nil {
 		t.Fatalf("append %s: %v", id, err)
 	}
@@ -227,56 +235,75 @@ func TestCountIRIEdgeKeys_AgainstAStore(t *testing.T) {
 			`"maker":{"type":"string","x-resource-type":"vendor"}}}`),
 	})
 	for _, id := range []string{"urn:widget:a", "urn:widget:b", "urn:widget:c"} {
-		env.append(t, "evt-c-"+id, id, "Resource.Created", 1, entities.ResourceCreated{
+		env.appendInTx(t, "evt-c-"+id, id, "Resource.Created", 1, "tx-"+id, entities.ResourceCreated{
 			TypeSlug: "widget", Data: json.RawMessage(strings.ReplaceAll(legacyWidgetDoc, "%s", id)),
 			Timestamp: time.Now().UTC()})
+		env.appendInTx(t, "evt-p-"+id, id, "Resource.Published", 2, "tx-"+id, entities.ResourcePublished{
+			TypeSlug: "widget", Timestamp: time.Now().UTC()})
 	}
-	env.append(t, "evt-u-c", "urn:widget:c", "Resource.Updated", 2, entities.ResourceUpdated{
+	env.appendInTx(t, "evt-u-c", "urn:widget:c", "Resource.Updated", 3, "tx-u-c", entities.ResourceUpdated{
 		Data: json.RawMessage(strings.ReplaceAll(legacyWidgetDoc, "%s", "urn:widget:c")), Timestamp: time.Now().UTC()})
-	env.append(t, "evt-ghost", "urn:ghost:1", "Resource.Created", 1, entities.ResourceCreated{
+	env.appendInTx(t, "evt-pu-c", "urn:widget:c", "Resource.Published", 4, "tx-u-c", entities.ResourcePublished{
+		TypeSlug: "widget", Timestamp: time.Now().UTC()})
+	env.appendInTx(t, "evt-ghost", "urn:ghost:1", "Resource.Created", 1, "tx-ghost", entities.ResourceCreated{
 		TypeSlug: "ghost", Data: json.RawMessage(strings.ReplaceAll(legacyWidgetDoc, "%s", "urn:ghost:1")),
 		Timestamp: time.Now().UTC()})
-	var rt ReprojectRuntime
-	seed := fx.New(fx.NopLogger, ReprojectModule(config.Config{DatabaseDSN: env.dsn}), fx.Populate(&rt))
-	if err := seed.Start(ctx); err != nil {
-		t.Fatal(err)
+	env.appendInTx(t, "evt-pghost", "urn:ghost:1", "Resource.Published", 2, "tx-ghost", entities.ResourcePublished{
+		TypeSlug: "ghost", Timestamp: time.Now().UTC()})
+	reproject := func() {
+		var rt ReprojectRuntime
+		seed := fx.New(fx.NopLogger, ReprojectModule(config.Config{DatabaseDSN: env.dsn}), fx.Populate(&rt))
+		if err := seed.Start(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Reproject(ctx, rt, ReprojectOptions{}); err != nil {
+			t.Fatalf("reproject: %v", err)
+		}
+		_ = seed.Stop(ctx)
 	}
-	if _, err := Reproject(ctx, rt, ReprojectOptions{}); err != nil {
-		t.Fatalf("reproject: %v", err)
-	}
-	_ = seed.Stop(ctx)
+	reproject()
 
 	report, err := env.count(t, IRIEdgeKeyCountOptions{BatchSize: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
 	w := report.Types["widget"]
-	if w == nil || w.Events != 3 || w.Resolvable != 3 || w.Residue != 0 {
+	if w == nil || w.Events != 3 || w.Records != 3 || w.Resolvable != 3 || w.Residue != 0 {
 		t.Fatalf("widget: %+v", w)
 	}
 	g := report.Types["ghost"]
-	if g == nil || g.Orphaned != 1 || g.Events != 0 {
-		t.Fatalf("the missing type must be reported orphaned, not counted: %+v", g)
+	if g == nil || g.Orphaned != 1 || g.Events != 0 || g.Records != 0 {
+		t.Fatalf("the missing type must be reported orphaned on both surfaces, not counted: %+v", g)
 	}
-	if report.EventsTotal != 3 || report.OrphanedTotal != 1 || report.Passes() {
+	if report.EventsTotal != 3 || report.RecordsTotal != 3 || report.OrphanedTotal != 1 || report.Passes() {
 		t.Fatalf("totals: %+v", report)
 	}
 
 	if _, err := env.run(t, NormalizeEdgeKeysOptions{Write: true}); err != nil {
 		t.Fatal(err)
 	}
-	after, err := env.count(t, IRIEdgeKeyCountOptions{})
+	window, err := env.count(t, IRIEdgeKeyCountOptions{BatchSize: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after.EventsTotal != 0 || after.OrphanedTotal != 1 || !after.Passes() {
-		t.Fatalf("after normalization the events surface must be clean and the orphan must not fail it: %+v", after)
+	if window.EventsTotal != 0 || window.RecordsTotal != 3 || window.Verdict() != VerdictFail {
+		t.Fatalf("between normalize and reproject the events are clean and the records are not: %+v", window)
 	}
-	recordsOnly, err := env.count(t, IRIEdgeKeyCountOptions{RecordsOnly: true})
+
+	reproject()
+	after, err := env.count(t, IRIEdgeKeyCountOptions{BatchSize: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !recordsOnly.RecordsOnly || recordsOnly.EventsTotal != 0 || !recordsOnly.Passes() {
+	if after.EventsTotal != 0 || after.RecordsTotal != 0 || after.OrphanedTotal != 1 || !after.Passes() {
+		t.Fatalf("after reproject both surfaces are clean and the orphan does not fail the check: %+v", after)
+	}
+	recordsOnly, err := env.count(t, IRIEdgeKeyCountOptions{RecordsOnly: true, BatchSize: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !recordsOnly.RecordsOnly || recordsOnly.EventsTotal != 0 || recordsOnly.RecordsTotal != 0 ||
+		!recordsOnly.Passes() {
 		t.Fatalf("records-only: %+v", recordsOnly)
 	}
 }

@@ -151,9 +151,10 @@ type IRIEdgeKeyTypeCount struct {
 	// Residue is the resources holding at least one ambiguous or unmapped
 	// key — what normalization will leave IRI-keyed.
 	Residue int
-	// Orphaned is the resources of this type whose events still key an edge
-	// by IRI while the type itself is no longer stored. Nothing can rewrite
-	// them and nothing reads them; they are reported, not gated on.
+	// Orphaned is the resources of this type that still key an edge by IRI
+	// — in their events, or in their canonical record — while the type
+	// itself is no longer stored. Nothing can rewrite them and nothing
+	// reads them; they are reported, not gated on.
 	Orphaned int
 }
 
@@ -437,27 +438,43 @@ func (run *iriEdgeKeyCount) scanRecords(ctx context.Context, batch int) error {
 			return nil
 		}
 		for _, row := range rows {
-			run.countRecord(row)
+			if err := run.countRecord(ctx, row); err != nil {
+				return err
+			}
 		}
 		last = rows[len(rows)-1].ID
 	}
 }
 
-func (run *iriEdgeKeyCount) countRecord(row canonicalRow) {
+func (run *iriEdgeKeyCount) countRecord(ctx context.Context, row canonicalRow) error {
 	var data map[string]any
 	if err := json.Unmarshal([]byte(row.Data), &data); err != nil {
 		run.skip("canonical record is not a JSON object")
-		return
+		return nil
 	}
 	edges, corrupt := edgesNodeShape(data)
 	if corrupt {
 		run.skip("canonical record @graph[1] is not an edges node")
-		return
+		return nil
 	}
 	if len(iriEdgeKeys(edges)) == 0 {
-		return
+		return nil
 	}
-	run.typeCount(row.TypeSlug).Records++
+	resolver, err := run.types.resolverFor(ctx, row.TypeSlug)
+	if err != nil {
+		return fmt.Errorf("count-iri-edge-keys: %w", err)
+	}
+	t := run.typeCount(row.TypeSlug)
+	if resolver == nil {
+		// The type is gone; the record is unreadable and unrewritable. It is
+		// reported, and it does not fail the check — see Verdict.
+		if seen := run.seen[row.ID]; seen == nil || !seen.orphaned {
+			t.Orphaned++
+		}
+		return nil
+	}
+	t.Records++
+	return nil
 }
 
 func (run *iriEdgeKeyCount) total() {
