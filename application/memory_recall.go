@@ -132,7 +132,9 @@ func (r *memoryRecall) graphFacts(ctx context.Context, q RecallQuery, limit int)
 // the recall surface over raw kg_sparql_query.
 func buildRecallSPARQL(q RecallQuery, limit int) string {
 	var b strings.Builder
-	b.WriteString("SELECT ?fact ?statement ?about ?confidence ?generatedAt ?revisionOf")
+	// DISTINCT: a fact carrying both the current and the legacy class
+	// mid-migration matches VALUES twice and must not halve the limit.
+	b.WriteString("SELECT DISTINCT ?fact ?statement ?about ?confidence ?generatedAt ?revisionOf")
 	if q.IncludeProvenance {
 		b.WriteString(` (GROUP_CONCAT(DISTINCT ?src; separator=" ") AS ?sources)`)
 	}

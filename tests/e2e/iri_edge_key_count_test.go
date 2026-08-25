@@ -84,8 +84,12 @@ func (w *contextWorld) theOperatorCounts() error {
 	cfg := config.Default()
 	cfg.DatabaseDSN = w.dsn
 	cfg.LogLevel = "error"
+	registry := w.catalogRegistry
+	if w.registry != nil {
+		registry = w.registry
+	}
 	var rt application.IRIEdgeKeyCountRuntime
-	app := fx.New(fx.NopLogger, application.IRIEdgeKeyCountModule(cfg, w.catalogRegistry()), fx.Populate(&rt))
+	app := fx.New(fx.NopLogger, application.IRIEdgeKeyCountModule(cfg, registry()), fx.Populate(&rt))
 	startCtx, startCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
 	defer startCancel()
 	if err := app.Start(startCtx); err != nil {

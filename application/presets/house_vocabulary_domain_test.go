@@ -27,17 +27,18 @@ import (
 )
 
 // Issue #520: WeOS-minted vocabulary lives under https://weos.io/vocab/…,
-// the domain WeOS owns. weos.org is not the WeOS domain, and a term that
-// resolved there pointed at a namespace nobody controls.
+// the domain WeOS owns; the old domain pointed at a namespace nobody
+// controls.
 
 // TestNoPresetSourceReferencesWeosOrg is the story's literal criterion: no
 // file under application/presets/ references weos.org. It reads the source
 // tree rather than the registry because the criterion is about what is
 // authored — a test fixture asserting the old IRI counts too.
 func TestNoPresetSourceReferencesWeosOrg(t *testing.T) {
-	root := "."
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+	// The guard names the old domain; nothing else under this tree may.
+	exempt := map[string]bool{"house_vocabulary_domain_test.go": true}
+	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || exempt[filepath.Base(path)] {
 			return err
 		}
 		raw, readErr := os.ReadFile(path)
@@ -45,9 +46,8 @@ func TestNoPresetSourceReferencesWeosOrg(t *testing.T) {
 			return readErr
 		}
 		for i, line := range strings.Split(string(raw), "\n") {
-			if strings.Contains(line, "weos.org") && !strings.Contains(line, "weos.org is not") &&
-				!strings.Contains(path, "house_vocabulary_domain_test.go") {
-				t.Errorf("%s:%d references weos.org: %s", path, i+1, strings.TrimSpace(line))
+			if strings.Contains(line, "weos.org") {
+				t.Errorf("%s:%d references the old house domain: %s", path, i+1, strings.TrimSpace(line))
 			}
 		}
 		return nil

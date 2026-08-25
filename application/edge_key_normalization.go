@@ -250,12 +250,13 @@ const (
 // payload as raw bytes, so it can be decoded with json.Number rather than
 // through pericarp's float64 scan.
 type eventRow struct {
-	ID          string
-	AggregateID string
-	EventType   string
-	SequenceNo  int
-	Position    int64
-	Payload     json.RawMessage
+	ID            string
+	AggregateID   string
+	EventType     string
+	SequenceNo    int
+	TransactionID string
+	Position      int64
+	Payload       json.RawMessage
 }
 
 func (eventRow) TableName() string { return pericarpinfra.GormEventModel{}.TableName() }
@@ -280,6 +281,21 @@ func readEventsAfter(ctx context.Context, db *gorm.DB, after int64, batch int, t
 	var rows []eventRow
 	if err := q.Order("position ASC").Limit(batch).Find(&rows).Error; err != nil {
 		return nil, err
+	}
+	// A batch never ends inside a transaction: a document and the Triple.*
+	// events written with it must land in one commit, or a run interrupted
+	// between two batches would leave the triples stranded on the old
+	// predicate with nothing left to say they moved.
+	if len(rows) == batch && rows[len(rows)-1].TransactionID != "" {
+		last := rows[len(rows)-1]
+		var tail []eventRow
+		err := db.WithContext(ctx).Model(&eventRow{}).
+			Where("position > ? AND transaction_id = ? AND event_type IN ?", last.Position, last.TransactionID, types).
+			Order("position ASC").Find(&tail).Error
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, tail...)
 	}
 	return rows, nil
 }
@@ -445,10 +461,14 @@ func (run *edgeKeyRun) rewriteEvent(ctx context.Context, row *eventRow) (pericar
 	}
 	slug := run.types.slugFor(row, payload)
 	if slug == "" {
-		// An orphan Resource.Updated whose aggregate id names no resource
-		// type (a page's five-part URN, say) with no Created event in the
-		// feed to say what it is. Counted, so the operator sees it.
-		run.skip("event names no resource type")
+		// An orphan event whose aggregate id names no resource type (a
+		// page's five-part URN, say) with no Created event in the feed to
+		// say what it is. Counted, so the operator sees it.
+		if strings.HasPrefix(row.EventType, "Triple.") {
+			run.skip("triple event names no resource type")
+		} else {
+			run.skip("event names no resource type")
+		}
 		return nil, nil
 	}
 	if len(run.only) > 0 && !run.only[slug] {
@@ -474,11 +494,20 @@ func (run *edgeKeyRun) rewriteEvent(ctx context.Context, row *eventRow) (pericar
 	if err != nil {
 		return nil, fmt.Errorf("normalize-edge-keys: %w", err)
 	}
-	changed, problems := normalizeEdgeKeys(data, resolver)
+	// The document's own context is read BEFORE anything rewrites it: the
+	// predicate a stored edge carries today is what its Triple.* events
+	// carry, and it is the old side of every move.
+	oldEmbedded, _ := json.Marshal(data["@context"])
+	changed, problems, names := normalizeEdgeKeys(data, resolver)
 	restamped := false
-	if run.restamp && resolver != nil {
-		moves := predicateMovesOf(data, resolver)
-		restamped = restampDocument(data, resolver)
+	if run.restamp && resolver != nil && len(problems) == 0 {
+		// A document with an edge the run declined keeps its own context:
+		// re-stamping it would erase the only mapping that still names the
+		// declined IRI, and with it the operator's chance to fix and re-run.
+		moves := predicateMovesOf(names, oldEmbedded, resolver)
+		// A key rewrite already replaced the context; that IS a re-stamp,
+		// and the operator reading "re-stamped N" must see it counted.
+		restamped = restampDocument(data, resolver) || changed
 		if len(moves) > 0 {
 			// Merged, not replaced: a Triple.Deleted for an edge the Created
 			// carried can follow an Updated that no longer does, and it must
@@ -535,11 +564,15 @@ func restampDocument(data map[string]any, resolver *edgeKeyResolver) bool {
 	graph, _ := data["@graph"].([]any)
 	if len(graph) > 0 {
 		if entity, ok := graph[0].(map[string]any); ok {
-			typ, _ := entity["@type"].(string)
+			typ, isString := entity["@type"].(string)
+			_, present := entity["@type"]
 			// Compared as the CLASS the document derives, not as text: an
 			// entity written with the class spelled out in full names the
-			// same class as one written with the compact form.
-			if typ != resolver.schemaType && expandClass(typ, resolver.storable) != expandClass(resolver.schemaType, resolver.storable) {
+			// same class as one written with the compact form. A @type that
+			// is not a single string (an array of classes) is left alone —
+			// collapsing it would drop classes the document asserts.
+			if (isString || !present) && typ != resolver.schemaType &&
+				expandClass(typ, resolver.storable) != expandClass(resolver.schemaType, resolver.storable) {
 				entity["@type"] = resolver.schemaType
 				moved = true
 			}
@@ -565,34 +598,29 @@ func expandClass(typ string, storable any) string {
 }
 
 // predicateMovesOf lists the predicates a re-stamp of this document moves:
-// each edge, resolved through the document's OWN context as it stands,
+// for each edge the resolver answered with exactly one property, the
+// predicate the stored key carried (an IRI key is its own predicate; a
+// compact key resolves through the document's OWN context as it stood)
 // against the same property resolved through the type's current context.
-func predicateMovesOf(data map[string]any, resolver *edgeKeyResolver) map[string]string {
-	edges := storedEdgesNode(data)
-	if len(edges) == 0 {
+// Edges the resolver declined are not in names and never move.
+func predicateMovesOf(
+	names map[string]string, oldEmbedded json.RawMessage, resolver *edgeKeyResolver,
+) map[string]string {
+	if len(names) == 0 {
 		return nil
 	}
-	embedded, _ := json.Marshal(data["@context"])
-	oldVocab, oldTerms := jsonld.ParseContext(embedded)
-	if len(oldTerms) == 0 && oldVocab == "" {
-		if s, ok := data["@context"].(string); ok {
-			oldVocab = s
+	oldVocab, oldTerms := jsonld.ParseContext(oldEmbedded)
+	if oldVocab == "" && len(oldTerms) == 0 {
+		var bare string
+		if json.Unmarshal(oldEmbedded, &bare) == nil {
+			oldVocab = bare
 		}
 	}
 	newVocab, newTerms := jsonld.ParseContext(resolver.ldContext)
 	moves := map[string]string{}
-	for key := range edges {
-		if key == "@id" {
-			continue
-		}
-		property, old := key, key
-		if jsonld.IsIRIKey(key) {
-			name, ok := jsonld.EdgeProperty(key, embedded)
-			if !ok {
-				continue
-			}
-			property = name
-		} else {
+	for key, property := range names {
+		old := key
+		if !jsonld.IsIRIKey(key) {
 			old = jsonld.ResolvePredicateIRI(key, oldVocab, oldTerms)
 		}
 		if next := jsonld.ResolvePredicateIRI(property, newVocab, newTerms); next != old {
@@ -805,12 +833,22 @@ func (r *edgeKeyResolver) resolve(key string) (name string, candidates []string,
 // context has nothing storable leaves the document's own `@context` as it
 // was. A resource with one unresolvable edge keeps its resolvable ones
 // rewritten: the problem is reported per edge, not per document.
-func normalizeEdgeKeys(data map[string]any, resolver *edgeKeyResolver) (bool, []EdgeKeyProblem) {
+// It also returns, for every edge key the resolver answered with exactly one
+// property name — rewritten IRI keys and compact keys alike — that name, so
+// a re-stamp can move the aggregate's Triple.* predicates from the same
+// answers rather than from a second, looser resolution.
+func normalizeEdgeKeys(data map[string]any, resolver *edgeKeyResolver) (bool, []EdgeKeyProblem, map[string]string) {
 	edges := storedEdgesNode(data)
 	if edges == nil {
-		return false, nil
+		return false, nil, nil
 	}
 	keys := iriEdgeKeys(edges)
+	names := map[string]string{}
+	for key := range edges {
+		if key != "@id" && !jsonld.IsIRIKey(key) {
+			names[key] = key
+		}
+	}
 
 	var problems []EdgeKeyProblem
 	changed := false
@@ -834,16 +872,17 @@ func normalizeEdgeKeys(data map[string]any, resolver *edgeKeyResolver) (bool, []
 			}
 			edges[name] = edges[key]
 			delete(edges, key)
+			names[key] = name
 			changed = true
 		}
 	}
 	if !changed {
-		return false, problems
+		return false, problems, names
 	}
 	if resolver.storable != nil {
 		data["@context"] = resolver.storable
 	}
-	return true, problems
+	return true, problems, names
 }
 
 // storedEdgesNode returns a stored document's edges node, or nil when the

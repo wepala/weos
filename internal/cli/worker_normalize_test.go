@@ -89,3 +89,31 @@ func TestPrintNormalizeEdgeKeysReport_NothingToDo(t *testing.T) {
 		t.Errorf("empty report should say nothing to rewrite:\n%s", out.String())
 	}
 }
+
+func TestPrintNormalizeEdgeKeysReport_Restamp(t *testing.T) {
+	report := application.NormalizeEdgeKeysReport{
+		Restamp: true, Scanned: 4, Restamped: 2, TriplesMoved: 3,
+		Types: map[string]*application.EdgeKeyTypeReport{
+			"food-item": {Scanned: 2, Restamped: 2, TriplesMoved: 3},
+			"pantry":    {Scanned: 2},
+		},
+	}
+	var out bytes.Buffer
+	printNormalizeEdgeKeysReport(&out, report)
+	text := out.String()
+	for _, want := range []string{
+		"food-item", "re-stamped 2 (+3 triple event(s) moved)",
+		"pantry", "re-stamped 0",
+		"Next (server stopped)",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("re-stamp report lacks %q:\n%s", want, text)
+		}
+	}
+	out.Reset()
+	printNormalizeEdgeKeysReport(&out, application.NormalizeEdgeKeysReport{Restamp: true, DryRun: true,
+		Types: map[string]*application.EdgeKeyTypeReport{"pantry": {Scanned: 1}}})
+	if !strings.Contains(out.String(), "nothing to rewrite or re-stamp") {
+		t.Errorf("a re-stamp that found nothing must say so:\n%s", out.String())
+	}
+}

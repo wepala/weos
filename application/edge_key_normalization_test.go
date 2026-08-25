@@ -105,7 +105,7 @@ func TestNormalizeEdgeKeys_RewritesAndEmbedsTheStorableContext(t *testing.T) {
 	   "https://schema.org/supplier":[{"@id":"urn:vendor:2"}]}]}`)
 	entityBefore, _ := json.Marshal(doc["@graph"].([]any)[0])
 
-	changed, problems := normalizeEdgeKeys(doc, r)
+	changed, problems, _ := normalizeEdgeKeys(doc, r)
 	if !changed || len(problems) != 0 {
 		t.Fatalf("changed=%v problems=%v", changed, problems)
 	}
@@ -143,7 +143,7 @@ func TestNormalizeEdgeKeys_ReportsWithoutRewriting(t *testing.T) {
 	  {"@id":"urn:widget:1","https://schema.org/associated":{"@id":"urn:vendor:1"},
 	   "https://example.org/legacy#x":{"@id":"urn:vendor:1"},
 	   "https://schema.org/supplier":{"@id":"urn:vendor:1"}}]}`)
-	changed, problems := normalizeEdgeKeys(doc, r)
+	changed, problems, _ := normalizeEdgeKeys(doc, r)
 	if !changed {
 		t.Fatal("the resolvable supplier edge should still be rewritten")
 	}
@@ -178,12 +178,12 @@ func TestNormalizeEdgeKeys_IsANoOpOnCompactDocuments(t *testing.T) {
 	doc := decodeDoc(t, `{"@context":"https://schema.org/","@graph":[
 	  {"@id":"urn:widget:1","@type":"Widget"},{"@id":"urn:widget:1","maker":{"@id":"urn:vendor:1"}}]}`)
 	before, _ := json.Marshal(doc)
-	changed, problems := normalizeEdgeKeys(doc, r)
+	changed, problems, _ := normalizeEdgeKeys(doc, r)
 	after, _ := json.Marshal(doc)
 	if changed || len(problems) != 0 || string(before) != string(after) {
 		t.Errorf("compact document was touched: changed=%v problems=%v\n%s\n%s", changed, problems, before, after)
 	}
-	if changed, _ := normalizeEdgeKeys(decodeDoc(t, `{"@graph":[{"@id":"urn:widget:1"}]}`), r); changed {
+	if changed, _, _ := normalizeEdgeKeys(decodeDoc(t, `{"@graph":[{"@id":"urn:widget:1"}]}`), r); changed {
 		t.Error("a document with no edges node must not change")
 	}
 }
@@ -192,7 +192,7 @@ func TestNormalizeEdgeKeys_DoesNotMergeWhenBothFormsArePresent(t *testing.T) {
 	r := edgeKeyTestResolver(t, `{"@vocab":"https://schema.org/"}`, widgetSchema)
 	doc := decodeDoc(t, `{"@graph":[{"@id":"urn:widget:1"},
 	  {"@id":"urn:widget:1","maker":{"@id":"urn:vendor:1"},"https://schema.org/maker":{"@id":"urn:vendor:2"}}]}`)
-	changed, problems := normalizeEdgeKeys(doc, r)
+	changed, problems, _ := normalizeEdgeKeys(doc, r)
 	if changed || len(problems) != 1 {
 		t.Fatalf("changed=%v problems=%v; both forms present must be reported, never merged", changed, problems)
 	}
@@ -235,8 +235,9 @@ func TestRestampDocument_MovesOnlyWhatChanged(t *testing.T) {
 	  "maker":{"@id":"https://schema.org/maker","@type":"@id"}},"@graph":[
 	  {"@id":"urn:widget:1","@type":"mp:FoodItem","name":"Bolt cutter","serial":7},
 	  {"@id":"urn:widget:1","maker":{"@id":"urn:vendor:1"}}]}`)
-	moves := predicateMovesOf(doc, r)
-	if len(moves) != 0 {
+	oldEmbedded, _ := json.Marshal(doc["@context"])
+	_, _, names := normalizeEdgeKeys(doc, r)
+	if moves := predicateMovesOf(names, oldEmbedded, r); len(moves) != 0 {
 		t.Errorf("maker sits on schema.org on both sides; moves = %v", moves)
 	}
 	if !restampDocument(doc, r) {
@@ -272,8 +273,50 @@ func TestPredicateMovesOf_FollowsThePrefix(t *testing.T) {
 	doc := decodeDoc(t, `{"@context":{"@vocab":"https://schema.org/","mp":"https://weos.org/vocab/meal-planning#",
 	  "ingredient":{"@id":"mp:isInstanceOf","@type":"@id"}},"@graph":[{"@id":"urn:f:1"},
 	  {"@id":"urn:f:1","ingredient":{"@id":"urn:i:1"}}]}`)
-	moves := predicateMovesOf(doc, r)
+	oldEmbedded, _ := json.Marshal(doc["@context"])
+	_, _, names := normalizeEdgeKeys(doc, r)
+	moves := predicateMovesOf(names, oldEmbedded, r)
 	if moves["https://weos.org/vocab/meal-planning#isInstanceOf"] != "https://weos.io/vocab/meal-planning#isInstanceOf" {
 		t.Errorf("moves = %v", moves)
+	}
+}
+
+// The pre-#515 shape: the edge is keyed by the old IRI itself, and the
+// document's own context (vocab + prefixes only, as the old writer stored it)
+// cannot name it — only the type's context can. The move must still be
+// recorded from the resolver's answer, before the rewrite replaces the
+// context.
+func TestPredicateMovesOf_IRIKeyedDocument(t *testing.T) {
+	r := edgeKeyTestResolver(t, `{"@vocab":"https://schema.org/","mp":"https://weos.io/vocab/meal-planning#",
+	  "ingredient":{"@id":"mp:isInstanceOf","@type":"@id"}}`,
+		`{"type":"object","properties":{"ingredient":{"type":"string","x-resource-type":"ingredient"}}}`)
+	doc := decodeDoc(t, `{"@context":{"@vocab":"https://schema.org/","mp":"https://weos.org/vocab/meal-planning#"},
+	  "@graph":[{"@id":"urn:f:1"},
+	  {"@id":"urn:f:1","https://weos.org/vocab/meal-planning#isInstanceOf":{"@id":"urn:i:1"}}]}`)
+	oldEmbedded, _ := json.Marshal(doc["@context"])
+	changed, problems, names := normalizeEdgeKeys(doc, r)
+	if changed || len(problems) != 1 {
+		t.Fatalf("an IRI the current context no longer names is unresolved: changed=%v problems=%v", changed, problems)
+	}
+	if moves := predicateMovesOf(names, oldEmbedded, r); len(moves) != 0 {
+		t.Errorf("a declined edge must not move its triple: %v", moves)
+	}
+	// With the old IRI recorded as an alias — what adopting the term does —
+	// the key resolves, is rewritten, and its triple moves with it.
+	r = edgeKeyTestResolver(t, `{"@vocab":"https://schema.org/","mp":"https://weos.io/vocab/meal-planning#",
+	  "ingredient":{"@id":"mp:isInstanceOf","@type":"@id"},
+	  "weos:termAliases":{"ingredient":["https://weos.org/vocab/meal-planning#isInstanceOf"]}}`,
+		`{"type":"object","properties":{"ingredient":{"type":"string","x-resource-type":"ingredient"}}}`)
+	doc = decodeDoc(t, `{"@context":{"@vocab":"https://schema.org/","mp":"https://weos.org/vocab/meal-planning#"},
+	  "@graph":[{"@id":"urn:f:1"},
+	  {"@id":"urn:f:1","https://weos.org/vocab/meal-planning#isInstanceOf":{"@id":"urn:i:1"}}]}`)
+	oldEmbedded, _ = json.Marshal(doc["@context"])
+	changed, problems, names = normalizeEdgeKeys(doc, r)
+	if !changed || len(problems) != 0 {
+		t.Fatalf("changed=%v problems=%v", changed, problems)
+	}
+	moves := predicateMovesOf(names, oldEmbedded, r)
+	if moves["https://weos.org/vocab/meal-planning#isInstanceOf"] != "https://weos.io/vocab/meal-planning#isInstanceOf" {
+		t.Errorf("the rewritten edge's triple must move: %v", moves)
 	}
 }

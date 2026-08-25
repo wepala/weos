@@ -84,7 +84,8 @@ func initHouseVocabularyScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the operator installs the "([^"]*)" preset$`, w.installPreset)
 
 	sc.Step(`^no installed resource type resolves any term, prefix or "@type" under "([^"]*)"$`, w.noTypeResolvesUnder)
-	sc.Step(`^every installed type of "([^"]*)" that declares "([^"]*)" resolves it to "([^"]*)"$`, w.everyTypeResolvesPrefix)
+	sc.Step(`^every installed type of "([^"]*)" that declares "([^"]*)" resolves it to "([^"]*)"$`,
+		w.everyTypeResolvesPrefix)
 	sc.Step(`^every house IRI the installed types of "([^"]*)" resolve is under "([^"]*)"$`, w.everyHouseIRIUnder)
 	sc.Step(`^every reference property of every installed type reverse-maps to its own name$`, w.everyReferenceReverseMaps)
 	sc.Step(`^no two properties of one installed type resolve to the same predicate IRI$`, w.noPredicateShared)
@@ -175,7 +176,9 @@ func (w *vocabWorld) operatorMapsTermOf(term, iri, slug string) error {
 	return w.writeStoredContext(slug, terms)
 }
 
-func (w *vocabWorld) createWithReferenceAndLiteral(slug, name, property, targetSlug, target, literal, value string) error {
+func (w *vocabWorld) createWithReferenceAndLiteral(
+	slug, name, property, targetSlug, target, literal, value string,
+) error {
 	id, err := w.targetID(targetSlug, target)
 	if err != nil {
 		return err
@@ -397,12 +400,25 @@ func (w *vocabWorld) thisBuild() *application.PresetRegistry {
 // weos.org — a string substitution over each type's context rather than a
 // second copy of the presets, so it cannot drift from what shipped.
 func (w *vocabWorld) oldBuild() *application.PresetRegistry {
-	return rewriteRegistry(presets.NewDefaultRegistry(), func(pt *application.PresetResourceType) {
-		pt.Context = json.RawMessage(strings.ReplaceAll(string(pt.Context), newHouseDomain, oldHouseDomain))
+	rewrote := 0
+	reg := rewriteRegistry(presets.NewDefaultRegistry(), func(pt *application.PresetResourceType) {
+		before := string(pt.Context)
+		pt.Context = json.RawMessage(strings.ReplaceAll(before, newHouseDomain, oldHouseDomain))
+		if string(pt.Context) != before {
+			rewrote++
+		}
 	})
+	if rewrote == 0 {
+		// The shim would otherwise be the current build in disguise, and every
+		// upgrade scenario would pass without an upgrade having happened.
+		panic("the old-build shim rewrote no type context: no built-in preset names the house domain")
+	}
+	return reg
 }
 
-func rewriteRegistry(src *application.PresetRegistry, edit func(*application.PresetResourceType)) *application.PresetRegistry {
+func rewriteRegistry(
+	src *application.PresetRegistry, edit func(*application.PresetResourceType),
+) *application.PresetRegistry {
 	out := application.NewPresetRegistry()
 	for _, preset := range src.List() {
 		def := preset

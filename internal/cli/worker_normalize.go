@@ -172,7 +172,12 @@ func printNormalizeEdgeKeysReport(out io.Writer, r application.NormalizeEdgeKeys
 		_, _ = fmt.Fprintln(out)
 	}
 	if r.Rewritten == 0 && r.Restamped == 0 && r.Problems() == 0 {
-		_, _ = fmt.Fprintln(out, "\nnothing to rewrite: every edge is already keyed by its property name.")
+		if r.Restamp {
+			_, _ = fmt.Fprintln(out, "\nnothing to rewrite or re-stamp: every edge is keyed by its property name "+
+				"and every document already carries its type's current context and class.")
+		} else {
+			_, _ = fmt.Fprintln(out, "\nnothing to rewrite: every edge is already keyed by its property name.")
+		}
 	}
 	printProblems(out, "ambiguous edge key", r.Ambiguous, r.AmbiguousTotal)
 	printProblems(out, "unresolved edge key", r.Unresolved, r.UnresolvedTotal)

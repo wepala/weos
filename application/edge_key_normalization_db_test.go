@@ -307,3 +307,56 @@ func TestCountIRIEdgeKeys_AgainstAStore(t *testing.T) {
 		t.Fatalf("records-only: %+v", recordsOnly)
 	}
 }
+
+// The population --restamp serves on an old instance: an IRI-keyed
+// (pre-#515) document whose old predicate the type's context now names only
+// through an alias, and the Triple.Created written beside it. Both must move
+// in one run — the triple from the resolver's answer, before the rewrite
+// replaces the document's context.
+func TestNormalizeEdgeKeys_RestampMovesTheTripleOfAnIRIKeyedDocument(t *testing.T) {
+	env := newNormalizeTestEnv(t)
+	ctx := context.Background()
+	env.append(t, "evt-rt", "urn:type:food-item", "ResourceType.Created", 1, entities.ResourceTypeCreated{
+		Name: "Food Item", Slug: "food-item", Timestamp: time.Now().UTC(),
+		Context: json.RawMessage(`{"@vocab":"https://schema.org/","mp":"https://weos.io/vocab/meal-planning#",
+		  "@type":"mp:FoodItem","ingredient":{"@id":"mp:isInstanceOf","@type":"@id"},
+		  "weos:termAliases":{"ingredient":["https://weos.org/vocab/meal-planning#isInstanceOf"]}}`),
+		Schema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},` +
+			`"ingredient":{"type":"string","x-resource-type":"ingredient"}}}`),
+	})
+	legacy := `{"@context":{"@vocab":"https://schema.org/","mp":"https://weos.org/vocab/meal-planning#"},"@graph":[` +
+		`{"@id":"urn:food-item:a","@type":"mp:FoodItem","name":"Garlic head"},` +
+		`{"@id":"urn:food-item:a","https://weos.org/vocab/meal-planning#isInstanceOf":{"@id":"urn:ingredient:g"}}]}`
+	env.appendInTx(t, "evt-c", "urn:food-item:a", "Resource.Created", 1, "tx-a", entities.ResourceCreated{
+		TypeSlug: "food-item", Data: json.RawMessage(legacy), Timestamp: time.Now().UTC()})
+	env.appendInTx(t, "evt-t", "urn:food-item:a", "Triple.Created", 2, "tx-a", entities.TripleCreated{}.With(
+		"urn:food-item:a", "https://weos.org/vocab/meal-planning#isInstanceOf", "urn:ingredient:g", ""))
+	var rt ReprojectRuntime
+	seed := fx.New(fx.NopLogger, ReprojectModule(config.Config{DatabaseDSN: env.dsn}), fx.Populate(&rt))
+	if err := seed.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Reproject(ctx, rt, ReprojectOptions{}); err != nil {
+		t.Fatalf("reproject: %v", err)
+	}
+	_ = seed.Stop(ctx)
+
+	report := env.mustRun(t, NormalizeEdgeKeysOptions{Write: true, Restamp: true, BatchSize: 1})
+	fi := report.Types["food-item"]
+	if fi == nil || fi.Rewritten != 1 || fi.Restamped != 1 || fi.TriplesMoved != 1 {
+		t.Fatalf("food-item: %+v (report %+v)", fi, report)
+	}
+	doc := env.rawPayload(t, "evt-c")
+	if !strings.Contains(doc, `"ingredient":{"@id":"urn:ingredient:g"}`) ||
+		!strings.Contains(doc, `"mp":"https://weos.io/vocab/meal-planning#"`) {
+		t.Errorf("the document was not rewritten and re-stamped together:\n%s", doc)
+	}
+	triple := env.rawPayload(t, "evt-t")
+	if !strings.Contains(triple, `"predicate":"https://weos.io/vocab/meal-planning#isInstanceOf"`) {
+		t.Errorf("the triple did not move with its document:\n%s", triple)
+	}
+	again := env.mustRun(t, NormalizeEdgeKeysOptions{Write: true, Restamp: true})
+	if again.Rewritten+again.Restamped+again.TriplesMoved != 0 {
+		t.Errorf("a second run must move nothing: %+v", again)
+	}
+}
