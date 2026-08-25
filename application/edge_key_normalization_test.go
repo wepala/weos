@@ -22,7 +22,7 @@ import (
 
 func edgeKeyTestResolver(t *testing.T, ldContext, schema string) *edgeKeyResolver {
 	t.Helper()
-	return newEdgeKeyResolver(json.RawMessage(ldContext), json.RawMessage(schema), nil)
+	return newEdgeKeyResolver(json.RawMessage(ldContext), json.RawMessage(schema), nil, "Widget")
 }
 
 func decodeDoc(t *testing.T, raw string) map[string]any {

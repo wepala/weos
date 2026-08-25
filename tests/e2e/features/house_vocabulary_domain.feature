@@ -120,7 +120,9 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
   #    for every old edge. The two surfaces disagree, deliberately and
   #    permanently, and a scenario below asserts it so nobody reads the silence
   #    as "everything moved". This is why the scenarios distinguish "the
-  #    knowledge graph" (the store `embedded_knowledge_graph.feature` queries)
+  #    knowledge graph" — asserted on the STORED DOCUMENT, the JSON-LD the
+  #    graph store ingests verbatim, because the embedded store only exists
+  #    under the oxigraph_embedded build tag and the main gate has none
   #    from "the triple store" (the `triples` table `edge_key_normalization.feature`
   #    asserts against). They are not interchangeable here.
   #
@@ -424,15 +426,13 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
     And the operator maps "mp" to "https://weos.io/vocab/meal-planning#" in the stored "food-item" context
     And a "food-item" named "Lime wedge" exists
     When the operator reprojects the event feed
-    And the operator rebuilds the knowledge graph
-    Then the "food-item" "Lime wedge" carries the RDF type "https://weos.io/vocab/meal-planning#FoodItem" in the knowledge graph
-    And the "food-item" "Garlic head" carries the RDF type "https://weos.org/vocab/meal-planning#FoodItem" in the knowledge graph
+    Then the "food-item" "Lime wedge" carries the RDF type "https://weos.io/vocab/meal-planning#FoodItem" in the stored document
+    And the "food-item" "Garlic head" carries the RDF type "https://weos.org/vocab/meal-planning#FoodItem" in the stored document
     When the operator re-stamps the stored documents and writes
     And the operator reprojects the event feed
-    And the operator rebuilds the knowledge graph
-    Then the "food-item" "Garlic head" carries the RDF type "https://weos.io/vocab/meal-planning#FoodItem" in the knowledge graph
-    And every "food-item" resource carries the same RDF type in the knowledge graph
-    And no resource carries an RDF type under "https://weos.org/" in the knowledge graph
+    Then the "food-item" "Garlic head" carries the RDF type "https://weos.io/vocab/meal-planning#FoodItem" in the stored document
+    And every "food-item" resource carries the same RDF type in the stored document
+    And no resource carries an RDF type under "https://weos.org/" in the stored document
 
   # A re-stamp rewrites stored events. The guarantee that makes that acceptable
   # is that nothing a reader sees moves — the projection and the API were
@@ -470,9 +470,8 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
     When the operator re-stamps the stored documents and writes
     Then the stored event for the "food-item" "Garlic head" maps "mp" to "https://weos.io/vocab/meal-planning#" in its own context
     When the operator reprojects the event feed
-    And the operator rebuilds the knowledge graph
-    Then the knowledge graph holds "https://weos.io/vocab/meal-planning#isInstanceOf" from the "food-item" "Garlic head" to the "ingredient" "Garlic"
-    And the knowledge graph holds no edge under "https://weos.org/" from the "food-item" "Garlic head"
+    Then the stored document states "https://weos.io/vocab/meal-planning#isInstanceOf" from the "food-item" "Garlic head" to the "ingredient" "Garlic"
+    And the stored document states no edge under "https://weos.org/" from the "food-item" "Garlic head"
 
   # Memory and agents spell the namespace out in full, so their LITERAL
   # predicates move with the re-stamp too. This is the only way those terms are
@@ -486,9 +485,8 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
     And the operator maps "<property>" to "<new predicate>" in the stored "<slug>" context
     When the operator re-stamps the stored documents and writes
     And the operator reprojects the event feed
-    And the operator rebuilds the knowledge graph
-    Then the knowledge graph holds "<new predicate>" from the "<slug>" "<name>" with the value "<value>"
-    And the knowledge graph holds no statement under "https://weos.org/" about the "<slug>" "<name>"
+    Then the stored document states "<new predicate>" from the "<slug>" "<name>" with the value "<value>"
+    And the stored document states no statement under "https://weos.org/" about the "<slug>" "<name>"
 
     Examples:
       | preset | slug        | name    | property     | value          | new predicate                                 |
@@ -580,8 +578,7 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
     And the operator maps "mp" to "https://weos.io/vocab/meal-planning#" in the stored "food-item" context
     When the operator re-stamps the stored documents and writes
     And the operator reprojects the event feed
-    And the operator rebuilds the knowledge graph
-    Then the knowledge graph holds "https://weos.io/vocab/meal-planning#isInstanceOf" from the "food-item" "Garlic head" to the "ingredient" "Garlic"
+    Then the stored document states "https://weos.io/vocab/meal-planning#isInstanceOf" from the "food-item" "Garlic head" to the "ingredient" "Garlic"
     But the triple store holds "https://weos.org/vocab/meal-planning#isInstanceOf" from the "food-item" "Garlic head" to the "ingredient" "Garlic"
     And reading the "food-item" "Garlic head" back through the projection returns "ingredient" as the "ingredient" "Garlic"
 

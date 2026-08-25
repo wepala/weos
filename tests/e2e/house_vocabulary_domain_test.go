@@ -58,6 +58,10 @@ type vocabWorld struct {
 	extraLiterals map[string][]string
 	// fixtureSeq numbers the auto-created prerequisite resources.
 	fixtureSeq int
+	// lastID / lastSlug are the resource "a <slug> resource is created" made.
+	lastID, lastSlug string
+	// restampReport is the last --restamp run's report.
+	restampReport *application.NormalizeEdgeKeysReport
 }
 
 func initHouseVocabularyScenario(sc *godog.ScenarioContext) {
@@ -115,6 +119,259 @@ func initHouseVocabularyScenario(sc *godog.ScenarioContext) {
 		w.apiReturnsReference)
 	sc.Step(`^the JSON-LD representation of the "([^"]*)" "([^"]*)" still carries an? "([^"]*)" edge `+
 		`to the "([^"]*)" "([^"]*)"$`, w.documentCarriesEdge)
+
+	// --- the re-stamp (issue #520, decided 2026-08-25) ---
+	sc.Step(`^the operator maps "([^"]*)" to "([^"]*)" in the stored "([^"]*)" context$`, w.operatorMapsTermOf)
+	sc.Step(`^an? "([^"]*)" named "([^"]*)" with "([^"]*)" referring to the "([^"]*)" "([^"]*)" exists$`,
+		w.createWithReference)
+	sc.Step(`^I create an? "([^"]*)" named "([^"]*)" with "([^"]*)" referring to the "([^"]*)" "([^"]*)" `+
+		`and "([^"]*)" set to "([^"]*)"$`, w.createWithReferenceAndLiteral)
+	sc.Step(`^the operator reprojects the event feed$`, w.theOperatorReprojects)
+	sc.Step(`^the operator re-stamps the stored documents as a dry run$`, w.restampDryRun)
+	sc.Step(`^the operator re-stamps the stored documents and writes$`, w.restampAndWrite)
+	sc.Step(`^the re-stamp reports (\d+) events? to re-stamp for "([^"]*)"$`, w.restampReportsForType)
+	sc.Step(`^the re-stamp reports nothing to re-stamp for "([^"]*)"$`, w.restampReportsNothingForType)
+	sc.Step(`^the re-stamp reports nothing to re-stamp$`, w.restampReportsNothing)
+	sc.Step(`^the re-stamp reports itself as a dry run$`, w.restampReportsDryRun)
+	sc.Step(`^the re-stamp re-stamped (\d+) events? for "([^"]*)"$`, w.restampedForType)
+	sc.Step(`^the re-stamp re-stamped 0 events$`, w.restampedNothing)
+	sc.Step(`^the stored events are byte-identical to the ones stored before the (?:second )?run$`,
+		w.storedEventsUnchanged)
+	sc.Step(`^the event feed holds the same events in the same order as before the run$`, w.eventFeedSameOrder)
+	sc.Step(`^every event keeps its aggregate id, sequence number and event type$`, w.eventsKeepIdentity)
+	sc.Step(`^no event of a type other than "([^"]*)" or "([^"]*)" was re-stamped$`, w.onlyTheseEventTypesRewritten)
+	sc.Step(`^the entity node of the stored event for the "([^"]*)" "([^"]*)" is byte-identical to the one stored `+
+		`before the run apart from its "@type"$`, w.entityNodeUnchangedApartFromType)
+	sc.Step(`^the stored event for the "([^"]*)" "([^"]*)" maps "([^"]*)" to "([^"]*)" in its own context$`,
+		w.storedEventContextMaps)
+	sc.Step(`^the stored event for the "([^"]*)" "([^"]*)" keys its "([^"]*)" edge by the property name$`,
+		w.storedEventKeysEdgeByPropertyName)
+	sc.Step(`^the read of every resource with a reference property is captured$`, w.captureEveryRead)
+	sc.Step(`^the read of every resource with a reference property matches what was captured$`, w.everyReadMatches)
+	sc.Step(`^the "([^"]*)" "([^"]*)" carries the RDF type "([^"]*)" in the stored document$`, w.resourceCarriesType)
+	sc.Step(`^every "([^"]*)" resource carries the same RDF type in the stored document$`, w.everyResourceSameType)
+	sc.Step(`^no resource carries an RDF type under "([^"]*)" in the stored document$`, w.noResourceCarriesTypeUnder)
+	sc.Step(`^the stored document states "([^"]*)" from the "([^"]*)" "([^"]*)" to the "([^"]*)" "([^"]*)"$`,
+		w.documentStatesEdge)
+	sc.Step(`^the stored document states no edge under "([^"]*)" from the "([^"]*)" "([^"]*)"$`,
+		w.documentStatesNoEdgeUnder)
+	sc.Step(`^the stored document states "([^"]*)" from the "([^"]*)" "([^"]*)" with the value "([^"]*)"$`,
+		w.documentStatesLiteral)
+	sc.Step(`^the stored document states no statement under "([^"]*)" about the "([^"]*)" "([^"]*)"$`,
+		w.documentStatesNothingUnder)
+}
+
+// --- the re-stamp ---
+
+func (w *vocabWorld) operatorMapsTermOf(term, iri, slug string) error {
+	terms, err := w.storedContextOf(slug)
+	if err != nil {
+		return err
+	}
+	terms[term] = iri
+	return w.writeStoredContext(slug, terms)
+}
+
+func (w *vocabWorld) createWithReferenceAndLiteral(slug, name, property, targetSlug, target, literal, value string) error {
+	id, err := w.targetID(targetSlug, target)
+	if err != nil {
+		return err
+	}
+	v, err := w.literalValue(slug, literal, value)
+	if err != nil {
+		return err
+	}
+	return w.createResourceOf(slug, name, map[string]any{property: id, literal: v})
+}
+
+// restamp runs normalize-edge-keys --restamp the way the CLI does: the live
+// app stopped, its own narrow runtime built on the CURRENT build's registry.
+func (w *vocabWorld) restamp(write bool) error {
+	w.registry = w.thisBuild
+	if err := w.normalizeWith(application.NormalizeEdgeKeysOptions{Write: write, Restamp: true}); err != nil {
+		return err
+	}
+	w.restampReport = w.normalizeReport
+	return nil
+}
+
+func (w *vocabWorld) restampDryRun() error   { return w.restamp(false) }
+func (w *vocabWorld) restampAndWrite() error { return w.restamp(true) }
+
+func (w *vocabWorld) restampCount(slug string) (int, bool, error) {
+	if w.restampReport == nil {
+		return 0, false, fmt.Errorf("the re-stamp has not run in this scenario")
+	}
+	if slug == "" {
+		return w.restampReport.Restamped, w.restampReport.DryRun, nil
+	}
+	if t := w.restampReport.Types[slug]; t != nil {
+		return t.Restamped, w.restampReport.DryRun, nil
+	}
+	return 0, w.restampReport.DryRun, nil
+}
+
+func (w *vocabWorld) restampExpect(slug string, want int, dryRun bool) error {
+	got, isDry, err := w.restampCount(slug)
+	if err != nil {
+		return err
+	}
+	if isDry != dryRun {
+		return fmt.Errorf("the re-stamp reported DryRun=%v, want %v", isDry, dryRun)
+	}
+	if got != want {
+		return fmt.Errorf("the re-stamp reported %d event(s) for %q, want %d (report: %s)",
+			got, slug, want, marshalForMessage(w.restampReport))
+	}
+	return nil
+}
+
+func (w *vocabWorld) restampReportsForType(n int, slug string) error {
+	return w.restampExpect(slug, n, true)
+}
+func (w *vocabWorld) restampReportsNothingForType(slug string) error {
+	return w.restampExpect(slug, 0, true)
+}
+func (w *vocabWorld) restampReportsNothing() error { return w.restampExpect("", 0, true) }
+func (w *vocabWorld) restampedForType(n int, slug string) error {
+	return w.restampExpect(slug, n, false)
+}
+func (w *vocabWorld) restampedNothing() error { return w.restampExpect("", 0, false) }
+
+func (w *vocabWorld) restampReportsDryRun() error {
+	if w.restampReport == nil || !w.restampReport.DryRun {
+		return fmt.Errorf("the re-stamp did not report itself as a dry run")
+	}
+	return nil
+}
+
+// entityNodeUnchangedApartFromType compares the Created event's entity node
+// before and after the run with @type removed from both.
+func (w *vocabWorld) entityNodeUnchangedApartFromType(slug, name string) error {
+	id, err := w.targetID(slug, name)
+	if err != nil {
+		return err
+	}
+	strip := func(events []storedEvent) string {
+		node := entityNodesByAggregate(events)[id]
+		var m map[string]any
+		if json.Unmarshal([]byte(node), &m) != nil {
+			return node
+		}
+		delete(m, "@type")
+		return marshalForMessage(m)
+	}
+	after, err := w.snapshotEvents()
+	if err != nil {
+		return err
+	}
+	before, now := strip(w.eventsBeforeNormalize), strip(after)
+	if before == "" || before != now {
+		return fmt.Errorf("the entity node of %q changed beyond @type:\n before %s\n after  %s", name, before, now)
+	}
+	return nil
+}
+
+func (w *vocabWorld) resourceCarriesType(slug, name, class string) error {
+	id, err := w.targetID(slug, name)
+	if err != nil {
+		return err
+	}
+	doc, embedded, err := w.document(id)
+	if err != nil {
+		return err
+	}
+	if got := classOf(doc, embedded); got != class {
+		return fmt.Errorf("%s %q carries the RDF type %s, want %s", slug, name, got, class)
+	}
+	return nil
+}
+
+func (w *vocabWorld) everyResourceSameType(slug string) error {
+	classes := map[string]string{}
+	for key, id := range w.createdIDs {
+		if !strings.HasPrefix(key, slug+"/") {
+			continue
+		}
+		doc, embedded, err := w.document(id)
+		if err != nil {
+			return err
+		}
+		classes[key] = classOf(doc, embedded)
+	}
+	seen := ""
+	for key, class := range classes {
+		if seen == "" {
+			seen = class
+		}
+		if class != seen {
+			return fmt.Errorf("%s resources carry different RDF types: %v", slug, classes)
+		}
+		_ = key
+	}
+	return nil
+}
+
+// documentStatesEdge derives the statement the graph store would: the edges
+// node's key resolved through the document's OWN context.
+func (w *vocabWorld) documentEdges(slug, name string) (map[string][]string, error) {
+	id, err := w.targetID(slug, name)
+	if err != nil {
+		return nil, err
+	}
+	doc, embedded, err := w.document(id)
+	if err != nil {
+		return nil, err
+	}
+	graph, _ := doc["@graph"].([]any)
+	out := map[string][]string{}
+	if len(graph) < 2 {
+		return out, nil
+	}
+	edges, _ := graph[1].(map[string]any)
+	vocab, forward := jsonld.ParseContext(embedded)
+	for key, val := range edges {
+		if key == "@id" {
+			continue
+		}
+		predicate := key
+		if !jsonld.IsIRIKey(key) {
+			predicate = jsonld.ResolvePredicateIRI(key, vocab, forward)
+		}
+		ids, _ := jsonld.EdgeIDs(val)
+		out[predicate] = append(out[predicate], ids...)
+	}
+	return out, nil
+}
+
+func (w *vocabWorld) documentStatesEdge(predicate, slug, name, targetSlug, target string) error {
+	want, err := w.targetID(targetSlug, target)
+	if err != nil {
+		return err
+	}
+	edges, err := w.documentEdges(slug, name)
+	if err != nil {
+		return err
+	}
+	for _, id := range edges[predicate] {
+		if id == want {
+			return nil
+		}
+	}
+	return fmt.Errorf("the stored document of %s %q states no %s -> %s (edges: %v)", slug, name, predicate, want, edges)
+}
+
+func (w *vocabWorld) documentStatesNoEdgeUnder(ns, slug, name string) error {
+	edges, err := w.documentEdges(slug, name)
+	if err != nil {
+		return err
+	}
+	for predicate := range edges {
+		if strings.HasPrefix(predicate, ns) {
+			return fmt.Errorf("the stored document of %s %q states an edge under %s: %s", slug, name, ns, predicate)
+		}
+	}
+	return nil
 }
 
 // --- builds ---
@@ -522,8 +779,7 @@ func (w *vocabWorld) createResourceOf(slug, name string, given map[string]any) e
 		key = slug + "/" + res.GetID()
 	}
 	w.createdIDs[key] = res.GetID()
-	w.createdIDs["last"] = res.GetID()
-	w.createdIDs["last-slug"] = slug
+	w.lastID, w.lastSlug = res.GetID(), slug
 	return nil
 }
 
@@ -631,21 +887,18 @@ func classOf(doc map[string]any, embedded json.RawMessage) string {
 }
 
 func (w *vocabWorld) lastResourceCarriesType(class string) error {
-	doc, embedded, err := w.document(w.createdIDs["last"])
+	doc, embedded, err := w.document(w.lastID)
 	if err != nil {
 		return err
 	}
 	if got := classOf(doc, embedded); got != class {
-		return fmt.Errorf("the %s resource carries the RDF type %s, want %s", w.createdIDs["last-slug"], got, class)
+		return fmt.Errorf("the %s resource carries the RDF type %s, want %s", w.lastSlug, got, class)
 	}
 	return nil
 }
 
 func (w *vocabWorld) noResourceCarriesTypeUnder(ns string) error {
 	for key, id := range w.createdIDs {
-		if key == "last" || key == "last-slug" {
-			continue
-		}
 		doc, embedded, err := w.document(id)
 		if err != nil {
 			return err

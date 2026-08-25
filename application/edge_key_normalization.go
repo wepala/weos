@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
@@ -126,6 +127,13 @@ type NormalizeEdgeKeysOptions struct {
 	Write bool
 	// BatchSize is event rows per read; <= 0 uses 500.
 	BatchSize int
+	// Restamp also rewrites every document's embedded @context — and the
+	// entity node's @type — to what a fresh write embeds today, even when
+	// the edges are already keyed by property name. A reprojection replays
+	// payloads verbatim, so this is the only way an already-written resource
+	// takes a class or predicate its type's context has since moved to
+	// (issue #520; #521 gives Person and Organization a class the same way).
+	Restamp bool
 }
 
 // EdgeKeyProblem is one edge the run declined to rewrite, with enough for the
@@ -153,6 +161,13 @@ type EdgeKeyTypeReport struct {
 	// Rewritten is the events with at least one edge key changed — what a
 	// dry run WOULD rewrite, what a write DID.
 	Rewritten int
+	// Restamped is the events whose embedded @context or entity @type was
+	// brought up to date by --restamp (an event can be both rewritten and
+	// re-stamped; it is counted in each).
+	Restamped int
+	// TriplesMoved is the Triple.Created/Deleted events whose predicate
+	// --restamp moved to follow a re-stamped document.
+	TriplesMoved int
 }
 
 // NormalizeEdgeKeysReport is what a run found and did.
@@ -166,6 +181,12 @@ type NormalizeEdgeKeysReport struct {
 	Skipped map[string]int
 	// Rewritten is the events with at least one edge key changed, all types.
 	Rewritten int
+	// Restamped is the events --restamp brought up to date, all types.
+	Restamped int
+	// TriplesMoved is the Triple.* events --restamp moved, all types.
+	TriplesMoved int
+	// Restamp records that the run re-stamped as well as rewrote.
+	Restamp bool
 	// Types is the per-type breakdown, keyed by type slug.
 	Types map[string]*EdgeKeyTypeReport
 	// Ambiguous are edges whose IRI more than one name claims.
@@ -206,6 +227,13 @@ func (r NormalizeEdgeKeysReport) TypeSlugs() []string {
 // rewritten here.
 var edgeCarryingEventTypes = []string{"Resource.Created", "Resource.Updated"}
 
+// tripleEventTypes carry one edge each as a predicate IRI frozen at write
+// time. --restamp moves them alongside the document they belong to, because
+// a reprojection folds them back into the document through AddEdgeToGraph:
+// left on the old IRI they would re-add the edge under a key the re-stamped
+// context no longer names.
+var tripleEventTypes = []string{"Triple.Created", "Triple.Deleted"}
+
 // edgeKeyProblemKind separates the three reasons an edge is left alone.
 type edgeKeyProblemKind int
 
@@ -237,8 +265,12 @@ func (eventRow) TableName() string { return pericarpinfra.GormEventModel{}.Table
 // counted. SQLite assigns positions inside the write transaction and needs no
 // guard.
 func readEdgeEventsAfter(ctx context.Context, db *gorm.DB, after int64, batch int) ([]eventRow, error) {
+	return readEventsAfter(ctx, db, after, batch, edgeCarryingEventTypes)
+}
+
+func readEventsAfter(ctx context.Context, db *gorm.DB, after int64, batch int, types []string) ([]eventRow, error) {
 	q := db.WithContext(ctx).Model(&eventRow{}).
-		Where("position > ? AND event_type IN ?", after, edgeCarryingEventTypes)
+		Where("position > ? AND event_type IN ?", after, types)
 	if db.Name() == "postgres" {
 		q = q.Where("xact_id < pg_snapshot_xmin(pg_current_snapshot())")
 	}
@@ -296,15 +328,22 @@ func NormalizeEdgeKeys(
 		batch = 500
 	}
 	run := &edgeKeyRun{
-		rt:     rt,
-		write:  opts.Write,
-		report: NormalizeEdgeKeysReport{DryRun: !opts.Write, Types: map[string]*EdgeKeyTypeReport{}},
-		types:  newResourceTypeIndex(rt.RTRepo, rt.Links, rt.Logger),
+		rt:      rt,
+		write:   opts.Write,
+		restamp: opts.Restamp,
+		report: NormalizeEdgeKeysReport{DryRun: !opts.Write, Restamp: opts.Restamp,
+			Types: map[string]*EdgeKeyTypeReport{}},
+		types:          newResourceTypeIndex(rt.RTRepo, rt.Links, rt.Logger),
+		predicateMoves: map[string]map[string]string{},
 	}
 
+	types := edgeCarryingEventTypes
+	if opts.Restamp {
+		types = append(append([]string{}, edgeCarryingEventTypes...), tripleEventTypes...)
+	}
 	var last int64
 	for {
-		rows, err := readEdgeEventsAfter(ctx, rt.DB, last, batch)
+		rows, err := readEventsAfter(ctx, rt.DB, last, batch, types)
 		if err != nil {
 			return run.report, fmt.Errorf("normalize-edge-keys: read after position %d: %w", last, err)
 		}
@@ -316,17 +355,23 @@ func NormalizeEdgeKeys(
 		}
 		last = rows[len(rows)-1].Position
 		rt.Logger.Info(ctx, "normalize-edge-keys: progress", "position", last,
-			"scanned", run.report.Scanned, "rewritten", run.report.Rewritten, "dryRun", !opts.Write)
+			"scanned", run.report.Scanned, "rewritten", run.report.Rewritten,
+			"restamped", run.report.Restamped, "dryRun", !opts.Write)
 	}
 	return run.report, nil
 }
 
 // edgeKeyRun carries one run's state across batches.
 type edgeKeyRun struct {
-	rt     NormalizeEdgeKeysRuntime
-	write  bool
-	report NormalizeEdgeKeysReport
-	types  *resourceTypeIndex
+	rt      NormalizeEdgeKeysRuntime
+	write   bool
+	restamp bool
+	report  NormalizeEdgeKeysReport
+	types   *resourceTypeIndex
+	// predicateMoves records, per aggregate, each predicate a re-stamp moved
+	// (old IRI → new IRI), so the aggregate's Triple.* events — which come
+	// after the document in position order — move with it.
+	predicateMoves map[string]map[string]string
 }
 
 // resourceTypeIndex learns each event's resource type and holds one resolver
@@ -398,12 +443,11 @@ func (run *edgeKeyRun) rewriteEvent(ctx context.Context, row *eventRow) (pericar
 		run.skip("event names no resource type")
 		return nil, nil
 	}
-	run.report.Scanned++
-	tr := run.report.Types[slug]
-	if tr == nil {
-		tr = &EdgeKeyTypeReport{}
-		run.report.Types[slug] = tr
+	if strings.HasPrefix(row.EventType, "Triple.") {
+		return run.restampTriple(row, payload, slug), nil
 	}
+	run.report.Scanned++
+	tr := run.typeCount(slug)
 	tr.Scanned++
 
 	data, ok := payload["Data"].(map[string]any)
@@ -420,6 +464,14 @@ func (run *edgeKeyRun) rewriteEvent(ctx context.Context, row *eventRow) (pericar
 		return nil, fmt.Errorf("normalize-edge-keys: %w", err)
 	}
 	changed, problems := normalizeEdgeKeys(data, resolver)
+	restamped := false
+	if run.restamp && resolver != nil {
+		moves := predicateMovesOf(data, resolver)
+		restamped = restampDocument(data, resolver)
+		if len(moves) > 0 {
+			run.predicateMoves[row.AggregateID] = moves
+		}
+	}
 	for i := range problems {
 		problems[i].TypeSlug = slug
 		problems[i].ResourceID = row.AggregateID
@@ -427,13 +479,119 @@ func (run *edgeKeyRun) rewriteEvent(ctx context.Context, row *eventRow) (pericar
 		problems[i].Position = row.Position
 		run.record(problems[i])
 	}
-	if !changed {
+	if changed {
+		tr.Rewritten++
+		run.report.Rewritten++
+	}
+	if restamped {
+		tr.Restamped++
+		run.report.Restamped++
+	}
+	if !changed && !restamped {
 		return nil, nil
 	}
 	payload["Data"] = data
-	tr.Rewritten++
-	run.report.Rewritten++
 	return pericarpinfra.JSONB(payload), nil
+}
+
+// restampDocument brings a stored document's embedded @context and its
+// entity node's @type up to what BuildResourceGraph writes for the type
+// today, and reports whether anything moved. It touches nothing else: the
+// entity's properties and the edges node are exactly as they were.
+//
+// This exists because a reprojection cannot do it. worker reproject replays
+// each Resource.Created/Updated payload verbatim, and the class and the
+// predicates the knowledge graph derives come from the payload's OWN
+// @context, stamped at write time — so a term or prefix the type's context
+// has since moved stays where it was for every resource written before the
+// move, no matter how often the feed is replayed.
+func restampDocument(data map[string]any, resolver *edgeKeyResolver) bool {
+	moved := false
+	if resolver.storable != nil && !jsonEquivalentAny(data["@context"], resolver.storable) {
+		data["@context"] = resolver.storable
+		moved = true
+	}
+	graph, _ := data["@graph"].([]any)
+	if len(graph) > 0 {
+		if entity, ok := graph[0].(map[string]any); ok {
+			if typ, _ := entity["@type"].(string); typ != resolver.schemaType {
+				entity["@type"] = resolver.schemaType
+				moved = true
+			}
+		}
+	}
+	return moved
+}
+
+// predicateMovesOf lists the predicates a re-stamp of this document moves:
+// each edge, resolved through the document's OWN context as it stands,
+// against the same property resolved through the type's current context.
+func predicateMovesOf(data map[string]any, resolver *edgeKeyResolver) map[string]string {
+	edges := storedEdgesNode(data)
+	if len(edges) == 0 {
+		return nil
+	}
+	embedded, _ := json.Marshal(data["@context"])
+	oldVocab, oldTerms := jsonld.ParseContext(embedded)
+	if len(oldTerms) == 0 && oldVocab == "" {
+		if s, ok := data["@context"].(string); ok {
+			oldVocab = s
+		}
+	}
+	newVocab, newTerms := jsonld.ParseContext(resolver.ldContext)
+	moves := map[string]string{}
+	for key := range edges {
+		if key == "@id" {
+			continue
+		}
+		property, old := key, key
+		if jsonld.IsIRIKey(key) {
+			name, ok := jsonld.EdgeProperty(key, embedded)
+			if !ok {
+				continue
+			}
+			property = name
+		} else {
+			old = jsonld.ResolvePredicateIRI(key, oldVocab, oldTerms)
+		}
+		if next := jsonld.ResolvePredicateIRI(property, newVocab, newTerms); next != old {
+			moves[old] = next
+		}
+	}
+	return moves
+}
+
+// restampTriple moves a Triple.* event's predicate when the document it
+// belongs to was re-stamped, and returns the rewritten payload or nil.
+func (run *edgeKeyRun) restampTriple(row *eventRow, payload map[string]any, slug string) pericarpinfra.JSONB {
+	moves := run.predicateMoves[row.AggregateID]
+	predicate, _ := payload["predicate"].(string)
+	next, moved := moves[predicate]
+	if !moved {
+		return nil
+	}
+	payload["predicate"] = next
+	run.typeCount(slug).TriplesMoved++
+	run.report.TriplesMoved++
+	return pericarpinfra.JSONB(payload)
+}
+
+func (run *edgeKeyRun) typeCount(slug string) *EdgeKeyTypeReport {
+	tr := run.report.Types[slug]
+	if tr == nil {
+		tr = &EdgeKeyTypeReport{}
+		run.report.Types[slug] = tr
+	}
+	return tr
+}
+
+// jsonEquivalentAny compares two decoded JSON values by their canonical
+// encoding, so a map read with json.Number and one built in Go compare
+// equal when they mean the same document.
+func jsonEquivalentAny(a, b any) bool {
+	ea, errA := json.Marshal(a)
+	eb, errB := json.Marshal(b)
+	return errA == nil && errB == nil && bytes.Equal(ea, eb)
 }
 
 // skip counts an event whose payload the run could not read, by reason, so
@@ -497,7 +655,7 @@ func (ix *resourceTypeIndex) resolverFor(ctx context.Context, slug string) (*edg
 	case err != nil:
 		return nil, fmt.Errorf("load resource type %q: %w", slug, err)
 	default:
-		resolver = newEdgeKeyResolver(rtype.Context(), rtype.Schema(), ix.links.BySource(slug))
+		resolver = newEdgeKeyResolver(rtype.Context(), rtype.Schema(), ix.links.BySource(slug), rtype.Name())
 	}
 	ix.resolvers[slug] = resolver
 	return resolver, nil
@@ -512,9 +670,14 @@ type edgeKeyResolver struct {
 	claims map[string][]string
 	// storable is the `@context` a fresh write of this type embeds today.
 	storable any
+	// schemaType is the entity @type a fresh write of this type carries:
+	// the context's "@type" when it names one, else the type's name.
+	schemaType string
 }
 
-func newEdgeKeyResolver(ldContext, schema json.RawMessage, links []PresetLinkDefinition) *edgeKeyResolver {
+func newEdgeKeyResolver(
+	ldContext, schema json.RawMessage, links []PresetLinkDefinition, typeName string,
+) *edgeKeyResolver {
 	claims := map[string]map[string]struct{}{}
 	claim := func(iri, name string) {
 		if claims[iri] == nil {
@@ -554,8 +717,15 @@ func newEdgeKeyResolver(ldContext, schema json.RawMessage, links []PresetLinkDef
 		sort.Strings(list)
 		out.claims[iri] = list
 	}
+	out.schemaType = typeName
 	if len(ldContext) > 0 {
 		out.storable = buildStorableContext(ldContext)
+		var raw map[string]any
+		if json.Unmarshal(ldContext, &raw) == nil {
+			if ct, ok := raw["@type"].(string); ok && ct != "" {
+				out.schemaType = ct
+			}
+		}
 	}
 	return out
 }

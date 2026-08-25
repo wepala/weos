@@ -42,6 +42,13 @@ reprojection — no term aliases are needed.
 DRY RUN BY DEFAULT: the command reports what it would change, per resource
 type, and writes nothing until --write is passed.
 
+--restamp also brings every document's embedded @context — and its entity
+@type — up to what a fresh write embeds today, even where the edges are
+already keyed by property name. A reprojection replays payloads verbatim, so
+this is how a resource written before a term, prefix or class moved takes the
+new IRI in the knowledge graph. The aggregate's Triple.Created/Deleted events
+move with it, so a reprojection cannot fold the old predicate back in.
+
 An edge whose IRI more than one name claims is never rewritten; it is
 reported with the candidates for you to decide. An edge that no term, alias
 or @vocab prefix names is reported and left as it was, as is one whose
@@ -62,12 +69,15 @@ restoring the backup — the command appends, deletes and renumbers nothing.`,
 func init() {
 	workerNormalizeEdgeKeysCmd.Flags().Bool("write", false, "apply the rewrite (default is a dry run)")
 	workerNormalizeEdgeKeysCmd.Flags().Int("batch-size", 500, "events read per batch")
+	workerNormalizeEdgeKeysCmd.Flags().Bool("restamp", false,
+		"also bring every document's embedded @context and entity @type up to the type's current context")
 	workerCmd.AddCommand(workerNormalizeEdgeKeysCmd)
 }
 
 func runWorkerNormalizeEdgeKeys(cmd *cobra.Command, _ []string) error {
 	write, _ := cmd.Flags().GetBool("write")
 	batch, _ := cmd.Flags().GetInt("batch-size")
+	restamp, _ := cmd.Flags().GetBool("restamp")
 	appCfg := GetConfig().Config
 
 	var rt application.NormalizeEdgeKeysRuntime
@@ -90,6 +100,7 @@ func runWorkerNormalizeEdgeKeys(cmd *cobra.Command, _ []string) error {
 	report, err := application.NormalizeEdgeKeys(cmd.Context(), rt, application.NormalizeEdgeKeysOptions{
 		Write:     write,
 		BatchSize: batch,
+		Restamp:   restamp,
 	})
 	// The report is printed even when the run stopped early: each batch
 	// commits on its own, so the operator needs to know what already landed.
@@ -128,6 +139,16 @@ func printNormalizeEdgeKeysReport(out io.Writer, r application.NormalizeEdgeKeys
 	for _, slug := range r.TypeSlugs() {
 		t := r.Types[slug]
 		_, _ = fmt.Fprintf(out, "  %-24s %s %d of %d event(s)", slug, verb, t.Rewritten, t.Scanned)
+		if r.Restamp {
+			restampVerb := "re-stamped"
+			if r.DryRun {
+				restampVerb = "would re-stamp"
+			}
+			_, _ = fmt.Fprintf(out, "; %s %d", restampVerb, t.Restamped)
+			if t.TriplesMoved > 0 {
+				_, _ = fmt.Fprintf(out, " (+%d triple event(s) moved)", t.TriplesMoved)
+			}
+		}
 		if n := countProblems(r.Ambiguous, slug); n > 0 {
 			_, _ = fmt.Fprintf(out, "; %d ambiguous edge(s)", n)
 		}
@@ -139,7 +160,7 @@ func printNormalizeEdgeKeysReport(out io.Writer, r application.NormalizeEdgeKeys
 		}
 		_, _ = fmt.Fprintln(out)
 	}
-	if r.Rewritten == 0 && r.Problems() == 0 {
+	if r.Rewritten == 0 && r.Restamped == 0 && r.Problems() == 0 {
 		_, _ = fmt.Fprintln(out, "\nnothing to rewrite: every edge is already keyed by its property name.")
 	}
 	printProblems(out, "ambiguous edge key", r.Ambiguous, r.AmbiguousTotal)
@@ -149,7 +170,7 @@ func printNormalizeEdgeKeysReport(out io.Writer, r application.NormalizeEdgeKeys
 		_, _ = fmt.Fprintf(out, "\n%d edge(s) were not rewritten. Fix the type's @context (or the record) and re-run; "+
 			"an edge left keyed by its IRI keeps reading through the existing paths.\n", r.Problems())
 	}
-	if !r.DryRun && r.Rewritten > 0 {
+	if !r.DryRun && (r.Rewritten > 0 || r.Restamped > 0) {
 		_, _ = fmt.Fprintln(out,
 			"\nNext (server stopped): `weos worker reproject` rebuilds the canonical records, projection "+
 				"columns and triples; `weos worker checkpoint reset oxigraph --truncate` rebuilds the knowledge graph.")

@@ -493,6 +493,12 @@ func entityNodesByAggregate(events []storedEvent) map[string]string {
 // --- running the normalization ---
 
 func (w *contextWorld) normalize(write bool) error {
+	return w.normalizeWith(application.NormalizeEdgeKeysOptions{Write: write})
+}
+
+// normalizeWith runs normalize-edge-keys with the given options, the live app
+// stopped, snapshotting the feed on either side.
+func (w *contextWorld) normalizeWith(opts application.NormalizeEdgeKeysOptions) error {
 	w.stop()
 	before, err := w.snapshotEvents()
 	if err != nil {
@@ -503,15 +509,18 @@ func (w *contextWorld) normalize(write bool) error {
 	cfg := config.Default()
 	cfg.DatabaseDSN = w.dsn
 	cfg.LogLevel = "error"
+	registry := w.catalogRegistry
+	if w.registry != nil {
+		registry = w.registry
+	}
 	var rt application.NormalizeEdgeKeysRuntime
-	app := fx.New(fx.NopLogger, application.NormalizeEdgeKeysModule(cfg, w.catalogRegistry()), fx.Populate(&rt))
+	app := fx.New(fx.NopLogger, application.NormalizeEdgeKeysModule(cfg, registry()), fx.Populate(&rt))
 	startCtx, startCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
 	defer startCancel()
 	if err := app.Start(startCtx); err != nil {
 		return fmt.Errorf("failed to start the normalize-edge-keys runtime: %w", err)
 	}
-	report, runErr := application.NormalizeEdgeKeys(context.Background(), rt,
-		application.NormalizeEdgeKeysOptions{Write: write})
+	report, runErr := application.NormalizeEdgeKeys(context.Background(), rt, opts)
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
 	_ = app.Stop(stopCtx)
 	stopCancel()
