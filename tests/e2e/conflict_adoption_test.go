@@ -45,6 +45,7 @@ func (w *contextWorld) registerConflictAdoptionSteps(sc *godog.ScenarioContext) 
 	sc.Step(`^the adoption tells the operator to re-stamp the existing records and reproject$`, w.adoptionNeedsRestamp)
 	sc.Step(`^the adoption reports the "widget" class moving from "([^"]*)" to "([^"]*)"$`, w.adoptionReportsClassMove)
 	sc.Step(`^the "widget" resources "([^"]*)" and "([^"]*)" carry different RDF types$`, w.widgetsCarryDifferentRDFTypes)
+	sc.Step(`^the stored "widget" context maps "([^"]*)" to "([^"]*)"$`, w.theStoredContextStillMaps)
 }
 
 func (w *contextWorld) heldListing() ([]application.HeldTerm, error) {

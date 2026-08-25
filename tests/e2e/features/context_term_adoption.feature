@@ -181,7 +181,7 @@ Feature: An operator adopts a held @context term without orphaning the data behi
   #     is textually identical on both sides of the weos.org → weos.io move, so
   #     only the `mp` prefix diverges.
 
-  @wip @issue-518
+  @issue-518
   Scenario: The held-terms listing tells a term the preset adds apart from one it renames
     Given the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor" without a context entry
     And the twin restarts against the same database
@@ -199,7 +199,7 @@ Feature: An operator adopts a held @context term without orphaning the data behi
   # (`AdoptRemedy`). While a Conflict could not be adopted that was honest;
   # once it can, a warn line with no way out strands the operator exactly as
   # before and the type is reported every start forever.
-  @wip @issue-518
+  @issue-518
   Scenario: The boot names the command that adopts a term the preset renamed
     Given I create a "widget" named "Bolt cutter" with "maker" referring to the "vendor" "Acme"
     And the "catalog" preset declares "maker" as "https://example.org/catalog#madeBy" in the "widget" context
@@ -207,7 +207,7 @@ Feature: An operator adopts a held @context term without orphaning the data behi
     Then the boot reconcile reports the "maker" context term as held for "widget"
     And the boot's held report for "widget" names a command that adopts "maker"
 
-  @wip @issue-518
+  @issue-518
   Scenario: An edge written under the old IRI still reads once the rename is adopted
     Given a "widget" named "Bolt cutter" written by the pre-#515 binary with "maker" referring to the "vendor" "Acme"
     And the "catalog" preset declares "maker" as "https://example.org/catalog#madeBy" in the "widget" context
@@ -220,7 +220,7 @@ Feature: An operator adopts a held @context term without orphaning the data behi
     When the operator reprojects the event feed
     Then reading the "widget" "Bolt cutter" back through the projection returns "maker" as the "vendor" "Acme"
 
-  @wip @issue-518
+  @issue-518
   Scenario: A write made after the rename is adopted lands on the new IRI beside the old edge
     Given a "widget" named "Bolt cutter" written by the pre-#515 binary with "maker" referring to the "vendor" "Acme"
     And the "catalog" preset declares "maker" as "https://example.org/catalog#madeBy" in the "widget" context
@@ -232,7 +232,7 @@ Feature: An operator adopts a held @context term without orphaning the data behi
     And the API read of the "widget" "Hex key" returns "maker" as the "vendor" "Acme"
     And the API read of the "widget" "Bolt cutter" returns "maker" as the "vendor" "Acme"
 
-  @wip @issue-518
+  @issue-518
   Scenario: Adopting the same rename twice records nothing a second time
     Given a "widget" named "Bolt cutter" written by the pre-#515 binary with "maker" referring to the "vendor" "Acme"
     And the "catalog" preset declares "maker" as "https://example.org/catalog#madeBy" in the "widget" context
@@ -243,7 +243,7 @@ Feature: An operator adopts a held @context term without orphaning the data behi
     And the stored "widget" context records exactly one historical IRI for "maker"
     And the API read of the "widget" "Bolt cutter" returns "maker" as the "vendor" "Acme"
 
-  @wip @issue-518
+  @issue-518
   Scenario: The boot settles once the rename is adopted
     Given a "widget" named "Bolt cutter" written by the pre-#515 binary with "maker" referring to the "vendor" "Acme"
     And the "catalog" preset declares "maker" as "https://example.org/catalog#madeBy" in the "widget" context
@@ -255,7 +255,7 @@ Feature: An operator adopts a held @context term without orphaning the data behi
     And the stored "widget" context still maps "maker" to "https://example.org/catalog#madeBy"
     And the held-terms listing for "widget" names no held term
 
-  @wip @issue-518
+  @issue-518
   Scenario: A sweep takes a renamed term alongside an added one
     Given the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor" without a context entry
     And the twin restarts against the same database
@@ -276,7 +276,7 @@ Feature: An operator adopts a held @context term without orphaning the data behi
   # Two upgrades, two renames. The second adoption must ADD an alias rather than
   # replace the first: edges exist under both retired IRIs, and dropping either
   # orphans the records written between the two upgrades.
-  @wip @issue-518
+  @issue-518
   Scenario: A term renamed twice keeps the edges written under each retired IRI readable
     Given a "widget" named "Bolt cutter" written by the pre-#515 binary with "maker" referring to the "vendor" "Acme"
     And the "catalog" preset declares "maker" as "https://example.org/catalog#madeBy" in the "widget" context
@@ -297,7 +297,7 @@ Feature: An operator adopts a held @context term without orphaning the data behi
   # and EVERY one of them needs its old IRI recorded — recording only the first
   # would leave the rest orphaned, which is the whole failure this prevents.
   # This is the shape the real presets are in: one prefix, several properties.
-  @wip @issue-518
+  @issue-518
   Scenario: A renamed prefix records an alias for every property that expands through it
     Given the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor"
     And the twin restarts against the same database
@@ -323,7 +323,7 @@ Feature: An operator adopts a held @context term without orphaning the data behi
 
   # Holding @vocab back is not a reason to refuse the type: the other held terms
   # in the same sweep are still taken.
-  @wip @issue-518
+  @issue-518
   Scenario: A sweep never repoints @vocab
     Given the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor" without a context entry
     And the twin restarts against the same database
@@ -342,7 +342,7 @@ Feature: An operator adopts a held @context term without orphaning the data behi
   # them — not the keyword — carries the alias. The edges only become readable
   # because of it: an untermed property has no forward entry in the reverse map
   # at all, so the recorded IRI is the single thing that resolves them.
-  @wip @issue-518
+  @issue-518
   Scenario: An operator who names @vocab adopts it, and every property it moved stays readable
     Given the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor" without a context entry
     And the "catalog" preset adds a "distributor" reference property to "widget" targeting "vendor" without a context entry
@@ -359,7 +359,7 @@ Feature: An operator adopts a held @context term without orphaning the data behi
     And the API read of the "widget" "Bolt cutter" returns "supplier" as the "vendor" "Acme"
     And the API read of the "widget" "Hex key" returns "distributor" as the "vendor" "Acme"
 
-  @wip @issue-518
+  @issue-518
   Scenario: A sweep leaves a redefined @type where it is, and says how to take it
     Given the operator maps "@type" to "Thing" in the stored "widget" context
     And a "widget" named "Bolt cutter" exists
@@ -377,7 +377,7 @@ Feature: An operator adopts a held @context term without orphaning the data behi
   # can reach back for a class, because a class keys no edge. Saying so, and
   # naming the re-stamp that does reach back, is the difference between an
   # operator who migrates and one who discovers two classes in the graph later.
-  @wip @issue-518
+  @issue-518
   Scenario: Naming a redefined @type adopts it and hands over the re-stamp route
     Given the operator maps "@type" to "Thing" in the stored "widget" context
     And a "widget" named "Bolt cutter" exists
@@ -394,7 +394,7 @@ Feature: An operator adopts a held @context term without orphaning the data behi
   # Conflict prefix the class expands through exactly as it treats @type: leave
   # it, and say so. The term is held whole — the properties it also moves are
   # NOT adopted behind the class's back.
-  @wip @issue-518
+  @issue-518
   Scenario: A sweep never takes a renamed prefix the class expands through
     Given the operator maps "cat" to "https://schema.org/" in the stored "widget" context
     And the operator maps "@type" to "cat:Widget" in the stored "widget" context
@@ -405,11 +405,14 @@ Feature: An operator adopts a held @context term without orphaning the data behi
     When the operator adopts every held context term for "widget"
     Then the stored "widget" context still maps "cat" to "https://schema.org/"
     And the stored "widget" context still maps "@type" to "cat:Widget"
-    And the stored "widget" context records no historical IRI for "maker"
+    # Amended 2026-08-25 (approved): "maker" is itself a redefined term here (stored
+    # cat:madeBy, preset https://schema.org/maker), so the sweep takes it and leaves
+    # only the class-moving prefix held.
+    And the stored "widget" context maps "maker" to "https://schema.org/maker"
     And the held-terms listing for "widget" still names "cat" as held
     And the operator is told the class was not adopted and how to adopt it
 
-  @wip @issue-518
+  @issue-518
   Scenario: Naming that prefix adopts it, says the class moves, and leaves the edges readable
     Given the operator maps "cat" to "https://schema.org/" in the stored "widget" context
     And the operator maps "@type" to "cat:Widget" in the stored "widget" context

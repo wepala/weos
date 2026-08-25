@@ -1177,6 +1177,13 @@ func (w *contextWorld) theStoredContextStillMaps(term, iri string) error {
 	if !ok {
 		return fmt.Errorf("stored widget context lost its entry for %q", term)
 	}
+	// A term is spelled as a bare IRI string or as {"@id": …}; both name the
+	// same mapping, and an adopted preset definition arrives in the latter.
+	if obj, isObj := got.(map[string]any); isObj {
+		if id, has := obj["@id"]; has {
+			got = id
+		}
+	}
 	if fmt.Sprintf("%v", got) != iri {
 		return fmt.Errorf("stored widget context maps %q to %v, want %q — the operator's edit was overwritten",
 			term, got, iri)

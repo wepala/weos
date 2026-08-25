@@ -116,6 +116,16 @@ only the canonical records, which is the cheap steady-state check. It fails agai
 moment the old shape reappears — a restored backup, an import from an instance that never
 migrated — which nothing else on the instance would report.
 
+## When a preset renames a term: adopt it
+
+`weos resource-type held-terms <preset> <type>` lists every term the boot holds and says which
+kind each is — a term the preset **adds** (adopting it needs the data migration above) or a term
+the preset **redefines** (a namespace rename, a corrected prefix: adopting it is a decision
+between the stored definition and the preset's). Either way `adopt-term` records the IRI each
+affected property's edges are keyed by as a historical alias, so nothing is orphaned. A sweep
+(`--all`) never takes `@type`, a prefix the class expands through, or `@vocab` — name those
+explicitly; the output says which it left and how to take them.
+
 ## Example: Person and Organization gained a class
 
 Since `v3` the `core` preset declares `foaf:Person` and `org:Organization` as the class of
