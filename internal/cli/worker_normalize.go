@@ -157,7 +157,11 @@ func printNormalizeEdgeKeysReport(out io.Writer, r application.NormalizeEdgeKeys
 			}
 			_, _ = fmt.Fprintf(out, "; %s %d", restampVerb, t.Restamped)
 			if t.TriplesMoved > 0 {
-				_, _ = fmt.Fprintf(out, " (+%d triple event(s) moved)", t.TriplesMoved)
+				moveVerb := "moved"
+				if r.DryRun {
+					moveVerb = "would move"
+				}
+				_, _ = fmt.Fprintf(out, " (+%d triple event(s) %s)", t.TriplesMoved, moveVerb)
 			}
 		}
 		if n := countProblems(r.Ambiguous, slug); n > 0 {

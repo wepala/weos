@@ -288,11 +288,13 @@ func readEventsAfter(ctx context.Context, db *gorm.DB, after int64, batch int, t
 	// predicate with nothing left to say they moved.
 	if len(rows) == batch && rows[len(rows)-1].TransactionID != "" {
 		last := rows[len(rows)-1]
+		tailQ := db.WithContext(ctx).Model(&eventRow{}).
+			Where("position > ? AND transaction_id = ? AND event_type IN ?", last.Position, last.TransactionID, types)
+		if db.Name() == "postgres" {
+			tailQ = tailQ.Where("xact_id < pg_snapshot_xmin(pg_current_snapshot())")
+		}
 		var tail []eventRow
-		err := db.WithContext(ctx).Model(&eventRow{}).
-			Where("position > ? AND transaction_id = ? AND event_type IN ?", last.Position, last.TransactionID, types).
-			Order("position ASC").Find(&tail).Error
-		if err != nil {
+		if err := tailQ.Order("position ASC").Find(&tail).Error; err != nil {
 			return nil, err
 		}
 		rows = append(rows, tail...)
