@@ -196,3 +196,15 @@ func TestNormalizeEdgeKeys_DoesNotMergeWhenBothFormsArePresent(t *testing.T) {
 		t.Fatalf("changed=%v problems=%v; both forms present must be reported, never merged", changed, problems)
 	}
 }
+
+func TestEdgeKeyResolver_SharedAliasIsAmbiguous(t *testing.T) {
+	r := edgeKeyTestResolver(t, `{"@vocab":"https://schema.org/",
+	  "maker":{"@id":"https://example.org/catalog#madeBy","@type":"@id"},
+	  "partner":{"@id":"https://example.org/catalog#partneredWith","@type":"@id"},
+	  "weos:termAliases":{"maker":["https://example.org/old#rel"],"partner":["https://example.org/old#rel"]}}`,
+		widgetSchema)
+	name, candidates, ok := r.resolve("https://example.org/old#rel")
+	if ok || name != "" || len(candidates) != 2 {
+		t.Fatalf("a historical IRI two properties recorded must be ambiguous; got (%q, %v, %v)", name, candidates, ok)
+	}
+}

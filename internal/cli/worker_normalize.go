@@ -48,8 +48,9 @@ stops the other resource types from being rewritten.
 
 Procedure: stop the server, back up the database, run with --write, then run
 "weos worker reproject" to rebuild the canonical records, projection columns
-and the knowledge graph. Rollback is restoring the backup — the command
-appends, deletes and renumbers nothing.`,
+and the triples table, and "weos worker checkpoint reset oxigraph --truncate"
+to rebuild the knowledge graph (reproject does not reach it). Rollback is
+restoring the backup — the command appends, deletes and renumbers nothing.`,
 	Args: cobra.NoArgs,
 	RunE: runWorkerNormalizeEdgeKeys,
 }
@@ -112,9 +113,23 @@ func printNormalizeEdgeKeysReport(out io.Writer, r application.NormalizeEdgeKeys
 		verb = "would rewrite"
 	}
 	_, _ = fmt.Fprintln(out)
+	ambiguousBy, unresolvedBy := map[string]int{}, map[string]int{}
+	for _, p := range r.Ambiguous {
+		ambiguousBy[p.TypeSlug]++
+	}
+	for _, p := range r.Unresolved {
+		unresolvedBy[p.TypeSlug]++
+	}
 	for _, slug := range r.TypeSlugs() {
 		t := r.Types[slug]
-		_, _ = fmt.Fprintf(out, "  %-24s %s %d of %d event(s)\n", slug, verb, t.Rewritten, t.Scanned)
+		_, _ = fmt.Fprintf(out, "  %-24s %s %d of %d event(s)", slug, verb, t.Rewritten, t.Scanned)
+		if n := ambiguousBy[slug]; n > 0 {
+			_, _ = fmt.Fprintf(out, "; %d ambiguous edge(s)", n)
+		}
+		if n := unresolvedBy[slug]; n > 0 {
+			_, _ = fmt.Fprintf(out, "; %d unresolved edge(s)", n)
+		}
+		_, _ = fmt.Fprintln(out)
 	}
 	if r.Rewritten == 0 {
 		_, _ = fmt.Fprintln(out, "\nnothing to rewrite: every edge is already keyed by its property name.")
@@ -129,7 +144,7 @@ func printNormalizeEdgeKeysReport(out io.Writer, r application.NormalizeEdgeKeys
 	}
 	if !r.DryRun && r.Rewritten > 0 {
 		_, _ = fmt.Fprintln(out,
-			"\nNext: run `weos worker reproject` (server stopped) to rebuild the canonical records, "+
-				"projection columns and the knowledge graph from the rewritten events.")
+			"\nNext (server stopped): `weos worker reproject` rebuilds the canonical records, projection "+
+				"columns and triples; `weos worker checkpoint reset oxigraph --truncate` rebuilds the knowledge graph.")
 	}
 }

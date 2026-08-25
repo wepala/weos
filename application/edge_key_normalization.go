@@ -29,6 +29,7 @@ import (
 	"github.com/wepala/weos/v3/pkg/identity"
 	"github.com/wepala/weos/v3/pkg/jsonld"
 
+	pericarpdomain "github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 	pericarpinfra "github.com/akeemphilbert/pericarp/pkg/eventsourcing/infrastructure"
 	"go.uber.org/fx"
 	"gorm.io/gorm"
@@ -98,6 +99,12 @@ func NormalizeEdgeKeysModule(cfg config.Config, registry *PresetRegistry) fx.Opt
 		fx.Provide(logging.ProvideZapLogger),
 		fx.Provide(logging.ProvideLogger),
 		fx.Provide(gormprov.ProvideGormDB),
+		// The event store is constructed for its side effect: pericarp's
+		// auto-migration adds the global `position` column this command pages
+		// by, so an instance upgraded straight from a build without it does
+		// not fail on the first query.
+		fx.Provide(gormprov.ProvideEventStore),
+		fx.Invoke(func(pericarpdomain.EventStore) {}),
 		fx.Provide(gormprov.ProvideResourceTypeRepository),
 		fx.Provide(func(r *PresetRegistry, logger entities.Logger) *LinkRegistry {
 			return buildLinkRegistry(r, logger)
@@ -375,6 +382,13 @@ func newEdgeKeyResolver(ldContext, schema json.RawMessage, links []PresetLinkDef
 			continue
 		}
 		claim(iri, name)
+	}
+	// A historical IRI two properties both recorded is just as ambiguous as a
+	// live one: BuildReverseMap would hand it to whichever alias it met first.
+	for name, iris := range jsonld.TermAliases(ldContext) {
+		for _, iri := range iris {
+			claim(iri, name)
+		}
 	}
 	out := &edgeKeyResolver{ldContext: ldContext, claims: map[string][]string{}, storable: nil}
 	for iri, names := range claims {
