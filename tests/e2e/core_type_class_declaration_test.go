@@ -41,10 +41,6 @@ func TestCoreTypeClassDeclaration(t *testing.T) {
 
 type classWorld struct {
 	*vocabWorld
-	heldTerms    []application.HeldTerm
-	heldPreset   string
-	heldSlug     string
-	sweepAdopted []string
 }
 
 func initCoreTypeClassScenario(sc *godog.ScenarioContext) {
@@ -62,7 +58,6 @@ func initCoreTypeClassScenario(sc *godog.ScenarioContext) {
 		w.thisBuildAlsoAddsLiteral)
 	sc.Step(`^I create an? "([^"]*)" named "([^"]*)" with these properties:$`, w.createWithProperties)
 
-	sc.Step(`^the stored "([^"]*)" context maps "([^"]*)" to "([^"]*)"$`, w.storedContextMaps)
 	sc.Step(`^the stored "([^"]*)" context declares no "([^"]*)"$`, w.storedContextDeclaresNo)
 	sc.Step(`^the "([^"]*)" type advertises the RDF class "([^"]*)"$`, w.typeAdvertisesClass)
 	sc.Step(`^the embedded "@context" of that resource defines the "([^"]*)" prefix as "([^"]*)"$`,
@@ -73,22 +68,13 @@ func initCoreTypeClassScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^every installed resource type declares an "@type" in its stored context$`, w.everyTypeDeclaresType)
 	sc.Step(`^every installed resource type advertises an RDF class that is an absolute IRI$`, w.everyTypeAdvertisesIRI)
 
-	sc.Step(`^the operator lists the held terms for "([^"]*)" "([^"]*)"$`, w.listHeldTerms)
-	sc.Step(`^"([^"]*)" is reported as held and offered at "([^"]*)"$`, w.heldTermOfferedAt)
 	sc.Step(`^the held "([^"]*)" names no IRI that existing data is keyed by$`, w.heldTermHasNoStoredIRI)
-	sc.Step(`^the operator adopts every held context term for "([^"]*)" "([^"]*)"$`, w.adoptEveryHeldTerm)
-	sc.Step(`^the operator adopts the held "([^"]*)" context term for "([^"]*)" "([^"]*)"$`, w.adoptHeldTerm)
-	sc.Step(`^the operator is told the class was not adopted and how to adopt it$`, w.sweepLeftTheClassAndSaidSo)
 	sc.Step(`^the boot reconcile reports the "([^"]*)" context term as held for "([^"]*)" on the next restart$`,
 		w.heldOnNextRestart)
 	sc.Step(`^the boot's held report for "([^"]*)" names a command that adopts "([^"]*)"$`, w.bootRemedyAdopts)
 	sc.Step(`^the command it prints adopts "([^"]*)" for "([^"]*)"$`, w.listedRemedyAdopts)
 	sc.Step(`^running that command declares "([^"]*)" as the "@type" of the stored "([^"]*)" context$`,
 		w.runningTheRemedyDeclares)
-	sc.Step(`^the boot reconcile does not report the "([^"]*)" context term as held for "([^"]*)"$`,
-		w.bootDoesNotReportContextTermHeld)
-	sc.Step(`^the boot reconcile records no failure for "([^"]*)"$`, w.bootRecordsNoFailure)
-	sc.Step(`^the stored "([^"]*)" context records no historical IRI for "([^"]*)"$`, w.storedContextRecordsNoAliasFor)
 	sc.Step(`^the stored "([^"]*)" context records no empty historical IRI for any property$`, w.storedContextHasNoEmptyAlias)
 }
 
@@ -261,7 +247,7 @@ func (w *classWorld) everyTypeAdvertisesIRI() error {
 
 // --- held terms and adoption on the real core preset ---
 
-func (w *classWorld) listHeldTerms(preset, slug string) error {
+func (w *vocabWorld) listHeldTerms(preset, slug string) error {
 	held, err := w.rts.HeldContextTerms(context.Background(), preset, slug)
 	if err != nil {
 		return fmt.Errorf("listing the held terms for %s %s failed: %w", preset, slug, err)
@@ -270,7 +256,7 @@ func (w *classWorld) listHeldTerms(preset, slug string) error {
 	return nil
 }
 
-func (w *classWorld) heldTerm(term string) (*application.HeldTerm, error) {
+func (w *vocabWorld) heldTerm(term string) (*application.HeldTerm, error) {
 	if w.heldSlug == "" {
 		return nil, fmt.Errorf("the held terms have not been listed in this scenario")
 	}
@@ -282,7 +268,7 @@ func (w *classWorld) heldTerm(term string) (*application.HeldTerm, error) {
 	return nil, fmt.Errorf("%q is not reported as held for %q (held: %+v)", term, w.heldSlug, w.heldTerms)
 }
 
-func (w *classWorld) heldTermOfferedAt(term, iri string) error {
+func (w *vocabWorld) heldTermOfferedAt(term, iri string) error {
 	h, err := w.heldTerm(term)
 	if err != nil {
 		return err
@@ -304,49 +290,52 @@ func (w *classWorld) heldTermHasNoStoredIRI(term string) error {
 	return nil
 }
 
-func (w *classWorld) heldTermNames(preset, slug string) ([]string, error) {
-	held, err := w.rts.HeldContextTerms(context.Background(), preset, slug)
-	if err != nil {
-		return nil, err
-	}
-	names := make([]string, 0, len(held))
-	for _, h := range held {
-		names = append(names, h.Term)
-	}
-	return names, nil
-}
-
-func (w *classWorld) adoptEveryHeldTerm(preset, slug string) error {
-	adopted, err := w.rts.AdoptContextTerms(context.Background(), preset, slug, nil)
+func (w *vocabWorld) adoptEveryHeldTerm(preset, slug string) error {
+	result, err := w.rts.AdoptContextTerms(context.Background(), preset, slug, nil)
 	if err != nil {
 		return fmt.Errorf("the sweep for %s %s failed: %w", preset, slug, err)
 	}
-	w.sweepAdopted, w.heldPreset, w.heldSlug = adopted, preset, slug
+	w.sweepAdopted, w.heldPreset, w.heldSlug = result.Adopted, preset, slug
+	w.lastAdoption = &result
 	return nil
 }
 
-func (w *classWorld) adoptHeldTerm(term, preset, slug string) error {
-	if _, err := w.rts.AdoptContextTerms(context.Background(), preset, slug, []string{term}); err != nil {
+func (w *vocabWorld) adoptHeldTerm(term, preset, slug string) error {
+	result, err := w.rts.AdoptContextTerms(context.Background(), preset, slug, []string{term})
+	if err != nil {
 		return fmt.Errorf("adopting the held %q term for %s %s failed: %w", term, preset, slug, err)
 	}
+	w.lastAdoption = &result
 	return nil
 }
 
 // sweepLeftTheClassAndSaidSo: the sweep adopted nothing for the class, and
 // the remedy the operator is handed afterwards names the command that does.
-func (w *classWorld) sweepLeftTheClassAndSaidSo() error {
+func (w *vocabWorld) sweepLeftTheClassAndSaidSo() error {
 	for _, term := range w.sweepAdopted {
 		if term == "@type" {
 			return fmt.Errorf("the sweep adopted @type; a sweep must never move a class")
 		}
 	}
-	names, err := w.heldTermNames(w.heldPreset, w.heldSlug)
+	held, err := w.rts.HeldContextTerms(context.Background(), w.heldPreset, w.heldSlug)
 	if err != nil {
 		return err
 	}
-	remedy := application.AdoptRemedy(w.heldPreset, w.heldSlug, names, nil)
-	if !strings.Contains(remedy, "--term @type") {
-		return fmt.Errorf("after the sweep the operator is told %q, which does not adopt the class", remedy)
+	var names, movers []string
+	for _, h := range held {
+		names = append(names, h.Term)
+		if h.MovesClass() && h.Term != "@type" {
+			movers = append(movers, h.Term)
+		}
+	}
+	remedy := application.AdoptRemedy(w.heldPreset, w.heldSlug, names, movers)
+	if w.lastAdoption == nil || len(w.lastAdoption.StillHeld) == 0 {
+		return fmt.Errorf("the sweep reports nothing left held: %+v", w.lastAdoption)
+	}
+	for _, left := range w.lastAdoption.StillHeld {
+		if !strings.Contains(remedy, "--term "+left) {
+			return fmt.Errorf("after the sweep the operator is told %q, which does not adopt %q", remedy, left)
+		}
 	}
 	return nil
 }
@@ -394,7 +383,7 @@ func (w *classWorld) runningTheRemedyDeclares(declared, slug string) error {
 	return w.storedContextMaps(slug, "@type", declared)
 }
 
-func (w *classWorld) storedContextRecordsNoAliasFor(slug, property string) error {
+func (w *vocabWorld) storedContextRecordsNoAliasFor(slug, property string) error {
 	rt, err := w.rts.GetBySlug(context.Background(), slug)
 	if err != nil {
 		return err

@@ -294,7 +294,25 @@ func holdMovingTerms(
 		held = append(held, moved...)
 	}
 	held = append(held, dropDanglingPrefixTerms(merged, storedTerms, added)...)
-	sort.Slice(held, func(i, j int) bool { return held[i].Term < held[j].Term })
+	// The loop above can meet the same (term, property) more than once; a
+	// prefix that moves several properties still lists each of them once.
+	seen := map[string]bool{}
+	unique := held[:0]
+	for _, m := range held {
+		key := m.Term + "\x00" + m.Property
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		unique = append(unique, m)
+	}
+	held = unique
+	sort.SliceStable(held, func(i, j int) bool {
+		if held[i].Term != held[j].Term {
+			return held[i].Term < held[j].Term
+		}
+		return held[i].Property < held[j].Property
+	})
 	return held
 }
 
@@ -333,11 +351,12 @@ func movedBy(
 			sort.Strings(blame)
 		}
 		for _, term := range blame {
-			if seen[term] {
-				continue
+			if !seen[term] {
+				seen[term] = true
+				culprits = append(culprits, term)
 			}
-			seen[term] = true
-			culprits = append(culprits, term)
+			// One move per (term, property): a prefix that moves several
+			// properties must alias every one of them (issue #518).
 			moved = append(moved, movedPredicate{
 				Term: term, StoredIRI: before, PresetIRI: after, Property: property,
 			})
@@ -557,6 +576,7 @@ func adoptTerms(
 	}
 
 	var adopted []string
+	taken := map[string]bool{}
 	for _, move := range held {
 		presetDef, declared := presetTerms[move.Term]
 		if !declared {
@@ -577,7 +597,10 @@ func adoptTerms(
 			aliases[move.Property] = appendMissing(aliases[move.Property], move.StoredIRI)
 		}
 		merged[move.Term] = presetDef
-		adopted = append(adopted, move.Term)
+		if !taken[move.Term] {
+			taken[move.Term] = true
+			adopted = append(adopted, move.Term)
+		}
 	}
 	if len(adopted) == 0 {
 		return nil, nil, nil
@@ -664,4 +687,106 @@ func ambiguousReferenceShape(refs []ReferencePropertyDef) [][]string {
 	}
 	sort.Slice(ambiguous, func(i, j int) bool { return ambiguous[i][0] < ambiguous[j][0] })
 	return ambiguous
+}
+
+// conflictMoves lists what adopting each Conflict — a term present in both
+// the stored and the preset context with different definitions — would move
+// (issue #518). A Conflict is held at the stored definition exactly as a
+// Move is, and adopting it records the same alias: the IRI each affected
+// PROPERTY resolves to today, so edges keyed by it keep resolving.
+//
+// What a term moves depends on what it is:
+//   - a property term moves itself;
+//   - a prefix moves every stored term (and the class) that expands through
+//     it — one movedPredicate per property, all under the prefix's Term;
+//   - `@vocab` moves every reference property that has no term of its own;
+//   - `@type` moves the class, which no alias can follow.
+//
+// A control entry is never a term and is never listed.
+func conflictMoves(stored, preset, storedSchema json.RawMessage, conflicts []string) []movedPredicate {
+	storedTerms, err := splitContext(stored)
+	if err != nil {
+		return nil
+	}
+	presetTerms, err := splitContext(preset)
+	if err != nil {
+		return nil
+	}
+	var out []movedPredicate
+	for _, term := range conflicts {
+		if jsonld.ControlKeywords[term] {
+			continue
+		}
+		// The stored context with only THIS term taken from the preset: what
+		// resolves differently against it is what adopting the term moves.
+		candidate := make(map[string]json.RawMessage, len(storedTerms))
+		for k, v := range storedTerms {
+			candidate[k] = v
+		}
+		candidate[term] = presetTerms[term]
+		encoded, err := json.Marshal(candidate)
+		if err != nil {
+			continue
+		}
+		moves := movesBetween(stored, encoded, storedSchema, term)
+		if len(moves) == 0 {
+			// Nothing stored resolves through it yet (an unused prefix): the
+			// term is still held and still adoptable, with nothing to alias.
+			moves = []movedPredicate{{Term: term, Property: term,
+				StoredIRI: rawTermValue(storedTerms[term]), PresetIRI: rawTermValue(presetTerms[term])}}
+		}
+		out = append(out, moves...)
+	}
+	return out
+}
+
+// movesBetween lists every live predicate — stored terms, the schema's
+// reference properties, `@vocab`-resolved references and the class — whose
+// resolution differs between two contexts, attributed to `term`.
+func movesBetween(before, after, storedSchema json.RawMessage, term string) []movedPredicate {
+	var out []movedPredicate
+	seen := map[string]bool{}
+	storedTerms, _ := splitContext(before)
+	for _, property := range livePredicates(before, storedSchema) {
+		if seen[property] || property == "@vocab" || isNamespaceDefinition(storedTerms[property]) {
+			// @vocab and prefix definitions are not predicates: adopting them
+			// moves the properties that resolve THROUGH them, listed here in
+			// their own right, and an alias keyed by the prefix would be
+			// nonsense.
+			continue
+		}
+		seen[property] = true
+		old, next := resolveIn(before, property), resolveIn(after, property)
+		if old == next || (property == "@type" && old == "" && next == "") {
+			continue
+		}
+		out = append(out, movedPredicate{Term: term, Property: property, StoredIRI: old, PresetIRI: next})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Property < out[j].Property })
+	return out
+}
+
+// rawTermValue renders a term's raw definition for a report line.
+func rawTermValue(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var obj map[string]any
+	if json.Unmarshal(raw, &obj) == nil {
+		if id, ok := obj["@id"].(string); ok {
+			return id
+		}
+	}
+	return string(raw)
+}
+
+// isNamespaceDefinition reports whether a raw context value is a namespace
+// IRI — a prefix definition, ending in "#" or "/" — rather than a term.
+func isNamespaceDefinition(raw json.RawMessage) bool {
+	var s string
+	if json.Unmarshal(raw, &s) != nil {
+		return false
+	}
+	return strings.HasSuffix(s, "#") || strings.HasSuffix(s, "/")
 }

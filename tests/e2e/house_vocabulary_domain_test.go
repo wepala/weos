@@ -63,6 +63,11 @@ type vocabWorld struct {
 	lastID, lastSlug string
 	// restampReport is the last --restamp run's report.
 	restampReport *application.NormalizeEdgeKeysReport
+	// held-terms / adoption state on the real presets (#520, #521, #518).
+	heldTerms    []application.HeldTerm
+	heldPreset   string
+	heldSlug     string
+	sweepAdopted []string
 }
 
 func newVocabWorld() *vocabWorld {
@@ -175,6 +180,100 @@ func (w *vocabWorld) registerVocabSteps(sc *godog.ScenarioContext) {
 		w.documentStatesLiteral)
 	sc.Step(`^the stored document states no statement under "([^"]*)" about the "([^"]*)" "([^"]*)"$`,
 		w.documentStatesNothingUnder)
+
+	// --- held terms and adoption on the real presets (#520, #521, #518) ---
+	sc.Step(`^the stored "([^"]*)" context maps "([^"]*)" to "([^"]*)"$`, w.storedContextMaps)
+	sc.Step(`^the operator lists the held terms for "([^"]*)" "([^"]*)"$`, w.listHeldTerms)
+	sc.Step(`^"([^"]*)" is reported as held and offered at "([^"]*)"$`, w.heldTermOfferedAt)
+	sc.Step(`^"([^"]*)" is reported as held, stored at "([^"]*)" and offered at "([^"]*)"$`, w.heldTermStoredAndOffered)
+	sc.Step(`^the operator adopts every held context term for "([^"]*)" "([^"]*)"$`, w.adoptEveryHeldTerm)
+	sc.Step(`^the operator adopts the held "([^"]*)" context term for "([^"]*)" "([^"]*)"$`, w.adoptHeldTerm)
+	sc.Step(`^the operator is told the class was not adopted and how to adopt it$`, w.sweepLeftTheClassAndSaidSo)
+	sc.Step(`^the boot reconcile does not report the "([^"]*)" context term as held for "([^"]*)"$`,
+		w.bootDoesNotReportContextTermHeld)
+	sc.Step(`^the boot reconcile records no failure for "([^"]*)"$`, w.bootRecordsNoFailure)
+	sc.Step(`^the stored "([^"]*)" context records no historical IRI for "([^"]*)"$`, w.storedContextRecordsNoAliasFor)
+	sc.Step(`^the stored "([^"]*)" context records "([^"]*)" as a historical IRI for "([^"]*)"$`,
+		w.storedContextRecordsAliasFor)
+	sc.Step(`^the adoption reports the "([^"]*)" RDF class moving from "([^"]*)" to "([^"]*)"$`,
+		w.adoptionReportsTypeClassMove)
+	sc.Step(`^the adoption names the migration that applies it to existing resources$`, w.adoptionNamesTheMigration)
+	sc.Step(`^an? "([^"]*)" named "([^"]*)" written by the pre-#515 binary with "([^"]*)" `+
+		`referring to the "([^"]*)" "([^"]*)"$`, w.legacyWrittenOnRealPreset)
+	sc.Step(`^the operator normalizes the stored edge keys and writes$`, w.theOperatorNormalizesAndWrites)
+	sc.Step(`^the operator removes every historical IRI from the stored "([^"]*)" context$`, w.removeAliasesOf)
+}
+
+func (w *vocabWorld) heldTermStoredAndOffered(term, stored, offered string) error {
+	h, err := w.heldTerm(term)
+	if err != nil {
+		return err
+	}
+	if h.StoredIRI != stored || h.PresetIRI != offered {
+		return fmt.Errorf("%q is reported stored at %q and offered at %q, want %s and %s",
+			term, h.StoredIRI, h.PresetIRI, stored, offered)
+	}
+	return nil
+}
+
+func (w *vocabWorld) storedContextRecordsAliasFor(slug, iri, property string) error {
+	rt, err := w.rts.GetBySlug(context.Background(), slug)
+	if err != nil {
+		return err
+	}
+	for _, got := range jsonld.TermAliases(rt.Context())[property] {
+		if got == iri {
+			return nil
+		}
+	}
+	return fmt.Errorf("the stored %q context records no %s as a historical IRI for %q (aliases: %v)",
+		slug, iri, property, jsonld.TermAliases(rt.Context()))
+}
+
+func (w *vocabWorld) adoptionReportsTypeClassMove(slug, from, to string) error {
+	if w.lastAdoption == nil || w.lastAdoption.ClassMove == nil {
+		return fmt.Errorf("the adoption reported no class move for %s: %+v", slug, w.lastAdoption)
+	}
+	m := w.lastAdoption.ClassMove
+	if m.StoredIRI != from || m.PresetIRI != to {
+		return fmt.Errorf("the adoption reports the %s class moving %s -> %s, want %s -> %s", slug,
+			m.StoredIRI, m.PresetIRI, from, to)
+	}
+	return nil
+}
+
+func (w *vocabWorld) adoptionNamesTheMigration() error {
+	if w.lastAdoption == nil || !w.lastAdoption.NeedsRestamp() {
+		return fmt.Errorf("the adoption names no migration for existing resources: %+v", w.lastAdoption)
+	}
+	return nil
+}
+
+// legacyWrittenOnRealPreset plants a pre-#515 record of a REAL preset type:
+// created through the write path with its required fixtures filled, then
+// downgraded — event and canonical record — exactly as plantLegacy does for
+// the synthetic catalog.
+func (w *vocabWorld) legacyWrittenOnRealPreset(slug, name, property, targetSlug, target string) error {
+	id, err := w.targetID(targetSlug, target)
+	if err != nil {
+		return err
+	}
+	if err := w.createResourceOf(slug, name, map[string]any{property: id}); err != nil {
+		return err
+	}
+	return w.downgradeToLegacy(slug, name, map[string][]string{property: {id}}, nil, "Resource.Created")
+}
+
+func (w *vocabWorld) removeAliasesOf(slug string) error {
+	terms, err := w.storedContextOf(slug)
+	if err != nil {
+		return err
+	}
+	if _, ok := terms[jsonld.TermAliasesKeyword]; !ok {
+		return fmt.Errorf("the stored %q context records no historical IRI to remove", slug)
+	}
+	delete(terms, jsonld.TermAliasesKeyword)
+	return w.writeStoredContext(slug, terms)
 }
 
 // --- the re-stamp ---

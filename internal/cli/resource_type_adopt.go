@@ -73,11 +73,15 @@ func printHeldTerms(out io.Writer, preset, slug, currentClass string, held []app
 	var classMovers []string
 	for _, h := range held {
 		terms = append(terms, h.Term)
-		_, _ = fmt.Fprintf(out, "  %s\n", h.Term)
-		if h.Property == "@type" {
-			if h.Term != "@type" {
-				classMovers = append(classMovers, h.Term)
-			}
+		kind := "the preset ADDS this term"
+		if h.Kind == application.HeldTermRedefined {
+			kind = "the preset REDEFINES this term"
+		}
+		_, _ = fmt.Fprintf(out, "  %s  (%s)\n", h.Term, kind)
+		if h.MovesClass() && h.Term != "@type" {
+			classMovers = append(classMovers, h.Term)
+		}
+		if h.Term == "@type" {
 			stored := h.StoredIRI
 			if stored == "" && currentClass != "" {
 				stored = currentClass + " (no class declared; the type name through @vocab)"
@@ -90,9 +94,22 @@ func printHeldTerms(out io.Writer, preset, slug, currentClass string, held []app
 			_, _ = fmt.Fprintln(out)
 			continue
 		}
-		_, _ = fmt.Fprintf(out, "    property        %s\n", h.Property)
-		_, _ = fmt.Fprintf(out, "    data written as %s\n", h.StoredIRI)
-		_, _ = fmt.Fprintf(out, "    preset wants    %s\n\n", h.PresetIRI)
+		if h.Kind == application.HeldTermRedefined && (len(h.Moves) > 1 || h.Moves[0].Property != h.Term) {
+			_, _ = fmt.Fprintf(out, "    stored as       %s\n", h.StoredIRI)
+			_, _ = fmt.Fprintf(out, "    preset wants    %s\n", h.PresetIRI)
+		}
+		for _, m := range h.Moves {
+			if m.Property == "@type" {
+				_, _ = fmt.Fprintf(out, "    moves the class %s -> %s (existing records need a re-stamp)\n",
+					m.StoredIRI, m.PresetIRI)
+				continue
+			}
+			_, _ = fmt.Fprintf(out, "    property        %s\n", m.Property)
+			_, _ = fmt.Fprintf(out, "    data written as %s\n", m.StoredIRI)
+			_, _ = fmt.Fprintf(out, "    preset wants    %s\n", m.PresetIRI)
+			_, _ = fmt.Fprintf(out, "    adopting keeps edges under %s readable (recorded as an alias)\n", m.StoredIRI)
+		}
+		_, _ = fmt.Fprintln(out)
 	}
 	_, _ = fmt.Fprintf(out, "Adopt with:  %s\n", application.AdoptRemedy(preset, slug, terms, classMovers))
 	if note := application.AdoptRemedyNote(terms, classMovers); note != "" {
@@ -101,44 +118,53 @@ func printHeldTerms(out io.Writer, preset, slug, currentClass string, held []app
 }
 
 // printAdoptOutcome renders what adopt-term did. A sweep never takes the
-// class, so when one is still held afterwards the operator is told so and
-// handed the command that adopts it — never "already up to date".
-func printAdoptOutcome(out io.Writer, preset, slug string, sweep bool, adopted []string, stillHeld []application.HeldTerm) {
+// class (nor @vocab), so when one is still held afterwards the operator is
+// told so and handed the command that adopts it — never "already up to
+// date". A moved class is named, with the re-stamp that applies it to
+// existing records.
+func printAdoptOutcome(out io.Writer, preset, slug string, sweep bool, result application.AdoptResult,
+	stillHeld []application.HeldTerm) {
+	var classMovers, leftHeld []string
 	classStillHeld := false
-	var classMovers []string
 	for _, h := range stillHeld {
-		if h.Property != "@type" {
+		if !h.MovesClass() && h.Term != "@vocab" {
 			continue
 		}
-		classStillHeld = true
-		if h.Term != "@type" {
-			classMovers = append(classMovers, h.Term)
+		leftHeld = append(leftHeld, h.Term)
+		if h.MovesClass() {
+			classStillHeld = true
+			if h.Term != "@type" {
+				classMovers = append(classMovers, h.Term)
+			}
 		}
 	}
-	if sweep && classStillHeld {
-		held := append([]string{}, classMovers...)
-		what := "@type"
-		if len(classMovers) == 0 {
-			held = []string{"@type"}
-		} else {
-			what = "the class (through " + strings.Join(classMovers, ", ") + ")"
-		}
-		_, _ = fmt.Fprintf(out, "%s is still held for %q: a sweep never moves the class. Adopt it with: %s\n",
-			what, slug, application.AdoptRemedy(preset, slug, held, classMovers))
-	}
-	if len(adopted) == 0 {
+	if sweep && len(leftHeld) > 0 {
+		what := strings.Join(leftHeld, ", ")
 		if classStillHeld {
+			what += " (the class)"
+		}
+		_, _ = fmt.Fprintf(out, "%s is still held for %q: a sweep never moves the class or @vocab. Adopt it with: %s\n",
+			what, slug, application.AdoptRemedy(preset, slug, leftHeld, classMovers))
+	}
+	if len(result.Adopted) == 0 {
+		if len(leftHeld) > 0 {
 			_, _ = fmt.Fprintf(out, "Nothing else to adopt for %q.\n", slug)
 		} else {
 			_, _ = fmt.Fprintf(out, "Nothing to adopt for %q — already up to date.\n", slug)
 		}
 		return
 	}
-	_, _ = fmt.Fprintf(out, "Adopted for %q: %s\n", slug, strings.Join(adopted, ", "))
+	_, _ = fmt.Fprintf(out, "Adopted for %q: %s\n", slug, strings.Join(result.Adopted, ", "))
 	_, _ = fmt.Fprintln(out, "Existing edges stay readable through their recorded IRIs.")
-	_, _ = fmt.Fprintln(out, "Run `weos worker reproject` to refill the projection columns for existing rows; "+
-		"a moved class also needs `weos worker normalize-edge-keys --restamp --type "+slug+" --write` first "+
-		"and `weos worker checkpoint reset oxigraph --truncate` after.")
+	if result.ClassMove != nil {
+		_, _ = fmt.Fprintf(out, "The %q class moves from %s to %s for NEW writes.\n", slug,
+			result.ClassMove.StoredIRI, result.ClassMove.PresetIRI)
+		_, _ = fmt.Fprintf(out, "Existing records keep the old class until you re-stamp them: "+
+			"`weos worker normalize-edge-keys --restamp --type %s --write`, then `weos worker reproject` and "+
+			"`weos worker checkpoint reset oxigraph --truncate`.\n", slug)
+		return
+	}
+	_, _ = fmt.Fprintln(out, "Run `weos worker reproject` to refill the projection columns for existing rows.")
 }
 
 var adoptTermCmd = &cobra.Command{
@@ -170,7 +196,7 @@ var adoptTermCmd = &cobra.Command{
 		defer func() { _ = deps.Shutdown() }()
 
 		// An empty list means "every held term", which is exactly what --all is.
-		adopted, err := deps.ResourceTypeService.AdoptContextTerms(
+		result, err := deps.ResourceTypeService.AdoptContextTerms(
 			cmd.Context(), args[0], args[1], terms)
 		if err != nil {
 			return err
@@ -179,7 +205,7 @@ var adoptTermCmd = &cobra.Command{
 		if hErr != nil {
 			stillHeld = nil
 		}
-		printAdoptOutcome(os.Stdout, args[0], args[1], all, adopted, stillHeld)
+		printAdoptOutcome(os.Stdout, args[0], args[1], all, result, stillHeld)
 		return nil
 	},
 }

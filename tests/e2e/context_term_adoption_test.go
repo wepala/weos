@@ -25,6 +25,8 @@ import (
 	"testing"
 
 	"github.com/cucumber/godog"
+
+	"github.com/wepala/weos/v3/application"
 )
 
 // TestContextTermAdoption is the acceptance suite for the migration that closes
@@ -62,14 +64,15 @@ const termAliasesKeyword = "weos:termAliases"
 const adoptionPreset = "catalog"
 
 type contextTermAdopter interface {
-	AdoptContextTerms(ctx context.Context, presetName, typeSlug string, terms []string) ([]string, error)
+	AdoptContextTerms(ctx context.Context, presetName, typeSlug string, terms []string) (application.AdoptResult, error)
+	HeldContextTerms(ctx context.Context, presetName, typeSlug string) ([]application.HeldTerm, error)
 }
 
 // errNoAdopter marks "the command does not exist yet" so a scenario asserting a
 // REFUSAL cannot be satisfied by the feature simply being absent.
 var errNoAdopter = errors.New(
 	"the ResourceTypeService exposes no way to adopt a held @context term: it must implement " +
-		"AdoptContextTerms(ctx, presetName, typeSlug string, terms []string) ([]string, error) (issue #513)")
+		"AdoptContextTerms(ctx, presetName, typeSlug string, terms []string) (application.AdoptResult, error) (issue #513)")
 
 // registerAdoptionSteps adds the adopt-term steps to the shared context world.
 func (w *contextWorld) registerAdoptionSteps(sc *godog.ScenarioContext) {
@@ -112,9 +115,11 @@ func (w *contextWorld) theOperatorAdoptsHeldTerm(term, slug string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := adopter.AdoptContextTerms(context.Background(), adoptionPreset, slug, []string{term}); err != nil {
+	result, err := adopter.AdoptContextTerms(context.Background(), adoptionPreset, slug, []string{term})
+	if err != nil {
 		return fmt.Errorf("adopting the held %q term for %q failed: %w", term, slug, err)
 	}
+	w.lastAdoption = &result
 	return nil
 }
 
@@ -128,7 +133,11 @@ func (w *contextWorld) theOperatorTriesToAdoptTerm(term, slug string) error {
 		w.adoptAttempted = true
 		return nil
 	}
-	_, w.adoptErr = adopter.AdoptContextTerms(context.Background(), adoptionPreset, slug, []string{term})
+	result, err := adopter.AdoptContextTerms(context.Background(), adoptionPreset, slug, []string{term})
+	w.adoptErr = err
+	if err == nil {
+		w.lastAdoption = &result
+	}
 	w.adoptAttempted = true
 	return nil
 }
@@ -158,7 +167,11 @@ func (w *contextWorld) theOperatorAdoptsEveryHeldTerm(slug string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := adopter.AdoptContextTerms(context.Background(), adoptionPreset, slug, nil); err != nil {
+	result, err := adopter.AdoptContextTerms(context.Background(), adoptionPreset, slug, nil)
+	if err == nil {
+		w.lastAdoption = &result
+	}
+	if err != nil {
 		return fmt.Errorf("adopting every held context term for %q failed: %w", slug, err)
 	}
 	return nil

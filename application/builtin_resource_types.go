@@ -142,7 +142,9 @@ func reconcilePresetSchemas(
 		// repointing it would orphan them (issues #510, #513).
 		logger.Warn(ctx,
 			"resource type context terms held at their stored definition: preset declares a different IRI",
-			"preset", presetName, "slug", slug, "heldContextTerms", held)
+			"preset", presetName, "slug", slug, "heldContextTerms", held,
+			"remedy", AdoptRemedy(presetName, slug, held, reconciled.ClassMovers[slug]),
+			"note", AdoptRemedyNote(held, reconciled.ClassMovers[slug]))
 	}
 	for slug, terms := range reconciled.Repointed {
 		// Phrased as held at their stored definition like the divergence case,

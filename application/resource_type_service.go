@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/wepala/weos/v3/domain/entities"
@@ -106,7 +107,7 @@ type ResourceTypeService interface {
 	InstallPreset(ctx context.Context, presetName string, update bool) (*InstallPresetResult, error)
 	ReconcilePresetSchemas(ctx context.Context, presetName string) (*ReconcilePresetResult, error)
 	HeldContextTerms(ctx context.Context, presetName, typeSlug string) ([]HeldTerm, error)
-	AdoptContextTerms(ctx context.Context, presetName, typeSlug string, terms []string) ([]string, error)
+	AdoptContextTerms(ctx context.Context, presetName, typeSlug string, terms []string) (AdoptResult, error)
 	ListBehaviors(ctx context.Context, typeSlug string) ([]BehaviorInfo, error)
 	SetBehaviors(ctx context.Context, typeSlug string, slugs []string) error
 }
@@ -443,6 +444,16 @@ func (s *resourceTypeService) reconcileOneType(
 		contextRec = contextReconciliation{}
 	}
 	s.recordHeldDefinitions(ctx, result, presetName, pt.Slug, schemaRec, contextRec)
+	// A redefined prefix the stored class expands through moves the class;
+	// the sweep skips it, so the remedy must name it (issues #518, #521).
+	for _, m := range conflictMoves(existing.Context(), pt.Context, existing.Schema(), contextRec.Conflicts) {
+		if m.Property == "@type" && m.Term != "@type" {
+			if result.ClassMovers == nil {
+				result.ClassMovers = make(map[string][]string)
+			}
+			result.ClassMovers[pt.Slug] = append(result.ClassMovers[pt.Slug], m.Term)
+		}
+	}
 
 	if !schemaRec.Changed && !contextRec.Changed {
 		// Nothing to merge is not the same as nothing wrong. A reference with
@@ -900,22 +911,78 @@ func (s *resourceTypeService) addRefusedContext(
 	result.RefusedContext[slug] = append(result.RefusedContext[slug], terms...)
 }
 
-// HeldTerm describes one `@context` term the boot reconcile refuses to adopt
-// because adopting it would repoint a predicate that already has data.
-type HeldTerm struct {
-	// Term is the context key the preset declares and the boot will not apply.
-	Term string `json:"term"`
-	// Property names what would move — usually Term itself, or the stored term
-	// that expands through a held prefix.
-	Property string `json:"property"`
-	// StoredIRI is the IRI existing edges are keyed by.
+// HeldTermKind says why the boot holds a term, because the operator's
+// decision differs: an ADDED term needs a data migration before its new IRI
+// can be taken; a REDEFINED term needs a choice between the stored
+// definition and the preset's.
+type HeldTermKind string
+
+const (
+	// HeldTermAdded — the stored context never had the term, and adding it
+	// would repoint a predicate that already has data (issue #513).
+	HeldTermAdded HeldTermKind = "added"
+	// HeldTermRedefined — the term exists in both with different
+	// definitions; a namespace rename or a corrected prefix (issue #518).
+	HeldTermRedefined HeldTermKind = "redefined"
+)
+
+// HeldMove is one property whose predicate adopting a held term moves. A
+// property term moves itself; a prefix moves every property that expands
+// through it; `@type` as the Property means the type's class moves.
+type HeldMove struct {
+	Property  string `json:"property"`
 	StoredIRI string `json:"storedIri"`
-	// PresetIRI is what the preset wants the property to resolve to.
 	PresetIRI string `json:"presetIri"`
 }
 
-// HeldContextTerms reports what the boot is refusing to adopt for one type, so
-// an operator can see the decision before making it.
+// HeldTerm describes one `@context` term the boot reconcile refuses to adopt,
+// so an operator can see the decision before making it.
+type HeldTerm struct {
+	// Term is the context key the preset declares and the boot will not apply.
+	Term string `json:"term"`
+	// Kind says whether the preset adds the term or redefines it.
+	Kind HeldTermKind `json:"kind"`
+	// Property names the first thing that would move — usually Term itself,
+	// or the stored term that expands through a held prefix. Moves lists all
+	// of them.
+	Property string `json:"property"`
+	// StoredIRI is the IRI existing edges are keyed by (for a prefix or
+	// @vocab, the stored namespace).
+	StoredIRI string `json:"storedIri"`
+	// PresetIRI is what the preset wants the term to resolve to.
+	PresetIRI string `json:"presetIri"`
+	// Moves is every property (and the class, as "@type") the term moves.
+	Moves []HeldMove `json:"moves"`
+}
+
+// MovesClass reports whether adopting the term moves the type's RDF class.
+func (h HeldTerm) MovesClass() bool {
+	for _, m := range h.Moves {
+		if m.Property == "@type" {
+			return true
+		}
+	}
+	return false
+}
+
+// AdoptResult is what AdoptContextTerms did.
+type AdoptResult struct {
+	// Adopted lists the terms taken, in order.
+	Adopted []string `json:"adopted"`
+	// ClassMove is set when an adopted term moved the type's RDF class: no
+	// alias can follow a class, so existing records need a re-stamp.
+	ClassMove *HeldMove `json:"classMove,omitempty"`
+	// StillHeld lists the class-moving terms a sweep deliberately left.
+	StillHeld []string `json:"stillHeld,omitempty"`
+}
+
+// NeedsRestamp reports whether existing records must be re-stamped for the
+// adoption to reach them.
+func (r AdoptResult) NeedsRestamp() bool { return r.ClassMove != nil }
+
+// HeldContextTerms reports what the boot is refusing to adopt for one type,
+// so an operator can see the decision before making it: ADDED terms (Moves)
+// and REDEFINED terms (Conflicts), each with everything adopting it moves.
 func (s *resourceTypeService) HeldContextTerms(
 	ctx context.Context, presetName, typeSlug string,
 ) ([]HeldTerm, error) {
@@ -927,54 +994,87 @@ func (s *resourceTypeService) HeldContextTerms(
 	if err != nil {
 		return nil, fmt.Errorf("failed to reconcile context for %q: %w", typeSlug, err)
 	}
-	held := make([]HeldTerm, 0, len(rec.Moves))
-	for _, moved := range rec.Moves {
-		held = append(held, HeldTerm{
-			Term: moved.Term, Property: moved.Property,
-			StoredIRI: moved.StoredIRI, PresetIRI: moved.PresetIRI,
-		})
-	}
-	return held, nil
+	return heldTermsOf(rec, existing.Context(), pt.Context, existing.Schema()), nil
 }
 
-// AdoptContextTerms takes the preset's definition for HELD terms, recording the
-// IRI each affected property resolves to today so existing edges keep
-// resolving. An empty terms list adopts every held term for the type.
+// heldTermsOf groups the reconcile's Moves and Conflicts by term.
+func heldTermsOf(rec contextReconciliation, stored, preset, schema json.RawMessage) []HeldTerm {
+	byTerm := map[string]*HeldTerm{}
+	var order []string
+	add := func(kind HeldTermKind, m movedPredicate) {
+		h := byTerm[m.Term]
+		if h == nil {
+			h = &HeldTerm{Term: m.Term, Kind: kind, Property: m.Property, StoredIRI: m.StoredIRI, PresetIRI: m.PresetIRI}
+			byTerm[m.Term] = h
+			order = append(order, m.Term)
+		}
+		h.Moves = append(h.Moves, HeldMove{Property: m.Property, StoredIRI: m.StoredIRI, PresetIRI: m.PresetIRI})
+	}
+	for _, m := range rec.Moves {
+		add(HeldTermAdded, m)
+	}
+	conflicts := conflictMoves(stored, preset, schema, rec.Conflicts)
+	for _, m := range conflicts {
+		add(HeldTermRedefined, m)
+	}
+	// A redefined prefix or @vocab reports its own definitions, not the
+	// first property's: that is what the operator is choosing between.
+	storedTerms, _ := splitContext(stored)
+	presetTerms, _ := splitContext(preset)
+	for _, term := range rec.Conflicts {
+		if h := byTerm[term]; h != nil && (term == "@vocab" || len(h.Moves) > 1 || h.Moves[0].Property != term) {
+			h.StoredIRI, h.PresetIRI = rawTermValue(storedTerms[term]), rawTermValue(presetTerms[term])
+		}
+	}
+	sort.Strings(order)
+	out := make([]HeldTerm, 0, len(order))
+	for _, term := range order {
+		out = append(out, *byTerm[term])
+	}
+	return out
+}
+
+// AdoptContextTerms takes the preset's definition for HELD terms — added or
+// redefined — recording the IRI each affected property resolves to today so
+// existing edges keep resolving. An empty terms list adopts every held term
+// EXCEPT the class-moving ones (`@type`, a prefix the class expands through)
+// and `@vocab`, which repoints every untermed property at once: those must
+// be named.
 //
-// A named term the boot never held is REFUSED. Recording an alias for an IRI no
-// data was ever written under widens the reverse map for nothing, and a
-// mistyped term name would otherwise report success while changing nothing the
-// operator meant.
+// A named term the boot never held is REFUSED. Recording an alias for an IRI
+// no data was ever written under widens the reverse map for nothing, and a
+// mistyped term name would otherwise report success while changing nothing
+// the operator meant.
 //
-// Projection columns are NOT repopulated here: the alias makes existing edges
-// resolvable, and a reproject is what rewrites the rows.
+// Projection columns are NOT repopulated here: the alias makes existing
+// edges resolvable, and a reproject is what rewrites the rows. A moved
+// class needs `normalize-edge-keys --restamp` before that reproject.
 func (s *resourceTypeService) AdoptContextTerms(
 	ctx context.Context, presetName, typeSlug string, terms []string,
-) ([]string, error) {
+) (AdoptResult, error) {
 	pt, existing, err := s.presetTypeAndStored(ctx, presetName, typeSlug)
 	if err != nil {
-		return nil, err
+		return AdoptResult{}, err
 	}
 	rec, err := reconcileAdditiveContext(existing.Context(), pt.Context, existing.Schema())
 	if err != nil {
-		return nil, fmt.Errorf("failed to reconcile context for %q: %w", typeSlug, err)
+		return AdoptResult{}, fmt.Errorf("failed to reconcile context for %q: %w", typeSlug, err)
 	}
-	byTerm := make(map[string]movedPredicate, len(rec.Moves))
-	for _, moved := range rec.Moves {
-		byTerm[moved.Term] = moved
-	}
+	held := append(append([]movedPredicate{}, rec.Moves...),
+		conflictMoves(existing.Context(), pt.Context, existing.Schema(), rec.Conflicts)...)
 
-	selected, err := selectTermsToAdopt(rec.Moves, byTerm, terms, existing.Context(), pt.Context, typeSlug)
+	selected, stillHeld, err := selectTermsToAdopt(held, terms, existing.Context(), pt.Context, typeSlug)
+	result := AdoptResult{StillHeld: stillHeld}
 	if err != nil || len(selected) == 0 {
-		return nil, err
+		return result, err
 	}
 
 	adoptedContext, adopted, err := adoptTerms(existing.Context(), pt.Context, selected)
 	if err != nil {
-		return nil, err
+		return result, err
 	}
 	if len(adopted) == 0 {
-		return nil, nil // already adopted; running this twice changes nothing
+		return result, nil // already adopted; running this twice changes nothing
 	}
 	if _, err := s.Update(ctx, UpdateResourceTypeCommand{
 		ID:          existing.GetID(),
@@ -985,46 +1085,71 @@ func (s *resourceTypeService) AdoptContextTerms(
 		Context:     adoptedContext,
 		Schema:      existing.Schema(),
 	}); err != nil {
-		return nil, fmt.Errorf("failed to store the adopted context for %q: %w", typeSlug, err)
+		return result, fmt.Errorf("failed to store the adopted context for %q: %w", typeSlug, err)
+	}
+	result.Adopted = adopted
+	for _, m := range selected {
+		if m.Property == "@type" {
+			move := HeldMove{Property: "@type", StoredIRI: m.StoredIRI, PresetIRI: m.PresetIRI}
+			result.ClassMove = &move
+			break
+		}
 	}
 	s.logger.Info(ctx, "adopted preset context terms; previous IRIs recorded as aliases",
 		"preset", presetName, "slug", typeSlug, "adopted", adopted)
-	return adopted, nil
+	return result, nil
 }
 
 // selectTermsToAdopt turns the caller's request into the held moves to apply.
 //
-// An empty request means every held term EXCEPT `@type`. An alias makes an old
-// edge IRI resolve; it cannot do the same for a type's RDF class, which is not
-// a predicate. Adopting `@type` would leave resources written before the boot
-// in one class and those after it in another, with nothing able to reconcile
-// them — so a sweep never takes it, and an operator who wants it must say so.
+// An empty request is a sweep: every held term EXCEPT the ones that move
+// the class (`@type`, or a prefix the class expands through) and `@vocab`.
+// An alias makes an old edge IRI resolve; it cannot do the same for a type's
+// RDF class, which is not a predicate — adopting it in a sweep would leave
+// resources written before the boot in one class and those after it in
+// another, with nothing able to reconcile them. `@vocab` repoints every
+// untermed property at once. Both must be named, and the terms a sweep
+// left are returned so the operator is told.
 //
-// A named term that is not held is REFUSED, unless the stored context already
-// matches the preset — that is the second run of the same command, which must
-// change nothing rather than fail.
+// A named term that is not held is REFUSED, unless the stored context
+// already matches the preset — that is the second run of the same command,
+// which must change nothing rather than fail.
 func selectTermsToAdopt(
-	moves []movedPredicate, byTerm map[string]movedPredicate,
-	requested []string, stored, preset json.RawMessage, typeSlug string,
-) ([]movedPredicate, error) {
+	held []movedPredicate, requested []string, stored, preset json.RawMessage, typeSlug string,
+) (selected []movedPredicate, stillHeld []string, err error) {
+	movesClass := map[string]bool{}
+	for _, m := range held {
+		if m.Property == "@type" {
+			movesClass[m.Term] = true
+		}
+	}
 	if len(requested) == 0 {
-		selected := make([]movedPredicate, 0, len(moves))
-		for _, moved := range moves {
-			if moved.Term == "@type" || moved.Property == "@type" {
+		seenHeld := map[string]bool{}
+		for _, m := range held {
+			if m.Term == "@type" || m.Term == "@vocab" || movesClass[m.Term] {
+				if !seenHeld[m.Term] {
+					seenHeld[m.Term] = true
+					stillHeld = append(stillHeld, m.Term)
+				}
 				continue
 			}
-			selected = append(selected, moved)
+			selected = append(selected, m)
 		}
-		return selected, nil
+		sort.Strings(stillHeld)
+		return selected, stillHeld, nil
 	}
 
 	storedTerms, sErr := splitContext(stored)
 	presetTerms, pErr := splitContext(preset)
-	selected := make([]movedPredicate, 0, len(requested))
 	for _, term := range requested {
-		moved, isHeld := byTerm[term]
-		if isHeld {
-			selected = append(selected, moved)
+		var forTerm []movedPredicate
+		for _, m := range held {
+			if m.Term == term {
+				forTerm = append(forTerm, m)
+			}
+		}
+		if len(forTerm) > 0 {
+			selected = append(selected, forTerm...)
 			continue
 		}
 		// Already adopted on an earlier run, or never held at all? The stored
@@ -1043,10 +1168,10 @@ func selectTermsToAdopt(
 			jsonEquivalent(storedTerms[term], presetTerms[term]) && len(presetTerms[term]) > 0 {
 			continue
 		}
-		return nil, fmt.Errorf(
+		return nil, nil, fmt.Errorf(
 			"the boot is not holding a %q term for %q, so there is nothing to adopt", term, typeSlug)
 	}
-	return selected, nil
+	return selected, nil, nil
 }
 
 // presetTypeAndStored resolves a preset's declaration of a type alongside what

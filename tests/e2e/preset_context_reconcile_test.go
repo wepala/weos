@@ -152,6 +152,9 @@ type contextWorld struct {
 	// #520), possibly rewritten to look like an older build.
 	registry func() *application.PresetRegistry
 
+	// Issue #518: the last adoption's outcome.
+	lastAdoption *application.AdoptResult
+
 	// Issue #519: the count's report and the canonical records on either
 	// side of it.
 	countReport        *application.IRIEdgeKeyCountReport
@@ -293,6 +296,7 @@ func initPresetContextScenario(sc *godog.ScenarioContext) {
 	w.registerEdgeKeyNormalizationSteps(sc)
 	w.registerIRIEdgeKeyCountSteps(sc)
 	w.registerControlKeywordSteps(sc)
+	w.registerConflictAdoptionSteps(sc)
 }
 
 // --- preset shaping ---

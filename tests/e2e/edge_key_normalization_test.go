@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/cucumber/godog"
+	"github.com/jinzhu/inflection"
 
 	"github.com/wepala/weos/v3/application"
 	"github.com/wepala/weos/v3/internal/config"
@@ -222,6 +223,16 @@ func (w *contextWorld) plantLegacy(
 	} else if err := w.createResource(slug, name, data); err != nil {
 		return err
 	}
+	return w.downgradeToLegacy(slug, name, refs, literals, eventType)
+}
+
+// downgradeToLegacy rewrites a resource's latest event of the given type and
+// its canonical record to the pre-#515 shape: the edges node keyed by the
+// predicate IRI each property resolved to under the type's context, and the
+// old storable @context.
+func (w *contextWorld) downgradeToLegacy(
+	slug, name string, refs map[string][]string, literals map[string]any, eventType string,
+) error {
 	id := w.createdIDs[slug+"/"+name]
 
 	rt, err := w.rts.GetBySlug(context.Background(), slug)
@@ -271,7 +282,7 @@ func (w *contextWorld) plantLegacy(
 
 	// Downgrade the canonical record to match, as the old binary would have
 	// left it, blanking the projection columns the edge feeds.
-	table := slug + "s"
+	table := inflection.Plural(strings.ReplaceAll(slug, "-", "_"))
 	for property := range refs {
 		if err := w.db.Table(table).Where("id = ?", id).
 			Update(utils.CamelToSnake(property), nil).Error; err != nil {

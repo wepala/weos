@@ -30,7 +30,8 @@ import (
 func TestPrintHeldTerms_AHeldClass(t *testing.T) {
 	var out bytes.Buffer
 	printHeldTerms(&out, "core", "person", "https://schema.org/Person", []application.HeldTerm{
-		{Term: "@type", Property: "@type", PresetIRI: "http://xmlns.com/foaf/0.1/Person"},
+		{Term: "@type", Kind: application.HeldTermAdded, Property: "@type", PresetIRI: "http://xmlns.com/foaf/0.1/Person",
+			Moves: []application.HeldMove{{Property: "@type", PresetIRI: "http://xmlns.com/foaf/0.1/Person"}}},
 	})
 	text := out.String()
 	for _, want := range []string{
@@ -52,9 +53,12 @@ func TestPrintHeldTerms_AHeldClass(t *testing.T) {
 func TestPrintHeldTerms_ARepointedClassBesideATerm(t *testing.T) {
 	var out bytes.Buffer
 	printHeldTerms(&out, "catalog", "widget", "https://schema.org/Thing", []application.HeldTerm{
-		{Term: "supplier", Property: "supplier", StoredIRI: "https://schema.org/supplier",
-			PresetIRI: "https://example.org/catalog#supplier"},
-		{Term: "@type", Property: "@type", StoredIRI: "https://schema.org/Thing", PresetIRI: "https://schema.org/Product"},
+		{Term: "supplier", Kind: application.HeldTermAdded, Property: "supplier", StoredIRI: "https://schema.org/supplier",
+			PresetIRI: "https://example.org/catalog#supplier", Moves: []application.HeldMove{{Property: "supplier",
+				StoredIRI: "https://schema.org/supplier", PresetIRI: "https://example.org/catalog#supplier"}}},
+		{Term: "@type", Kind: application.HeldTermRedefined, Property: "@type", StoredIRI: "https://schema.org/Thing",
+			PresetIRI: "https://schema.org/Product", Moves: []application.HeldMove{{Property: "@type",
+				StoredIRI: "https://schema.org/Thing", PresetIRI: "https://schema.org/Product"}}},
 	})
 	text := out.String()
 	for _, want := range []string{
@@ -71,19 +75,24 @@ func TestPrintHeldTerms_ARepointedClassBesideATerm(t *testing.T) {
 
 func TestPrintAdoptOutcome_ASweepThatLeftTheClassSaysSo(t *testing.T) {
 	var out bytes.Buffer
-	printAdoptOutcome(&out, "core", "person", true, nil, []application.HeldTerm{{Term: "@type", Property: "@type"}})
+	printAdoptOutcome(&out, "core", "person", true, application.AdoptResult{},
+		[]application.HeldTerm{{Term: "@type", Property: "@type", Moves: []application.HeldMove{{Property: "@type"}}}})
 	text := out.String()
-	if !strings.Contains(text, "@type is still held") || !strings.Contains(text, "--term @type") ||
+	if !strings.Contains(text, "is still held") || !strings.Contains(text, "--term @type") ||
 		strings.Contains(text, "already up to date") {
 		t.Errorf("a sweep that skipped the class must say so and name the command:\n%s", text)
 	}
 	out.Reset()
-	printAdoptOutcome(&out, "core", "person", false, []string{"@type"}, nil)
-	if !strings.Contains(out.String(), `Adopted for "person": @type`) {
-		t.Errorf("adopting by name reports it:\n%s", out.String())
+	printAdoptOutcome(&out, "core", "person", false, application.AdoptResult{Adopted: []string{"@type"},
+		ClassMove: &application.HeldMove{Property: "@type", StoredIRI: "https://schema.org/Person",
+			PresetIRI: "http://xmlns.com/foaf/0.1/Person"}}, nil)
+	if !strings.Contains(out.String(), `Adopted for "person": @type`) ||
+		!strings.Contains(out.String(), "moves from https://schema.org/Person to http://xmlns.com/foaf/0.1/Person") ||
+		!strings.Contains(out.String(), "--restamp --type person --write") {
+		t.Errorf("adopting a class by name reports the move and the re-stamp:\n%s", out.String())
 	}
 	out.Reset()
-	printAdoptOutcome(&out, "catalog", "widget", true, nil, nil)
+	printAdoptOutcome(&out, "catalog", "widget", true, application.AdoptResult{}, nil)
 	if !strings.Contains(out.String(), "already up to date") {
 		t.Errorf("a clean type is up to date:\n%s", out.String())
 	}
@@ -92,8 +101,9 @@ func TestPrintAdoptOutcome_ASweepThatLeftTheClassSaysSo(t *testing.T) {
 func TestPrintHeldTerms_APrefixThatMovesTheClass(t *testing.T) {
 	var out bytes.Buffer
 	printHeldTerms(&out, "core", "person", "https://schema.org/Person", []application.HeldTerm{
-		{Term: "foaf", Property: "@type", StoredIRI: "https://schema.org/foaf:Person",
-			PresetIRI: "http://xmlns.com/foaf/0.1/Person"},
+		{Term: "foaf", Kind: application.HeldTermAdded, Property: "@type", StoredIRI: "https://schema.org/foaf:Person",
+			PresetIRI: "http://xmlns.com/foaf/0.1/Person", Moves: []application.HeldMove{{Property: "@type",
+				StoredIRI: "https://schema.org/foaf:Person", PresetIRI: "http://xmlns.com/foaf/0.1/Person"}}},
 	})
 	if !strings.Contains(out.String(), "Adopt with:  weos resource-type adopt-term core person --term foaf") ||
 		strings.Contains(out.String(), "--all") {
@@ -103,9 +113,10 @@ func TestPrintHeldTerms_APrefixThatMovesTheClass(t *testing.T) {
 
 func TestPrintAdoptOutcome_ASweepThatLeftAClassMovingPrefixNamesIt(t *testing.T) {
 	var out bytes.Buffer
-	printAdoptOutcome(&out, "core", "person", true, nil, []application.HeldTerm{{Term: "foaf", Property: "@type"}})
+	printAdoptOutcome(&out, "core", "person", true, application.AdoptResult{},
+		[]application.HeldTerm{{Term: "foaf", Property: "@type", Moves: []application.HeldMove{{Property: "@type"}}}})
 	text := out.String()
-	if !strings.Contains(text, "the class (through foaf) is still held") || !strings.Contains(text, "--term foaf") ||
+	if !strings.Contains(text, "foaf (the class) is still held") || !strings.Contains(text, "--term foaf") ||
 		strings.Contains(text, "--term @type") {
 		t.Errorf("a sweep that skipped a class-moving prefix must name that prefix:\n%s", text)
 	}
