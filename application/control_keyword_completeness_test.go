@@ -93,9 +93,16 @@ func TestAddEdgeToGraph_ControlKeywordNeverNamesTheEdge(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		var m map[string]any
-		_ = json.Unmarshal(out, &m)
-		edges, _ := m["@graph"].([]any)[1].(map[string]any)
+		var m struct {
+			Graph []map[string]any `json:"@graph"`
+		}
+		if err := json.Unmarshal(out, &m); err != nil {
+			t.Fatalf("run %d: AddEdgeToGraph returned unparseable JSON: %v", i, err)
+		}
+		if len(m.Graph) < 2 {
+			t.Fatalf("run %d: no edges node in the graph: %s", i, out)
+		}
+		edges := m.Graph[1]
 		if _, wrong := edges["rdfs:subClassOf"]; wrong || edges["supplier"] == nil {
 			t.Fatalf("run %d: the edge landed under %v", i, edges)
 		}
