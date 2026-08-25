@@ -131,6 +131,14 @@ type contextWorld struct {
 	resRepo    repositories.ResourceRepository
 	tripleRepo repositories.TripleRepository
 
+	// Issue #523: the normalization run's report and the event feed as it
+	// stood on either side of it, so a scenario can prove what the run did
+	// and did not touch.
+	normalizeReport       *application.NormalizeEdgeKeysReport
+	eventsBeforeNormalize []storedEvent
+	eventsAfterNormalize  []storedEvent
+	capturedReads         map[string]string
+
 	// vendorProps and widgetProps are the two types' schema properties in
 	// declaration order, as the preset would declare them on the next boot.
 	vendorProps []contextProperty
@@ -263,6 +271,7 @@ func initPresetContextScenario(sc *godog.ScenarioContext) {
 	// Issue #515's compact-edge contract extends the same world: the shapes it
 	// reads are the ones every scenario above writes.
 	w.registerCompactEdgeSteps(sc)
+	w.registerEdgeKeyNormalizationSteps(sc)
 }
 
 // --- preset shaping ---
