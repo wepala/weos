@@ -31,14 +31,21 @@ const controlLadenContext = `{"@vocab":"https://schema.org/",
   "weos:termAliases":{"maker":["https://example.org/old#madeBy"]}}`
 
 func TestParseContext_SkipsEveryControlKeyword(t *testing.T) {
-	_, terms := ParseContext(json.RawMessage(controlLadenContext))
-	for key := range ControlKeywords {
-		if _, present := terms[key]; present {
-			t.Errorf("%s entered the term map as %q", key, terms[key])
+	for name, ctx := range map[string]string{
+		"string values": controlLadenContext,
+		"@id object":    `{"@vocab":"https://schema.org/","maker":"https://schema.org/maker","rdfs:subClassOf":{"@id":"maker"}}`,
+		"compact IRI":   `{"@vocab":"https://schema.org/","maker":"https://schema.org/maker","rdfs:subClassOf":"schema:maker"}`,
+		"absolute IRI":  `{"@vocab":"https://schema.org/","maker":"https://schema.org/maker","rdfs:subClassOf":"https://schema.org/maker"}`,
+	} {
+		_, terms := ParseContext(json.RawMessage(ctx))
+		for key := range ControlKeywords {
+			if _, present := terms[key]; present {
+				t.Errorf("%s: %s entered the term map as %q", name, key, terms[key])
+			}
 		}
-	}
-	if terms["maker"] != "https://schema.org/maker" {
-		t.Errorf("the real term is gone: %v", terms)
+		if terms["maker"] != "https://schema.org/maker" {
+			t.Errorf("%s: the real term is gone: %v", name, terms)
+		}
 	}
 }
 
@@ -59,7 +66,7 @@ func TestParseContext_SkipsByNameNotByColon(t *testing.T) {
 func TestBuildReverseMap_ControlKeywordNeverClaimsAPredicate(t *testing.T) {
 	// rdfs:subClassOf "maker" expands to the same IRI the maker term owns;
 	// before the fix the winner was map-iteration order.
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 100; i++ {
 		reverse := BuildReverseMap(json.RawMessage(controlLadenContext))
 		if got := reverse["https://schema.org/maker"]; got != "maker" {
 			t.Fatalf("run %d: https://schema.org/maker reverse-maps to %q, want maker", i, got)

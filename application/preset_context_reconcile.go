@@ -446,7 +446,11 @@ func livePredicates(stored, storedSchema json.RawMessage) []string {
 		for name := range terms {
 			// A prefix definition is not itself a predicate; it matters only
 			// through the terms that expand against it, which are added here
-			// in their own right.
+			// in their own right. A control entry is not a predicate either
+			// (issue #522): it merges by copy and is never held or adopted.
+			if jsonld.ControlKeywords[name] {
+				continue
+			}
 			add(name)
 		}
 	}
@@ -492,6 +496,9 @@ func dropDanglingPrefixTerms(
 ) []movedPredicate {
 	var dropped []movedPredicate
 	for _, term := range append([]string(nil), *added...) {
+		if jsonld.ControlKeywords[term] {
+			continue // control data, not a term with a prefix to resolve
+		}
 		prefix := prefixOf(merged[term])
 		if prefix == "" {
 			continue

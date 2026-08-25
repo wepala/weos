@@ -84,7 +84,7 @@ Feature: A control keyword never claims a predicate a property owns
   #          EdgeProperty(<the shared IRI>, ctx) returns the property name, over
   #          many runs. This is the read path scenario 1 exercises end to end.
   #
-  #    application/preset_context_reconcile_test.go
+  #    application/control_keyword_completeness_test.go
   #      - TestReferencePropertiesWithoutContextEntry_IgnoresAControlKeyword
   #          referencePropertiesWithoutContextEntry returns nothing for a type
   #          whose reference property shares its IRI with rdfs:subClassOf. This
@@ -94,7 +94,7 @@ Feature: A control keyword never claims a predicate a property owns
   #    DoD asks for two registry-wide assertions. Both are pure functions of
   #    presets.NewDefaultRegistry() — no database, no boot — so they belong
   #    beside the existing TestPresets_* sweeps in
-  #    application/resource_type_presets_test.go, where they run in
+  #    application/presets/preset_context_completeness_test.go (presets.ContextGuardViolations), where they run in
   #    `make test-unit` on every change rather than only in the e2e job:
   #      - TestPresets_ReferencePropertiesReverseMapToTheirOwnName
   #          For every type of every built-in preset: BuildReverseMap of its

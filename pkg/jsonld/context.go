@@ -210,6 +210,9 @@ func InlineVocabContext(data json.RawMessage) json.RawMessage {
 // mapping. Copied into a resource document, any of them makes the whole
 // document unparseable and the graph store rejects it, so the resource never
 // reaches the knowledge graph while its API read stays healthy.
+// Matched by exact key: the expanded-IRI spelling of rdfs:subClassOf, or a
+// bare `subClassOf` under an `rdfs` prefix, is not recognized as control data
+// — neither by these readers nor by the parse skip (issue #522).
 var ControlKeywords = map[string]bool{
 	"rdfs:subClassOf":   true,
 	"weos:valueObject":  true,
