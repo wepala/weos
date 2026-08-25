@@ -320,3 +320,13 @@ func TestPredicateMovesOf_IRIKeyedDocument(t *testing.T) {
 		t.Errorf("the rewritten edge's triple must move: %v", moves)
 	}
 }
+
+func TestEdgeKeyResolver_IgnoresAnAliasKeyedByAControlKeyword(t *testing.T) {
+	r := edgeKeyTestResolver(t, `{"@vocab":"https://schema.org/",
+	  "maker":{"@id":"https://schema.org/maker","@type":"@id"},
+	  "weos:termAliases":{"rdfs:subClassOf":["https://schema.org/maker"]}}`, widgetSchema)
+	name, candidates, ok := r.resolve("https://schema.org/maker")
+	if !ok || name != "maker" || len(candidates) != 0 {
+		t.Errorf("a control-keyed alias must not make maker's predicate ambiguous: (%q, %v, %v)", name, candidates, ok)
+	}
+}

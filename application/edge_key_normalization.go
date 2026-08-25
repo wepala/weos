@@ -774,7 +774,11 @@ func newEdgeKeyResolver(
 	}
 	// A historical IRI two properties both recorded is just as ambiguous as a
 	// live one: BuildReverseMap would hand it to whichever alias it met first.
+	// An alias keyed by a control keyword is not a property's (issue #522).
 	for name, iris := range jsonld.TermAliases(ldContext) {
+		if jsonld.ControlKeywords[name] || jsonld.IsIRIKey(name) {
+			continue
+		}
 		for _, iri := range iris {
 			claim(iri, name)
 		}

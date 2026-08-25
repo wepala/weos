@@ -28,7 +28,10 @@ import (
 // set is clean:
 //
 //   - every reference property reverse-maps to its own name — two properties
-//     collapsing onto one predicate read back as one;
+//     collapsing onto one predicate read back as one. A reference with no
+//     term of its own resolves through `@vocab` + its name, which the read
+//     path (jsonld.EdgeProperty) and the boot's completeness check both
+//     accept; that shape passes here for the same reason;
 //   - no expanded predicate IRI keeps an undeclared compact prefix in its
 //     local name (`https://schema.org/foaf:knows` is what a compact IRI
 //     becomes when @vocab absorbs an undeclared prefix);
