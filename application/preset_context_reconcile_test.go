@@ -560,8 +560,17 @@ func TestReconcileAdditiveContext_AddingVocabMovesEveryUntermedReference(t *test
 	if err != nil {
 		t.Fatalf("reconcileAdditiveContext: %v", err)
 	}
-	if len(rec.Moves) != 1 || rec.Moves[0].Term != "@vocab" {
-		t.Fatalf("Moves = %+v, want @vocab held", rec.Moves)
+	// One move per property @vocab repoints (issue #518); every one of them
+	// names the @vocab term.
+	moved := map[string]bool{}
+	for _, m := range rec.Moves {
+		if m.Term != "@vocab" {
+			t.Fatalf("Moves = %+v, want every move on @vocab", rec.Moves)
+		}
+		moved[m.Property] = true
+	}
+	if len(rec.Moves) != 2 || !moved["maker"] || !moved["@type"] {
+		t.Fatalf("Moves = %+v, want exactly maker and @type moved by @vocab", rec.Moves)
 	}
 	if rec.Changed {
 		t.Error("holding @vocab must leave the stored context alone")

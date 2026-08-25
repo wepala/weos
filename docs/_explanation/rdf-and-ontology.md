@@ -22,13 +22,14 @@ Every resource type in WeOS has a JSON-LD `@context` that maps property names to
 ```json
 {
   "@vocab": "https://schema.org/",
-  "foaf": "http://xmlns.com/foaf/0.1/"
+  "foaf": "http://xmlns.com/foaf/0.1/",
+  "@type": "foaf:Person"
 }
 ```
 
 This means:
 - `@vocab` sets Schema.org as the default vocabulary — unqualified property names like `name`, `email`, `givenName` resolve to `schema:name`, `schema:email`, `schema:givenName`
-- The `foaf` prefix makes FOAF (Friend of a Friend) vocabulary available — you could use `foaf:knows` to express social connections
+- The `foaf` prefix makes FOAF (Friend of a Friend) vocabulary available, and the type's class uses it: every person is a `foaf:Person` (`http://xmlns.com/foaf/0.1/Person`) whose predicates stay on Schema.org — a deliberately mixed graph. `organization` does the same with `org:Organization` from the W3C Organization Ontology.
 
 The `@type` field declares what *kind* of thing this resource is:
 

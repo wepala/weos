@@ -17,7 +17,7 @@ import (
 // so the shape is replicated here; the memory preset's own tests pin the real
 // artifact.
 const testFactContext = `{"@vocab":"https://schema.org/",` +
-	`"mem":"https://weos.org/vocab/memory#","@type":"mem:Fact",` +
+	`"mem":"https://weos.io/vocab/memory#","@type":"mem:Fact",` +
 	`"statement":"https://schema.org/text","about":"https://schema.org/about",` +
 	`"wasDerivedFrom":"http://www.w3.org/ns/prov#wasDerivedFrom",` +
 	`"wasRevisionOf":"http://www.w3.org/ns/prov#wasRevisionOf",` +

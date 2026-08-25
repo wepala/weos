@@ -18,11 +18,13 @@ package presets_test
 import (
 	"encoding/json"
 	"sort"
+	"strings"
 	"testing"
+
+	"github.com/wepala/weos/v3/pkg/jsonld"
 
 	"github.com/wepala/weos/v3/application"
 	"github.com/wepala/weos/v3/application/presets"
-	"github.com/wepala/weos/v3/pkg/jsonld"
 )
 
 // TestEveryReferencePropertyHasAContextEntry is the packaging guard for issue
@@ -97,4 +99,46 @@ func referencesWithoutContextEntry(t *testing.T, pt application.PresetResourceTy
 	}
 	sort.Strings(dropped)
 	return dropped
+}
+
+// TestPresets_ContextGuards sweeps the whole built-in registry with the
+// epic's (#517) vocabulary guards — every reference property reverse-maps to
+// its own name, no expanded predicate keeps an undeclared compact prefix, no
+// control keyword claims a predicate (#522). presets.ContextGuardViolations
+// carries the rules so a private registry can sweep itself.
+func TestPresets_ContextGuards(t *testing.T) {
+	for _, preset := range presets.NewDefaultRegistry().List() {
+		for _, line := range presets.ContextGuardViolations(preset.Types) {
+			t.Errorf("%s/%s", preset.Name, line)
+		}
+	}
+}
+
+// TestPresets_ContextGuardsCatchTheKnownBadShapes proves the sweep has teeth:
+// each rule fires on the fixture it exists for.
+func TestPresets_ContextGuardsCatchTheKnownBadShapes(t *testing.T) {
+	bad := []application.PresetResourceType{{
+		Slug: "widget",
+		Context: json.RawMessage(`{"@vocab":"https://schema.org/","maker":"https://schema.org/associated",` +
+			`"partner":"https://schema.org/associated","knows":"foaf:knows","foaf:knows":"foaf:knows"}`),
+		Schema: json.RawMessage(`{"type":"object","properties":{` +
+			`"maker":{"type":"string","x-resource-type":"vendor"},"partner":{"type":"string","x-resource-type":"vendor"}}}`),
+	}}
+	lines := strings.Join(presets.ContextGuardViolations(bad), "\n")
+	for _, want := range []string{"reverse-maps to", `"knows" resolves to https://schema.org/foaf:knows`,
+		`"foaf:knows" resolves to https://schema.org/foaf:knows`} {
+		if !strings.Contains(lines, want) {
+			t.Errorf("the guards did not report %q:\n%s", want, lines)
+		}
+	}
+	// A control keyword is skipped by ParseContext now, and a URN-valued term
+	// in a context with no @vocab has no local name to test: both clean.
+	control := []application.PresetResourceType{
+		{Slug: "old", Context: json.RawMessage(
+			`{"@vocab":"https://schema.org/","rdfs:subClassOf":"maker","maker":"https://schema.org/maker"}`)},
+		{Slug: "urn", Context: json.RawMessage(`{"kind":"urn:type:widget"}`)},
+	}
+	if v := presets.ContextGuardViolations(control); len(v) != 0 {
+		t.Errorf("a control keyword is skipped by ParseContext now; the guard must see a clean type: %v", v)
+	}
 }

@@ -90,13 +90,21 @@ func TestPresetContextGuards(t *testing.T) {
 // runContextFeature runs one feature file against the shared context step world.
 func runContextFeature(t *testing.T, name, path string) {
 	t.Helper()
+	runFeatureWith(t, name, path, initPresetContextScenario)
+}
+
+// runFeatureWith runs one feature file with the given scenario initializer,
+// honoring the suite-wide tag convention (@wip excluded unless GODOG_TAGS
+// overrides it).
+func runFeatureWith(t *testing.T, name, path string, init func(*godog.ScenarioContext)) {
+	t.Helper()
 	tags := "~@wip"
 	if override := os.Getenv("GODOG_TAGS"); override != "" {
 		tags = override
 	}
 	suite := godog.TestSuite{
 		Name:                name,
-		ScenarioInitializer: initPresetContextScenario,
+		ScenarioInitializer: init,
 		Options: &godog.Options{
 			Format:   "pretty",
 			Paths:    []string{path},
@@ -130,6 +138,28 @@ type contextWorld struct {
 	// it), and the triple repository proves the ontology did not move.
 	resRepo    repositories.ResourceRepository
 	tripleRepo repositories.TripleRepository
+
+	// Issue #523: the normalization run's report and the event feed as it
+	// stood on either side of it, so a scenario can prove what the run did
+	// and did not touch.
+	normalizeReport       *application.NormalizeEdgeKeysReport
+	eventsBeforeNormalize []storedEvent
+	eventsAfterNormalize  []storedEvent
+	capturedReads         map[string]string
+
+	// registry, when set, is the preset registry the next boot runs on
+	// instead of the synthetic catalog — the real built-in presets (issue
+	// #520), possibly rewritten to look like an older build.
+	registry func() *application.PresetRegistry
+
+	// Issue #518: the last adoption's outcome.
+	lastAdoption *application.AdoptResult
+
+	// Issue #519: the count's report and the canonical records on either
+	// side of it.
+	countReport        *application.IRIEdgeKeyCountReport
+	recordsBeforeCount map[string]string
+	recordsAfterCount  map[string]string
 
 	// vendorProps and widgetProps are the two types' schema properties in
 	// declaration order, as the preset would declare them on the next boot.
@@ -263,6 +293,10 @@ func initPresetContextScenario(sc *godog.ScenarioContext) {
 	// Issue #515's compact-edge contract extends the same world: the shapes it
 	// reads are the ones every scenario above writes.
 	w.registerCompactEdgeSteps(sc)
+	w.registerEdgeKeyNormalizationSteps(sc)
+	w.registerIRIEdgeKeyCountSteps(sc)
+	w.registerControlKeywordSteps(sc)
+	w.registerConflictAdoptionSteps(sc)
 }
 
 // --- preset shaping ---
@@ -629,9 +663,13 @@ func (w *contextWorld) boot() error {
 	var resRepo repositories.ResourceRepository
 	var tripleRepo repositories.TripleRepository
 
+	registry := w.catalogRegistry
+	if w.registry != nil {
+		registry = w.registry
+	}
 	app := fx.New(
 		fx.NopLogger,
-		application.Module(cfg, w.catalogRegistry()),
+		application.Module(cfg, registry()),
 		// Decorating the Logger is what makes the boot reconcile observable
 		// without a production seam existing only for the tests.
 		fx.Decorate(func(inner entities.Logger) entities.Logger {
@@ -1138,6 +1176,13 @@ func (w *contextWorld) theStoredContextStillMaps(term, iri string) error {
 	got, ok := terms[term]
 	if !ok {
 		return fmt.Errorf("stored widget context lost its entry for %q", term)
+	}
+	// A term is spelled as a bare IRI string or as {"@id": …}; both name the
+	// same mapping, and an adopted preset definition arrives in the latter.
+	if obj, isObj := got.(map[string]any); isObj {
+		if id, has := obj["@id"]; has {
+			got = id
+		}
 	}
 	if fmt.Sprintf("%v", got) != iri {
 		return fmt.Errorf("stored widget context maps %q to %v, want %q — the operator's edit was overwritten",

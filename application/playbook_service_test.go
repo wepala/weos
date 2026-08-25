@@ -9,11 +9,11 @@ import (
 )
 
 const testPlaybookContext = `{"@vocab":"https://schema.org/",` +
-	`"mem":"https://weos.org/vocab/memory#","@type":"mem:Playbook",` +
-	`"trigger":"https://weos.org/vocab/memory#triggerCondition",` +
-	`"steps":"https://weos.org/vocab/memory#steps",` +
-	`"successCount":"https://weos.org/vocab/memory#successCount",` +
-	`"failureCount":"https://weos.org/vocab/memory#failureCount"}`
+	`"mem":"https://weos.io/vocab/memory#","@type":"mem:Playbook",` +
+	`"trigger":"https://weos.io/vocab/memory#triggerCondition",` +
+	`"steps":"https://weos.io/vocab/memory#steps",` +
+	`"successCount":"https://weos.io/vocab/memory#successCount",` +
+	`"failureCount":"https://weos.io/vocab/memory#failureCount"}`
 
 type fakePlaybookResources struct {
 	byID      map[string]*entities.Resource

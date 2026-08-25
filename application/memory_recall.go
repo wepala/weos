@@ -23,15 +23,22 @@ import (
 	"strings"
 
 	"github.com/wepala/weos/v3/domain/repositories"
+	"github.com/wepala/weos/v3/pkg/jsonld"
 )
 
 // Fact predicate IRIs, matching the memory preset's context (bare full-IRI
 // mappings — see application/presets/memory).
 const (
-	factClassIRI          = "https://weos.org/vocab/memory#Fact"
+	factClassIRI = jsonld.MemoryVocab + "Fact"
+	// legacyFactClassIRI is the class facts carried before the house
+	// vocabulary moved to weos.io (issue #520). An existing install keeps it
+	// until the held prefix is adopted and its records re-stamped, so recall
+	// accepts both rather than going blind across the upgrade.
+	legacyFactClassIRI    = "https://weos.org/vocab/memory#Fact"
+	legacyFactConfidence  = "https://weos.org/vocab/memory#confidence"
 	factStatementIRI      = "https://schema.org/text"
 	factAboutIRI          = "https://schema.org/about"
-	factConfidenceIRI     = "https://weos.org/vocab/memory#confidence"
+	factConfidenceIRI     = jsonld.MemoryVocab + "confidence"
 	factGeneratedAtIRI    = "http://www.w3.org/ns/prov#generatedAtTime"
 	factWasRevisionOfIRI  = "http://www.w3.org/ns/prov#wasRevisionOf"
 	factWasDerivedFromIRI = "http://www.w3.org/ns/prov#wasDerivedFrom"
@@ -126,14 +133,22 @@ func (r *memoryRecall) graphFacts(ctx context.Context, q RecallQuery, limit int)
 // the recall surface over raw kg_sparql_query.
 func buildRecallSPARQL(q RecallQuery, limit int) string {
 	var b strings.Builder
-	b.WriteString("SELECT ?fact ?statement ?about ?confidence ?generatedAt ?revisionOf")
+	// DISTINCT: a fact carrying both the current and the legacy class
+	// mid-migration matches VALUES twice and must not halve the limit.
+	b.WriteString("SELECT DISTINCT ?fact ?statement ?about ?confidence ?generatedAt ?revisionOf")
 	if q.IncludeProvenance {
 		b.WriteString(` (GROUP_CONCAT(DISTINCT ?src; separator=" ") AS ?sources)`)
 	}
 	b.WriteString(" WHERE {\n")
-	fmt.Fprintf(&b, "  ?fact a <%s> ;\n        <%s> ?statement .\n", factClassIRI, factStatementIRI)
+	fmt.Fprintf(&b, "  VALUES ?factClass { <%s> <%s> }\n", factClassIRI, legacyFactClassIRI)
+	fmt.Fprintf(&b, "  ?fact a ?factClass ;\n        <%s> ?statement .\n", factStatementIRI)
 	fmt.Fprintf(&b, "  OPTIONAL { ?fact <%s> ?about }\n", factAboutIRI)
-	fmt.Fprintf(&b, "  OPTIONAL { ?fact <%s> ?confidence }\n", factConfidenceIRI)
+	// One confidence per fact even when a record carries both predicates
+	// mid-migration: two OPTIONALs coalesced, not an alternation, which
+	// would yield a row per match.
+	fmt.Fprintf(&b, "  OPTIONAL { ?fact <%s> ?confidenceNow }\n", factConfidenceIRI)
+	fmt.Fprintf(&b, "  OPTIONAL { ?fact <%s> ?confidenceLegacy }\n", legacyFactConfidence)
+	b.WriteString("  BIND(COALESCE(?confidenceNow, ?confidenceLegacy) AS ?confidence)\n")
 	fmt.Fprintf(&b, "  OPTIONAL { ?fact <%s> ?generatedAt }\n", factGeneratedAtIRI)
 	fmt.Fprintf(&b, "  OPTIONAL { ?fact <%s> ?revisionOf }\n", factWasRevisionOfIRI)
 	if q.IncludeProvenance {

@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/wepala/weos/v3/domain/entities"
 
@@ -141,7 +142,9 @@ func reconcilePresetSchemas(
 		// repointing it would orphan them (issues #510, #513).
 		logger.Warn(ctx,
 			"resource type context terms held at their stored definition: preset declares a different IRI",
-			"preset", presetName, "slug", slug, "heldContextTerms", held)
+			"preset", presetName, "slug", slug, "heldContextTerms", held,
+			"remedy", AdoptRemedy(presetName, slug, held, reconciled.ClassMovers[slug]),
+			"note", AdoptRemedyNote(held, reconciled.ClassMovers[slug]))
 	}
 	for slug, terms := range reconciled.Repointed {
 		// Phrased as held at their stored definition like the divergence case,
@@ -151,7 +154,8 @@ func reconcilePresetSchemas(
 			"resource type context terms held at their stored definition: adopting them would "+
 				"repoint a predicate that already has data",
 			"preset", presetName, "slug", slug, "heldContextTerms", terms,
-			"remedy", "weos resource-type adopt-term "+presetName+" "+slug+" --all")
+			"remedy", AdoptRemedy(presetName, slug, terms, reconciled.ClassMovers[slug]),
+			"note", AdoptRemedyNote(terms, reconciled.ClassMovers[slug]))
 	}
 	for slug, reason := range reconciled.UnparseableContext {
 		logger.Error(ctx,
@@ -247,4 +251,84 @@ func ReportAmbiguousReferenceShape(
 				"into a single array property if they are one relationship with several targets",
 			"slug", slug, "properties", names, "predicate", predicate, "targetType", target)
 	}
+}
+
+// AdoptRemedy is the command an operator runs to adopt the held terms of a
+// type, kept copy-pasteable: no prose. A sweep (--all) deliberately never
+// moves the class — neither `@type` itself nor a prefix the class expands
+// through (classMovers) — and never repoints `@vocab`, which moves every
+// untermed property at once; those are named explicitly, and a type holding
+// several kinds is given every command. Printing the sweep alone for a held
+// class sent the operator to a command that adopted nothing and left the
+// boot warning forever (issue #521). AdoptRemedyNote carries the explanation.
+func AdoptRemedy(presetName, slug string, held, classMovers []string) string {
+	base := "weos resource-type adopt-term " + presetName + " " + slug
+	kinds := heldKinds(held, classMovers)
+	var commands []string
+	// The named terms go first: a term written against a held prefix waits
+	// for that prefix, so a sweep that runs after it takes everything in one
+	// pass, where a sweep that runs before it leaves the term for next boot.
+	if kinds.class {
+		commands = append(commands, base+" --term @type")
+	}
+	for _, mover := range classMovers {
+		commands = append(commands, base+" --term "+mover)
+	}
+	if kinds.vocab {
+		commands = append(commands, base+" --term @vocab")
+	}
+	if kinds.others {
+		commands = append(commands, base+" --all")
+	}
+	return strings.Join(commands, " && ")
+}
+
+// AdoptRemedyNote explains the remedy where the held terms include something
+// a sweep never takes.
+func AdoptRemedyNote(held, classMovers []string) string {
+	kinds := heldKinds(held, classMovers)
+	var notes []string
+	if kinds.class || len(classMovers) > 0 {
+		notes = append(notes, "a sweep never moves the class; after adopting it, re-stamp existing records with "+
+			"`weos worker normalize-edge-keys --restamp --type <slug> --write`, then `weos worker reproject` "+
+			"and `weos worker checkpoint reset oxigraph --truncate` (the knowledge graph is not rebuilt by reproject)")
+	}
+	if kinds.vocab {
+		notes = append(notes, "a sweep never repoints @vocab, which moves every property that has no term of its own; "+
+			"name it to adopt it")
+	}
+	return strings.Join(notes, "; ")
+}
+
+type heldKindSet struct{ class, vocab, others bool }
+
+// heldKinds sorts the held terms into the class, @vocab, and everything
+// else. A term listed among classMovers moves the class and counts on none
+// of the sweep's sides.
+func heldKinds(held, classMovers []string) heldKindSet {
+	movers := map[string]bool{}
+	for _, m := range classMovers {
+		movers[m] = true
+	}
+	var kinds heldKindSet
+	for _, term := range held {
+		switch {
+		case term == "@type":
+			kinds.class = true
+		case term == "@vocab":
+			kinds.vocab = true
+		case movers[term]:
+		default:
+			kinds.others = true
+		}
+	}
+	return kinds
+}
+
+// ResourceTypeClassIRI is the RDF class resources of a type carry — the
+// context's @type through @vocab, else the type name, else the slug — as the
+// ontology projection advertises it. Exported for the operator commands that
+// have to name the class an instance carries today.
+func ResourceTypeClassIRI(name, slug string, rawContext json.RawMessage) string {
+	return resourceTypeClassIRI(name, slug, rawContext)
 }

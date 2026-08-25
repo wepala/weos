@@ -72,8 +72,8 @@ func (s *stubResourceTypeService) HeldContextTerms(
 
 func (s *stubResourceTypeService) AdoptContextTerms(
 	_ context.Context, _, _ string, _ []string,
-) ([]string, error) {
-	return nil, nil
+) (application.AdoptResult, error) {
+	return application.AdoptResult{}, nil
 }
 
 func (s *stubResourceTypeService) ListBehaviors(

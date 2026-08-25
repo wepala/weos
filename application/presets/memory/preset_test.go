@@ -89,7 +89,7 @@ func TestFactClassIRI_ExpandsViaMemPrefix(t *testing.T) {
 	}
 	vocab, _ := jsonld.ParseContext(fact.Context)
 	got := jsonld.ExpandIRI("mem:Fact", vocab, rawCtx)
-	want := "https://weos.org/vocab/memory#Fact"
+	want := "https://weos.io/vocab/memory#Fact"
 	if got != want {
 		t.Errorf("class IRI = %q, want %q", got, want)
 	}

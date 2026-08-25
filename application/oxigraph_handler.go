@@ -102,9 +102,20 @@ func projectResourceTypeOntology(
 		logger.Warn(ctx, "kg failed to clear prior resource type ontology",
 			"slug", slug, "class", classIRI, "error", err)
 	}
-	if err := store.LoadOntology(ctx, "application/ld+json", rawContext); err != nil {
-		return fmt.Errorf("kg: load resource type ontology for %s: %w", slug, err)
-	}
+	// Only the explicit triples are written. The type's context used to be
+	// loaded as a JSON-LD document as well, and that did two things wrong: a
+	// bare `"@type":"foaf:Person"` beside its prefix definition minted a
+	// fresh blank node typed with the literal `foaf:Person` on every boot,
+	// and any WeOS control entry (`weos:adoptedTerms` is an array, `@type`
+	// inside a context is a keyword redefinition) made a strict parser
+	// refuse the whole document — so a type whose terms had ever been
+	// adopted lost its class (issue #521). A context-only document yields no
+	// triples at all, so there is nothing that load could contribute.
+	//
+	// A type that just DECLARED a class advertised the name fallback until
+	// now; that subject is cleared by the documented `worker checkpoint
+	// reset oxigraph --truncate`, not here — another type may legitimately
+	// advertise the same IRI, and RemoveSubject would take its triples too.
 	return emitExplicitOntologyTriples(ctx, name, slug, rawContext, store, logger)
 }
 

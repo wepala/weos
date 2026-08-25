@@ -44,7 +44,14 @@ func ParseContext(ldContext json.RawMessage) (string, map[string]string) {
 	vocab, _ := ctx["@vocab"].(string) //nolint:errcheck // type assertion defaults to ""
 
 	for key, val := range ctx {
-		if strings.HasPrefix(key, "@") {
+		// Keywords and WeOS control entries are not term definitions. A
+		// control entry whose value is a string — `rdfs:subClassOf` names a
+		// type — used to be expanded exactly as if it were a term, so it
+		// could claim a predicate IRI in the reverse map that a real
+		// property owns, and which of the two won was map order (issue
+		// #522). The readers of these entries (SubClassOf, IsAbstract,
+		// IsValueObject, TermAliases, AdoptedTerms) read the raw context.
+		if strings.HasPrefix(key, "@") || ControlKeywords[key] {
 			continue
 		}
 		switch v := val.(type) {
@@ -72,6 +79,11 @@ func BuildReverseMap(ldContext json.RawMessage) map[string]string {
 	// current mapping is authoritative, and only an IRI nothing else claims is
 	// added.
 	for propName, iris := range TermAliases(ldContext) {
+		// A control keyword is never a property, however it got into the
+		// alias map (issue #522).
+		if ControlKeywords[propName] {
+			continue
+		}
 		for _, iri := range iris {
 			if _, taken := result[iri]; taken {
 				continue
@@ -203,6 +215,9 @@ func InlineVocabContext(data json.RawMessage) json.RawMessage {
 // mapping. Copied into a resource document, any of them makes the whole
 // document unparseable and the graph store rejects it, so the resource never
 // reaches the knowledge graph while its API read stays healthy.
+// Matched by exact key: the expanded-IRI spelling of rdfs:subClassOf, or a
+// bare `subClassOf` under an `rdfs` prefix, is not recognized as control data
+// — neither by these readers nor by the parse skip (issue #522).
 var ControlKeywords = map[string]bool{
 	"rdfs:subClassOf":   true,
 	"weos:valueObject":  true,

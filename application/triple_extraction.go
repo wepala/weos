@@ -803,9 +803,10 @@ func BuildResourceGraph(
 		graph = append(graph, edgesNode)
 	}
 
-	// Build the top-level document with @context and @graph.
-	// The @context only needs @vocab and @type — property-to-predicate mappings
-	// are not needed since the edges node already uses full predicate IRIs.
+	// Build the top-level document with @context and @graph. The @context
+	// carries @vocab, prefixes AND the term mappings (issue #515): the edges
+	// node is keyed by property name, so the mappings are what let the
+	// document expand back to its predicates.
 	doc := map[string]any{
 		"@graph": graph,
 	}
