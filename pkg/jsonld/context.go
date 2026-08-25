@@ -44,7 +44,14 @@ func ParseContext(ldContext json.RawMessage) (string, map[string]string) {
 	vocab, _ := ctx["@vocab"].(string) //nolint:errcheck // type assertion defaults to ""
 
 	for key, val := range ctx {
-		if strings.HasPrefix(key, "@") {
+		// Keywords and WeOS control entries are not term definitions. A
+		// control entry whose value is a string — `rdfs:subClassOf` names a
+		// type — used to be expanded exactly as if it were a term, so it
+		// could claim a predicate IRI in the reverse map that a real
+		// property owns, and which of the two won was map order (issue
+		// #522). The readers of these entries (SubClassOf, IsAbstract,
+		// IsValueObject, TermAliases, AdoptedTerms) read the raw context.
+		if strings.HasPrefix(key, "@") || ControlKeywords[key] {
 			continue
 		}
 		switch v := val.(type) {

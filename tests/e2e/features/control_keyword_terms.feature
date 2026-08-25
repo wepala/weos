@@ -1,4 +1,4 @@
-@wip @issue-522
+@issue-522
 Feature: A control keyword never claims a predicate a property owns
   As an operator whose type declares its parent, its abstractness and its aliases in the same @context
   I want WeOS to read those entries as control data and never as term definitions
@@ -16,19 +16,23 @@ Feature: A control keyword never claims a predicate a property owns
   # `rdfs:subClassOf` is the only one of the five that reaches the map today:
   # `weos:abstract` and `weos:valueObject` are booleans, `weos:adoptedTerms` is
   # an array, and `weos:termAliases` is an object with no `@id`, so all four
-  # fall off ParseContext's type switch already. 52 of the audited contexts
-  # declare `rdfs:subClassOf`, and its value is a TYPE SLUG (or, written by
-  # someone who knows RDF, `schema:Thing` or an absolute IRI) — never a
-  # predicate.
+  # fall off ParseContext's type switch already. Its value is a TYPE SLUG (or,
+  # written by someone who knows RDF, `schema:Thing` or an absolute IRI) —
+  # never a predicate. The epic's audit counts 52 contexts in the field
+  # declaring it; on THIS branch no built-in preset context does (checked with
+  # grep over application/presets), so the contexts that carry it are the ones
+  # operators and private presets create, which is precisely the population no
+  # unit test over the registry will ever see.
   #
   # `application/triple_extraction.go isTermDefinition` already filters
   # ControlKeywords BY NAME for a resource document. ParseContext does not.
   # That inconsistency is the whole story.
   #
   # WHAT IT COSTS TODAY. Nothing in the built-in registry, which is why this is
-  # a LATENT fault: no real property currently resolves to the same IRI as a
-  # control entry. The day one does — a type named after its parent, a preset
-  # that repoints a term, an operator editing a stored context — the reverse map
+  # a LATENT fault: no built-in property resolves to the same IRI as a control
+  # entry, and no built-in context declares one. The day one does — a type named
+  # after its parent, a preset that repoints a term, an operator editing a
+  # stored context, a private preset with a class hierarchy — the reverse map
   # is a map[string]string and the two entries collide. The winner is Go map
   # iteration order, so the SAME database answers differently on different
   # boots, and the loser is the property: its legacy edges stop resolving, and
@@ -128,7 +132,7 @@ Feature: A control keyword never claims a predicate a property owns
   #         jsonld.ControlKeywords, and no value of BuildReverseMap names one.
   #         This assertion is DETERMINISTIC — it fails on every run before the
   #         fix — which is what makes these scenarios guards rather than coin
-  #         flips. Keep it in every scenario that builds a collision.
+  #         flips. Every scenario that builds a collision asserts it.
   #      c. `the twin still reads the control entries of "widget" as:`
   #         A | reader | value | table over the five readers: "subclass of"
   #         (SubClassOf), "abstract" (IsAbstract), "value object"
@@ -143,8 +147,8 @@ Feature: A control keyword never claims a predicate a property owns
   #    NAME, so it needs no reverse map at all and cannot lose the collision.
   #    The population at risk is every record written before #515 — keyed by the
   #    predicate IRI, resolved through BuildReverseMap on every read — and #523
-  #    normalizes those only when the operator runs the migration. So scenario 1
-  #    plants the pre-#515 shape with the world's existing step and reads it
+  #    normalizes those only when the operator runs the migration. So the outline
+  #    below plants the pre-#515 shape with the world's existing step and reads it
   #    back through all three readers (projection, API, canonical record). The
   #    new write beside it is the positive control: it must keep working too.
   #
@@ -152,9 +156,10 @@ Feature: A control keyword never claims a predicate a property owns
   #      - Dual projection into a parent table. Covered by
   #        infrastructure/database/gorm/{resource_repository,projection_manager}
   #        _test.go and application/event_handlers_test.go, which already build
-  #        contexts carrying rdfs:subClassOf and weos:abstract. Scenario 3 pins
-  #        that the DECLARATION still reads back after this change; the table
-  #        routing behind it is unchanged and already covered.
+  #        contexts carrying rdfs:subClassOf and weos:abstract. The scenario
+  #        "A type's control entries keep their meaning" pins that the
+  #        DECLARATION still reads back after this change; the table routing
+  #        behind it is unchanged and already covered.
   #      - A control keyword leaking into a resource document's own @context.
   #        isTermDefinition already filters it, asserted by
   #        application/edge_key_normalization_test.go and
@@ -185,10 +190,11 @@ Feature: A control keyword never claims a predicate a property owns
   # The two spellings a parent is written in that expand ONTO A PROPERTY'S OWN
   # PREDICATE. Both go through @vocab: a bare slug is prefixed with it, and a
   # `schema:` prefix the context never declares falls back to it
-  # (jsonld.ExpandIRI). The absolute spelling is exercised in scenario 2 rather
-  # than here, because the pre-#515 writer copied an absolute-IRI value into the
-  # resource's own embedded @context and this scenario is about the reverse map,
-  # not about that.
+  # (jsonld.ExpandIRI). The absolute spelling — the one the ControlKeywords doc
+  # comment says an RDF-literate operator reaches for — is exercised in the last
+  # scenario instead: the pre-#515 writer copied an absolute-IRI value into the
+  # resource's OWN embedded @context, and this outline is about the reverse map
+  # rather than about that.
   Scenario Outline: A record written under a predicate a control keyword also names still reads back
     Given the operator maps "maker" to "<iri>" in the stored "widget" context
     And the stored "widget" context declares these control entries:
@@ -212,20 +218,24 @@ Feature: A control keyword never claims a predicate a property owns
   # referencePropertiesWithoutContextEntry). A keyword holding that IRI makes it
   # answer no, so the boot warns that a perfectly healthy reference is dropping
   # its writes — and, per the existing #513 contract, stops reporting the type
-  # as updated. "supplier" is the positive control: it proves this boot really
-  # did reconcile the type, so the negative assertion cannot rot into a
-  # permanent pass.
+  # as updated. Nothing is held here and no term is repointed, so the ONLY
+  # reason the boot could complain about "gadget" is the collision.
+  #
+  # "supplier" is the positive control: it is what makes this boot reconcile the
+  # type at all, so the negative assertion above cannot rot into a permanent
+  # pass if the report line is renamed.
   Scenario: The boot's completeness check never names a property a control keyword shadows
-    Given the operator maps "maker" to "https://example.org/catalog#madeBy" in the stored "widget" context
+    Given the "catalog" preset adds a "gadget" reference property to "widget" targeting "vendor"
+    And the twin restarts against the same database
     And the stored "widget" context declares these control entries:
-      | entry           | value                                |
-      | rdfs:subClassOf | "https://example.org/catalog#madeBy"  |
+      | entry           | value    |
+      | rdfs:subClassOf | "gadget" |
     And the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor"
     When the twin restarts against the same database
     Then no predicate of "widget" is claimed by a control keyword
-    And the boot reconcile does not name "maker" as a property whose writes are dropped
+    And the boot reconcile does not name "gadget" as a property whose writes are dropped
     And the boot reconcile reports "widget" as updated
-    And the stored "widget" context still maps "maker" to "https://example.org/catalog#madeBy"
+    And the stored "widget" context has an entry for "gadget"
 
   # The collision that needs no operator at all, and the one that will actually
   # happen: a type whose parent slug is also the name of one of its properties.
@@ -253,7 +263,11 @@ Feature: A control keyword never claims a predicate a property owns
   # context, so skipping these keys in ParseContext must not touch them — and a
   # fix that instead STRIPPED the entries from the stored context would pass
   # every other scenario in this file and fail here. The restart is the point:
-  # the boot rewrites the stored context, and the entries must survive it.
+  # the boot rewrites the stored context, and the entries must survive it. At
+  # least one boolean is declared TRUE on purpose — a stripped context reads as
+  # false, so a pair of false rows would pass while asserting nothing. No
+  # resource is created here: "weos:valueObject" changes how a type is treated,
+  # and every other scenario already writes and reads one.
   Scenario: A type's control entries keep their meaning while none of them claims a predicate
     Given the stored "widget" context declares these control entries:
       | entry             | value                                            |
@@ -271,35 +285,43 @@ Feature: A control keyword never claims a predicate a property owns
       | adopted terms  | maker                              |
       | alias of maker | https://example.org/catalog#madeBy |
     And no predicate of "widget" is claimed by a control keyword
-    And I create a "widget" named "Bolt cutter" with "maker" referring to the "vendor" "Acme"
-    And reading the "widget" "Bolt cutter" back through the projection returns "maker" as the "vendor" "Acme"
 
   # The alias path #513 added is the one place where the collision DELETES data
   # that had already been rescued. BuildReverseMap adds a historical IRI only
   # when nothing else claims it ("an alias NEVER shadows a live term"), so a
   # control keyword sitting on that IRI blocks the alias outright and the edge
-  # the operator adopted the term to recover goes dark again. Here the failure
-  # before the fix is not even a coin flip: once "supplier" has moved to the
-  # catalog IRI, the ONLY claimant of the old one is the keyword, so the alias
-  # is dropped on every run.
+  # the operator adopted the term to recover goes dark again.
   #
-  # The record must be in the pre-#515 expanded shape for this to bite — a
-  # compact record carries its own property name and never consults the alias —
-  # so the scenario plants it, and deliberately does NOT reproject at the end:
-  # a reproject would replay the creation through today's writer and rewrite the
-  # very shape under test.
+  # Before the fix this is not a coin flip, it fails on every run: the keyword
+  # is the ONLY claimant of that IRI once "maker" has moved to the catalog
+  # namespace, so the alias is always skipped.
+  #
+  # The shape is the adopted-PREFIX case from context_term_adoption.feature,
+  # chosen because its historical IRI — https://schema.org/cat:madeBy, a
+  # compact IRI expanded through @vocab before the prefix existed — is NOT
+  # @vocab + the property name. That matters: EdgeProperty falls back to
+  # stripping @vocab, and for any other alias that fallback would rescue the
+  # read and hide the defect. It also happens to be exactly the malformed IRI
+  # shape the epic's second registry guard hunts for.
+  #
+  # The record must be in the pre-#515 expanded shape for the alias to be
+  # consulted at all — a compact record carries its own property name — so the
+  # scenario plants it, and deliberately does NOT reproject: a reproject would
+  # replay the creation through today's writer and rewrite the shape under test.
+  # The API read and the canonical record are the load-bearing assertions; the
+  # projection column was filled at plant time and is there as a control.
   Scenario: A historical IRI is not lost to a control keyword on the same IRI
-    Given the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor" without a context entry
+    Given the operator maps "maker" to "cat:madeBy" in the stored "widget" context
+    And a "widget" named "Bolt cutter" stored in the old expanded edges form with "maker" referring to the vendors "Acme"
+    And the "catalog" preset declares "cat" as "https://example.org/catalog#" in the "widget" context
     And the twin restarts against the same database
-    And a "widget" named "Bolt cutter" stored in the old expanded edges form with "supplier" referring to the vendors "Acme"
-    And the "catalog" preset declares "supplier" as "https://example.org/catalog#supplier" in the "widget" context
-    And the twin restarts against the same database
-    And the operator adopts the held "supplier" context term for "widget"
+    And the operator adopts the held "cat" context term for "widget"
+    And the stored "widget" context records "https://schema.org/cat:madeBy" as a historical IRI for "maker"
     When the stored "widget" context declares these control entries:
-      | entry           | value                         |
-      | rdfs:subClassOf | "https://schema.org/supplier" |
+      | entry           | value                             |
+      | rdfs:subClassOf | "https://schema.org/cat:madeBy"   |
     Then no predicate of "widget" is claimed by a control keyword
-    And the stored "widget" context records "https://schema.org/supplier" as a historical IRI for "supplier"
-    And reading the "widget" "Bolt cutter" back through the projection returns "supplier" as the "vendor" "Acme"
-    And the API read of the "widget" "Bolt cutter" returns "supplier" as the "vendor" "Acme"
-    And the JSON-LD representation of the "widget" "Bolt cutter" still carries a "supplier" edge to the "vendor" "Acme"
+    And the stored "widget" context records "https://schema.org/cat:madeBy" as a historical IRI for "maker"
+    And the API read of the "widget" "Bolt cutter" returns "maker" as the "vendor" "Acme"
+    And the JSON-LD representation of the "widget" "Bolt cutter" still carries a "maker" edge to the "vendor" "Acme"
+    And reading the "widget" "Bolt cutter" back through the projection returns "maker" as the "vendor" "Acme"

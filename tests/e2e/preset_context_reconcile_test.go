@@ -292,6 +292,7 @@ func initPresetContextScenario(sc *godog.ScenarioContext) {
 	w.registerCompactEdgeSteps(sc)
 	w.registerEdgeKeyNormalizationSteps(sc)
 	w.registerIRIEdgeKeyCountSteps(sc)
+	w.registerControlKeywordSteps(sc)
 }
 
 // --- preset shaping ---
