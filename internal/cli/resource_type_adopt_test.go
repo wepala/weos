@@ -121,3 +121,23 @@ func TestPrintAdoptOutcome_ASweepThatLeftAClassMovingPrefixNamesIt(t *testing.T)
 		t.Errorf("a sweep that skipped a class-moving prefix must name that prefix:\n%s", text)
 	}
 }
+
+func TestPrintAdoptOutcome_EveryAdoptionNamesTheRestampRoute(t *testing.T) {
+	var out bytes.Buffer
+	printAdoptOutcome(&out, "catalog", "widget", false, application.AdoptResult{Adopted: []string{"maker"}}, nil)
+	text := out.String()
+	if !strings.Contains(text, "--restamp --type widget --write") || !strings.Contains(text, "checkpoint reset oxigraph") {
+		t.Errorf("a plain adoption must still name the re-stamp route:\n%s", text)
+	}
+}
+
+func TestPrintAdoptOutcome_ASweepThatLeftVocabNamesIt(t *testing.T) {
+	var out bytes.Buffer
+	printAdoptOutcome(&out, "memory", "fact", true, application.AdoptResult{},
+		[]application.HeldTerm{{Term: "@vocab", Property: "confidence", Moves: []application.HeldMove{{Property: "confidence"}}}})
+	text := out.String()
+	if !strings.Contains(text, "@vocab is still held") || !strings.Contains(text, "--term @vocab") ||
+		strings.Contains(text, "--all") {
+		t.Errorf("a sweep that skipped @vocab must name --term @vocab:\n%s", text)
+	}
+}

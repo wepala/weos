@@ -67,6 +67,12 @@ func TestAdoptRemedy_NamesACommandThatAdoptsTheClass(t *testing.T) {
 	if got := AdoptRemedy("catalog", "widget", []string{"maker"}, nil); got != "weos resource-type adopt-term catalog widget --all" {
 		t.Errorf("plain held terms keep the sweep, got %q", got)
 	}
+	if got := AdoptRemedy("memory", "fact", []string{"@vocab"}, nil); got != "weos resource-type adopt-term memory fact --term @vocab" {
+		t.Errorf("a held @vocab is named, never swept, got %q", got)
+	}
+	if AdoptRemedyNote([]string{"@vocab"}, nil) == "" {
+		t.Error("the note explains a held @vocab")
+	}
 }
 
 func TestAdoptTerms_RecordsNoAliasForAMovedClass(t *testing.T) {

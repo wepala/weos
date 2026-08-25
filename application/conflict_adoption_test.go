@@ -151,3 +151,39 @@ func TestHeldTermsOf_TellsAddedFromRedefined(t *testing.T) {
 		t.Errorf("kinds = %v (held %+v)", kinds, held)
 	}
 }
+
+func TestReconcileAdditiveContext_AChangedControlEntryMergesByCopyNotAsAConflict(t *testing.T) {
+	stored := json.RawMessage(`{"@vocab":"https://schema.org/","rdfs:subClassOf":"thing"}`)
+	preset := json.RawMessage(`{"@vocab":"https://schema.org/","rdfs:subClassOf":"product"}`)
+	rec, err := reconcileAdditiveContext(stored, preset, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.Conflicts) != 0 || !rec.Changed || jsonld.SubClassOf(rec.Context) != "product" {
+		t.Errorf("a changed parent must merge by copy: %+v", rec)
+	}
+}
+
+func TestAdoptTerms_NoAliasWhenTheIRIDidNotMoveOrForANamespace(t *testing.T) {
+	// Same IRI, different spelling: adoptable, nothing to alias.
+	stored := json.RawMessage(`{"@vocab":"https://schema.org/","knows":{"@id":"https://schema.org/knows","@type":"@id"}}`)
+	preset := json.RawMessage(`{"@vocab":"https://schema.org/","knows":"https://schema.org/knows"}`)
+	moves := conflictMoves(stored, preset, nil, []string{"knows"})
+	adopted, terms, err := adoptTerms(stored, preset, moves)
+	if err != nil || len(terms) != 1 {
+		t.Fatalf("%v %v", terms, err)
+	}
+	if len(jsonld.TermAliases(adopted)) != 0 {
+		t.Errorf("no alias for an IRI that did not move: %v", jsonld.TermAliases(adopted))
+	}
+	// An unused prefix: adoptable, and the namespace is never an alias.
+	stored = json.RawMessage(`{"@vocab":"https://schema.org/","x":"https://a/ns#"}`)
+	preset = json.RawMessage(`{"@vocab":"https://schema.org/","x":"https://b/ns#"}`)
+	adopted, _, err = adoptTerms(stored, preset, conflictMoves(stored, preset, nil, []string{"x"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(jsonld.TermAliases(adopted)) != 0 {
+		t.Errorf("no alias keyed by a prefix: %v", jsonld.TermAliases(adopted))
+	}
+}

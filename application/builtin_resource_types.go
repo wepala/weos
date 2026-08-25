@@ -255,57 +255,71 @@ func ReportAmbiguousReferenceShape(
 
 // AdoptRemedy is the command an operator runs to adopt the held terms of a
 // type, kept copy-pasteable: no prose. A sweep (--all) deliberately never
-// moves the class — neither `@type` itself nor a prefix the stored `@type`
-// expands through (classMovers) — so those are named explicitly, and a type
-// holding both kinds is given both commands. Printing the sweep alone for a
-// held class sent the operator to a command that adopted nothing and left
-// the boot warning forever (issue #521). AdoptRemedyNote carries the
-// explanation.
+// moves the class — neither `@type` itself nor a prefix the class expands
+// through (classMovers) — and never repoints `@vocab`, which moves every
+// untermed property at once; those are named explicitly, and a type holding
+// several kinds is given every command. Printing the sweep alone for a held
+// class sent the operator to a command that adopted nothing and left the
+// boot warning forever (issue #521). AdoptRemedyNote carries the explanation.
 func AdoptRemedy(presetName, slug string, held, classMovers []string) string {
 	base := "weos resource-type adopt-term " + presetName + " " + slug
-	classHeld, othersHeld := heldKinds(held, classMovers)
+	kinds := heldKinds(held, classMovers)
 	var commands []string
-	if othersHeld {
+	if kinds.others {
 		commands = append(commands, base+" --all")
 	}
-	if classHeld {
+	if kinds.class {
 		commands = append(commands, base+" --term @type")
 	}
 	for _, mover := range classMovers {
 		commands = append(commands, base+" --term "+mover)
 	}
+	if kinds.vocab {
+		commands = append(commands, base+" --term @vocab")
+	}
 	return strings.Join(commands, " && ")
 }
 
-// AdoptRemedyNote explains the remedy where the held terms move the class.
+// AdoptRemedyNote explains the remedy where the held terms include something
+// a sweep never takes.
 func AdoptRemedyNote(held, classMovers []string) string {
-	classHeld, _ := heldKinds(held, classMovers)
-	if !classHeld && len(classMovers) == 0 {
-		return ""
+	kinds := heldKinds(held, classMovers)
+	var notes []string
+	if kinds.class || len(classMovers) > 0 {
+		notes = append(notes, "a sweep never moves the class; after adopting it, re-stamp existing records with "+
+			"`weos worker normalize-edge-keys --restamp --type <slug> --write`, then `weos worker reproject` "+
+			"and `weos worker checkpoint reset oxigraph --truncate` (the knowledge graph is not rebuilt by reproject)")
 	}
-	return "a sweep never moves the class; after adopting it, re-stamp existing records with " +
-		"`weos worker normalize-edge-keys --restamp --type <slug> --write`, then `weos worker reproject` " +
-		"and `weos worker checkpoint reset oxigraph --truncate` (the knowledge graph is not rebuilt by reproject)"
+	if kinds.vocab {
+		notes = append(notes, "a sweep never repoints @vocab, which moves every property that has no term of its own; "+
+			"name it to adopt it")
+	}
+	return strings.Join(notes, "; ")
 }
 
-// heldKinds sorts the held terms into "the class" and "everything else". A
-// term listed among classMovers moves the class and counts on neither side
-// of the sweep.
-func heldKinds(held, classMovers []string) (classHeld, othersHeld bool) {
+type heldKindSet struct{ class, vocab, others bool }
+
+// heldKinds sorts the held terms into the class, @vocab, and everything
+// else. A term listed among classMovers moves the class and counts on none
+// of the sweep's sides.
+func heldKinds(held, classMovers []string) heldKindSet {
 	movers := map[string]bool{}
 	for _, m := range classMovers {
 		movers[m] = true
 	}
+	var kinds heldKindSet
 	for _, term := range held {
 		switch {
 		case term == "@type":
-			classHeld = true
+			kinds.class = true
+		case term == "@vocab":
+			kinds.vocab = true
 		case movers[term]:
 		default:
-			othersHeld = true
+			kinds.others = true
 		}
 	}
-	return classHeld, othersHeld
+	return kinds
 }
 
 // ResourceTypeClassIRI is the RDF class resources of a type carry — the

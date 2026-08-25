@@ -120,8 +120,11 @@ func printHeldTerms(out io.Writer, preset, slug, currentClass string, held []app
 // printAdoptOutcome renders what adopt-term did. A sweep never takes the
 // class (nor @vocab), so when one is still held afterwards the operator is
 // told so and handed the command that adopts it — never "already up to
-// date". A moved class is named, with the re-stamp that applies it to
-// existing records.
+// date". Every adoption is followed by the same route: the alias keeps the
+// API and projection reads working, but a reprojection replays payloads
+// verbatim, so the triples table and the knowledge graph keep the OLD
+// predicate until existing records are re-stamped. A moved class is named
+// as well.
 func printAdoptOutcome(out io.Writer, preset, slug string, sweep bool, result application.AdoptResult,
 	stillHeld []application.HeldTerm) {
 	var classMovers, leftHeld []string
@@ -155,16 +158,14 @@ func printAdoptOutcome(out io.Writer, preset, slug string, sweep bool, result ap
 		return
 	}
 	_, _ = fmt.Fprintf(out, "Adopted for %q: %s\n", slug, strings.Join(result.Adopted, ", "))
-	_, _ = fmt.Fprintln(out, "Existing edges stay readable through their recorded IRIs.")
+	_, _ = fmt.Fprintln(out, "Existing edges stay readable through their recorded IRIs (API and projection reads).")
 	if result.ClassMove != nil {
 		_, _ = fmt.Fprintf(out, "The %q class moves from %s to %s for NEW writes.\n", slug,
 			result.ClassMove.StoredIRI, result.ClassMove.PresetIRI)
-		_, _ = fmt.Fprintf(out, "Existing records keep the old class until you re-stamp them: "+
-			"`weos worker normalize-edge-keys --restamp --type %s --write`, then `weos worker reproject` and "+
-			"`weos worker checkpoint reset oxigraph --truncate`.\n", slug)
-		return
 	}
-	_, _ = fmt.Fprintln(out, "Run `weos worker reproject` to refill the projection columns for existing rows.")
+	_, _ = fmt.Fprintf(out, "The triples table and the knowledge graph keep the old IRIs until existing records are "+
+		"re-stamped: `weos worker normalize-edge-keys --restamp --type %s --write`, then `weos worker reproject` and "+
+		"`weos worker checkpoint reset oxigraph --truncate`.\n", slug)
 }
 
 var adoptTermCmd = &cobra.Command{

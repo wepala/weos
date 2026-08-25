@@ -150,6 +150,14 @@ func reconcileAdditiveContext(stored, preset, storedSchema json.RawMessage) (con
 			continue
 		}
 		if !jsonEquivalent(existing, presetTerms[term]) {
+			if jsonld.ControlKeywords[term] {
+				// Control data, not a term (issue #522): a changed parent
+				// class or flag merges by copy — there is no predicate to
+				// hold and nothing an adoption could record.
+				merged[term] = presetTerms[term]
+				out.Added = append(out.Added, term)
+				continue
+			}
 			// Held at the stored definition: merged already carries it, so
 			// simply not overwriting is what keeps the merge additive.
 			out.Conflicts = append(out.Conflicts, term)
@@ -593,7 +601,8 @@ func adoptTerms(
 		// and a class recorded there would be handed back by BuildReverseMap
 		// as a property named "@type" (issue #521).
 		if move.Property != "" && move.Property != "@type" && !jsonld.ControlKeywords[move.Property] &&
-			move.StoredIRI != "" {
+			move.StoredIRI != "" && move.StoredIRI != move.PresetIRI &&
+			!isNamespaceDefinition(storedTerms[move.Property]) && move.Property != "@vocab" {
 			aliases[move.Property] = appendMissing(aliases[move.Property], move.StoredIRI)
 		}
 		merged[move.Term] = presetDef
