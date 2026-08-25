@@ -572,7 +572,8 @@ func adoptTerms(
 		// A class IRI is not an edge key: the alias map is for predicates,
 		// and a class recorded there would be handed back by BuildReverseMap
 		// as a property named "@type" (issue #521).
-		if move.Property != "" && move.Property != "@type" && move.StoredIRI != "" {
+		if move.Property != "" && move.Property != "@type" && !jsonld.ControlKeywords[move.Property] &&
+			move.StoredIRI != "" {
 			aliases[move.Property] = appendMissing(aliases[move.Property], move.StoredIRI)
 		}
 		merged[move.Term] = presetDef

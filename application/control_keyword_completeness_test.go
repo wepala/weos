@@ -32,8 +32,29 @@ func TestReferencePropertiesWithoutContextEntry_IgnoresAControlKeyword(t *testin
 	ctx := json.RawMessage(`{"@vocab":"https://schema.org/",
 	  "maker":{"@id":"https://example.org/catalog#madeBy","@type":"@id"},
 	  "rdfs:subClassOf":"https://example.org/catalog#madeBy"}`)
-	if dropped := referencePropertiesWithoutContextEntry(schema, ctx); len(dropped) != 0 {
-		t.Errorf("maker is covered by its own term; reported as dropped: %v", dropped)
+	// Repeated: before the fix the outcome was map-iteration order.
+	for i := 0; i < 100; i++ {
+		if dropped := referencePropertiesWithoutContextEntry(schema, ctx); len(dropped) != 0 {
+			t.Fatalf("run %d: maker is covered by its own term; reported as dropped: %v", i, dropped)
+		}
+	}
+}
+
+// The boot never HOLDS a control entry: a stored rdfs:subClassOf whose value
+// expands through a prefix the preset adds is not a predicate moving, so the
+// prefix is adopted and nothing is held.
+func TestHoldMovingTerms_ControlEntryIsNotAPredicate(t *testing.T) {
+	stored := json.RawMessage(`{"@vocab":"https://schema.org/","rdfs:subClassOf":"cat:Gadget",
+	  "maker":{"@id":"https://schema.org/maker","@type":"@id"}}`)
+	preset := json.RawMessage(`{"@vocab":"https://schema.org/","cat":"https://example.org/catalog#",
+	  "maker":{"@id":"https://schema.org/maker","@type":"@id"}}`)
+	schema := json.RawMessage(`{"type":"object","properties":{"maker":{"type":"string","x-resource-type":"vendor"}}}`)
+	rec, err := reconcileAdditiveContext(stored, preset, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.Moves) != 0 || len(rec.Added) != 1 || rec.Added[0] != "cat" {
+		t.Fatalf("the cat prefix must be added, not held: %+v", rec)
 	}
 }
 
@@ -57,5 +78,26 @@ func TestReconcileAdditiveContext_ControlEntryMergesByCopy(t *testing.T) {
 	}
 	if !jsonld.IsAbstract(rec.Context) {
 		t.Errorf("weos:abstract not merged: %s", rec.Context)
+	}
+}
+
+// A legacy document whose embedded @context still carries rdfs:subClassOf on
+// a property's predicate: a new Triple.Created edge must land under the
+// property name, never under the control keyword (which sorted first).
+func TestAddEdgeToGraph_ControlKeywordNeverNamesTheEdge(t *testing.T) {
+	doc := json.RawMessage(`{"@context":{"@vocab":"https://schema.org/","rdfs:subClassOf":"supplier",
+	  "supplier":{"@id":"https://schema.org/supplier","@type":"@id"}},
+	  "@graph":[{"@id":"urn:widget:1","@type":"Widget"}]}`)
+	for i := 0; i < 20; i++ {
+		out, err := AddEdgeToGraph(doc, "https://schema.org/supplier", "urn:vendor:1", "urn:widget:1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]any
+		_ = json.Unmarshal(out, &m)
+		edges, _ := m["@graph"].([]any)[1].(map[string]any)
+		if _, wrong := edges["rdfs:subClassOf"]; wrong || edges["supplier"] == nil {
+			t.Fatalf("run %d: the edge landed under %v", i, edges)
+		}
 	}
 }

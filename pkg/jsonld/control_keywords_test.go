@@ -58,6 +58,9 @@ func TestParseContext_SkipsByNameNotByColon(t *testing.T) {
 	if terms["foaf:knows"] != "http://xmlns.com/foaf/0.1/knows" {
 		t.Errorf("a compact-IRI term must survive: %v", terms)
 	}
+	if terms["foaf"] != "http://xmlns.com/foaf/0.1/" {
+		t.Errorf("a prefix definition must survive: %v", terms)
+	}
 	if _, present := terms["rdfs:subClassOf"]; present {
 		t.Errorf("rdfs:subClassOf must not: %v", terms)
 	}
@@ -74,6 +77,14 @@ func TestBuildReverseMap_ControlKeywordNeverClaimsAPredicate(t *testing.T) {
 		if got := reverse["https://example.org/old#madeBy"]; got != "maker" {
 			t.Fatalf("run %d: the alias must still resolve to maker, got %q", i, got)
 		}
+	}
+}
+
+func TestBuildReverseMap_AnAliasKeyedByAControlKeywordIsIgnored(t *testing.T) {
+	reverse := BuildReverseMap(json.RawMessage(`{"@vocab":"https://schema.org/",
+	  "weos:termAliases":{"rdfs:subClassOf":["https://example.org/old#rel"]}}`))
+	if name, taken := reverse["https://example.org/old#rel"]; taken {
+		t.Errorf("an alias keyed by a control keyword handed it back as the property %q", name)
 	}
 }
 

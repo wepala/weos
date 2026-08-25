@@ -79,6 +79,11 @@ func BuildReverseMap(ldContext json.RawMessage) map[string]string {
 	// current mapping is authoritative, and only an IRI nothing else claims is
 	// added.
 	for propName, iris := range TermAliases(ldContext) {
+		// A control keyword is never a property, however it got into the
+		// alias map (issue #522).
+		if ControlKeywords[propName] {
+			continue
+		}
 		for _, iri := range iris {
 			if _, taken := result[iri]; taken {
 				continue

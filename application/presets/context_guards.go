@@ -58,7 +58,8 @@ func referenceGuard(pt application.PresetResourceType) []string {
 		case ok && got != ref.PropertyName:
 			out = append(out, fmt.Sprintf("%s: %s reverse-maps to %q, not %q", pt.Slug, ref.PredicateIRI, got, ref.PropertyName))
 		case !ok && (vocab == "" || ref.PredicateIRI != vocab+ref.PropertyName):
-			out = append(out, fmt.Sprintf("%s: %s (property %q) has no reverse entry", pt.Slug, ref.PredicateIRI, ref.PropertyName))
+			out = append(out, fmt.Sprintf("%s: %s (property %q) has no reverse entry",
+				pt.Slug, ref.PredicateIRI, ref.PropertyName))
 		}
 	}
 	return out
@@ -68,8 +69,11 @@ func compactPrefixGuard(pt application.PresetResourceType) []string {
 	var out []string
 	_, forward := jsonld.ParseContext(pt.Context)
 	for term, iri := range forward {
-		if jsonld.IsIRIKey(term) {
+		if strings.HasSuffix(iri, "#") || strings.HasSuffix(iri, "/") {
 			continue // a prefix definition maps a prefix to a namespace
+		}
+		if !strings.Contains(iri, "://") {
+			continue // a URN, mailto: or did: term has no local name to test
 		}
 		local := iri
 		if i := strings.LastIndexAny(iri, "#/"); i >= 0 {

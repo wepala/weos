@@ -127,7 +127,9 @@ Feature: A control keyword never claims a predicate a property owns
   #         written verbatim into the stored context, so a bool, an array and an
   #         object are all expressible. Delegates to the same writer as the
   #         existing `the operator maps … in the stored "widget" context`.
-  #      b. `no predicate of "widget" is claimed by a control keyword`
+  #      b. `no predicate of "widget" is claimed by a control keyword` — placed
+  #         LAST in every scenario (reordered 2026-08-25) so the user-facing
+  #         assertions run before the white-box one and are proven to bite
   #         ParseContext of the stored context holds no key in
   #         jsonld.ControlKeywords, and no value of BuildReverseMap names one.
   #         This assertion is DETERMINISTIC — it fails on every run before the
@@ -202,11 +204,11 @@ Feature: A control keyword never claims a predicate a property owns
       | rdfs:subClassOf | <declared> |
     And a "widget" named "Bolt cutter" stored in the old expanded edges form with "maker" referring to the vendors "Acme"
     When I create a "widget" named "Hex key" with "maker" referring to the "vendor" "Acme"
-    Then no predicate of "widget" is claimed by a control keyword
-    And reading the "widget" "Bolt cutter" back through the projection returns "maker" as the "vendor" "Acme"
+    Then reading the "widget" "Bolt cutter" back through the projection returns "maker" as the "vendor" "Acme"
     And the API read of the "widget" "Bolt cutter" returns "maker" as the "vendor" "Acme"
     And the JSON-LD representation of the "widget" "Bolt cutter" still carries a "maker" edge to the "vendor" "Acme"
     And reading the "widget" "Hex key" back through the projection returns "maker" as the "vendor" "Acme"
+    And no predicate of "widget" is claimed by a control keyword
 
     Examples: the parent spellings that collide with "maker"
       | iri                       | declared        |
@@ -232,8 +234,7 @@ Feature: A control keyword never claims a predicate a property owns
       | rdfs:subClassOf | "gadget" |
     And the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor"
     When the twin restarts against the same database
-    Then no predicate of "widget" is claimed by a control keyword
-    And the boot reconcile does not name "gadget" as a property whose writes are dropped
+    Then the boot reconcile does not name "gadget" as a property whose writes are dropped
     And the boot reconcile reports "widget" as updated
     And the stored "widget" context has an entry for "gadget"
 
@@ -241,6 +242,7 @@ Feature: A control keyword never claims a predicate a property owns
   # happen: a type whose parent slug is also the name of one of its properties.
   # "A widget is a kind of gadget, and it belongs to a gadget" is ordinary
   # modelling, and both resolve to @vocab + "gadget".
+    And no predicate of "widget" is claimed by a control keyword
   Scenario: A property named after the type's parent keeps its own predicate
     Given the "catalog" preset adds a "gadget" reference property to "widget" targeting "vendor"
     And the twin restarts against the same database
@@ -251,8 +253,7 @@ Feature: A control keyword never claims a predicate a property owns
       | property | vendor |
       | maker    | Acme   |
       | gadget   | Acme   |
-    Then no predicate of "widget" is claimed by a control keyword
-    And reading the "widget" "Bolt cutter" back through the projection returns "gadget" as the "vendor" "Acme"
+    Then reading the "widget" "Bolt cutter" back through the projection returns "gadget" as the "vendor" "Acme"
     And reading the "widget" "Bolt cutter" back through the projection returns "maker" as the "vendor" "Acme"
     And the API read of the "widget" "Bolt cutter" returns "gadget" as the "vendor" "Acme"
     And the twin still reads the control entries of "widget" as:
@@ -268,6 +269,7 @@ Feature: A control keyword never claims a predicate a property owns
   # false, so a pair of false rows would pass while asserting nothing. No
   # resource is created here: "weos:valueObject" changes how a type is treated,
   # and every other scenario already writes and reads one.
+    And no predicate of "widget" is claimed by a control keyword
   Scenario: A type's control entries keep their meaning while none of them claims a predicate
     Given the stored "widget" context declares these control entries:
       | entry             | value                                            |
@@ -284,7 +286,6 @@ Feature: A control keyword never claims a predicate a property owns
       | value object   | true                               |
       | adopted terms  | maker                              |
       | alias of maker | https://example.org/catalog#madeBy |
-    And no predicate of "widget" is claimed by a control keyword
 
   # The alias path #513 added is the one place where the collision DELETES data
   # that had already been rescued. BuildReverseMap adds a historical IRI only
@@ -310,6 +311,7 @@ Feature: A control keyword never claims a predicate a property owns
   # replay the creation through today's writer and rewrite the shape under test.
   # The API read and the canonical record are the load-bearing assertions; the
   # projection column was filled at plant time and is there as a control.
+    And no predicate of "widget" is claimed by a control keyword
   Scenario: A historical IRI is not lost to a control keyword on the same IRI
     Given the operator maps "maker" to "cat:madeBy" in the stored "widget" context
     And a "widget" named "Bolt cutter" stored in the old expanded edges form with "maker" referring to the vendors "Acme"
@@ -320,8 +322,8 @@ Feature: A control keyword never claims a predicate a property owns
     When the stored "widget" context declares these control entries:
       | entry           | value                             |
       | rdfs:subClassOf | "https://schema.org/cat:madeBy"   |
-    Then no predicate of "widget" is claimed by a control keyword
-    And the stored "widget" context records "https://schema.org/cat:madeBy" as a historical IRI for "maker"
+    Then the stored "widget" context records "https://schema.org/cat:madeBy" as a historical IRI for "maker"
     And the API read of the "widget" "Bolt cutter" returns "maker" as the "vendor" "Acme"
     And the JSON-LD representation of the "widget" "Bolt cutter" still carries a "maker" edge to the "vendor" "Acme"
     And reading the "widget" "Bolt cutter" back through the projection returns "maker" as the "vendor" "Acme"
+    And no predicate of "widget" is claimed by a control keyword
