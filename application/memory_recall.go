@@ -140,7 +140,12 @@ func buildRecallSPARQL(q RecallQuery, limit int) string {
 	fmt.Fprintf(&b, "  VALUES ?factClass { <%s> <%s> }\n", factClassIRI, legacyFactClassIRI)
 	fmt.Fprintf(&b, "  ?fact a ?factClass ;\n        <%s> ?statement .\n", factStatementIRI)
 	fmt.Fprintf(&b, "  OPTIONAL { ?fact <%s> ?about }\n", factAboutIRI)
-	fmt.Fprintf(&b, "  OPTIONAL { ?fact <%s>|<%s> ?confidence }\n", factConfidenceIRI, legacyFactConfidence)
+	// One confidence per fact even when a record carries both predicates
+	// mid-migration: two OPTIONALs coalesced, not an alternation, which
+	// would yield a row per match.
+	fmt.Fprintf(&b, "  OPTIONAL { ?fact <%s> ?confidenceNow }\n", factConfidenceIRI)
+	fmt.Fprintf(&b, "  OPTIONAL { ?fact <%s> ?confidenceLegacy }\n", legacyFactConfidence)
+	b.WriteString("  BIND(COALESCE(?confidenceNow, ?confidenceLegacy) AS ?confidence)\n")
 	fmt.Fprintf(&b, "  OPTIONAL { ?fact <%s> ?generatedAt }\n", factGeneratedAtIRI)
 	fmt.Fprintf(&b, "  OPTIONAL { ?fact <%s> ?revisionOf }\n", factWasRevisionOfIRI)
 	if q.IncludeProvenance {

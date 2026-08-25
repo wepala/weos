@@ -127,6 +127,9 @@ type NormalizeEdgeKeysOptions struct {
 	Write bool
 	// BatchSize is event rows per read; <= 0 uses 500.
 	BatchSize int
+	// Types, when set, limits the run to these resource type slugs. Events
+	// of other types are neither read into the report nor rewritten.
+	Types []string
 	// Restamp also rewrites every document's embedded @context — and the
 	// entity node's @type — to what a fresh write embeds today, even when
 	// the edges are already keyed by property name. A reprojection replays
@@ -335,6 +338,10 @@ func NormalizeEdgeKeys(
 			Types: map[string]*EdgeKeyTypeReport{}},
 		types:          newResourceTypeIndex(rt.RTRepo, rt.Links, rt.Logger),
 		predicateMoves: map[string]map[string]string{},
+		only:           map[string]bool{},
+	}
+	for _, slug := range opts.Types {
+		run.only[slug] = true
 	}
 
 	types := edgeCarryingEventTypes
@@ -366,6 +373,7 @@ type edgeKeyRun struct {
 	rt      NormalizeEdgeKeysRuntime
 	write   bool
 	restamp bool
+	only    map[string]bool // type slugs to process; empty = all
 	report  NormalizeEdgeKeysReport
 	types   *resourceTypeIndex
 	// predicateMoves records, per aggregate, each predicate a re-stamp moved
@@ -443,6 +451,9 @@ func (run *edgeKeyRun) rewriteEvent(ctx context.Context, row *eventRow) (pericar
 		run.skip("event names no resource type")
 		return nil, nil
 	}
+	if len(run.only) > 0 && !run.only[slug] {
+		return nil, nil // out of the operator's scope; not read, not counted
+	}
 	if strings.HasPrefix(row.EventType, "Triple.") {
 		return run.restampTriple(row, payload, slug), nil
 	}
@@ -469,7 +480,17 @@ func (run *edgeKeyRun) rewriteEvent(ctx context.Context, row *eventRow) (pericar
 		moves := predicateMovesOf(data, resolver)
 		restamped = restampDocument(data, resolver)
 		if len(moves) > 0 {
-			run.predicateMoves[row.AggregateID] = moves
+			// Merged, not replaced: a Triple.Deleted for an edge the Created
+			// carried can follow an Updated that no longer does, and it must
+			// still move.
+			all := run.predicateMoves[row.AggregateID]
+			if all == nil {
+				all = map[string]string{}
+				run.predicateMoves[row.AggregateID] = all
+			}
+			for old, next := range moves {
+				all[old] = next
+			}
 		}
 	}
 	for i := range problems {
@@ -514,13 +535,33 @@ func restampDocument(data map[string]any, resolver *edgeKeyResolver) bool {
 	graph, _ := data["@graph"].([]any)
 	if len(graph) > 0 {
 		if entity, ok := graph[0].(map[string]any); ok {
-			if typ, _ := entity["@type"].(string); typ != resolver.schemaType {
+			typ, _ := entity["@type"].(string)
+			// Compared as the CLASS the document derives, not as text: an
+			// entity written with the class spelled out in full names the
+			// same class as one written with the compact form.
+			if typ != resolver.schemaType && expandClass(typ, resolver.storable) != expandClass(resolver.schemaType, resolver.storable) {
 				entity["@type"] = resolver.schemaType
 				moved = true
 			}
 		}
 	}
 	return moved
+}
+
+// expandClass expands an entity @type through a storable context.
+func expandClass(typ string, storable any) string {
+	if typ == "" {
+		return ""
+	}
+	raw, _ := json.Marshal(storable)
+	vocab, _ := jsonld.ParseContext(raw)
+	var ctx map[string]any
+	if json.Unmarshal(raw, &ctx) != nil {
+		if s, ok := storable.(string); ok {
+			vocab = s
+		}
+	}
+	return jsonld.ExpandIRI(typ, vocab, ctx)
 }
 
 // predicateMovesOf lists the predicates a re-stamp of this document moves:

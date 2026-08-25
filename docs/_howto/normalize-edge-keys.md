@@ -76,7 +76,30 @@ weos worker checkpoint reset oxigraph --truncate
 
 `reproject` rebuilds the canonical records, projection columns and triples from the
 rewritten events; the checkpoint reset rebuilds the knowledge graph, which `reproject`
-does not reach.
+does not reach. The triples table is upsert-only: a row under a predicate that moved
+lingers beside the new one until that read model is rebuilt from scratch.
+
+## When a term or class has moved: re-stamp
+
+A reprojection replays each event's payload verbatim, and the class and predicates the
+knowledge graph derives come from the payload's own embedded `@context`, stamped when the
+resource was written. So when a preset moves a term, a prefix or a class — the house
+vocabulary moving to `weos.io`, a type gaining an `@type` — resources written before the
+move keep the old IRI however often you reproject.
+
+```bash
+weos worker normalize-edge-keys --restamp --type food-item --type recipe   # dry run
+weos worker normalize-edge-keys --restamp --type food-item --type recipe --write
+weos worker reproject
+weos worker checkpoint reset oxigraph --truncate
+```
+
+`--restamp` brings every document's embedded `@context` and entity `@type` up to what a
+fresh write embeds today, and moves the aggregate's `Triple.Created`/`Triple.Deleted`
+predicates with it. It works from the type's **stored** context: on an install whose boot
+is holding a preset's new IRI at the stored definition (the "context terms diverge" line at
+startup), there is nothing to move until the held term is adopted. `--type` scopes the run;
+without it every document whose embedded context differs from today's is rewritten.
 
 ## 5. Prove it, and keep proving it
 

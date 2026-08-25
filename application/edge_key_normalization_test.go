@@ -17,6 +17,7 @@ package application
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 )
 
@@ -224,5 +225,55 @@ func TestClassifyEdgeKey_AgreesWithTheMigration(t *testing.T) {
 		if got, _ := classifyEdgeKey(r, edges, key); got != want {
 			t.Errorf("classifyEdgeKey(%q) = %s, want %s", key, got, want)
 		}
+	}
+}
+
+func TestRestampDocument_MovesOnlyWhatChanged(t *testing.T) {
+	r := edgeKeyTestResolver(t, `{"@vocab":"https://schema.org/","mp":"https://weos.io/vocab/meal-planning#",
+	  "@type":"mp:FoodItem","maker":{"@id":"https://schema.org/maker","@type":"@id"}}`, widgetSchema)
+	doc := decodeDoc(t, `{"@context":{"@vocab":"https://schema.org/","mp":"https://weos.org/vocab/meal-planning#",
+	  "maker":{"@id":"https://schema.org/maker","@type":"@id"}},"@graph":[
+	  {"@id":"urn:widget:1","@type":"mp:FoodItem","name":"Bolt cutter","serial":7},
+	  {"@id":"urn:widget:1","maker":{"@id":"urn:vendor:1"}}]}`)
+	moves := predicateMovesOf(doc, r)
+	if len(moves) != 0 {
+		t.Errorf("maker sits on schema.org on both sides; moves = %v", moves)
+	}
+	if !restampDocument(doc, r) {
+		t.Fatal("the embedded prefix moved, so the document must be re-stamped")
+	}
+	ctx, _ := doc["@context"].(map[string]any)
+	if ctx["mp"] != "https://weos.io/vocab/meal-planning#" {
+		t.Errorf("embedded context not re-stamped: %v", ctx)
+	}
+	entity := doc["@graph"].([]any)[0].(map[string]any)
+	if entity["@type"] != "mp:FoodItem" || fmt.Sprintf("%v", entity["serial"]) != "7" {
+		t.Errorf("entity node changed beyond the context: %v", entity)
+	}
+	if restampDocument(doc, r) {
+		t.Error("a second re-stamp must change nothing")
+	}
+}
+
+func TestRestampDocument_LeavesAnEquivalentClassAlone(t *testing.T) {
+	r := edgeKeyTestResolver(t, `{"@vocab":"https://schema.org/","mp":"https://weos.io/vocab/meal-planning#",
+	  "@type":"mp:FoodItem"}`, widgetSchema)
+	doc := decodeDoc(t, `{"@context":{"@vocab":"https://schema.org/","mp":"https://weos.io/vocab/meal-planning#"},
+	  "@graph":[{"@id":"urn:widget:1","@type":"https://weos.io/vocab/meal-planning#FoodItem"}]}`)
+	if restampDocument(doc, r) {
+		t.Error("an entity whose spelled-out class equals the compact one must not be re-stamped")
+	}
+}
+
+func TestPredicateMovesOf_FollowsThePrefix(t *testing.T) {
+	r := edgeKeyTestResolver(t, `{"@vocab":"https://schema.org/","mp":"https://weos.io/vocab/meal-planning#",
+	  "ingredient":{"@id":"mp:isInstanceOf","@type":"@id"}}`,
+		`{"type":"object","properties":{"ingredient":{"type":"string","x-resource-type":"ingredient"}}}`)
+	doc := decodeDoc(t, `{"@context":{"@vocab":"https://schema.org/","mp":"https://weos.org/vocab/meal-planning#",
+	  "ingredient":{"@id":"mp:isInstanceOf","@type":"@id"}},"@graph":[{"@id":"urn:f:1"},
+	  {"@id":"urn:f:1","ingredient":{"@id":"urn:i:1"}}]}`)
+	moves := predicateMovesOf(doc, r)
+	if moves["https://weos.org/vocab/meal-planning#isInstanceOf"] != "https://weos.io/vocab/meal-planning#isInstanceOf" {
+		t.Errorf("moves = %v", moves)
 	}
 }

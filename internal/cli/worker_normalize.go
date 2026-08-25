@@ -49,6 +49,13 @@ this is how a resource written before a term, prefix or class moved takes the
 new IRI in the knowledge graph. The aggregate's Triple.Created/Deleted events
 move with it, so a reprojection cannot fold the old predicate back in.
 
+--restamp works from the type's STORED context. On an install whose boot is
+holding a preset's new IRI at the stored definition (the "context terms
+diverge" line at startup), the stored context still names the old IRI and a
+re-stamp has nothing to move: adopt the held term first. Use --type to scope
+a re-stamp to the types whose context changed; without it every document
+whose embedded context differs from today's is rewritten.
+
 An edge whose IRI more than one name claims is never rewritten; it is
 reported with the candidates for you to decide. An edge that no term, alias
 or @vocab prefix names is reported and left as it was, as is one whose
@@ -71,6 +78,8 @@ func init() {
 	workerNormalizeEdgeKeysCmd.Flags().Int("batch-size", 500, "events read per batch")
 	workerNormalizeEdgeKeysCmd.Flags().Bool("restamp", false,
 		"also bring every document's embedded @context and entity @type up to the type's current context")
+	workerNormalizeEdgeKeysCmd.Flags().StringSlice("type", nil,
+		"limit the run to these resource type slugs (repeatable); default is every type")
 	workerCmd.AddCommand(workerNormalizeEdgeKeysCmd)
 }
 
@@ -78,6 +87,7 @@ func runWorkerNormalizeEdgeKeys(cmd *cobra.Command, _ []string) error {
 	write, _ := cmd.Flags().GetBool("write")
 	batch, _ := cmd.Flags().GetInt("batch-size")
 	restamp, _ := cmd.Flags().GetBool("restamp")
+	types, _ := cmd.Flags().GetStringSlice("type")
 	appCfg := GetConfig().Config
 
 	var rt application.NormalizeEdgeKeysRuntime
@@ -101,6 +111,7 @@ func runWorkerNormalizeEdgeKeys(cmd *cobra.Command, _ []string) error {
 		Write:     write,
 		BatchSize: batch,
 		Restamp:   restamp,
+		Types:     types,
 	})
 	// The report is printed even when the run stopped early: each batch
 	// commits on its own, so the operator needs to know what already landed.
@@ -173,7 +184,8 @@ func printNormalizeEdgeKeysReport(out io.Writer, r application.NormalizeEdgeKeys
 	if !r.DryRun && (r.Rewritten > 0 || r.Restamped > 0) {
 		_, _ = fmt.Fprintln(out,
 			"\nNext (server stopped): `weos worker reproject` rebuilds the canonical records, projection "+
-				"columns and triples; `weos worker checkpoint reset oxigraph --truncate` rebuilds the knowledge graph.")
+				"columns and triples; `weos worker checkpoint reset oxigraph --truncate` rebuilds the knowledge graph. "+
+				"The triples table is upsert-only: a row under a predicate that moved lingers beside the new one.")
 	}
 }
 
