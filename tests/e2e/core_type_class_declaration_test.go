@@ -251,7 +251,8 @@ func (w *classWorld) everyTypeAdvertisesIRI() error {
 		return err
 	}
 	for _, rt := range types {
-		if got := advertisedClass(rt.Name(), rt.Slug(), rt.Context()); !strings.Contains(got, "://") {
+		got := advertisedClass(rt.Name(), rt.Slug(), rt.Context())
+		if !strings.Contains(got, "://") && !strings.HasPrefix(got, "urn:") {
 			return fmt.Errorf("the installed type %q advertises %q, which is not an absolute IRI", rt.Slug(), got)
 		}
 	}

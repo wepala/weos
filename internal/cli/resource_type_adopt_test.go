@@ -100,3 +100,13 @@ func TestPrintHeldTerms_APrefixThatMovesTheClass(t *testing.T) {
 		t.Errorf("a prefix that moves the class must be named, never swept:\n%s", out.String())
 	}
 }
+
+func TestPrintAdoptOutcome_ASweepThatLeftAClassMovingPrefixNamesIt(t *testing.T) {
+	var out bytes.Buffer
+	printAdoptOutcome(&out, "core", "person", true, nil, []application.HeldTerm{{Term: "foaf", Property: "@type"}})
+	text := out.String()
+	if !strings.Contains(text, "the class (through foaf) is still held") || !strings.Contains(text, "--term foaf") ||
+		strings.Contains(text, "--term @type") {
+		t.Errorf("a sweep that skipped a class-moving prefix must name that prefix:\n%s", text)
+	}
+}

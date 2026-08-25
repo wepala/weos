@@ -117,11 +117,14 @@ func printAdoptOutcome(out io.Writer, preset, slug string, sweep bool, adopted [
 	}
 	if sweep && classStillHeld {
 		held := append([]string{}, classMovers...)
+		what := "@type"
 		if len(classMovers) == 0 {
 			held = []string{"@type"}
+		} else {
+			what = "the class (through " + strings.Join(classMovers, ", ") + ")"
 		}
-		_, _ = fmt.Fprintf(out, "@type is still held for %q: a sweep never moves the class. Adopt it with: %s\n",
-			slug, application.AdoptRemedy(preset, slug, held, classMovers))
+		_, _ = fmt.Fprintf(out, "%s is still held for %q: a sweep never moves the class. Adopt it with: %s\n",
+			what, slug, application.AdoptRemedy(preset, slug, held, classMovers))
 	}
 	if len(adopted) == 0 {
 		if classStillHeld {
