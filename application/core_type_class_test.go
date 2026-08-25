@@ -19,6 +19,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/wepala/weos/v3/pkg/jsonld"
 )
 
 // Issue #521: Person and Organization declare a class, and the class the
@@ -36,6 +38,7 @@ func TestResourceTypeClassIRI_CoreTypes(t *testing.T) {
 		"undeclared falls back to the name through @vocab": {"Person", "person",
 			`{"@vocab":"https://schema.org/","foaf":"http://xmlns.com/foaf/0.1/"}`,
 			"https://schema.org/Person"},
+		"no vocab falls back to a urn": {"Widget", "widget", `{"@type":"Widget"}`, "urn:type:widget"},
 	}
 	for name, c := range cases {
 		if got := resourceTypeClassIRI(c.name, c.slug, json.RawMessage(c.ctx)); got != c.want {
@@ -57,10 +60,18 @@ func TestOntologyDocument_IsAContextOnlyDocumentWithoutControlKeys(t *testing.T)
 			t.Errorf("ontology document still carries %s: %s", gone, got)
 		}
 	}
-	for _, kept := range []string{`"@type":"foaf:Person"`, `"foaf":"http://xmlns.com/foaf/0.1/"`, `"@vocab"`} {
+	// @type inside an @context is a keyword redefinition the store refuses;
+	// the class reaches the graph through the explicit triples instead.
+	if strings.Contains(got, `"@type"`) {
+		t.Errorf("ontology document carries @type inside its @context: %s", got)
+	}
+	for _, kept := range []string{`"foaf":"http://xmlns.com/foaf/0.1/"`, `"@vocab"`} {
 		if !strings.Contains(got, kept) {
 			t.Errorf("ontology document lost %s: %s", kept, got)
 		}
+	}
+	if bare := string(ontologyDocument(json.RawMessage(`"https://schema.org/"`))); bare != `{"@context":"https://schema.org/"}` {
+		t.Errorf("a bare-string context must still be wrapped: %s", bare)
 	}
 	if prev := resourceTypeClassIRI("Person", "person", contextWithoutType(raw)); prev != "https://schema.org/Person" {
 		t.Errorf("the previous class (name through @vocab) = %s", prev)
@@ -68,18 +79,37 @@ func TestOntologyDocument_IsAContextOnlyDocumentWithoutControlKeys(t *testing.T)
 }
 
 func TestAdoptRemedy_NamesACommandThatAdoptsTheClass(t *testing.T) {
-	if got := AdoptRemedy("core", "person", []string{"@type"}); !strings.Contains(got, "--term @type") ||
-		strings.Contains(got, "--all") {
+	if got := AdoptRemedy("core", "person", []string{"@type"}, nil); got != "weos resource-type adopt-term core person --term @type" {
 		t.Errorf("a held class alone must name --term @type, got %q", got)
 	}
-	if got := AdoptRemedy("core", "person", []string{"maker", "@type"}); !strings.Contains(got, "--all") ||
-		!strings.Contains(got, "--term @type") || strings.Contains(got, "(") {
-		t.Errorf("a held class beside other terms needs both commands and stays copy-pasteable, got %q", got)
+	if got := AdoptRemedy("core", "person", []string{"maker", "@type"}, nil); got !=
+		"weos resource-type adopt-term core person --all && weos resource-type adopt-term core person --term @type" {
+		t.Errorf("a held class beside other terms needs both commands, copy-pasteable, got %q", got)
 	}
-	if AdoptRemedyNote([]string{"@type"}) == "" || AdoptRemedyNote([]string{"maker"}) != "" {
-		t.Error("the note explains a held class and nothing else")
+	// A prefix the stored @type expands through moves the class too; a
+	// sweep skips it, so the remedy names it and offers no sweep.
+	if got := AdoptRemedy("core", "person", []string{"foaf"}, []string{"foaf"}); got !=
+		"weos resource-type adopt-term core person --term foaf" {
+		t.Errorf("a class-moving prefix must be named, got %q", got)
 	}
-	if got := AdoptRemedy("catalog", "widget", []string{"maker"}); got != "weos resource-type adopt-term catalog widget --all" {
+	if AdoptRemedyNote([]string{"@type"}, nil) == "" || AdoptRemedyNote([]string{"maker"}, nil) != "" ||
+		AdoptRemedyNote([]string{"foaf"}, []string{"foaf"}) == "" {
+		t.Error("the note explains a moved class and nothing else")
+	}
+	if got := AdoptRemedy("catalog", "widget", []string{"maker"}, nil); got != "weos resource-type adopt-term catalog widget --all" {
 		t.Errorf("plain held terms keep the sweep, got %q", got)
+	}
+}
+
+func TestAdoptTerms_RecordsNoAliasForAMovedClass(t *testing.T) {
+	stored := json.RawMessage(`{"@vocab":"https://schema.org/","@type":"Thing"}`)
+	preset := json.RawMessage(`{"@vocab":"https://schema.org/","@type":"Product"}`)
+	adopted, terms, err := adoptTerms(stored, preset, []movedPredicate{{Term: "@type", Property: "@type",
+		StoredIRI: "https://schema.org/Thing", PresetIRI: "https://schema.org/Product"}})
+	if err != nil || len(terms) != 1 {
+		t.Fatalf("adopt: %v %v", terms, err)
+	}
+	if aliases := jsonld.TermAliases(adopted); len(aliases["@type"]) != 0 {
+		t.Errorf("a class IRI must never enter the alias map: %v", aliases)
 	}
 }

@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/wepala/weos/v3/domain/entities"
 
@@ -151,7 +152,8 @@ func reconcilePresetSchemas(
 			"resource type context terms held at their stored definition: adopting them would "+
 				"repoint a predicate that already has data",
 			"preset", presetName, "slug", slug, "heldContextTerms", terms,
-			"remedy", AdoptRemedy(presetName, slug, terms), "note", AdoptRemedyNote(terms))
+			"remedy", AdoptRemedy(presetName, slug, terms, reconciled.ClassMovers[slug]),
+			"note", AdoptRemedyNote(terms, reconciled.ClassMovers[slug]))
 	}
 	for slug, reason := range reconciled.UnparseableContext {
 		logger.Error(ctx,
@@ -251,40 +253,63 @@ func ReportAmbiguousReferenceShape(
 
 // AdoptRemedy is the command an operator runs to adopt the held terms of a
 // type, kept copy-pasteable: no prose. A sweep (--all) deliberately never
-// takes `@type` — an alias cannot move a class — so a held class is named
-// explicitly, and a type holding both a class and other terms is given both
-// commands. Printing the sweep alone for a held class sent the operator to
-// a command that adopted nothing and left the boot warning forever
-// (issue #521). AdoptRemedyNote carries the explanation.
-func AdoptRemedy(presetName, slug string, held []string) string {
+// moves the class — neither `@type` itself nor a prefix the stored `@type`
+// expands through (classMovers) — so those are named explicitly, and a type
+// holding both kinds is given both commands. Printing the sweep alone for a
+// held class sent the operator to a command that adopted nothing and left
+// the boot warning forever (issue #521). AdoptRemedyNote carries the
+// explanation.
+func AdoptRemedy(presetName, slug string, held, classMovers []string) string {
 	base := "weos resource-type adopt-term " + presetName + " " + slug
-	classHeld, othersHeld := heldKinds(held)
-	switch {
-	case classHeld && othersHeld:
-		return base + " --all && " + base + " --term @type"
-	case classHeld:
-		return base + " --term @type"
-	default:
-		return base + " --all"
+	classHeld, othersHeld := heldKinds(held, classMovers)
+	var commands []string
+	if othersHeld {
+		commands = append(commands, base+" --all")
 	}
+	if classHeld {
+		commands = append(commands, base+" --term @type")
+	}
+	for _, mover := range classMovers {
+		commands = append(commands, base+" --term "+mover)
+	}
+	return strings.Join(commands, " && ")
 }
 
-// AdoptRemedyNote explains the remedy where the held terms include a class.
-func AdoptRemedyNote(held []string) string {
-	if classHeld, _ := heldKinds(held); !classHeld {
+// AdoptRemedyNote explains the remedy where the held terms move the class.
+func AdoptRemedyNote(held, classMovers []string) string {
+	classHeld, _ := heldKinds(held, classMovers)
+	if !classHeld && len(classMovers) == 0 {
 		return ""
 	}
-	return "a sweep never moves the class; after adopting @type, re-stamp existing records with " +
-		"`weos worker normalize-edge-keys --restamp` and reproject"
+	return "a sweep never moves the class; after adopting it, re-stamp existing records with " +
+		"`weos worker normalize-edge-keys --restamp --type <slug> --write`, then `weos worker reproject` " +
+		"and `weos worker checkpoint reset oxigraph --truncate` (the knowledge graph is not rebuilt by reproject)"
 }
 
-func heldKinds(held []string) (classHeld, othersHeld bool) {
+// heldKinds sorts the held terms into "the class" and "everything else". A
+// term listed among classMovers moves the class and counts on neither side
+// of the sweep.
+func heldKinds(held, classMovers []string) (classHeld, othersHeld bool) {
+	movers := map[string]bool{}
+	for _, m := range classMovers {
+		movers[m] = true
+	}
 	for _, term := range held {
-		if term == "@type" {
+		switch {
+		case term == "@type":
 			classHeld = true
-		} else {
+		case movers[term]:
+		default:
 			othersHeld = true
 		}
 	}
 	return classHeld, othersHeld
+}
+
+// ResourceTypeClassIRI is the RDF class resources of a type carry — the
+// context's @type through @vocab, else the type name, else the slug — as the
+// ontology projection advertises it. Exported for the operator commands that
+// have to name the class an instance carries today.
+func ResourceTypeClassIRI(name, slug string, rawContext json.RawMessage) string {
+	return resourceTypeClassIRI(name, slug, rawContext)
 }

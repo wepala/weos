@@ -168,6 +168,11 @@ type ReconcilePresetResult struct {
 	// forward is `resource-type adopt-term`, which records the old IRI so
 	// existing edges keep resolving.
 	Repointed map[string][]string `json:"repointed,omitempty"`
+	// ClassMovers names, per slug, held terms that are not `@type` but move
+	// the type's class through it — a prefix the stored `@type` expands
+	// through. A sweep skips them exactly as it skips `@type`, so the remedy
+	// must name each one (issue #521).
+	ClassMovers map[string][]string `json:"classMovers,omitempty"`
 	// UnparseableContext maps a slug to why its stored `@context` could not be
 	// read. Its schema is still merged; only the context half is skipped.
 	UnparseableContext map[string]string `json:"unparseableContext,omitempty"`

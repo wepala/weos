@@ -562,7 +562,10 @@ func adoptTerms(
 		// always the term being adopted: adopting a prefix moves every stored
 		// term written against it, and it is those properties whose edges carry
 		// the old IRI.
-		if move.Property != "" && move.StoredIRI != "" {
+		// A class IRI is not an edge key: the alias map is for predicates,
+		// and a class recorded there would be handed back by BuildReverseMap
+		// as a property named "@type" (issue #521).
+		if move.Property != "" && move.Property != "@type" && move.StoredIRI != "" {
 			aliases[move.Property] = appendMissing(aliases[move.Property], move.StoredIRI)
 		}
 		merged[move.Term] = presetDef

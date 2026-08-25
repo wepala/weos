@@ -17,6 +17,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -49,37 +50,92 @@ var heldTermsCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if len(held) == 0 {
-			_, _ = fmt.Fprintf(os.Stdout, "No held terms for %q.\n", args[1])
-			return nil
+		currentClass := ""
+		if rt, rtErr := deps.ResourceTypeService.GetBySlug(cmd.Context(), args[1]); rtErr == nil {
+			currentClass = application.ResourceTypeClassIRI(rt.Name(), rt.Slug(), rt.Context())
 		}
-		_, _ = fmt.Fprintf(os.Stdout, "%d held term(s) for %q:\n\n", len(held), args[1])
-		terms := make([]string, 0, len(held))
-		for _, h := range held {
-			terms = append(terms, h.Term)
-			_, _ = fmt.Fprintf(os.Stdout, "  %s\n", h.Term)
-			if h.Term == "@type" {
-				stored := h.StoredIRI
-				if stored == "" {
-					stored = "(no class declared; resources carry the type name through @vocab)"
-				}
-				_, _ = fmt.Fprintf(os.Stdout, "    class today     %s\n", stored)
-				_, _ = fmt.Fprintf(os.Stdout, "    preset declares %s\n", h.PresetIRI)
-				_, _ = fmt.Fprintln(os.Stdout, "    adopting it declares the class for NEW writes; existing "+
-					"records need `weos worker normalize-edge-keys --restamp` and a reproject")
-				_, _ = fmt.Fprintln(os.Stdout)
-				continue
-			}
-			_, _ = fmt.Fprintf(os.Stdout, "    property        %s\n", h.Property)
-			_, _ = fmt.Fprintf(os.Stdout, "    data written as %s\n", h.StoredIRI)
-			_, _ = fmt.Fprintf(os.Stdout, "    preset wants    %s\n\n", h.PresetIRI)
-		}
-		_, _ = fmt.Fprintf(os.Stdout, "Adopt with:  %s\n", application.AdoptRemedy(args[0], args[1], terms))
-		if note := application.AdoptRemedyNote(terms); note != "" {
-			_, _ = fmt.Fprintf(os.Stdout, "Note:        %s\n", note)
-		}
+		printHeldTerms(os.Stdout, args[0], args[1], currentClass, held)
 		return nil
 	},
+}
+
+// printHeldTerms renders the held terms of a type and the command that
+// adopts them. A held `@type` is a class, not a predicate: it keys no edge,
+// so it names no stored IRI, and adopting it changes only what NEW writes
+// carry — existing records need a re-stamp.
+func printHeldTerms(out io.Writer, preset, slug, currentClass string, held []application.HeldTerm) {
+	if len(held) == 0 {
+		_, _ = fmt.Fprintf(out, "No held terms for %q.\n", slug)
+		return
+	}
+	_, _ = fmt.Fprintf(out, "%d held term(s) for %q:\n\n", len(held), slug)
+	terms := make([]string, 0, len(held))
+	var classMovers []string
+	for _, h := range held {
+		terms = append(terms, h.Term)
+		_, _ = fmt.Fprintf(out, "  %s\n", h.Term)
+		if h.Property == "@type" {
+			if h.Term != "@type" {
+				classMovers = append(classMovers, h.Term)
+			}
+			stored := h.StoredIRI
+			if stored == "" && currentClass != "" {
+				stored = currentClass + " (no class declared; the type name through @vocab)"
+			}
+			_, _ = fmt.Fprintf(out, "    class today     %s\n", stored)
+			_, _ = fmt.Fprintf(out, "    preset declares %s\n", h.PresetIRI)
+			_, _ = fmt.Fprintln(out, "    adopting it declares the class for NEW writes; existing "+
+				"records need `weos worker normalize-edge-keys --restamp`, then `weos worker reproject` and "+
+				"`weos worker checkpoint reset oxigraph --truncate`")
+			_, _ = fmt.Fprintln(out)
+			continue
+		}
+		_, _ = fmt.Fprintf(out, "    property        %s\n", h.Property)
+		_, _ = fmt.Fprintf(out, "    data written as %s\n", h.StoredIRI)
+		_, _ = fmt.Fprintf(out, "    preset wants    %s\n\n", h.PresetIRI)
+	}
+	_, _ = fmt.Fprintf(out, "Adopt with:  %s\n", application.AdoptRemedy(preset, slug, terms, classMovers))
+	if note := application.AdoptRemedyNote(terms, classMovers); note != "" {
+		_, _ = fmt.Fprintf(out, "Note:        %s\n", strings.ReplaceAll(note, "<slug>", slug))
+	}
+}
+
+// printAdoptOutcome renders what adopt-term did. A sweep never takes the
+// class, so when one is still held afterwards the operator is told so and
+// handed the command that adopts it — never "already up to date".
+func printAdoptOutcome(out io.Writer, preset, slug string, sweep bool, adopted []string, stillHeld []application.HeldTerm) {
+	classStillHeld := false
+	var classMovers []string
+	for _, h := range stillHeld {
+		if h.Property != "@type" {
+			continue
+		}
+		classStillHeld = true
+		if h.Term != "@type" {
+			classMovers = append(classMovers, h.Term)
+		}
+	}
+	if sweep && classStillHeld {
+		held := append([]string{}, classMovers...)
+		if len(classMovers) == 0 {
+			held = []string{"@type"}
+		}
+		_, _ = fmt.Fprintf(out, "@type is still held for %q: a sweep never moves the class. Adopt it with: %s\n",
+			slug, application.AdoptRemedy(preset, slug, held, classMovers))
+	}
+	if len(adopted) == 0 {
+		if classStillHeld {
+			_, _ = fmt.Fprintf(out, "Nothing else to adopt for %q.\n", slug)
+		} else {
+			_, _ = fmt.Fprintf(out, "Nothing to adopt for %q — already up to date.\n", slug)
+		}
+		return
+	}
+	_, _ = fmt.Fprintf(out, "Adopted for %q: %s\n", slug, strings.Join(adopted, ", "))
+	_, _ = fmt.Fprintln(out, "Existing edges stay readable through their recorded IRIs.")
+	_, _ = fmt.Fprintln(out, "Run `weos worker reproject` to refill the projection columns for existing rows; "+
+		"a moved class also needs `weos worker normalize-edge-keys --restamp --type "+slug+" --write` first "+
+		"and `weos worker checkpoint reset oxigraph --truncate` after.")
 }
 
 var adoptTermCmd = &cobra.Command{
@@ -116,28 +172,11 @@ var adoptTermCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if all {
-			// A sweep never takes the class; say so instead of letting the
-			// operator read "up to date" while the boot keeps warning.
-			if still, hErr := deps.ResourceTypeService.HeldContextTerms(cmd.Context(), args[0], args[1]); hErr == nil {
-				for _, h := range still {
-					if h.Term == "@type" {
-						_, _ = fmt.Fprintf(os.Stdout, "@type is still held for %q: a sweep never moves the class. "+
-							"Adopt it with: %s\n", args[1], application.AdoptRemedy(args[0], args[1], []string{"@type"}))
-						break
-					}
-				}
-			}
+		stillHeld, hErr := deps.ResourceTypeService.HeldContextTerms(cmd.Context(), args[0], args[1])
+		if hErr != nil {
+			stillHeld = nil
 		}
-		if len(adopted) == 0 {
-			_, _ = fmt.Fprintf(os.Stdout, "Nothing else to adopt for %q.\n", args[1])
-			return nil
-		}
-		_, _ = fmt.Fprintf(os.Stdout, "Adopted for %q: %s\n", args[1], strings.Join(adopted, ", "))
-		_, _ = fmt.Fprintln(os.Stdout,
-			"Existing edges stay readable through their recorded IRIs.")
-		_, _ = fmt.Fprintln(os.Stdout,
-			"Run `weos worker reproject` to refill the projection columns for existing rows.")
+		printAdoptOutcome(os.Stdout, args[0], args[1], all, adopted, stillHeld)
 		return nil
 	},
 }

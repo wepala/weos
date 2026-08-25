@@ -535,6 +535,12 @@ func (s *resourceTypeService) recordHeldDefinitions(
 			result.Repointed = make(map[string][]string)
 		}
 		result.Repointed[slug] = append(result.Repointed[slug], moved.Term)
+		if moved.Property == "@type" && moved.Term != "@type" {
+			if result.ClassMovers == nil {
+				result.ClassMovers = make(map[string][]string)
+			}
+			result.ClassMovers[slug] = append(result.ClassMovers[slug], moved.Term)
+		}
 	}
 }
 

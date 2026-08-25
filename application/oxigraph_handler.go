@@ -111,28 +111,37 @@ func projectResourceTypeOntology(
 				"slug", slug, "class", previous, "error", err)
 		}
 	}
+	// The explicit class triples are written FIRST, so a context the store
+	// cannot parse (a JSON-LD 1.1 key the document filter does not know, an
+	// array-form context) costs the prefixes and never the class.
+	if err := emitExplicitOntologyTriples(ctx, name, slug, rawContext, store, logger); err != nil {
+		return err
+	}
 	if err := store.LoadOntology(ctx, "application/ld+json", ontologyDocument(rawContext)); err != nil {
 		return fmt.Errorf("kg: load resource type ontology for %s: %w", slug, err)
 	}
-	return emitExplicitOntologyTriples(ctx, name, slug, rawContext, store, logger)
+	return nil
 }
 
 // ontologyDocument is the type's context as a JSON-LD document the graph
-// store can take without side effects: a context-only document, `{"@context":
-// …}`, with WeOS control entries (`weos:termAliases`, `weos:adoptedTerms`,
-// `weos:abstract`, `rdfs:subClassOf`…) removed.
+// store can take without side effects: a context-only document,
+// `{"@context": …}`, with the WeOS control entries (`weos:termAliases`,
+// `weos:adoptedTerms`, `weos:abstract`, `rdfs:subClassOf`…) AND `@type`
+// removed.
 //
 // Loading the raw context as a document was doing two things wrong. A bare
 // `"@type":"foaf:Person"` beside its prefix definition — not inside an
 // @context — minted a fresh blank node typed with the literal `foaf:Person`
 // on every boot, so the graph filled with anonymous nodes under an
 // unexpanded IRI. And an array or boolean under a term key is not a valid
-// term definition, so a type whose terms had ever been ADOPTED could be
-// refused outright by a strict parser and lose its class. The class triples
-// the graph needs come from emitExplicitOntologyTriples, which reads the raw
-// context; this document contributes prefixes and nothing else.
+// term definition; nor is `@type` inside an @context (a keyword
+// redefinition, which this store refuses outright — see
+// infrastructure/graph/oxigraph/stored_shape_test.go). Either could have a
+// type whose context carried it lose its class. The class triples the graph
+// needs come from emitExplicitOntologyTriples, which reads the raw context;
+// this document contributes prefixes and nothing else.
 func ontologyDocument(rawContext json.RawMessage) json.RawMessage {
-	ctx := contextWithoutControlKeys(rawContext)
+	ctx := contextWithoutControlKeys(contextWithoutType(rawContext))
 	out, err := json.Marshal(map[string]any{"@context": json.RawMessage(ctx)})
 	if err != nil {
 		return rawContext

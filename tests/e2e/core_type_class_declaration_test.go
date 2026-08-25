@@ -72,7 +72,6 @@ func initCoreTypeClassScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^that resolution does not depend on the built-in "schema" prefix fallback$`, w.lastResourceTypeNeedsNoFallback)
 	sc.Step(`^every installed resource type declares an "@type" in its stored context$`, w.everyTypeDeclaresType)
 	sc.Step(`^every installed resource type advertises an RDF class that is an absolute IRI$`, w.everyTypeAdvertisesIRI)
-	sc.Step(`^no "([^"]*)" resource carries the RDF type "([^"]*)" in the stored document$`, w.noResourceOfTypeCarriesClass)
 
 	sc.Step(`^the operator lists the held terms for "([^"]*)" "([^"]*)"$`, w.listHeldTerms)
 	sc.Step(`^"([^"]*)" is reported as held and offered at "([^"]*)"$`, w.heldTermOfferedAt)
@@ -256,22 +255,6 @@ func (w *classWorld) everyTypeAdvertisesIRI() error {
 	return nil
 }
 
-func (w *classWorld) noResourceOfTypeCarriesClass(slug, class string) error {
-	for key, id := range w.createdIDs {
-		if !strings.HasPrefix(key, slug+"/") {
-			continue
-		}
-		doc, embedded, err := w.document(id)
-		if err != nil {
-			return err
-		}
-		if got := classOf(doc, embedded); got == class {
-			return fmt.Errorf("%s still carries the RDF type %s", key, class)
-		}
-	}
-	return nil
-}
-
 // --- held terms and adoption on the real core preset ---
 
 func (w *classWorld) listHeldTerms(preset, slug string) error {
@@ -357,7 +340,7 @@ func (w *classWorld) sweepLeftTheClassAndSaidSo() error {
 	if err != nil {
 		return err
 	}
-	remedy := application.AdoptRemedy(w.heldPreset, w.heldSlug, names)
+	remedy := application.AdoptRemedy(w.heldPreset, w.heldSlug, names, nil)
 	if !strings.Contains(remedy, "--term @type") {
 		return fmt.Errorf("after the sweep the operator is told %q, which does not adopt the class", remedy)
 	}
@@ -394,7 +377,7 @@ func (w *classWorld) listedRemedyAdopts(term, slug string) error {
 	for _, h := range w.heldTerms {
 		names = append(names, h.Term)
 	}
-	if remedy := application.AdoptRemedy(w.heldPreset, slug, names); !strings.Contains(remedy, "--term "+term) {
+	if remedy := application.AdoptRemedy(w.heldPreset, slug, names, nil); !strings.Contains(remedy, "--term "+term) {
 		return fmt.Errorf("held-terms prints %q, which does not adopt %q", remedy, term)
 	}
 	return nil
