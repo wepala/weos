@@ -125,7 +125,12 @@ func printHeldTerms(out io.Writer, preset, slug, currentClass string, held []app
 // verbatim, so the triples table and the knowledge graph keep the OLD
 // predicate until existing records are re-stamped. A moved class is named
 // as well.
-func printAdoptOutcome(out io.Writer, preset, slug string, sweep bool, result application.AdoptResult,
+//
+// listingKnown says whether stillHeld is the real held-terms listing. Without
+// it nothing can tell which remaining terms move the class, so no remedy is
+// computed — a guessed `--all` would be the wrong command — and the operator
+// is sent to `held-terms` for it.
+func printAdoptOutcome(out io.Writer, preset, slug string, sweep, listingKnown bool, result application.AdoptResult,
 	stillHeld []application.HeldTerm) {
 	// What the sweep left is the service's own answer (result.StillHeld);
 	// the held-terms listing only says which of them move the class.
@@ -157,8 +162,13 @@ func printAdoptOutcome(out io.Writer, preset, slug string, sweep bool, result ap
 		if dependent {
 			why += ", nor a term written against a prefix it left held"
 		}
-		_, _ = fmt.Fprintf(out, "%s is still held for %q: %s. Adopt it with: %s\n",
-			what, slug, why, application.AdoptRemedy(preset, slug, leftHeld, classMovers))
+		if listingKnown {
+			_, _ = fmt.Fprintf(out, "%s is still held for %q: %s. Adopt it with: %s\n",
+				what, slug, why, application.AdoptRemedy(preset, slug, leftHeld, classMovers))
+		} else {
+			_, _ = fmt.Fprintf(out, "%s is still held for %q: %s. Run `weos resource-type held-terms %s %s` "+
+				"for the command that adopts it.\n", what, slug, why, preset, slug)
+		}
 	}
 	if len(result.Adopted) == 0 {
 		if len(leftHeld) > 0 {
@@ -221,7 +231,7 @@ var adoptTermCmd = &cobra.Command{
 			_, _ = fmt.Fprintf(os.Stderr, "warning: could not list the held terms after adoption: %v\n", hErr)
 			stillHeld = nil
 		}
-		printAdoptOutcome(os.Stdout, args[0], args[1], all, result, stillHeld)
+		printAdoptOutcome(os.Stdout, args[0], args[1], all, hErr == nil, result, stillHeld)
 		return nil
 	},
 }

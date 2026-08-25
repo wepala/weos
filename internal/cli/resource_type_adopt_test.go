@@ -75,7 +75,7 @@ func TestPrintHeldTerms_ARepointedClassBesideATerm(t *testing.T) {
 
 func TestPrintAdoptOutcome_ASweepThatLeftTheClassSaysSo(t *testing.T) {
 	var out bytes.Buffer
-	printAdoptOutcome(&out, "core", "person", true, application.AdoptResult{},
+	printAdoptOutcome(&out, "core", "person", true, true, application.AdoptResult{},
 		[]application.HeldTerm{{Term: "@type", Property: "@type", Moves: []application.HeldMove{{Property: "@type"}}}})
 	text := out.String()
 	if !strings.Contains(text, "is still held") || !strings.Contains(text, "--term @type") ||
@@ -83,7 +83,7 @@ func TestPrintAdoptOutcome_ASweepThatLeftTheClassSaysSo(t *testing.T) {
 		t.Errorf("a sweep that skipped the class must say so and name the command:\n%s", text)
 	}
 	out.Reset()
-	printAdoptOutcome(&out, "core", "person", false, application.AdoptResult{Adopted: []string{"@type"},
+	printAdoptOutcome(&out, "core", "person", false, true, application.AdoptResult{Adopted: []string{"@type"},
 		ClassMove: &application.HeldMove{Property: "@type", StoredIRI: "https://schema.org/Person",
 			PresetIRI: "http://xmlns.com/foaf/0.1/Person"}}, nil)
 	if !strings.Contains(out.String(), `Adopted for "person": @type`) ||
@@ -92,7 +92,7 @@ func TestPrintAdoptOutcome_ASweepThatLeftTheClassSaysSo(t *testing.T) {
 		t.Errorf("adopting a class by name reports the move and the re-stamp:\n%s", out.String())
 	}
 	out.Reset()
-	printAdoptOutcome(&out, "catalog", "widget", true, application.AdoptResult{}, nil)
+	printAdoptOutcome(&out, "catalog", "widget", true, true, application.AdoptResult{}, nil)
 	if !strings.Contains(out.String(), "already up to date") {
 		t.Errorf("a clean type is up to date:\n%s", out.String())
 	}
@@ -113,7 +113,7 @@ func TestPrintHeldTerms_APrefixThatMovesTheClass(t *testing.T) {
 
 func TestPrintAdoptOutcome_ASweepThatLeftAClassMovingPrefixNamesIt(t *testing.T) {
 	var out bytes.Buffer
-	printAdoptOutcome(&out, "core", "person", true, application.AdoptResult{},
+	printAdoptOutcome(&out, "core", "person", true, true, application.AdoptResult{},
 		[]application.HeldTerm{{Term: "foaf", Property: "@type", Moves: []application.HeldMove{{Property: "@type"}}}})
 	text := out.String()
 	if !strings.Contains(text, "foaf (the class) is still held") || !strings.Contains(text, "--term foaf") ||
@@ -124,7 +124,7 @@ func TestPrintAdoptOutcome_ASweepThatLeftAClassMovingPrefixNamesIt(t *testing.T)
 
 func TestPrintAdoptOutcome_EveryAdoptionNamesTheRestampRoute(t *testing.T) {
 	var out bytes.Buffer
-	printAdoptOutcome(&out, "catalog", "widget", false, application.AdoptResult{Adopted: []string{"maker"}}, nil)
+	printAdoptOutcome(&out, "catalog", "widget", false, true, application.AdoptResult{Adopted: []string{"maker"}}, nil)
 	text := out.String()
 	if !strings.Contains(text, "--restamp --type widget --write") || !strings.Contains(text, "checkpoint reset oxigraph") {
 		t.Errorf("a plain adoption must still name the re-stamp route:\n%s", text)
@@ -133,7 +133,7 @@ func TestPrintAdoptOutcome_EveryAdoptionNamesTheRestampRoute(t *testing.T) {
 
 func TestPrintAdoptOutcome_ASweepThatLeftVocabNamesIt(t *testing.T) {
 	var out bytes.Buffer
-	printAdoptOutcome(&out, "memory", "fact", true, application.AdoptResult{},
+	printAdoptOutcome(&out, "memory", "fact", true, true, application.AdoptResult{},
 		[]application.HeldTerm{{Term: "@vocab", Property: "confidence", Moves: []application.HeldMove{{Property: "confidence"}}}})
 	text := out.String()
 	if !strings.Contains(text, "@vocab is still held") || !strings.Contains(text, "--term @vocab") ||
@@ -168,12 +168,23 @@ func TestPrintHeldTerms_ARedefinedPrefixListsEveryMove(t *testing.T) {
 
 func TestPrintAdoptOutcome_ASweepThatLeftATermBehindItsPrefixSaysSo(t *testing.T) {
 	var out bytes.Buffer
-	printAdoptOutcome(&out, "catalog", "widget", true, application.AdoptResult{StillHeld: []string{"cat", "supplier"}},
+	printAdoptOutcome(&out, "catalog", "widget", true, true, application.AdoptResult{StillHeld: []string{"cat", "supplier"}},
 		[]application.HeldTerm{{Term: "cat", Property: "@type", Moves: []application.HeldMove{{Property: "@type"}}}})
 	text := out.String()
 	if !strings.Contains(text, "cat, supplier (the class) is still held") ||
 		!strings.Contains(text, "prefix it left held") ||
 		!strings.Contains(text, "--term cat && weos resource-type adopt-term catalog widget --all") {
 		t.Errorf("the prefix must be named before the sweep:\n%s", text)
+	}
+}
+
+func TestPrintAdoptOutcome_WithoutTheListingSendsToHeldTerms(t *testing.T) {
+	var out bytes.Buffer
+	printAdoptOutcome(&out, "catalog", "widget", true, false,
+		application.AdoptResult{StillHeld: []string{"cat"}}, nil)
+	text := out.String()
+	if !strings.Contains(text, "cat is still held") || strings.Contains(text, "--all") ||
+		!strings.Contains(text, "weos resource-type held-terms catalog widget") {
+		t.Errorf("without the listing no remedy may be guessed:\n%s", text)
 	}
 }
