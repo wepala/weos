@@ -388,7 +388,7 @@ func mealOccurrenceType() application.PresetResourceType {
 	return application.PresetResourceType{
 		Name:        "Meal Occurrence",
 		Slug:        "meal-occurrence",
-		Description: "A concrete single-date instance of a scheduled meal",
+		Description: "A concrete single-date instance of a meal: one expanded from a schedule, or one eaten ad hoc",
 		Context: mpTypeContext("MealOccurrence",
 			`"scheduledMeal":"mp:occurrenceOf",`+
 				`"notes":"https://schema.org/description"`),
@@ -403,7 +403,7 @@ func mealOccurrenceType() application.PresetResourceType {
 		"notes":{"type":"string"},
 		"scheduledMeal":{"type":"string","x-resource-type":"scheduled-meal","x-display-property":"mealType"}
 	},
-	"required":["date","mealType","status","scheduledMeal"]
+	"required":["date","mealType","status"]
 }`),
 	}
 }
