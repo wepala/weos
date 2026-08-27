@@ -136,7 +136,7 @@ var policedVocabularies = map[string]map[string]bool{
 		"recipeCuisine", "recipeIngredient", "recipeInstructions", "recipeYield", "recipient",
 		"repeatCount", "repeatFrequency", "reviewBody", "reviewRating", "saturatedFatContent",
 		"scheduleTimezone", "serviceType", "servingSize", "sku", "sodiumContent", "startDate",
-		"startTime", "sugarContent", "suitableForDiet", "text", "thumbnailUrl", "title", "totalTime",
+		"startTime", "sugarContent", "suitableForDiet", "text", "thumbnailUrl", "totalTime",
 		"url", "version",
 	),
 	// SKOS Core. Note that `title` and `description` are NOT here: SKOS
@@ -151,13 +151,25 @@ var policedVocabularies = map[string]map[string]bool{
 	"http://www.w3.org/ns/prov#": namesToSet(
 		"generatedAtTime", "invalidatedAtTime", "wasAttributedTo", "wasDerivedFrom", "wasRevisionOf",
 	),
-	// The food ontology publishes exactly fourteen terms, taken from
-	// http://purl.org/foodontology rather than assumed. No preset predicate
-	// borrows any of them any more: meal-planning used four names this
-	// vocabulary never defined (`hasIngredient`, `ingredient`,
-	// `ShoppingCategory`, `at_its_best`) and #535 repaired all four. The
-	// namespace stays policed so the next `fo:` term is checked, and the list
-	// stays complete so a legitimate borrow needs no research to approve.
+	// The food ontology publishes fourteen names, taken from
+	// http://purl.org/foodontology rather than assumed. ELEVEN are listed here
+	// — the vocabulary's properties. The other three (`Food`, `FoodAdditive`,
+	// `Ingredient`) are CLASSES, and are deliberately absent: this guard
+	// polices predicates, so a class used as one should be reported rather
+	// than waved through. That is not hypothetical — `ingredient` reached
+	// `fo:ShoppingCategory`, a class-shaped name, until #535.
+	//
+	// No preset predicate borrows any of the eleven any more: meal-planning
+	// used four names this vocabulary never defined (`hasIngredient`,
+	// `ingredient`, `ShoppingCategory`, `at_its_best`) and #535 repaired all
+	// four. The namespace stays policed so the next `fo:` term is checked, and
+	// the property list is complete, so a legitimate borrow needs no research
+	// to approve.
+	//
+	// Provenance, because it bears on how far this list can be trusted:
+	// purl.org now redirects to ITMO University's FoodOntology v0.0.9 (2015),
+	// not Martin Hepp's. It is thinly maintained, which is a reason to check
+	// rather than assume when a new `fo:` term is proposed.
 	"http://purl.org/foodontology#": namesToSet(
 		"carbohydratesPer100g", "carbohydratesPer100gAsDouble", "containsGMO",
 		"containsIngredient", "energyPer100g", "energyPer100gAsDouble", "fatPer100g",
@@ -174,6 +186,11 @@ var termsPublishedForAnotherSubject = map[string]map[string]string{
 	"https://schema.org/": {
 		"status":      "the status of a MedicalCondition, MedicalProcedure or MedicalStudy",
 		"preparation": "the preparation a patient undergoes before a MedicalProcedure",
+		// "The title of the job", published for JobPosting. A notification's
+		// title is not a job title. This one was caught late: it sat in the
+		// allow-list because a preset already used it, which is precisely the
+		// reasoning this list exists to replace.
+		"title": "the title of a JobPosting",
 	},
 }
 
@@ -209,6 +226,7 @@ var vocabularyWaivers = map[string]string{
 	"notification.occurredAt":  "#535 waiver: notifications preset, not yet repaired",
 	"notification.read":        "#535 waiver: notifications preset, not yet repaired",
 	"notification.taskRef":     "#535 waiver: notifications preset, not yet repaired",
+	"notification.title":       "#535 waiver: notifications preset, schema:title is a JobPosting term",
 
 	// tasks — `dueDate` and `priority` are mints; both `status` entries are
 	// the medical term, the same subject misuse #535 removed from

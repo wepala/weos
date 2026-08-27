@@ -430,9 +430,9 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   #    exists on this branch; nothing here is new tooling.
   #
   #      weos resource-type held-terms meal-planning <slug>
-  #      weos resource-type adopt-term meal-planning recipe
-  #      weos resource-type adopt-term meal-planning recipe-ingredient
-  #      weos resource-type adopt-term meal-planning ingredient
+  #      weos resource-type adopt-term meal-planning recipe --all
+  #      weos resource-type adopt-term meal-planning recipe-ingredient --all
+  #      weos resource-type adopt-term meal-planning ingredient --all
   #      weos worker normalize-edge-keys --restamp --write
   #      weos worker reproject
   #      weos worker checkpoint reset oxigraph --truncate
@@ -444,6 +444,11 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   #    type's stored context still says `fo:ingredient` — so the re-stamp
   #    faithfully re-stamps the old IRI, the reproject replays it, and nothing
   #    moves. Adoption is what changes the type's stored context, which is what
+  #    `--all` is REQUIRED, not decoration: `adopt-term` refuses with "name at
+  #    least one --term, or pass --all to adopt every held term" when neither is
+  #    given (internal/cli/resource_type_adopt.go). A runbook that omits it does
+  #    not half-work, it errors on the first line.
+  #
   #    every later step reads. The three `adopt-term` lines are the three types
   #    carrying population B; the other eleven meal-planning types need none,
   #    because population A merged at boot.
