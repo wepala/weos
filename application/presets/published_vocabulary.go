@@ -311,7 +311,7 @@ func PublishedVocabularyViolations(types []application.PresetResourceType) []Voc
 				Fault: FaultCannotJudge, Detail: "the JSON Schema is not valid JSON, so no property of this type was checked"})
 			continue
 		}
-		vocab, forward := jsonld.ParseContext(pt.Context)
+		vocab, forward := jsonld.ParseContext(normalizedContext(pt.Context))
 		for _, prop := range props {
 			iri := jsonld.ResolvePredicateIRI(prop, vocab, forward)
 			if !isAbsoluteIRI(iri) {
@@ -378,6 +378,32 @@ func isAbsoluteIRI(iri string) bool {
 		}
 	}
 	return true
+}
+
+// normalizedContext rewrites a `@context` stored as a bare IRI string into the
+// equivalent object form, so the guard reads what the graph reads.
+//
+// `"https://schema.org/"` is legal JSON-LD and this codebase supports it
+// deliberately: jsonld.InlineVocabContext performs the same rewrite on the
+// projection path (application/oxigraph_handler.go), because an embedded graph
+// store has no network to fetch a remote context and `@vocab` expands the bare
+// terms identically. Without the same rewrite here the guard reads no
+// vocabulary, every property resolves to a bare name, and a type whose terms
+// ARE judgeable gets reported unjudgeable — the guard disagreeing with the
+// write path about what a document says.
+//
+// No built-in preset uses the string form today. The overlay registry this
+// function is exported for may, and legal input should not need luck.
+func normalizedContext(ldContext json.RawMessage) json.RawMessage {
+	var iri string
+	if json.Unmarshal(ldContext, &iri) != nil || iri == "" {
+		return ldContext // not a bare string; use it as it stands
+	}
+	inlined, err := json.Marshal(map[string]string{"@vocab": iri})
+	if err != nil {
+		return ldContext
+	}
+	return inlined
 }
 
 // canonicalIRI rewrites an IRI whose namespace has an alternative spelling
@@ -450,7 +476,7 @@ func schemaPropertyNames(schema json.RawMessage) (names []string, readable bool)
 // an IRI, and callers that need to pin one should not have to know which route
 // produced it.
 func ResolvedPredicateFor(pt application.PresetResourceType, property string) string {
-	vocab, forward := jsonld.ParseContext(pt.Context)
+	vocab, forward := jsonld.ParseContext(normalizedContext(pt.Context))
 	return jsonld.ResolvePredicateIRI(property, vocab, forward)
 }
 
@@ -464,7 +490,7 @@ func ResolvedPredicateFor(pt application.PresetResourceType, property string) st
 func UnusedAllowListEntries(types []application.PresetResourceType) []string {
 	used := map[string]bool{}
 	for _, pt := range types {
-		vocab, forward := jsonld.ParseContext(pt.Context)
+		vocab, forward := jsonld.ParseContext(normalizedContext(pt.Context))
 		props, _ := schemaPropertyNames(pt.Schema)
 		for _, prop := range props {
 			used[canonicalIRI(jsonld.ResolvePredicateIRI(prop, vocab, forward))] = true

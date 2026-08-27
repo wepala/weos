@@ -452,3 +452,37 @@ func TestPresets_AnAbsoluteNonURLIRIStatesAPredicate(t *testing.T) {
 		t.Errorf("a property with no scheme states no predicate and must be reported, got %v", got)
 	}
 }
+
+// TestPresets_AContextStoredAsABareStringIsStillJudged — `"https://schema.org/"`
+// is legal JSON-LD, and this codebase supports it deliberately:
+// jsonld.InlineVocabContext performs the same rewrite on the projection path,
+// because an embedded graph store has no network to fetch a remote context.
+//
+// Without the same rewrite here the guard read no vocabulary, every property
+// resolved to a bare name, and a type whose terms ARE judgeable was reported
+// unjudgeable — the guard disagreeing with the write path about what a
+// document says. Found while checking a live instance, where notification
+// resources store exactly this shape and project into the graph normally.
+func TestPresets_AContextStoredAsABareStringIsStillJudged(t *testing.T) {
+	pt := application.PresetResourceType{
+		Slug:    "probe",
+		Context: json.RawMessage(`"https://schema.org/"`),
+		Schema: json.RawMessage(`{"type":"object","properties":{` +
+			`"kind":{"type":"string"},"name":{"type":"string"}}}`),
+	}
+	got := presets.PublishedVocabularyViolations([]application.PresetResourceType{pt})
+	if len(got) != 1 {
+		t.Fatalf("expected exactly one violation (kind), got %d: %v", len(got), got)
+	}
+	if got[0].PropertyName != "kind" || got[0].Fault != presets.FaultUndefinedTerm {
+		t.Errorf("expected `kind` reported as an undefined term, got %s", got[0])
+	}
+	// `name` is a real schema.org property and must not be reported, which is
+	// the half that proves the vocabulary was actually read rather than the
+	// whole type being waved through.
+	for _, v := range got {
+		if v.PropertyName == "name" {
+			t.Errorf("`name` is published by schema.org and must not be reported: %s", v)
+		}
+	}
+}
