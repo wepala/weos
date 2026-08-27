@@ -830,8 +830,16 @@ func (w *vocabWorld) storedContextMaps(slug, term, iri string) error {
 		return err
 	}
 	vocab, forward := jsonld.ParseContext(rt.Context())
-	if jsonld.ResolvePredicateIRI(term, vocab, forward) == iri {
-		return nil
+	// Only expand a term ParseContext actually mapped. Without this guard a
+	// term it DROPS — a value that is a number, a bool, null, or an object
+	// with no `@id` — falls through to `@vocab` + the term's name, a string
+	// computed entirely from the vocabulary and the property name with no
+	// input from the stored mapping at all. The step would then compare a
+	// derived value with itself and report success having checked nothing.
+	if _, mapped := forward[term]; mapped {
+		if jsonld.ResolvePredicateIRI(term, vocab, forward) == iri {
+			return nil
+		}
 	}
 	return fmt.Errorf("the stored %q context maps %q to %v, want %s", slug, term, stored, iri)
 }

@@ -285,7 +285,18 @@ func TestPresets_TheRepairedMealPlanningPredicates(t *testing.T) {
 			t.Errorf("type %q is missing from the registry", slug)
 			continue
 		}
+		declared := declaredProperties(t, pt)
 		for prop, wantIRI := range want[slug] {
+			// Check the property still EXISTS before checking where it points.
+			// ResolvedPredicateFor resolves any name at all through `@vocab`,
+			// so without this every untermed row here — purchaseDate,
+			// pantry.name, position, identifier — would pass identically
+			// against a type whose schema had been emptied. The test written
+			// to protect purchaseDate would not notice it being deleted.
+			if !declared[prop] {
+				t.Errorf("%s no longer declares %q; the pin below cannot protect a property that is gone", slug, prop)
+				continue
+			}
 			if got := presets.ResolvedPredicateFor(pt, prop); got != wantIRI {
 				t.Errorf("%s.%s resolves to %s, want %s", slug, prop, got, wantIRI)
 			}
@@ -329,4 +340,75 @@ func TestPresets_TheGuardPolicesBothSpellingsOfSchemaOrg(t *testing.T) {
 	if got := presets.PublishedVocabularyViolations([]application.PresetResourceType{ok}); len(got) != 0 {
 		t.Errorf("a real schema.org name must pass under either spelling, got %v", got)
 	}
+}
+
+// TestPresets_EveryTypeCanBeJudged closes the loop the other sweeps leave
+// open. FaultCannotJudge is reported by neither fault-specific test, so
+// without this a type the guard could not read would be invisible in exactly
+// the way an unpoliced namespace was — the sweep returns nothing and nothing
+// distinguishes that from a clean result.
+//
+// There are no waivers for this fault. A type the guard cannot read is not a
+// tolerated exception, it is a broken type.
+func TestPresets_EveryTypeCanBeJudged(t *testing.T) {
+	for _, v := range presets.PublishedVocabularyViolations(allBuiltInTypes(t)) {
+		if v.Fault == presets.FaultCannotJudge {
+			t.Errorf("the guard could not judge %s", v)
+		}
+	}
+}
+
+// TestPresets_TheGuardSaysSoWhenItCannotJudge proves the fault fires, on each
+// input that used to pass silently. Every one of these returned zero
+// violations before, which read identically to "this type is clean".
+func TestPresets_TheGuardSaysSoWhenItCannotJudge(t *testing.T) {
+	cases := []struct {
+		name            string
+		context, schema string
+		wantProperty    string
+	}{
+		{"unparseable context", `{"@vocab":"https://schema.org/",`,
+			`{"type":"object","properties":{"spiciness":{"type":"string"}}}`, "@context"},
+		{"unparseable schema", `{"@vocab":"https://schema.org/"}`,
+			`{"type":"object","properties":{"spiciness":{`, "@schema"},
+		{"no @vocab, so the property states no predicate", `{"@type":"Thing"}`,
+			`{"type":"object","properties":{"spiciness":{"type":"string"}}}`, "spiciness"},
+		{"inside a policed namespace but below its term level",
+			`{"@vocab":"https://schema.org/","spiciness":"https://schema.org/docs/spiciness"}`,
+			`{"type":"object","properties":{"spiciness":{"type":"string"}}}`, "spiciness"},
+	}
+	for _, c := range cases {
+		pt := application.PresetResourceType{
+			Slug:    "probe",
+			Context: json.RawMessage(c.context),
+			Schema:  json.RawMessage(c.schema),
+		}
+		got := presets.PublishedVocabularyViolations([]application.PresetResourceType{pt})
+		if len(got) != 1 || got[0].Fault != presets.FaultCannotJudge {
+			t.Errorf("%s: expected one cannot-judge violation, got %v", c.name, got)
+			continue
+		}
+		if got[0].PropertyName != c.wantProperty {
+			t.Errorf("%s: blamed %q, want %q", c.name, got[0].PropertyName, c.wantProperty)
+		}
+		if got[0].Detail == "" {
+			t.Errorf("%s: a cannot-judge report must say what it could not read", c.name)
+		}
+	}
+}
+
+// declaredProperties lists the property names a type's JSON Schema declares.
+func declaredProperties(t *testing.T, pt application.PresetResourceType) map[string]bool {
+	t.Helper()
+	var s struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(pt.Schema, &s); err != nil {
+		t.Fatalf("%s: schema is not valid JSON: %v", pt.Slug, err)
+	}
+	out := make(map[string]bool, len(s.Properties))
+	for name := range s.Properties {
+		out[name] = true
+	}
+	return out
 }

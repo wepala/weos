@@ -88,6 +88,12 @@ const (
 	FaultUndefinedTerm VocabularyFault = "states a term the vocabulary does not define"
 	// FaultOtherSubject — the name resolves, but was published about something else.
 	FaultOtherSubject VocabularyFault = "states a term the vocabulary publishes for another subject"
+	// FaultCannotJudge — the guard could not read what the type states, so it
+	// has no opinion. Reported rather than skipped: for a guard whose only
+	// output is a list, silence and approval are the same signal, and the
+	// input most likely to be malformed is exactly the input most likely to be
+	// wrong. A type the guard cannot read is not a type it has cleared.
+	FaultCannotJudge VocabularyFault = "could not be judged"
 )
 
 // VocabularyViolation is one property stating one predicate it should not.
@@ -289,11 +295,34 @@ func VocabularyWaivers() map[string]string {
 func PublishedVocabularyViolations(types []application.PresetResourceType) []VocabularyViolation {
 	var out []VocabularyViolation
 	for _, pt := range types {
+		if len(pt.Context) > 0 && !json.Valid(pt.Context) {
+			out = append(out, VocabularyViolation{Slug: pt.Slug, PropertyName: "@context",
+				Fault: FaultCannotJudge, Detail: "the @context is not valid JSON, so every property of this type resolves to nothing"})
+			continue
+		}
+		props, readable := schemaPropertyNames(pt.Schema)
+		if !readable {
+			out = append(out, VocabularyViolation{Slug: pt.Slug, PropertyName: "@schema",
+				Fault: FaultCannotJudge, Detail: "the JSON Schema is not valid JSON, so no property of this type was checked"})
+			continue
+		}
 		vocab, forward := jsonld.ParseContext(pt.Context)
-		for _, prop := range schemaPropertyNames(pt.Schema) {
+		for _, prop := range props {
 			iri := jsonld.ResolvePredicateIRI(prop, vocab, forward)
+			if !strings.Contains(iri, "://") {
+				// No `@vocab` and no term: in JSON-LD this property maps to no
+				// predicate at all, so there is nothing for this guard to
+				// judge — and nothing for a consumer to resolve either.
+				out = append(out, VocabularyViolation{Slug: pt.Slug, PropertyName: prop, PredicateIRI: iri,
+					Fault: FaultCannotJudge, Detail: "resolves to no absolute IRI, so it states no predicate"})
+				continue
+			}
 			namespace, local, ok := splitPolicedIRI(iri)
 			if !ok {
+				if ns, deeper := belowTermLevel(iri); deeper {
+					out = append(out, VocabularyViolation{Slug: pt.Slug, PropertyName: prop, PredicateIRI: iri,
+						Fault: FaultCannotJudge, Detail: "sits under " + ns + " but below its term level, so the guard cannot say whether it is defined"})
+				}
 				continue
 			}
 			if meaning, borrowed := termsPublishedForAnotherSubject[namespace][local]; borrowed {
@@ -344,25 +373,40 @@ func splitPolicedIRI(iri string) (namespace, local string, ok bool) {
 	return namespace, local, ok
 }
 
-// schemaPropertyNames lists a JSON Schema's declared property names. A schema
-// that will not parse yields none: the schema reconcile reports malformed
-// schemas on its own, and duplicating that here would report one fault twice.
-func schemaPropertyNames(schema json.RawMessage) []string {
+// belowTermLevel reports whether an IRI sits inside a policed namespace but
+// deeper than its terms live, e.g. https://schema.org/docs/thing. The guard
+// cannot say whether such a name is defined — it may belong to a sub-namespace
+// nobody declared here — so it says so rather than passing it.
+func belowTermLevel(iri string) (namespace string, deeper bool) {
+	iri = canonicalIRI(iri)
+	for ns := range policedVocabularies {
+		if strings.HasPrefix(iri, ns) && strings.ContainsAny(iri[len(ns):], "/#") {
+			return ns, true
+		}
+	}
+	return "", false
+}
+
+// schemaPropertyNames lists a JSON Schema's declared property names, and
+// reports whether the schema could be read at all. An unreadable schema is NOT
+// an empty one: the caller turns that into a FaultCannotJudge rather than
+// sweeping a type and finding it clean by never looking at it.
+func schemaPropertyNames(schema json.RawMessage) (names []string, readable bool) {
 	if len(schema) == 0 {
-		return nil
+		return nil, true
 	}
 	var s struct {
 		Properties map[string]json.RawMessage `json:"properties"`
 	}
 	if json.Unmarshal(schema, &s) != nil {
-		return nil
+		return nil, false
 	}
-	names := make([]string, 0, len(s.Properties))
+	names = make([]string, 0, len(s.Properties))
 	for name := range s.Properties {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	return names
+	return names, true
 }
 
 // ResolvedPredicateFor reports the predicate IRI a type's property states,
@@ -385,7 +429,8 @@ func UnusedAllowListEntries(types []application.PresetResourceType) []string {
 	used := map[string]bool{}
 	for _, pt := range types {
 		vocab, forward := jsonld.ParseContext(pt.Context)
-		for _, prop := range schemaPropertyNames(pt.Schema) {
+		props, _ := schemaPropertyNames(pt.Schema)
+		for _, prop := range props {
 			used[canonicalIRI(jsonld.ResolvePredicateIRI(prop, vocab, forward))] = true
 		}
 	}
