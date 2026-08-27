@@ -253,7 +253,16 @@ func TestPresets_TheRepairedMealPlanningPredicates(t *testing.T) {
 			"startTime": schema + "startTime", "repeatFrequency": schema + "repeatFrequency",
 			"scheduleTimezone": schema + "scheduleTimezone",
 		},
+		// The rest of the names a careless sweep would take on its way past:
+		// a whole NutritionInformation, a whole HowToStep, and the two that
+		// appear on nearly every type.
+		"nutrition-information": {"servingSize": schema + "servingSize"},
+		"how-to-step":           {"position": schema + "position"},
+		"restricted-diet":       {"identifier": schema + "identifier"},
 	}
+	want["recipe"]["recipeYield"] = schema + "recipeYield"
+	want["pantry"]["name"] = schema + "name"
+	want["pantry"]["description"] = schema + "description"
 	bySlug := map[string]application.PresetResourceType{}
 	for _, preset := range presets.NewDefaultRegistry().List() {
 		for _, pt := range preset.Types {
