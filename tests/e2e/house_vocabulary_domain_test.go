@@ -808,15 +808,40 @@ func (w *vocabWorld) noMealPlanningTypeResolves(prefix, ns string) error {
 	return nil
 }
 
+// storedContextMaps accepts either spelling of the same mapping. A stored
+// context keeps the preset's own words, so a term the preset declares compactly
+// ("mp:quantity") is stored compactly, while a scenario may reasonably name the
+// IRI it expands to — they are one mapping, and which one is written down is a
+// serialization detail rather than a claim about the graph (issue #535).
 func (w *vocabWorld) storedContextMaps(slug, term, iri string) error {
 	terms, err := w.storedContextOf(slug)
 	if err != nil {
 		return err
 	}
-	if got := fmt.Sprintf("%v", terms[term]); got != iri {
-		return fmt.Errorf("the stored %q context maps %q to %v, want %s", slug, term, terms[term], iri)
+	stored, declared := terms[term]
+	if !declared {
+		return fmt.Errorf("the stored %q context declares no %q (terms: %v)", slug, term, sortedTermNames(terms))
 	}
-	return nil
+	if fmt.Sprintf("%v", stored) == iri {
+		return nil
+	}
+	rt, err := w.rts.GetBySlug(context.Background(), slug)
+	if err != nil {
+		return err
+	}
+	vocab, forward := jsonld.ParseContext(rt.Context())
+	// Only expand a term ParseContext actually mapped. Without this guard a
+	// term it DROPS — a value that is a number, a bool, null, or an object
+	// with no `@id` — falls through to `@vocab` + the term's name, a string
+	// computed entirely from the vocabulary and the property name with no
+	// input from the stored mapping at all. The step would then compare a
+	// derived value with itself and report success having checked nothing.
+	if _, mapped := forward[term]; mapped {
+		if jsonld.ResolvePredicateIRI(term, vocab, forward) == iri {
+			return nil
+		}
+	}
+	return fmt.Errorf("the stored %q context maps %q to %v, want %s", slug, term, stored, iri)
 }
 
 func (w *vocabWorld) projectionTableHasColumn(slug, column string) error {

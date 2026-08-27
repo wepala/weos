@@ -35,18 +35,54 @@ import (
 //   - no expanded predicate IRI keeps an undeclared compact prefix in its
 //     local name (`https://schema.org/foaf:knows` is what a compact IRI
 //     becomes when @vocab absorbs an undeclared prefix);
-//   - no control keyword enters the term map or claims a predicate (#522).
+//   - no control keyword enters the term map or claims a predicate (#522);
+//   - no property states a predicate the vocabulary it lands in does not
+//     define, or borrows one published for another subject (#535). Waived
+//     violations are excluded here — this function reports what is
+//     unaccounted for, while the built-in sweep beside it asserts the raw set
+//     equals the waivers.
 //
 // The built-in registry is swept by the tests beside this file; it is
 // exported so a private preset registry (the overlay build) can sweep its own
 // types in its own CI — the population that actually declares
 // rdfs:subClassOf is not the built-in one.
+//
+// AN OVERLAY REGISTRY SHOULD NOT USE THIS FUNCTION FOR THE #535 SWEEP. The
+// waivers it filters by are CORE's, and they are keyed by type slug alone.
+// Slug uniqueness is asserted across the built-in registry only, so a private
+// type that happens to reuse a built-in slug would have its violation
+// silently waived by core's line for a different type. The #517 rules above
+// are per-type and carry no such coupling, which is why the whole function is
+// still worth calling for those.
+//
+// An overlay wanting the #535 sweep should call PublishedVocabularyViolations
+// directly — it reports raw violations and filters nothing — and apply its own
+// waiver list. That is the seam; there is no way to pass waivers through here
+// without making core's list mean two different things.
 func ContextGuardViolations(types []application.PresetResourceType) []string {
 	var out []string
 	for _, pt := range types {
 		out = append(out, referenceGuard(pt)...)
 		out = append(out, compactPrefixGuard(pt)...)
 		out = append(out, controlKeywordGuard(pt)...)
+	}
+	out = append(out, publishedVocabularyGuard(types)...)
+	return out
+}
+
+// publishedVocabularyGuard reports the #535 violations that no CORE waiver
+// accounts for. It sweeps the whole set at once rather than per type because a
+// waiver is keyed by slug, which only means anything across the set.
+//
+// The waivers are core's own, so this is correct for the built-in registry and
+// misleading for anything else — see the caveat on ContextGuardViolations.
+func publishedVocabularyGuard(types []application.PresetResourceType) []string {
+	var out []string
+	for _, v := range PublishedVocabularyViolations(types) {
+		if _, waived := vocabularyWaivers[v.Key()]; waived {
+			continue
+		}
+		out = append(out, v.String())
 	}
 	return out
 }
