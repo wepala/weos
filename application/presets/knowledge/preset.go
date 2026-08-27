@@ -21,7 +21,7 @@ func Register(registry *application.PresetRegistry) {
 				`{"@vocab":"http://www.w3.org/2004/02/skos/core#","@type":"ConceptScheme",`+
 					// SKOS Core publishes neither title nor description; both
 					// are Dublin Core. skos:prefLabel and skos:definition are
-					// about labelling and defining a Concept, so borrowing
+					// about labeling and defining a Concept, so borrowing
 					// either for a scheme's metadata would be a fresh subject
 					// misuse committed while repairing one.
 					`"dct":"http://purl.org/dc/terms/",`+
