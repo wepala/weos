@@ -560,7 +560,6 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   # kept apart because the first population rides `@vocab` and the second
   # arrives through an EXPLICIT `fo:` term, and a guard that only looks at the
   # first misses the second entirely (CONTRACT 0).
-  @wip
   Scenario Outline: A property its vocabulary does not define resolves to the house vocabulary
     Given a clean WeOS database
     When the operator installs the "meal-planning" preset
@@ -596,7 +595,6 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   # house term is right and a schema.org borrow is not: `schema:season` is
   # about broadcast seasons, so taking it would be a fresh 1b misuse committed
   # while repairing one.
-  @wip
   Scenario: The ingredient type keeps the food ontology class the ontology does define
     Given a clean WeOS database
     And the operator installs the "meal-planning" preset
@@ -609,7 +607,6 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   # half: no 404 ever exposes them, and every read passes either way. They are
   # separated from the outline above because the FAULT is different — schema.org
   # is being made to say something about food that it says about medicine.
-  @wip
   Scenario Outline: A property schema.org defines for another subject stops borrowing it
     Given a clean WeOS database
     When the operator installs the "meal-planning" preset
@@ -627,7 +624,6 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   # `schema:startDate` is the published term for the same thing and is what the
   # downstream twin already reads. A house `mp:date` would satisfy the outline
   # above and still be the wrong answer, so this is asserted on its own.
-  @wip
   Scenario: A meal occurrence dates itself with the published start date, not a minted one
     Given a clean WeOS database
     And the operator installs the "meal-planning" preset
@@ -644,7 +640,6 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   # references are dropped on read today (#513), so a read-back assertion here
   # would fail for a reason that has nothing to do with this story
   # (CONTRACT 3). The edge read-back lives in the scenario below, on a scalar.
-  @wip
   Scenario: A recipe names its ingredients with schema.org's own term
     Given a clean WeOS database
     When the operator installs the "meal-planning" preset
@@ -659,7 +654,6 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   # and the edge would stop reverse-mapping to its own name. `mp:ingredient` is
   # also now declared on two types for one relation, which is the point of
   # choosing it — so the read is asserted on both.
-  @wip
   Scenario: A reference moved to the house vocabulary still keys and reads its edge
     Given a clean WeOS database
     And the operator installs the "meal-planning" preset
@@ -679,7 +673,6 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   # are the names a careless sweep would take on its way past — a whole
   # `Schedule`, a whole `NutritionInformation`, and the four names that appear
   # on nearly every type.
-  @wip
   Scenario Outline: A genuine schema.org name keeps resolving to schema.org
     Given a clean WeOS database
     When the operator installs the "meal-planning" preset
@@ -705,7 +698,6 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   # the same before and after and prove nothing on their own; the graph is where
   # the predicate is observable, which is why the statement assertions carry
   # this scenario and the read is the control beside them.
-  @wip
   Scenario: A value written to a house property is stated on the house predicate
     Given a clean WeOS database
     And the operator installs the "meal-planning" preset
@@ -724,7 +716,6 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   # sweep cannot distinguish itself from.
   # ===========================================================================
 
-  @wip
   Scenario: No meal-planning property claims a term its vocabulary does not define
     Given a clean WeOS database
     When the operator installs the "meal-planning" preset
@@ -736,7 +727,6 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   # namespace. This is the check the issue asks for — "the one that would have
   # caught this class at the point it was introduced" — so it is asserted by
   # introducing exactly that and watching the guard name it.
-  @wip
   Scenario: The guard names a house property that rides @vocab into a published vocabulary
     Given a clean WeOS database
     And the "meal-planning" preset adds an untermed "spiciness" string property to "food-item"
@@ -747,7 +737,6 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   # The deny-list half bites too, on a name that resolves. Without this the
   # guard degrades to a 404 checker and `status` walks back in on the next type
   # somebody adds.
-  @wip
   Scenario: The guard names a house property borrowing a term published for another subject
     Given a clean WeOS database
     And the "meal-planning" preset adds an untermed "status" string property to "pantry"
@@ -764,7 +753,6 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   # assertion is the load-bearing one: `unit` must NOT be held, because nothing
   # about it diverges. Do not read this scenario as a claim about the whole
   # change; the four `fo:` terms behave the opposite way and are pinned below.
-  @wip
   Scenario: A term that never existed before reaches an existing install with no operator action
     Given a WeOS database provisioned by the build before the house properties were termed
     And the operator installs the "meal-planning" preset
@@ -773,7 +761,6 @@ Feature: A meal-planning house property states a predicate its vocabulary define
     And the boot reconcile does not report the "unit" context term as held for "food-item"
     And the boot reconcile records no failure for "food-item"
 
-  @wip
   Scenario: A value written before the terms existed still reads back after the upgrade
     Given a WeOS database provisioned by the build before the house properties were termed
     And the operator installs the "meal-planning" preset
@@ -793,7 +780,6 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   # justification for holding rather than overwriting. It is also the scenario
   # that fails if anyone "fixes" the repair by rewriting stored edge keys,
   # which nothing in this story should touch.
-  @wip
   Scenario: An edge written under the old ontology term still reads back after the upgrade
     Given a WeOS database provisioned by the build before the house properties were termed
     And the operator installs the "meal-planning" preset
@@ -813,7 +799,6 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   # every start is not restated here; `house_vocabulary_domain.feature`'s "The
   # hold is reported on every boot, not only the first" already pins that
   # property on this same preset.
-  @wip
   Scenario Outline: A term moving out of the food ontology is held at its stored definition
     Given a WeOS database provisioned by the build before the house properties were termed
     And the operator installs the "meal-planning" preset
@@ -835,7 +820,6 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   # reintroducing the drop #510 closed — or overwrite `ingredient` and orphan
   # its edges. This is #520's "A held prefix does not block an additive change
   # on the same type", exercised on the real preset rather than a synthetic one.
-  @wip
   Scenario: A held ontology term does not block the new terms merging on the same type
     Given a WeOS database provisioned by the build before the house properties were termed
     And the operator installs the "meal-planning" preset
@@ -853,7 +837,6 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   # indistinguishable from an overwrite that happened to be reprojected in time.
   # The `held-terms` listing and the class-move reporting are not restated here;
   # `house_vocabulary_domain.feature` pins both on this preset already.
-  @wip
   Scenario: Adopting the held term moves new writes without orphaning the old edges
     Given a WeOS database provisioned by the build before the house properties were termed
     And the operator installs the "meal-planning" preset
@@ -873,7 +856,6 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   # is noise that trains people to ignore it. Asserted on `ingredient` because
   # it is pure population B: after adopting both terms there is nothing left for
   # the boot to hold on that type, so a lingering report can only be a bug.
-  @wip
   Scenario: The boot stops reporting the type once its ontology terms are adopted
     Given a WeOS database provisioned by the build before the house properties were termed
     And the operator installs the "meal-planning" preset
@@ -905,7 +887,6 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   # from the context the type has now" already pins exactly that end to end, on
   # this same preset. Extend that scenario if the mechanism ever changes; do
   # not grow this one to 20 steps restating it.
-  @wip
   Scenario: An old value keeps its write-time predicate in the graph until a re-stamp
     Given a WeOS database provisioned by the build before the house properties were termed
     And the operator installs the "meal-planning" preset
@@ -943,7 +924,6 @@ Feature: A meal-planning house property states a predicate its vocabulary define
     # mechanism and should not grow a second gate to restate it. Follow that
     # precedent if you are tempted to promote these lines into steps.
 
-  @wip
   Scenario: A value written after the upgrade lands on the house predicate
     Given a WeOS database provisioned by the build before the house properties were termed
     And the operator installs the "meal-planning" preset
