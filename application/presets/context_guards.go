@@ -35,7 +35,12 @@ import (
 //   - no expanded predicate IRI keeps an undeclared compact prefix in its
 //     local name (`https://schema.org/foaf:knows` is what a compact IRI
 //     becomes when @vocab absorbs an undeclared prefix);
-//   - no control keyword enters the term map or claims a predicate (#522).
+//   - no control keyword enters the term map or claims a predicate (#522);
+//   - no property states a predicate the vocabulary it lands in does not
+//     define, or borrows one published for another subject (#535). Waived
+//     violations are excluded here — this function reports what is
+//     unaccounted for, while the built-in sweep beside it asserts the raw set
+//     equals the waivers.
 //
 // The built-in registry is swept by the tests beside this file; it is
 // exported so a private preset registry (the overlay build) can sweep its own
@@ -47,6 +52,21 @@ func ContextGuardViolations(types []application.PresetResourceType) []string {
 		out = append(out, referenceGuard(pt)...)
 		out = append(out, compactPrefixGuard(pt)...)
 		out = append(out, controlKeywordGuard(pt)...)
+	}
+	out = append(out, publishedVocabularyGuard(types)...)
+	return out
+}
+
+// publishedVocabularyGuard reports the #535 violations that no waiver accounts
+// for. It sweeps the whole set at once rather than per type because a waiver is
+// keyed by slug, which only means anything across the set.
+func publishedVocabularyGuard(types []application.PresetResourceType) []string {
+	var out []string
+	for _, v := range PublishedVocabularyViolations(types) {
+		if _, waived := vocabularyWaivers[v.Key()]; waived {
+			continue
+		}
+		out = append(out, v.String())
 	}
 	return out
 }

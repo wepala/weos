@@ -132,9 +132,8 @@ func recipeType() application.PresetResourceType {
 		Context: json.RawMessage(`{
 	"@vocab":"https://schema.org/","@type":"Recipe",
 	"mp":"` + jsonld.MealPlanningVocab + `",
-	"fo":"http://purl.org/foodontology#",
 	"recipeInstructions":"https://schema.org/recipeInstructions",
-	"recipeIngredient":"fo:hasIngredient",
+	"recipeIngredient":"https://schema.org/recipeIngredient",
 	"nutrition":"https://schema.org/nutrition",
 	"suitableForDiet":"https://schema.org/suitableForDiet"
 }`),
@@ -217,8 +216,8 @@ func ingredientType() application.PresetResourceType {
 	"suitableForDiet":"https://schema.org/suitableForDiet",
 	"mp":"` + jsonld.MealPlanningVocab + `",
 	"alternateNames":"skos:altLabel",
-	"shoppingCategory":"fo:ShoppingCategory",
-	"season":"fo:at_its_best",
+	"shoppingCategory":"mp:shoppingCategory",
+	"season":"mp:season",
 	"defaultUnit":"mp:defaultUnit"
 }`),
 		Schema: json.RawMessage(`{
@@ -250,8 +249,9 @@ func recipeIngredientType() application.PresetResourceType {
 		Slug:        "recipe-ingredient",
 		Description: "A reified relation linking a recipe to an ingredient with quantity and preparation",
 		Context: mpTypeContext("RecipeIngredient",
-			`"recipe":"mp:recipe","ingredient":"fo:ingredient",`+
-				`"fo":"http://purl.org/foodontology#"`),
+			`"recipe":"mp:recipe","ingredient":"mp:ingredient",`+
+				`"quantity":"mp:quantity","unit":"mp:unit",`+
+				`"optional":"mp:optional","preparation":"mp:preparation"`),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
@@ -391,7 +391,9 @@ func mealOccurrenceType() application.PresetResourceType {
 		Description: "A concrete single-date instance of a meal: one expanded from a schedule, or one eaten ad hoc",
 		Context: mpTypeContext("MealOccurrence",
 			`"scheduledMeal":"mp:occurrenceOf",`+
-				`"notes":"https://schema.org/description"`),
+				`"notes":"https://schema.org/description",`+
+				`"date":"https://schema.org/startDate",`+
+				`"cookedAt":"mp:cookedAt","status":"mp:status"`),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
@@ -413,7 +415,7 @@ func pantryType() application.PresetResourceType {
 		Name:        "Pantry",
 		Slug:        "pantry",
 		Description: "A named storage context for food items (e.g. Home, Beach House)",
-		Context:     mpTypeContext("Pantry", ""),
+		Context:     mpTypeContext("Pantry", `"isDefault":"mp:isDefault"`),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
@@ -434,7 +436,9 @@ func foodItemType() application.PresetResourceType {
 		Description: "A physical food item in a pantry (instance of an ingredient)",
 		Context: mpTypeContext("FoodItem",
 			`"ingredient":"mp:isInstanceOf","pantry":"mp:pantry",`+
-				`"notes":"https://schema.org/description"`),
+				`"notes":"https://schema.org/description",`+
+				`"quantity":"mp:quantity","unit":"mp:unit",`+
+				`"storage":"mp:storage","expirationDate":"mp:expirationDate"`),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
@@ -459,7 +463,8 @@ func shoppingListType() application.PresetResourceType {
 		Description: "A grocery shopping list, optionally derived from a meal plan",
 		Context: mpTypeContext("ShoppingList",
 			`"mealPlan":"http://www.w3.org/ns/prov#wasDerivedFrom",`+
-				`"pantry":"mp:targetsPantry"`),
+				`"pantry":"mp:targetsPantry",`+
+				`"createdAt":"mp:createdAt","status":"mp:status"`),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
@@ -481,7 +486,9 @@ func shoppingListItemType() application.PresetResourceType {
 		Description: "A line item on a shopping list",
 		Context: mpTypeContext("ShoppingListItem",
 			`"ingredient":"mp:ingredient","shoppingList":"mp:hasItem",`+
-				`"notes":"https://schema.org/description"`),
+				`"notes":"https://schema.org/description",`+
+				`"quantity":"mp:quantity","unit":"mp:unit",`+
+				`"checked":"mp:checked"`),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{

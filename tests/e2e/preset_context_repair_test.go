@@ -183,7 +183,7 @@ func TestRealPresetsRepairAnAgedDatabase(t *testing.T) {
 	// The invariant is NOT "everything is repaired". A term whose IRI differs
 	// from the one the data already resolves through cannot be adopted without
 	// orphaning those edges, so the boot holds it (issue #513) — and most
-	// meal-planning terms are prefix-form (`fo:hasIngredient`), so most of the
+	// meal-planning terms are prefix-form (`mp:occurrenceOf`), so most of the
 	// stripped terms land there. What must never happen is a reference left
 	// uncovered with nothing said about it.
 	reported := map[string]bool{}
