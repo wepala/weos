@@ -195,6 +195,14 @@ type contextWorld struct {
 	adoptErr       error
 	adoptAttempted bool
 
+	// heldAccounted marks the (slug, term) holds a scenario has already
+	// asserted, so "records no failure" can mean "nothing beyond the hold you
+	// were just told about" rather than "nothing held at all". Holding a term
+	// an operator mapped by hand IS the reconcile working — overwriting would
+	// repoint a predicate their own data is keyed by — so a scenario is allowed
+	// to name one hold and then still demand a clean boot (issue #537).
+	heldAccounted map[string]bool
+
 	// contextBeforeSecondAdoption is the stored "widget" context as it was
 	// immediately before a repeated adoption, so idempotence is asserted against
 	// what was actually there rather than against a rebuilt expectation.
@@ -1312,6 +1320,10 @@ func (w *contextWorld) bootReportsContextTermHeld(term, slug string) error {
 	defer r.mu.Unlock()
 	for _, line := range r.heldContext[slug] {
 		if strings.Contains(line, term) {
+			if w.heldAccounted == nil {
+				w.heldAccounted = map[string]bool{}
+			}
+			w.heldAccounted[slug+"|"+term] = true
 			return nil
 		}
 	}

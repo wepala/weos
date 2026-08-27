@@ -387,9 +387,31 @@ func (w *contextWorld) bootRecordsNoFailure(slug string) error {
 	if reason, failed := r.dropped[slug]; failed {
 		return fmt.Errorf("boot reconcile still reports %q as NOT reconciled: %s", slug, reason)
 	}
-	if len(r.heldContext[slug]) > 0 || len(r.heldSchema[slug]) > 0 {
+	// A hold the scenario has already named is not a failure: holding a term an
+	// operator mapped by hand is the reconcile working. Every other hold still
+	// fails here, so the assertion stays exact rather than being relaxed into
+	// "the boot did not crash" (issue #537).
+	var unaccounted []string
+	for _, line := range r.heldContext[slug] {
+		if !w.heldWasAccounted(slug, line) {
+			unaccounted = append(unaccounted, line)
+		}
+	}
+	if len(unaccounted) > 0 || len(r.heldSchema[slug]) > 0 {
 		return fmt.Errorf("boot reconcile still holds definitions for %q (context: %v, schema: %v)",
-			slug, r.heldContext[slug], r.heldSchema[slug])
+			slug, unaccounted, r.heldSchema[slug])
 	}
 	return nil
+}
+
+// heldWasAccounted reports whether a held-context line names a term this
+// scenario already asserted as held.
+func (w *contextWorld) heldWasAccounted(slug, line string) bool {
+	for key := range w.heldAccounted {
+		gotSlug, term, _ := strings.Cut(key, "|")
+		if gotSlug == slug && strings.Contains(line, term) {
+			return true
+		}
+	}
+	return false
 }

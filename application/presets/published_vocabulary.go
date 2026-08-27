@@ -146,10 +146,10 @@ var policedVocabularies = map[string]map[string]bool{
 		"url", "version",
 	),
 	// SKOS Core. Note that `title` and `description` are NOT here: SKOS
-	// publishes neither, they are Dublin Core terms, and the knowledge preset
-	// currently rides `@vocab` into both. That is the waived
-	// concept-scheme entry below, and it is why this guard polices
-	// namespaces rather than hard-coding schema.org.
+	// publishes neither, they are Dublin Core terms, and #537 pointed
+	// concept-scheme at the dcterms entry below rather than letting them ride
+	// this `@vocab`. That pair is why this guard polices namespaces rather
+	// than hard-coding schema.org.
 	"http://www.w3.org/2004/02/skos/core#": namesToSet(
 		"altLabel", "definition", "member", "prefLabel",
 	),
