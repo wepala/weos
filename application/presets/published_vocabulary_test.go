@@ -412,3 +412,43 @@ func declaredProperties(t *testing.T, pt application.PresetResourceType) map[str
 	}
 	return out
 }
+
+// TestPresets_AnAbsoluteNonURLIRIStatesAPredicate — a URN, mailto: or did: is
+// absolute without an authority component, so testing for "://" would judge it
+// to state no predicate when it plainly does. It is outside every policed
+// namespace, so the right answer is silence, not a cannot-judge report.
+//
+// Raised by review on the first pass of the cannot-judge fault. The sibling
+// guard in context_guards.go already contemplates these shapes, so they are
+// not hypothetical.
+func TestPresets_AnAbsoluteNonURLIRIStatesAPredicate(t *testing.T) {
+	// The scheme has to be DECLARED as a prefix, or `@vocab` absorbs the whole
+	// string — `urn:weos:spiciness` with no `urn` prefix becomes
+	// `https://schema.org/urn:weos:spiciness`, which is a genuine violation and
+	// is reported as one. That is the shape compactPrefixGuard also catches.
+	for _, c := range []struct{ scheme, iri string }{
+		{"urn", "urn:weos:spiciness"},
+		{"mailto", "mailto:someone@example.org"},
+		{"did", "did:example:123"},
+	} {
+		pt := application.PresetResourceType{
+			Slug: "probe",
+			Context: json.RawMessage(`{"@vocab":"https://schema.org/",` +
+				`"` + c.scheme + `":"` + c.scheme + `:","spiciness":"` + c.iri + `"}`),
+			Schema: json.RawMessage(`{"type":"object","properties":{"spiciness":{"type":"string"}}}`),
+		}
+		if got := presets.PublishedVocabularyViolations([]application.PresetResourceType{pt}); len(got) != 0 {
+			t.Errorf("%s states a predicate outside every policed namespace; expected no report, got %v", c.iri, got)
+		}
+	}
+	// The case the check actually exists for still fires: no scheme at all.
+	bare := application.PresetResourceType{
+		Slug:    "probe",
+		Context: json.RawMessage(`{"@type":"Thing"}`),
+		Schema:  json.RawMessage(`{"type":"object","properties":{"spiciness":{"type":"string"}}}`),
+	}
+	got := presets.PublishedVocabularyViolations([]application.PresetResourceType{bare})
+	if len(got) != 1 || got[0].Fault != presets.FaultCannotJudge {
+		t.Errorf("a property with no scheme states no predicate and must be reported, got %v", got)
+	}
+}

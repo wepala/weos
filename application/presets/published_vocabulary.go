@@ -309,7 +309,7 @@ func PublishedVocabularyViolations(types []application.PresetResourceType) []Voc
 		vocab, forward := jsonld.ParseContext(pt.Context)
 		for _, prop := range props {
 			iri := jsonld.ResolvePredicateIRI(prop, vocab, forward)
-			if !strings.Contains(iri, "://") {
+			if !isAbsoluteIRI(iri) {
 				// No `@vocab` and no term: in JSON-LD this property maps to no
 				// predicate at all, so there is nothing for this guard to
 				// judge — and nothing for a consumer to resolve either.
@@ -342,6 +342,37 @@ func PublishedVocabularyViolations(types []application.PresetResourceType) []Voc
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Key() < out[j].Key() })
 	return out
+}
+
+// isAbsoluteIRI reports whether a resolved predicate names a scheme, and so
+// states a predicate at all.
+//
+// Testing for "://" is not the same question and gets one case wrong: a URN,
+// a mailto: or a did: is absolute without an authority component, so
+// `urn:weos:something` would be judged to state no predicate when it plainly
+// does. The sibling guard in context_guards.go already contemplates exactly
+// those shapes, so they are not hypothetical here.
+//
+// A bare property name — the no-@vocab case this exists to catch — has no
+// scheme and is correctly rejected. An unexpanded compact IRI cannot reach
+// here: an undeclared prefix is absorbed by `@vocab` into a full URL long
+// before this point.
+func isAbsoluteIRI(iri string) bool {
+	colon := strings.IndexByte(iri, ':')
+	if colon <= 0 {
+		return false
+	}
+	// RFC 3986: scheme = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )
+	for i := 0; i < colon; i++ {
+		c := iri[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z':
+		case i > 0 && (c >= '0' && c <= '9' || c == '+' || c == '-' || c == '.'):
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // canonicalIRI rewrites an IRI whose namespace has an alternative spelling

@@ -374,7 +374,7 @@ var preStoryMealTerms = map[string]string{
 // buildBeforeTheHouseTerms is the default registry with #535's terms reverted —
 // a transform over PresetResourceType.Context, not a second copy of the
 // presets, so it cannot drift from what shipped.
-func (w *mealTermsWorld) buildBeforeTheHouseTerms() *application.PresetRegistry {
+func (*mealTermsWorld) buildBeforeTheHouseTerms() *application.PresetRegistry {
 	reverted := map[string]bool{}
 	reg := rewriteRegistry(presets.NewDefaultRegistry(), func(pt *application.PresetResourceType) {
 		var ctx map[string]any
