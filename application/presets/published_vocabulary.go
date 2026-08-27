@@ -178,6 +178,19 @@ var policedVocabularies = map[string]map[string]bool{
 	),
 }
 
+// namespaceAliases maps an alternative spelling of a policed namespace onto
+// the canonical one.
+//
+// schema.org serves its vocabulary over both http and https and treats the two
+// as the same namespace, so `"@vocab":"http://schema.org/"` mints exactly the
+// same false claims as the https form. Policing only one spelling would leave a
+// hole that costs a single character to walk through — and the miss would be
+// invisible rather than noisy, because the guard would report such a type
+// CLEAN rather than unpoliced.
+var namespaceAliases = map[string]string{
+	"http://schema.org/": "https://schema.org/",
+}
+
 // termsPublishedForAnotherSubject holds names that DO resolve but whose
 // published meaning is wrong for the WeOS use, mapped to what they actually
 // mean. An allow-list can never catch these, because the term exists — which is
@@ -302,10 +315,22 @@ func PublishedVocabularyViolations(types []application.PresetResourceType) []Voc
 	return out
 }
 
+// canonicalIRI rewrites an IRI whose namespace has an alternative spelling
+// onto the canonical one, so every later comparison sees one form.
+func canonicalIRI(iri string) string {
+	for alias, canonical := range namespaceAliases {
+		if strings.HasPrefix(iri, alias) {
+			return canonical + iri[len(alias):]
+		}
+	}
+	return iri
+}
+
 // splitPolicedIRI splits an IRI into a policed namespace and its local name.
 // It matches the longest declared namespace so a vocabulary nested under
 // another's prefix cannot be attributed to the wrong one.
 func splitPolicedIRI(iri string) (namespace, local string, ok bool) {
+	iri = canonicalIRI(iri)
 	for ns := range policedVocabularies {
 		if strings.HasPrefix(iri, ns) && len(ns) > len(namespace) {
 			namespace, local, ok = ns, iri[len(ns):], true
@@ -361,7 +386,7 @@ func UnusedAllowListEntries(types []application.PresetResourceType) []string {
 	for _, pt := range types {
 		vocab, forward := jsonld.ParseContext(pt.Context)
 		for _, prop := range schemaPropertyNames(pt.Schema) {
-			used[jsonld.ResolvePredicateIRI(prop, vocab, forward)] = true
+			used[canonicalIRI(jsonld.ResolvePredicateIRI(prop, vocab, forward))] = true
 		}
 	}
 	var stale []string

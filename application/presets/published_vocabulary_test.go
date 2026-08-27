@@ -292,3 +292,41 @@ func TestPresets_TheRepairedMealPlanningPredicates(t *testing.T) {
 		}
 	}
 }
+
+// TestPresets_TheGuardPolicesBothSpellingsOfSchemaOrg — schema.org serves its
+// vocabulary over http and https and treats them as one namespace, so a
+// context declaring the http form mints exactly the same false claims. Before
+// this was handled the guard reported such a type CLEAN rather than
+// unpoliced, which is the worst of both: a hole one character wide, and
+// silent.
+func TestPresets_TheGuardPolicesBothSpellingsOfSchemaOrg(t *testing.T) {
+	for _, vocab := range []string{"http://schema.org/", "https://schema.org/"} {
+		victim := application.PresetResourceType{
+			Slug:    "food-item",
+			Context: json.RawMessage(`{"@vocab":"` + vocab + `","@type":"Thing"}`),
+			Schema:  json.RawMessage(`{"type":"object","properties":{"spiciness":{"type":"string"}}}`),
+		}
+		got := presets.PublishedVocabularyViolations([]application.PresetResourceType{victim})
+		if len(got) != 1 || got[0].Fault != presets.FaultUndefinedTerm {
+			t.Errorf("@vocab %q: expected one undefined-term violation, got %v", vocab, got)
+			continue
+		}
+		// The report names the IRI the context ACTUALLY produces, not the
+		// canonical spelling. Canonicalisation exists so the guard cannot be
+		// evaded; the message exists so a developer can find the term they
+		// wrote, and rewriting it to a form they never typed would send them
+		// looking for the wrong string.
+		if got[0].PredicateIRI != vocab+"spiciness" {
+			t.Errorf("@vocab %q: reported %s, want the spelling the context states", vocab, got[0].PredicateIRI)
+		}
+	}
+	// A genuine name must still resolve under either spelling.
+	ok := application.PresetResourceType{
+		Slug:    "food-item",
+		Context: json.RawMessage(`{"@vocab":"http://schema.org/","@type":"Thing"}`),
+		Schema:  json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`),
+	}
+	if got := presets.PublishedVocabularyViolations([]application.PresetResourceType{ok}); len(got) != 0 {
+		t.Errorf("a real schema.org name must pass under either spelling, got %v", got)
+	}
+}
