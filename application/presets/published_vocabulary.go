@@ -214,7 +214,12 @@ var termsPublishedForAnotherSubject = map[string]map[string]string{
 }
 
 // vocabularyWaivers names the violations that exist today and are accepted
-// until their own ticket repairs them, each mapped to why it is still here.
+// until #537 repairs them, each mapped to the preset that owns it.
+//
+// Every line is a standing permission for one property to state a predicate
+// its vocabulary does not define, so each one has a ticket rather than a
+// promise: a waiver with no owner is a to-do list nobody is holding, and it
+// silently re-permits that name the moment somebody reuses it.
 //
 // THE SWEEP ASSERTS THE VIOLATION SET EQUALS THIS MAP — not that it contains no
 // meal-planning entry. Exact equality is what makes the list only ever shrink:
@@ -227,40 +232,40 @@ var termsPublishedForAnotherSubject = map[string]map[string]string{
 var vocabularyWaivers = map[string]string{
 	// core — an avatar and a logo are URLs schema.org spells differently
 	// (`image`), and `slug` it does not publish at all.
-	"person.avatarURL":     "#535 waiver: core preset, not yet repaired",
-	"organization.logoURL": "#535 waiver: core preset, not yet repaired",
-	"organization.slug":    "#535 waiver: core preset, not yet repaired",
+	"person.avatarURL":     "#537: core",
+	"organization.logoURL": "#537: core",
+	"organization.slug":    "#537: core",
 
 	// knowledge — SKOS publishes neither; both are Dublin Core terms.
-	"concept-scheme.title":       "#535 waiver: knowledge preset, not yet repaired",
-	"concept-scheme.description": "#535 waiver: knowledge preset, not yet repaired",
+	"concept-scheme.title":       "#537: knowledge — SKOS defines neither; both are Dublin Core",
+	"concept-scheme.description": "#537: knowledge — SKOS defines neither; both are Dublin Core",
 
 	// notifications — the largest group, and entirely house concepts that
 	// were never schema.org's to name.
-	"notification.actionLabel": "#535 waiver: notifications preset, not yet repaired",
-	"notification.actionUrl":   "#535 waiver: notifications preset, not yet repaired",
-	"notification.body":        "#535 waiver: notifications preset, not yet repaired",
-	"notification.dedupeKey":   "#535 waiver: notifications preset, not yet repaired",
-	"notification.kind":        "#535 waiver: notifications preset, not yet repaired",
-	"notification.occurredAt":  "#535 waiver: notifications preset, not yet repaired",
-	"notification.read":        "#535 waiver: notifications preset, not yet repaired",
-	"notification.taskRef":     "#535 waiver: notifications preset, not yet repaired",
-	"notification.title":       "#535 waiver: notifications preset, schema:title is a JobPosting term",
+	"notification.actionLabel": "#537: notifications",
+	"notification.actionUrl":   "#537: notifications",
+	"notification.body":        "#537: notifications",
+	"notification.dedupeKey":   "#537: notifications",
+	"notification.kind":        "#537: notifications",
+	"notification.occurredAt":  "#537: notifications",
+	"notification.read":        "#537: notifications",
+	"notification.taskRef":     "#537: notifications",
+	"notification.title":       "#537: notifications — schema:title is published for JobPosting",
 
 	// tasks — `dueDate` and `priority` are mints; both `status` entries are
 	// the medical term, the same subject misuse #535 removed from
 	// meal-occurrence and shopping-list.
-	"task.dueDate":   "#535 waiver: tasks preset, not yet repaired",
-	"task.priority":  "#535 waiver: tasks preset, not yet repaired",
-	"task.status":    "#535 waiver: tasks preset, not yet repaired",
-	"project.status": "#535 waiver: tasks preset, not yet repaired",
+	"task.dueDate":   "#537: tasks",
+	"task.priority":  "#537: tasks",
+	"task.status":    "#537: tasks",
+	"project.status": "#537: tasks",
 
 	// website — template machinery schema.org has no vocabulary for.
-	"web-page.slug":                  "#535 waiver: website preset, not yet repaired",
-	"web-page.template":              "#535 waiver: website preset, not yet repaired",
-	"web-page-element.content":       "#535 waiver: website preset, not yet repaired",
-	"web-page-template.slots":        "#535 waiver: website preset, not yet repaired",
-	"web-page-template.templateBody": "#535 waiver: website preset, not yet repaired",
+	"web-page.slug":                  "#537: website",
+	"web-page.template":              "#537: website",
+	"web-page-element.content":       "#537: website",
+	"web-page-template.slots":        "#537: website",
+	"web-page-template.templateBody": "#537: website",
 }
 
 func namesToSet(names ...string) map[string]bool {
