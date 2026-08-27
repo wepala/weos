@@ -68,12 +68,17 @@ type vocabWorld struct {
 	heldPreset   string
 	heldSlug     string
 	sweepAdopted []string
+	// guardNamed marks the vocabulary violations a scenario has already
+	// accounted for, so "the guard names no other property" can be an
+	// exact-set assertion rather than a count (#535, generalised by #537).
+	guardNamed map[string]bool
 }
 
 func newVocabWorld() *vocabWorld {
 	return &vocabWorld{
 		contextWorld:  &contextWorld{createdIDs: map[string]string{}, widgetContextExtras: map[string]string{}},
 		extraLiterals: map[string][]string{},
+		guardNamed:    map[string]bool{},
 	}
 }
 
@@ -118,6 +123,8 @@ func (w *vocabWorld) registerVocabSteps(sc *godog.ScenarioContext) {
 		w.createWithReference)
 	sc.Step(`^I create an? "([^"]*)" named "([^"]*)" with "([^"]*)" set to "([^"]*)"$`, w.createWithLiteral)
 	sc.Step(`^I create an? "([^"]*)" named "([^"]*)" with these references:$`, w.createWithReferences)
+	sc.Step(`^I create an? "([^"]*)" named "([^"]*)" with these properties:$`, w.createWithProperties)
+	sc.Step(`^the stored "([^"]*)" context declares no "([^"]*)"$`, w.storedContextDeclaresNo)
 
 	sc.Step(`^that resource carries the RDF type "([^"]*)"$`, w.lastResourceCarriesType)
 	sc.Step(`^no resource carries an RDF type under "([^"]*)"$`, w.noResourceCarriesTypeUnder)
@@ -915,7 +922,18 @@ func (w *vocabWorld) createResourceOf(slug, name string, given map[string]any) e
 		given = map[string]any{}
 	}
 	if name != "" {
-		given["name"] = name
+		named, err := w.declaresName(slug)
+		if err != nil {
+			return err
+		}
+		// Only name the resource through a `name` property the type actually
+		// declares. A notification has none — its human label is `title` — and
+		// writing one anyway would put a second value on schema:name, which is
+		// exactly the predicate the scenario is trying to observe `title` on
+		// (issue #537). The scenario's name still keys createdIDs either way.
+		if named {
+			given["name"] = name
+		}
 	}
 	data, err := w.fixtureData(slug, given)
 	if err != nil {
@@ -936,6 +954,20 @@ func (w *vocabWorld) createResourceOf(slug, name string, given map[string]any) e
 	w.createdIDs[key] = res.GetID()
 	w.lastID, w.lastSlug = res.GetID(), slug
 	return nil
+}
+
+// declaresName reports whether a type's schema has a "name" property.
+func (w *vocabWorld) declaresName(slug string) (bool, error) {
+	rt, err := w.rts.GetBySlug(context.Background(), slug)
+	if err != nil {
+		return false, fmt.Errorf("failed to load the %q type: %w", slug, err)
+	}
+	for _, property := range declaredProperties(rt.Schema()) {
+		if property == "name" {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (w *vocabWorld) aResourceIsCreated(slug string) error {
@@ -973,6 +1005,11 @@ func (w *vocabWorld) literalValue(slug, property, value string) (any, error) {
 		return strconv.ParseFloat(value, 64)
 	case "integer":
 		return strconv.Atoi(value)
+	case "boolean":
+		// A boolean property rejects the string form at validation, so the
+		// step vocabulary has to type it — `notification.read` is the first
+		// required boolean any scenario writes (issue #537).
+		return strconv.ParseBool(value)
 	default:
 		return value, nil
 	}

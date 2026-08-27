@@ -136,7 +136,7 @@ var policedVocabularies = map[string]map[string]bool{
 		"byMonthDay", "calories", "carbohydrateContent", "cookTime", "cssSelector", "datePublished",
 		"description", "duration", "email", "endDate", "endTime", "exceptDate", "familyName",
 		"fatContent", "fiberContent", "geo", "givenName", "hasPart", "headline", "identifier",
-		"image", "inLanguage", "isPartOf", "itemListElement", "keywords", "location", "mainEntity",
+		"image", "inLanguage", "isPartOf", "itemListElement", "keywords", "location", "logo", "mainEntity",
 		"maximumAttendeeCapacity", "name", "nutrition", "position", "prepTime", "price",
 		"priceCurrency", "proteinContent", "provider", "purchaseDate", "recipeCategory",
 		"recipeCuisine", "recipeIngredient", "recipeInstructions", "recipeYield", "recipient",
@@ -146,12 +146,29 @@ var policedVocabularies = map[string]map[string]bool{
 		"url", "version",
 	),
 	// SKOS Core. Note that `title` and `description` are NOT here: SKOS
-	// publishes neither, they are Dublin Core terms, and the knowledge preset
-	// currently rides `@vocab` into both. That is the waived
-	// concept-scheme entry below, and it is why this guard polices
-	// namespaces rather than hard-coding schema.org.
+	// publishes neither, they are Dublin Core terms, and #537 pointed
+	// concept-scheme at the dcterms entry below rather than letting them ride
+	// this `@vocab`. That pair is why this guard polices namespaces rather
+	// than hard-coding schema.org.
 	"http://www.w3.org/2004/02/skos/core#": namesToSet(
 		"altLabel", "definition", "member", "prefLabel",
+	),
+	// Dublin Core Terms, policed from #537. The knowledge preset's
+	// concept-scheme rides a SKOS `@vocab` and SKOS Core publishes neither
+	// `title` nor `description` — both are Dublin Core, and the repair points
+	// them here.
+	//
+	// POLICING THIS NAMESPACE IS THE REPAIR, NOT BOOKKEEPING AROUND IT. The
+	// guard ignores any namespace absent from this map, so leaving dcterms out
+	// would make those two properties unexamined and report the preset clean by
+	// never asking — a silent pass indistinguishable from a fix.
+	//
+	// The legacy http://purl.org/dc/elements/1.1/ namespace publishes both
+	// names too and is deliberately NOT policed: nothing resolves there, and an
+	// entry for a namespace nothing uses is the rubber stamp
+	// UnusedAllowListEntries exists to prevent.
+	"http://purl.org/dc/terms/": namesToSet(
+		"description", "title",
 	),
 	// W3C PROV-O.
 	"http://www.w3.org/ns/prov#": namesToSet(
@@ -193,14 +210,27 @@ var policedVocabularies = map[string]map[string]bool{
 // hole that costs a single character to walk through — and the miss would be
 // invisible rather than noisy, because the guard would report such a type
 // CLEAN rather than unpoliced.
+//
+// Dublin Core has the same split in the opposite direction. DCMI publishes the
+// terms namespace over http, and http://purl.org/dc/terms/ is the canonical
+// spelling, but the https form is live and widely written. Policing only one
+// would leave the newly policed namespace unguarded one character away — the
+// same "clean by never asking" failure the dcterms row above exists to close.
 var namespaceAliases = map[string]string{
-	"http://schema.org/": "https://schema.org/",
+	"http://schema.org/":         "https://schema.org/",
+	"https://purl.org/dc/terms/": "http://purl.org/dc/terms/",
 }
 
 // termsPublishedForAnotherSubject holds names that DO resolve but whose
 // published meaning is wrong for the WeOS use, mapped to what they actually
 // mean. An allow-list can never catch these, because the term exists — which is
 // exactly what makes them the half a 404 check misses.
+// AND NO ROW HERE MAY BE DELETED FOR LOOKING UNUSED. After #537 no preset
+// resolves `schema:status`, `schema:title` or `schema:preparation` at all, so
+// this list reads dead. It is not: it is what makes the NEXT type that adds an
+// untermed `status` fail on the day it is authored, which is the whole reason a
+// deny-list exists rather than an allow-list. UnusedAllowListEntries sweeps
+// policedVocabularies only, and deliberately never prunes this map.
 var termsPublishedForAnotherSubject = map[string]map[string]string{
 	"https://schema.org/": {
 		"status":      "the status of a MedicalCondition, MedicalProcedure or MedicalStudy",
@@ -213,60 +243,26 @@ var termsPublishedForAnotherSubject = map[string]map[string]string{
 	},
 }
 
-// vocabularyWaivers names the violations that exist today and are accepted
-// until #537 repairs them, each mapped to the preset that owns it.
+// vocabularyWaivers names violations that are accepted for now, each mapped to
+// the ticket that owns it.
 //
-// Every line is a standing permission for one property to state a predicate
-// its vocabulary does not define, so each one has a ticket rather than a
-// promise: a waiver with no owner is a to-do list nobody is holding, and it
-// silently re-permits that name the moment somebody reuses it.
+// IT IS EMPTY, AND KEEPING IT EMPTY IS THE POINT. #535 shipped it holding 23
+// entries — every preset property outside meal-planning that stated a predicate
+// its vocabulary would not confirm — and #537 repaired all 23. The map stays
+// because the sweep asserts the violation set EQUALS it: empty means a single
+// new offender anywhere fails on the day it is authored, which is the ratchet
+// the guard exists to be.
 //
-// THE SWEEP ASSERTS THE VIOLATION SET EQUALS THIS MAP — not that it contains no
-// meal-planning entry. Exact equality is what makes the list only ever shrink:
-// a new offender anywhere fails on the day it is authored, which is the whole
-// point of the guard, and repairing one fails until its line is deleted here.
+// A line added here is a standing permission for one property to state a
+// predicate nobody defines, so it needs a ticket rather than a promise. A
+// waiver with no owner is a to-do list nobody is holding, and it silently
+// re-permits that name the moment somebody reuses the type.
 //
-// #535 repaired meal-planning. No meal-planning waiver survives it, and none
-// may be added: a new meal-planning entry in this map means the repair
-// regressed.
-var vocabularyWaivers = map[string]string{
-	// core — an avatar and a logo are URLs schema.org spells differently
-	// (`image`), and `slug` it does not publish at all.
-	"person.avatarURL":     "#537: core",
-	"organization.logoURL": "#537: core",
-	"organization.slug":    "#537: core",
-
-	// knowledge — SKOS publishes neither; both are Dublin Core terms.
-	"concept-scheme.title":       "#537: knowledge — SKOS defines neither; both are Dublin Core",
-	"concept-scheme.description": "#537: knowledge — SKOS defines neither; both are Dublin Core",
-
-	// notifications — the largest group, and entirely house concepts that
-	// were never schema.org's to name.
-	"notification.actionLabel": "#537: notifications",
-	"notification.actionUrl":   "#537: notifications",
-	"notification.body":        "#537: notifications",
-	"notification.dedupeKey":   "#537: notifications",
-	"notification.kind":        "#537: notifications",
-	"notification.occurredAt":  "#537: notifications",
-	"notification.read":        "#537: notifications",
-	"notification.taskRef":     "#537: notifications",
-	"notification.title":       "#537: notifications — schema:title is published for JobPosting",
-
-	// tasks — `dueDate` and `priority` are mints; both `status` entries are
-	// the medical term, the same subject misuse #535 removed from
-	// meal-occurrence and shopping-list.
-	"task.dueDate":   "#537: tasks",
-	"task.priority":  "#537: tasks",
-	"task.status":    "#537: tasks",
-	"project.status": "#537: tasks",
-
-	// website — template machinery schema.org has no vocabulary for.
-	"web-page.slug":                  "#537: website",
-	"web-page.template":              "#537: website",
-	"web-page-element.content":       "#537: website",
-	"web-page-template.slots":        "#537: website",
-	"web-page-template.templateBody": "#537: website",
-}
+// Both halves of the equality still run against an empty map, and both matter:
+// a violation with no waiver fails, and a waiver naming no violation fails too.
+// Do not delete TestPresets_NoWaiverOutlivesItsViolation along with the waivers
+// it policed — it is what stops a stale line being added back unnoticed.
+var vocabularyWaivers = map[string]string{}
 
 func namesToSet(names ...string) map[string]bool {
 	set := make(map[string]bool, len(names))

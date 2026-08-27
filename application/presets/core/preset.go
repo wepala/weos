@@ -10,6 +10,7 @@ import (
 
 	"github.com/wepala/weos/v3/application"
 	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/pkg/jsonld"
 )
 
 // Register adds the core preset (Person, Organization) to the registry.
@@ -29,7 +30,8 @@ func Register(registry *application.PresetRegistry) {
 			// records to move — see docs/_howto/normalize-edge-keys.md.
 			application.NewPresetType("Person", "person",
 				"A person (foaf:Person)",
-				`{"@vocab": "https://schema.org/", "foaf": "http://xmlns.com/foaf/0.1/", "@type": "foaf:Person"}`,
+				`{"@vocab": "https://schema.org/", "foaf": "http://xmlns.com/foaf/0.1/", "@type": "foaf:Person",
+					"avatarURL": "https://schema.org/image"}`,
 				`{
 					"type": "object",
 					"properties": {
@@ -47,7 +49,9 @@ func Register(registry *application.PresetRegistry) {
 			// declares. Same reasoning and same migration as Person above.
 			application.NewPresetType("Organization", "organization",
 				"An organization (org:Organization)",
-				`{"@vocab": "https://schema.org/", "org": "http://www.w3.org/ns/org#", "@type": "org:Organization"}`,
+				`{"@vocab": "https://schema.org/", "org": "http://www.w3.org/ns/org#", "@type": "org:Organization",
+					"core": "`+jsonld.CoreVocab+`",
+					"logoURL": "https://schema.org/logo", "slug": "core:slug"}`,
 				`{
 					"type": "object",
 					"properties": {

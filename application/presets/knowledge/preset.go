@@ -18,7 +18,14 @@ func Register(registry *application.PresetRegistry) {
 			),
 			application.NewPresetType("Concept Scheme", "concept-scheme",
 				"A SKOS concept scheme — a set of concepts and their relationships",
-				`{"@vocab":"http://www.w3.org/2004/02/skos/core#","@type":"ConceptScheme"}`,
+				`{"@vocab":"http://www.w3.org/2004/02/skos/core#","@type":"ConceptScheme",`+
+					// SKOS Core publishes neither title nor description; both
+					// are Dublin Core. skos:prefLabel and skos:definition are
+					// about labeling and defining a Concept, so borrowing
+					// either for a scheme's metadata would be a fresh subject
+					// misuse committed while repairing one.
+					`"dct":"http://purl.org/dc/terms/",`+
+					`"title":"dct:title","description":"dct:description"}`,
 				`{"type":"object","properties":{"title":{"type":"string"},`+
 					`"description":{"type":"string"}},"required":["title"]}`,
 			),

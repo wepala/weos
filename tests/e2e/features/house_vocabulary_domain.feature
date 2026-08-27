@@ -205,7 +205,19 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
       | meal-planning | mp     | https://weos.io/vocab/meal-planning# |
       | memory        | mem    | https://weos.io/vocab/memory#        |
       | agents        | ag     | https://weos.io/vocab/agents#        |
+      | core          | core   | https://weos.io/vocab/core#          |
+      | notifications | notif  | https://weos.io/vocab/notifications# |
+      | tasks         | task   | https://weos.io/vocab/tasks#         |
+      | website       | web    | https://weos.io/vocab/website#       |
 
+  # `knowledge` is deliberately absent from the table above and adding a row for
+  # it is a bug. #537 repaired its two properties with PUBLISHED Dublin Core
+  # terms, so that preset mints no house vocabulary and has no prefix to
+  # resolve. The second assertion — that every house IRI a preset resolves sits
+  # under THAT preset's namespace — is also why `web-page.slug` and
+  # `organization.slug` take two IRIs for one concept rather than sharing
+  # `core:slug`.
+  #
   # The classes. Six for meal-planning, two for memory, one for agents — the
   # `@type` IRIs the story counts, named individually so a missed one fails on
   # its own line rather than inside a total.

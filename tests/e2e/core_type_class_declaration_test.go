@@ -56,9 +56,6 @@ func initCoreTypeClassScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the twin restarts on the build that declares the class(?: again)?$`, w.restartOnThisBuild)
 	sc.Step(`^the build that declares the class also adds a "([^"]*)" string property to "([^"]*)"$`,
 		w.thisBuildAlsoAddsLiteral)
-	sc.Step(`^I create an? "([^"]*)" named "([^"]*)" with these properties:$`, w.createWithProperties)
-
-	sc.Step(`^the stored "([^"]*)" context declares no "([^"]*)"$`, w.storedContextDeclaresNo)
 	sc.Step(`^the "([^"]*)" type advertises the RDF class "([^"]*)"$`, w.typeAdvertisesClass)
 	sc.Step(`^the embedded "@context" of that resource defines the "([^"]*)" prefix as "([^"]*)"$`,
 		w.lastResourceContextDefinesPrefix)
@@ -112,7 +109,10 @@ func (w *classWorld) aDatabaseFromTheBuildWithoutTheClass() error {
 	return w.provision()
 }
 
-func (w *classWorld) createWithProperties(slug, name string, table *godog.Table) error {
+// createWithProperties lives on the shared real-preset world rather than on
+// classWorld: a type whose required fields outnumber one — notification needs
+// four — cannot be created by any single-property step (issue #537).
+func (w *vocabWorld) createWithProperties(slug, name string, table *godog.Table) error {
 	given := map[string]any{}
 	for _, row := range table.Rows {
 		if len(row.Cells) != 2 {
@@ -129,7 +129,7 @@ func (w *classWorld) createWithProperties(slug, name string, table *godog.Table)
 
 // --- what a type declares and advertises ---
 
-func (w *classWorld) storedContextDeclaresNo(slug, term string) error {
+func (w *vocabWorld) storedContextDeclaresNo(slug, term string) error {
 	terms, err := w.storedContextOf(slug)
 	if err != nil {
 		return err
