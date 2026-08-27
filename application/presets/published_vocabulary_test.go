@@ -665,3 +665,33 @@ func TestPresets_TheGuardPolicesDublinCore(t *testing.T) {
 		t.Errorf("dcterms title/description should be allow-listed, got %v", v)
 	}
 }
+
+// TestPresets_TheGuardPolicesBothSpellingsOfDublinCore — DCMI publishes the
+// terms namespace over http, but the https spelling is live and widely
+// written. #537 made dcterms a policed namespace; policing only one spelling
+// would leave it unguarded one character away, and the miss would be silent —
+// the guard reports such a type CLEAN rather than unpoliced, which is the
+// exact failure the dcterms row was added to close.
+func TestPresets_TheGuardPolicesBothSpellingsOfDublinCore(t *testing.T) {
+	probe := application.PresetResourceType{
+		Slug:    "dct-https-probe",
+		Context: json.RawMessage(`{"@vocab":"https://purl.org/dc/terms/"}`),
+		Schema:  json.RawMessage(`{"type":"object","properties":{"notADublinCoreTerm":{"type":"string"}}}`),
+	}
+	got := presets.PublishedVocabularyViolations([]application.PresetResourceType{probe})
+	if len(got) != 1 {
+		t.Fatalf("the https spelling is unpoliced: want one violation, got %d: %v", len(got), got)
+	}
+	if got[0].Fault != presets.FaultUndefinedTerm {
+		t.Errorf("fault is %q, want %q", got[0].Fault, presets.FaultUndefinedTerm)
+	}
+	// And the allow-listed names are accepted through the alias too.
+	ok := application.PresetResourceType{
+		Slug:    "dct-https-ok",
+		Context: json.RawMessage(`{"@vocab":"https://purl.org/dc/terms/"}`),
+		Schema:  json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}}}`),
+	}
+	if v := presets.PublishedVocabularyViolations([]application.PresetResourceType{ok}); len(v) != 0 {
+		t.Errorf("dcterms title should be allow-listed through the alias, got %v", v)
+	}
+}

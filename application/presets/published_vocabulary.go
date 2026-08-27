@@ -210,8 +210,15 @@ var policedVocabularies = map[string]map[string]bool{
 // hole that costs a single character to walk through — and the miss would be
 // invisible rather than noisy, because the guard would report such a type
 // CLEAN rather than unpoliced.
+//
+// Dublin Core has the same split in the opposite direction. DCMI publishes the
+// terms namespace over http, and http://purl.org/dc/terms/ is the canonical
+// spelling, but the https form is live and widely written. Policing only one
+// would leave the newly policed namespace unguarded one character away — the
+// same "clean by never asking" failure the dcterms row above exists to close.
 var namespaceAliases = map[string]string{
-	"http://schema.org/": "https://schema.org/",
+	"http://schema.org/":         "https://schema.org/",
+	"https://purl.org/dc/terms/": "http://purl.org/dc/terms/",
 }
 
 // termsPublishedForAnotherSubject holds names that DO resolve but whose
