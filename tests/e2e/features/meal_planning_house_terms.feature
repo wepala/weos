@@ -1,8 +1,8 @@
 @issue-535
 Feature: A meal-planning house property states a predicate its vocabulary defines
   As an operator whose meal-planning graph is read by an LLM and reused by a second twin
-  I want every house property to carry a term WeOS mints rather than one schema.org never published
-  So that a consumer resolving a predicate against schema.org gets an answer instead of a 404
+  I want every house property to state a predicate the vocabulary it names actually defines
+  So that a consumer resolving one of our predicates gets an answer instead of nothing
 
   # WHY THIS EXISTS. Every `meal-planning` type sets `"@vocab":"https://schema.org/"`.
   # A property with no term of its own rides that default, so `quantity` on a
@@ -11,9 +11,12 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   # the type inherits the claim, and `mini-me-weos` already reuses
   # `ShoppingListItem` and `MealOccurrence` so both graphs answer one query.
   #
-  # `@vocab` pointing at a real vocabulary is the RIGHT default and stays. The
-  # gap is only the house properties that need an explicit term beside it, the
-  # way `mp:recipe` and `mp:ingredient` already have one.
+  # `@vocab` pointing at a real vocabulary is the RIGHT default and stays. What
+  # is missing is a correct term on each house property — for most of them
+  # because they have no term at all, and for four of them because the term
+  # they DO have points into the food ontology at a name it never defined
+  # (CONTRACT 0). Both end the same way: a predicate that names a published
+  # vocabulary the vocabulary itself will not confirm.
   #
   # ---------------------------------------------------------------------------
   # CONTRACT — what these scenarios pin, and the parts an implementer would
@@ -21,15 +24,53 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   # schema.org on 2026-08-26, not assumed; the property inventory was swept out
   # of `presets.NewDefaultRegistry()` on this branch, not read off the issue.
   #
-  # 1. THREE DIFFERENT FAULTS WEAR THE SAME COSTUME, AND THEY NEED DIFFERENT
-  #    FIXES. Every one of them is "an untermed property riding @vocab", but
-  #    what is wrong differs, and so does the repair:
+  # 0. THE FAULT IS NOT "UNTERMED". Say this first, because it is the mistake
+  #    two independent sweeps of this preset both made. The original framing —
+  #    the issue's, and the first two audits' — was "a property with no term
+  #    rides `@vocab` and mints a schema.org IRI". That describes the majority
+  #    of the fault and hides the rest. FOUR meal-planning properties carry an
+  #    EXPLICIT term and are wrong anyway, because the term points into the
+  #    food ontology at names that ontology does not define:
   #
-  #    a. A MINT — schema.org returns 404 for the name. There is no published
-  #       term to reach for, so the fix is a house term under
-  #       `https://weos.io/vocab/meal-planning#`. Verified 404: `quantity`,
-  #       `unit`, `optional`, `storage`, `expirationDate`, `isDefault`,
-  #       `createdAt`, `checked`, `cookedAt`, `date`.
+  #      recipe.recipeIngredient        fo:hasIngredient
+  #      recipe-ingredient.ingredient   fo:ingredient
+  #      ingredient.shoppingCategory    fo:ShoppingCategory
+  #      ingredient.season              fo:at_its_best
+  #
+  #    Resolved on 2026-08-26: `http://purl.org/foodontology` (via purl.org,
+  #    now redirecting to the ITMO University file that serves the namespace)
+  #    defines 14 terms and none of those four — classes `Food`, `Ingredient`,
+  #    `FoodAdditive`; properties `containsIngredient`, `containsGMO`,
+  #    `ingredientsListAsText`, and the `energyPer100g` / `fatPer100g` /
+  #    `proteinsPer100g` / `carbohydratesPer100g` families with their
+  #    `AsDouble` variants. It uses `containsIngredient`, never
+  #    `hasIngredient`. `fo:Food` IS defined, so `ingredient`'s `@type` is
+  #    correct and stays.
+  #
+  #    THE RULE, THEREFORE: the guard reasons about a property's EFFECTIVE
+  #    predicate IRI, whichever way the property arrives at it — an explicit
+  #    term, a compact term through a declared prefix, or `@vocab`. An explicit
+  #    term is not evidence of correctness; it only moves WHICH published
+  #    vocabulary is being misquoted. Anything narrower than "effective IRI"
+  #    reproduces the blind spot that hid these four.
+  #
+  #    THE FULL REPAIR SET IS 21 PROPERTIES: 17 reached through `@vocab` (14
+  #    mints and 3 domain misuses) and the 4 explicit `fo:` terms above. Every
+  #    one is named on its own line in the scenarios below rather than counted,
+  #    so a missed one fails by name.
+  #
+  # 1. THREE DIFFERENT FAULTS WEAR THE SAME COSTUME, AND THEY NEED DIFFERENT
+  #    FIXES. What is wrong differs, and so does the repair:
+  #
+  #    a. A MINT — the vocabulary the IRI lands in does not define the name.
+  #       There is no published term to reach for, so the fix is a house term
+  #       under `https://weos.io/vocab/meal-planning#`. Verified absent from
+  #       schema.org: `quantity`, `unit`, `optional`, `storage`,
+  #       `expirationDate`, `isDefault`, `createdAt`, `checked`, `cookedAt`,
+  #       `date`. Verified absent from the food ontology: `ingredient`,
+  #       `ShoppingCategory`, `at_its_best`. `ShoppingCategory` is doubly
+  #       wrong — a Capitalised, class-shaped name used as a predicate — and
+  #       is not defined under either reading.
   #
   #    b. A DOMAIN MISUSE — schema.org DOES define the name, for something else
   #       entirely. `https://schema.org/status` is "the status of the study",
@@ -52,14 +93,26 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   #       because it resolves is the mistake the deny-list exists to stop. If
   #       Akeem rules otherwise it is one Examples row.
   #
-  #    c. A NAME THE PUBLISHED VOCABULARY ALREADY HAS UNDER A DIFFERENT SPELLING
-  #       — `meal-occurrence.date` mints `https://schema.org/date` (404) when
-  #       `https://schema.org/startDate` is the published term for exactly this,
-  #       and a downstream consumer already reads it. Here the fix is a
-  #       schema.org term, NOT a house one. Minting `mp:date` would pass every
-  #       "no bad schema.org IRI" assertion in this file and still be wrong,
-  #       which is why `date` gets a scenario of its own rather than a row in
-  #       the table above it.
+  #    c. A NAME THE PUBLISHED VOCABULARY ALREADY HAS UNDER A DIFFERENT
+  #       SPELLING. Two instances, and the fix is a PUBLISHED term, not a house
+  #       one:
+  #         `meal-occurrence.date` mints `https://schema.org/date` (404) when
+  #         `https://schema.org/startDate` is the published term for exactly
+  #         this, and a downstream consumer already reads it.
+  #         `recipe.recipeIngredient` points at `fo:hasIngredient`, which the
+  #         food ontology does not define, when `https://schema.org/recipeIngredient`
+  #         is schema.org's own term for a recipe's ingredients — on the very
+  #         type (`Recipe`) this is declared on.
+  #       Minting `mp:date` or `mp:recipeIngredient` would satisfy every "no
+  #       bad published IRI" assertion in this file and still be the wrong
+  #       answer, which is why both get scenarios of their own rather than rows
+  #       in the mint table.
+  #
+  #       `recipe-ingredient.ingredient` deliberately does NOT join them. There
+  #       is no published term for "the ingredient this reified relation points
+  #       at", and `mp:ingredient` is already what `shopping-list-item` uses for
+  #       the same relation — so it is a 1a mint, and terming it that way makes
+  #       one relation speak one predicate across both types.
   #
   # 2. THE OVER-CORRECTION IS THE REAL RISK, AND IT IS INVISIBLE. Dragging a
   #    genuine schema.org name into the house vocabulary breaks nothing a test
@@ -81,38 +134,85 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   #    judgement about MEANING (1b), which is why it cannot be mechanised and is
   #    carried by an explicit list — see 4.
   #
-  # 3. NONE OF THESE PROPERTIES IS A REFERENCE, SO THIS CONTRADICTS NO EXISTING
-  #    GUARD. Every property this story repairs is a LITERAL. The read paths
-  #    consult the `@context` only for reference properties, so
-  #    `presets.ContextGuardViolations`, `house_vocabulary_domain.feature` and
-  #    the #513/#522 suites — all of which reason about edges — neither cover
-  #    this class nor conflict with it. Two consequences worth stating:
-  #      - no edge can break here, so "keeps existing data readable" is a weaker
-  #        claim than it was for #520, and the upgrade scenarios below assert it
-  #        on the LITERAL read paths rather than on edges;
-  #      - the collision risk the fix introduces (two properties of one type
-  #        collapsing onto one house IRI) is ALREADY swept registry-wide by
-  #        `house_vocabulary_domain.feature`'s "Every reference property still
-  #        reverse-maps to its own name after the move", whose second assertion
-  #        is "no two properties of one installed type resolve to the same
-  #        predicate IRI". That scenario runs over every built-in preset and
-  #        needs no amendment. Do not restate it here.
+  # 3. MOSTLY LITERALS, BUT TWO REFERENCES — SO THIS STORY REPOINTS EDGES.
+  #    An earlier draft of this contract asserted that every repaired property
+  #    was a literal and built two conclusions on it. That was true of the
+  #    `@vocab` population and false once the four food-ontology terms of 0
+  #    joined it: `recipe.recipeIngredient` and `recipe-ingredient.ingredient`
+  #    both carry `x-resource-type`, so both are REFERENCES. The corrected
+  #    position, and what each half changes:
+  #
+  #      - THE EXISTING GUARDS NOW GENUINELY APPLY TO THESE TWO.
+  #        `presets.ContextGuardViolations`'s `referenceGuard` requires every
+  #        reference property to reverse-map to its own name. Both keep an
+  #        explicit term after the repair (`schema:recipeIngredient` and
+  #        `mp:ingredient`), so both still reverse-map — but that is a claim to
+  #        ASSERT, not to assume, because a repair that dropped a term instead
+  #        of repointing it would leave the property riding `@vocab` and still
+  #        pass every IRI assertion in this file. A scenario below asserts it.
+  #
+  #      - THE UPGRADE IS NO LONGER LITERAL-ONLY. An edge already written under
+  #        `http://purl.org/foodontology#ingredient` is keyed in the stored
+  #        document by PROPERTY NAME (#515), so the projection and the API keep
+  #        reading it across the upgrade exactly as a literal does. What goes
+  #        stale is the same thing that goes stale for a literal: the graph
+  #        triple carries the predicate resolved at write time, and the
+  #        document's embedded `@context` is what a reprojection replays. So
+  #        CONTRACT 8 and 8a apply unchanged, to edges as well as literals —
+  #        the re-stamp scenario below covers the mechanism for both, and the
+  #        edge case is asserted beside the literal one rather than assumed to
+  #        follow from it.
+  #
+  #      - THE COLLISION RISK IS STILL NOT OURS TO RESTATE. Two properties of
+  #        one type collapsing onto one predicate is ALREADY swept
+  #        registry-wide by `house_vocabulary_domain.feature`'s "Every
+  #        reference property still reverse-maps to its own name after the
+  #        move", whose second assertion is "no two properties of one installed
+  #        type resolve to the same predicate IRI". It runs over every built-in
+  #        preset and needs no amendment. This story makes it MORE load-bearing,
+  #        not less: `mp:ingredient` is now declared on two types, so a careless
+  #        edit that also moved `food-item.ingredient` (today `mp:isInstanceOf`)
+  #        onto it would collide there.
+  #
+  #      - ONE READ-BACK IS DELIBERATELY NOT ASSERTED. `recipe.recipeIngredient`
+  #        is an ARRAY reference, and array references are dropped on read today
+  #        (`SimplifyJSONLD` / `extractEdgeColumns` unwrap a single map only,
+  #        tracked separately as #513). Asserting a read-back on it would fail
+  #        for a reason that has nothing to do with this story. So
+  #        `recipeIngredient` is pinned at the TERM level only, and the edge
+  #        read-back is asserted on `recipe-ingredient.ingredient`, which is a
+  #        scalar reference and exercises the same path honestly.
   #
   # 4. HOW A TEST DECIDES "THE PUBLISHED VOCABULARY DOES NOT DEFINE THIS",
   #    OFFLINE. The gate must not touch the network: schema.org going down, or
   #    getting slow, must never redden CI, and a guard that only fires when the
   #    machine has DNS is not a guard. So the sweep carries its own answer:
   #
+  #      - It reasons about a property's EFFECTIVE predicate IRI — what
+  #        `jsonld.ResolvePredicateIRI` returns — regardless of whether the
+  #        property got there through an explicit term, a compact term via a
+  #        declared prefix, or `@vocab`. See 0: "untermed" is not the fault, and
+  #        a guard scoped to untermed properties misses four of meal-planning's
+  #        eighteen.
   #      - A set of PUBLISHED NAMESPACES it polices — `https://schema.org/`,
-  #        SKOS, FOAF, W3C ORG, PROV-O, food ontology, vCard, Activity Streams,
-  #        GoodRelations. An IRI landing outside all of them is not this guard's
-  #        business.
+  #        SKOS, FOAF, W3C ORG, PROV-O, the food ontology, vCard, Activity
+  #        Streams, GoodRelations. An IRI landing outside all of them is not
+  #        this guard's business.
   #      - `https://weos.io/vocab/…` is EXEMPT. WeOS publishes it, so WeOS
   #        defines whatever it names. #520's guard already polices its shape.
   #      - Per policed namespace, a checked-in ALLOW-LIST of the local names the
-  #        presets legitimately borrow. One entry means one human resolved one
-  #        IRI. An effective predicate landing in a policed namespace whose local
-  #        name is absent from that namespace's list is a violation.
+  #        presets legitimately borrow, TAKEN FROM THE PUBLISHED DOCUMENT rather
+  #        than from memory. One entry means one human resolved one IRI. An
+  #        effective predicate landing in a policed namespace whose local name is
+  #        absent from that namespace's list is a violation.
+  #
+  #        For the food ontology that is the whole vocabulary, because it is
+  #        small enough to state: `Food`, `Ingredient`, `FoodAdditive`,
+  #        `containsIngredient`, `containsGMO`, `ingredientsListAsText`,
+  #        `energyPer100g`, `fatPer100g`, `proteinsPer100g`,
+  #        `carbohydratesPer100g` and the four `…AsDouble` variants. After this
+  #        story the presets borrow exactly one of them — `fo:Food`, as
+  #        `ingredient`'s `@type`.
   #      - A separate DENY-LIST for 1b: names that DO resolve but whose published
   #        meaning is wrong for the WeOS use. `schema:status` and
   #        `schema:preparation` are its founding members. An allow-list alone can
@@ -124,37 +224,46 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   #      - a genuinely new schema.org property fails until someone adds it. That
   #        is the point, not a defect: adding the row IS the verification step;
   #      - it cannot find a domain misuse nobody noticed. `preparation` sat
-  #        undetected until this sweep and would have again;
-  #      - it never notices schema.org deprecating or moving a term.
+  #        undetected through two sweeps and would have again;
+  #      - it never notices a published vocabulary deprecating or moving a term.
+  #        That limit is not hypothetical for the food ontology: the document
+  #        serving `http://purl.org/foodontology#` is version 0.0.9, dated
+  #        2015, authored at ITMO University, and reached today only through two
+  #        purl.org redirects. A namespace this thinly maintained is a reason to
+  #        borrow from it sparingly — which, after this story, the presets do.
   #
   # 5. THE SWEEP IS REGISTRY-WIDE, AND MEAL-PLANNING IS NOT THE ONLY OFFENDER.
   #    Measured, not estimated: the official schema.org vocabulary
   #    (`schemaorg-current-https.jsonld`, 1521 rdf:Property entries) was
   #    cross-referenced against every untermed property of every type in
   #    `presets.NewDefaultRegistry()`. 164 properties ride `@vocab`; the large
-  #    majority are fine. Beyond meal-planning's 14, the same rule reports 18:
+  #    majority are fine. Beyond meal-planning's 21, the same rule reports 22:
   #
   #      core           person.avatarURL, organization.logoURL,
-  #                     organization.slug
+  #                     organization.slug                                  (3)
+  #      knowledge      concept-scheme.title, concept-scheme.description   (2)
   #      notifications  notification.actionLabel, .actionUrl, .body,
-  #                     .dedupeKey, .kind, .occurredAt, .read, .taskRef
-  #      tasks          task.dueDate, task.priority
+  #                     .dedupeKey, .kind, .occurredAt, .read, .taskRef    (8)
+  #      tasks          task.dueDate, task.priority (mints), plus
+  #                     project.status and task.status (deny-list)         (4)
   #      website        web-page.slug, web-page.template,
   #                     web-page-element.content, web-page-template.slots,
-  #                     web-page-template.templateBody
+  #                     web-page-template.templateBody                     (5)
+  #                                                                    total 22
   #
-  #    Plus, in a DIFFERENT published vocabulary, `knowledge.concept-scheme`'s
-  #    `title` and `description`: they ride a SKOS `@vocab` and mint
-  #    `skos:title` / `skos:description`, which SKOS core defines neither of
-  #    (both are Dublin Core terms). That pair is why the guard must police
-  #    namespaces generally rather than hard-code schema.org — a schema.org-only
-  #    check reports the whole `knowledge` preset as clean.
+  #    `notification.title` is NOT among them — schema.org defines `title`.
+  #    An earlier draft of this contract listed it; it was removed on the
+  #    measurement, and the count is computed from the rows above rather than
+  #    carried forward from prose.
   #
-  #    And `tasks.project.status` / `tasks.task.status` are the SAME medical
-  #    misuse meal-planning is being repaired for. They are class 1b, not
-  #    mints, so they belong on the deny-list waivers rather than the mint
-  #    waivers — and a guard that waives only mints would let them pass while
-  #    claiming to police the class.
+  #    Two of those rows are the ones that prove the guard's shape. The
+  #    `knowledge` pair rides a SKOS `@vocab` and mints `skos:title` /
+  #    `skos:description`, which SKOS core defines neither of (both are Dublin
+  #    Core) — a schema.org-only check reports the whole `knowledge` preset as
+  #    clean. And `tasks`' two `status` properties are the SAME medical misuse
+  #    meal-planning is being repaired for: class 1b, not mints, so they belong
+  #    on the deny-list waivers, and a guard that waives only mints would let
+  #    them pass while claiming to police the class.
   #
   #    THIS STORY REPAIRS MEAL-PLANNING ONLY. So the guard ships with an
   #    explicit WAIVER list naming every offender above, and the registry sweep
@@ -255,11 +364,21 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   # ---------------------------------------------------------------------------
   # THE SHIM FOR AN EXISTING INSTALL. The upgrade scenarios need a database
   # written by the build BEFORE this story. Use #520's CONTRACT 7 pattern: a
-  # registry whose meal-planning type contexts have the new terms STRIPPED —
-  # a transform over `PresetResourceType.Context`, not a second copy of the
-  # presets, so it cannot drift. "The twin restarts on the build that terms the
-  # house properties" then means: restart the same database against the
+  # registry whose meal-planning type contexts are REVERTED to their pre-#535
+  # shape — a transform over `PresetResourceType.Context`, not a second copy of
+  # the presets, so it cannot drift. "The twin restarts on the build that terms
+  # the house properties" then means: restart the same database against the
   # unmodified `presets.NewDefaultRegistry()`.
+  #
+  # "Reverted" is two operations, not one, and an implementer who reads it as
+  # only the first will find the edge scenarios untestable. The `@vocab`
+  # population had NO term before, so those are STRIPPED. The four `fo:`
+  # properties of CONTRACT 0 had a WRONG term before, so those are RESTORED to
+  # `fo:hasIngredient`, `fo:ingredient`, `fo:ShoppingCategory` and
+  # `fo:at_its_best`, with the `fo` prefix put back on the `recipe` context it
+  # is removed from. Only the second kind produces a stored edge under a
+  # published IRI, which is what the edge upgrade scenario needs to exist at
+  # all.
   #
   # ---------------------------------------------------------------------------
   # OPEN QUESTIONS — these need Akeem before the story is called done.
@@ -288,7 +407,7 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   #         meaningless: the class walks straight back in through the next
   #         preset somebody writes, which is the exact failure #535 was filed
   #         about.
-  #      c. RATCHET (what is pinned above). Repair meal-planning's 14, add the
+  #      c. RATCHET (what is pinned above). Repair meal-planning's 21, add the
   #         registry-wide guard, and carry the other 18 as an explicit
   #         exemption list the guard reads. No NEW mint can be introduced
   #         anywhere from the day this merges, and the existing ones are
@@ -314,11 +433,15 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   # A FRESH INSTALL — the terms themselves.
   # ===========================================================================
 
-  # CONTRACT 1a. Thirteen properties across six types, each of which mints an
-  # IRI schema.org answers 404 for. Named one per row rather than counted, so a
-  # missed one fails on its own line instead of inside a total.
+  # CONTRACT 1a. Sixteen properties across seven types, each of which claims a
+  # name the vocabulary it lands in does not define. Named one per row rather
+  # than counted, so a missed one fails on its own line instead of inside a
+  # total. The two Examples blocks are the two vocabularies being misquoted —
+  # kept apart because the first population rides `@vocab` and the second
+  # arrives through an EXPLICIT `fo:` term, and a guard that only looks at the
+  # first misses the second entirely (CONTRACT 0).
   @wip
-  Scenario Outline: A property schema.org does not define resolves to the house vocabulary
+  Scenario Outline: A property its vocabulary does not define resolves to the house vocabulary
     Given a clean WeOS database
     When the operator installs the "meal-planning" preset
     Then the "<slug>" type resolves the property "<property>" to "<predicate>"
@@ -338,6 +461,29 @@ Feature: A meal-planning house property states a predicate its vocabulary define
       | shopping-list-item | quantity       | https://weos.io/vocab/meal-planning#quantity       |
       | shopping-list-item | unit           | https://weos.io/vocab/meal-planning#unit           |
       | shopping-list-item | checked        | https://weos.io/vocab/meal-planning#checked        |
+
+    Examples: the names the food ontology does not define, reached by an explicit fo: term
+      | slug              | property         | predicate                                            |
+      | recipe-ingredient | ingredient       | https://weos.io/vocab/meal-planning#ingredient       |
+      | ingredient        | shoppingCategory | https://weos.io/vocab/meal-planning#shoppingCategory |
+      | ingredient        | season           | https://weos.io/vocab/meal-planning#season           |
+
+  # The food ontology keeps the one term it really does define. A sweep that
+  # repaired the four `fo:` properties by deleting the prefix outright would
+  # pass every row above and silently strip `ingredient`'s RDF class, which is
+  # the type's whole identity in the graph — so the class is asserted here
+  # rather than left to the reader's good faith. `season` is the reason the
+  # house term is right and a schema.org borrow is not: `schema:season` is
+  # about broadcast seasons, so taking it would be a fresh 1b misuse committed
+  # while repairing one.
+  @wip
+  Scenario: The ingredient type keeps the food ontology class the ontology does define
+    Given a clean WeOS database
+    And the operator installs the "meal-planning" preset
+    When a "ingredient" resource is created
+    Then that resource carries the RDF type "http://purl.org/foodontology#Food"
+    And the "ingredient" type resolves nothing to "http://purl.org/foodontology#at_its_best"
+    And the "ingredient" type resolves nothing to "http://purl.org/foodontology#ShoppingCategory"
 
   # CONTRACT 1b. These three resolve, which is what makes them the dangerous
   # half: no 404 ever exposes them, and every read passes either way. They are
@@ -369,6 +515,43 @@ Feature: A meal-planning house property states a predicate its vocabulary define
     Then the "meal-occurrence" type resolves the property "date" to "https://schema.org/startDate"
     And the triple store holds "https://schema.org/startDate" from the "meal-occurrence" "Taco Tuesday" with the value "2026-09-01"
     And the triple store holds no statement under "https://schema.org/date" about the "meal-occurrence" "Taco Tuesday"
+
+  # CONTRACT 1c, second instance, and the one an "everything house-ward" sweep
+  # gets wrong. `recipe` declares its RDF class as schema.org's `Recipe`, and
+  # schema.org publishes `recipeIngredient` for exactly this on exactly that
+  # class — so the term the preset was missing was never a house term. Pinned
+  # at the TERM level only: `recipeIngredient` is an array reference, and array
+  # references are dropped on read today (#513), so a read-back assertion here
+  # would fail for a reason that has nothing to do with this story
+  # (CONTRACT 3). The edge read-back lives in the scenario below, on a scalar.
+  @wip
+  Scenario: A recipe names its ingredients with schema.org's own term
+    Given a clean WeOS database
+    When the operator installs the "meal-planning" preset
+    Then the "recipe" type resolves the property "recipeIngredient" to "https://schema.org/recipeIngredient"
+    And the "recipe" type resolves nothing to "http://purl.org/foodontology#hasIngredient"
+
+  # CONTRACT 3's first half, asserted rather than assumed. Two of the repaired
+  # properties are REFERENCES, so this story repoints edges and the existing
+  # reference guard now genuinely applies to them. The failure this catches is
+  # a repair that DROPS a term instead of repointing it: the property would
+  # fall back to `@vocab`, every IRI assertion in this file would still pass,
+  # and the edge would stop reverse-mapping to its own name. `mp:ingredient` is
+  # also now declared on two types for one relation, which is the point of
+  # choosing it — so the read is asserted on both.
+  @wip
+  Scenario: A reference moved to the house vocabulary still keys and reads its edge
+    Given a clean WeOS database
+    And the operator installs the "meal-planning" preset
+    And an "ingredient" named "Garlic" exists
+    And a "recipe" named "Tacos" exists
+    And a "shopping-list" named "Saturday" exists
+    When I create a "recipe-ingredient" named "Two cloves" with "ingredient" referring to the "ingredient" "Garlic"
+    And I create a "shopping-list-item" named "Two limes" with "ingredient" referring to the "ingredient" "Garlic"
+    Then the triple store holds "https://weos.io/vocab/meal-planning#ingredient" from the "recipe-ingredient" "Two cloves" to the "ingredient" "Garlic"
+    And reading the "recipe-ingredient" "Two cloves" back through the projection returns "ingredient" as the "ingredient" "Garlic"
+    And the API read of the "shopping-list-item" "Two limes" returns "ingredient" as the "ingredient" "Garlic"
+    And every reference property of every installed type reverse-maps to its own name
 
   # CONTRACT 2 — the most important scenario in this file, and the only one that
   # fails if the fix over-corrects. `food-item.purchaseDate` is the sharpest row:
@@ -477,6 +660,26 @@ Feature: A meal-planning house property states a predicate its vocabulary define
     Then reading the "food-item" "Garlic head" back through the projection returns "unit" as "clove"
     And the API read of the "food-item" "Garlic head" returns "unit" as "clove"
 
+  # CONTRACT 3's second half. The edge sibling of the scenario above, asserted
+  # beside it rather than assumed to follow from it, because the reason a
+  # literal survives and the reason an edge survives are not the same reason.
+  # An edge written under `fo:ingredient` is keyed in the stored document by
+  # PROPERTY NAME (#515), so the reverse map never has to resolve the old IRI
+  # and both readers keep working across a term that moved out from under them.
+  # This is the scenario that fails if anyone "fixes" the repair by rewriting
+  # stored edge keys, which nothing in this story should touch.
+  @wip
+  Scenario: An edge written under the old ontology term still reads back after the upgrade
+    Given a WeOS database provisioned by the build before the house properties were termed
+    And the operator installs the "meal-planning" preset
+    And an "ingredient" named "Garlic" exists
+    And a "recipe" named "Tacos" exists
+    And I create a "recipe-ingredient" named "Two cloves" with "ingredient" referring to the "ingredient" "Garlic"
+    When the twin restarts on the build that terms the house properties
+    Then reading the "recipe-ingredient" "Two cloves" back through the projection returns "ingredient" as the "ingredient" "Garlic"
+    And the API read of the "recipe-ingredient" "Two cloves" returns "ingredient" as the "ingredient" "Garlic"
+    And the JSON-LD representation of the "recipe-ingredient" "Two cloves" still carries an "ingredient" edge to the "ingredient" "Garlic"
+
   # CONTRACT 8 and 8a, asserted rather than left to be discovered, and in one
   # scenario because neither half is safe to read without the other. The
   # predicate of an old literal is stamped into the resource's own embedded
@@ -488,6 +691,15 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   # and rebuilt. A runbook that stops after the reproject leaves the twin
   # answering the same question under two predicates, which is why the
   # lingering row is asserted here rather than described in a comment.
+  #
+  # This is asserted on a LITERAL, and it covers the edge case too, because the
+  # mechanism is identical — a re-stamp rewrites the document's embedded
+  # `@context`, and every predicate in that document, literal or edge, resolves
+  # through it. The edge half is not duplicated here because
+  # `house_vocabulary_domain.feature`'s "A re-stamped edge takes its predicate
+  # from the context the type has now" already pins exactly that end to end, on
+  # this same preset. Extend that scenario if the mechanism ever changes; do
+  # not grow this one to 20 steps restating it.
   @wip
   Scenario: An old value keeps its write-time predicate in the graph until a re-stamp
     Given a WeOS database provisioned by the build before the house properties were termed
