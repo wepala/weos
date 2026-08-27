@@ -38,8 +38,6 @@ gcloud run deploy weos \
   --set-env-vars "FRONTEND_URL=https://your-domain.run.app"
 ```
 
-The repository includes a `.github/workflows/deploy.yml` that automates this with GitHub Actions.
-
 ## Deploy to Any Container Host
 
 WeOS is a standard Docker image. It works on:
