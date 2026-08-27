@@ -315,13 +315,73 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   #    it is how a future collision gets built. Declare each term on the types
   #    that have the property — the `extraTerms` argument already exists for it.
   #
-  # 8. AN EXISTING INSTALL NEEDS NO OPERATOR ACTION, AND THAT IS WORTH PINNING.
-  #    A term the preset declares and the stored context LACKS is merged in
-  #    additively (`reconcileAdditiveContext`); nothing is held, because nothing
-  #    diverges. So unlike #520 this upgrade is silent — no `held-terms`, no
-  #    `adopt-term`, nothing to approve. What it does NOT do is move the
-  #    predicate on data already written, and the silence is what makes that
-  #    dangerous.
+  # 8. THE TWO POPULATIONS UPGRADE DIFFERENTLY, AND ONLY ONE OF THEM IS SILENT.
+  #    An earlier draft claimed the whole upgrade needed no operator action.
+  #    That is true of 17 of the 21 repairs and FALSE of the four `fo:` terms,
+  #    which was established by driving `reconcileAdditiveContext`
+  #    (`application/preset_context_reconcile.go:115`) with real before/after
+  #    context pairs rather than by reading its doc comment. Both halves matter
+  #    on Akeem's live instance, so both are stated:
+  #
+  #    POPULATION A — the 17 that had NO term and rode `@vocab`. MERGED
+  #    SILENTLY. A term the preset declares and the stored context lacks is
+  #    added; nothing diverges, so nothing is held. `Added: [quantity unit]`,
+  #    `Conflicts: []`, `Changed: true`. No `held-terms`, no `adopt-term`,
+  #    nothing to approve.
+  #
+  #      WHY `holdMovingTerms` DOES NOT CATCH THEM EITHER, which is what makes
+  #      the silence correct rather than lucky: `livePredicates` collects the
+  #      stored context's TERM NAMES, the schema's REFERENCE properties, and
+  #      `@type`. Population A's properties are untermed LITERALS, so they are
+  #      in none of the three and nothing holds them. Had any of the 17 been a
+  #      reference, it WOULD have been held — so this claim is true of exactly
+  #      this set and must not be generalised to "adding a term is always
+  #      silent".
+  #
+  #    POPULATION B — the four `fo:` terms, whose definition CHANGES. HELD, not
+  #    merged. A term present in both contexts with a different definition is a
+  #    conflict, held at the stored definition, because overwriting it would
+  #    repoint a predicate existing edges are already keyed by. For the two
+  #    pure-B types the boot does nothing at all: `ingredient` reports
+  #    `Conflicts: [season shoppingCategory]`, `Added: []`, `Changed: false`,
+  #    and `recipe` the same for `recipeIngredient`. The stored contexts keep
+  #    `fo:at_its_best`, `fo:ShoppingCategory` and `fo:hasIngredient`, and the
+  #    boot reports them held on EVERY start until an operator adopts them.
+  #
+  #      THE HOLD IS THE SYSTEM WORKING. It is what #513 built and #518
+  #      hardened, and nothing in this story should "fix" it. Without the hold,
+  #      an upgrade would silently repoint `recipe-ingredient.ingredient` and
+  #      orphan every edge already written under `fo:ingredient`. The cost of
+  #      the hold is that four of the twenty-one repairs DO NOT TAKE EFFECT on
+  #      an existing instance until someone runs `adopt-term` — which is a
+  #      documentation obligation, not a defect.
+  #
+  #    ONE TYPE CAN BE BOTH. `recipe-ingredient` gains `quantity`, `unit`,
+  #    `optional` and `preparation` (population A) while `ingredient` is held
+  #    (population B), so the boot merges and holds on the same type in the
+  #    same pass. That per-entry refusal is #520's "A held prefix does not block
+  #    an additive change on the same type", now exercised on the real preset,
+  #    and it has a scenario below.
+  #
+  #    A VESTIGIAL PREFIX IS EXPECTED, NOT A BUG — BUT THE ADOPTION LEAVES IT,
+  #    NOT THE UPGRADE. Getting the order right matters, because the wrong
+  #    version sends a reader hunting for a boot-time change that never happens.
+  #    The repair removes the `fo` prefix from `recipe`'s PRESET context, and
+  #    the merge rule preserves a term the STORED context has and the preset
+  #    does not. But at boot `recipe` is a pure population-B type —
+  #    `Added: []`, `Conflicts: [recipeIngredient]`, `Changed: false` — so
+  #    `recipeIngredient` is still HELD at `fo:hasIngredient` and the `fo`
+  #    prefix is still doing its job. The stored context is untouched entirely.
+  #
+  #    `fo` becomes vestigial only AFTER `adopt-term` moves `recipeIngredient`
+  #    to `schema:recipeIngredient`. From then on the prefix is declared, resolves
+  #    nothing, and is preserved on every later boot because the preset no
+  #    longer declares it. That is the reconcile correctly refusing to delete
+  #    what might be an operator's own term, and it is harmless — do not add a
+  #    cleanup pass for it.
+  #
+  #    WHAT NEITHER POPULATION DOES is move the predicate on data already
+  #    written, and for population A the silence is what makes that dangerous.
   #
   #    BE PRECISE ABOUT WHICH PART OF AN OLD RECORD IS STALE, because "#515
   #    keys edges by property name, so stored documents need no rewriting" is
@@ -334,6 +394,18 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   #    what `worker normalize-edge-keys --restamp` exists to rewrite (#520
   #    CONTRACT 6), and it applies to a literal for the same reason it applied
   #    to a class.
+  #
+  # 8a0. A NAMING TRAP IN THE STEP VOCABULARY, RECORDED SO NOBODY OVER-READS
+  #    THESE SCENARIOS. For a LITERAL, `the triple store holds "X" … with the
+  #    value "V"` and `the stored document states "X" … with the value "V"` are
+  #    the SAME assertion — both bind to `documentStatesLiteral`, because
+  #    literals never reach the triples table and the stored document is the
+  #    honest surface. So every literal assertion in this file, whichever
+  #    phrasing it uses, is a claim about the stored document and NOT about a
+  #    running graph store. Only the EDGE steps (`… to the "<slug>" "<name>"`)
+  #    reach the `triples` table. This is pre-existing house vocabulary and not
+  #    this story's to rename; it is written down because two scenarios in an
+  #    earlier draft of this file contradicted themselves by not knowing it.
   #
   # 8a. THE GRAPH STORE NEEDS REBUILDING, NOT JUST REPROJECTING. Triples are
   #    materialised into a persisted store with the predicate resolved at write
@@ -353,6 +425,28 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   #    meal-planning data, so whatever the runbook says is what somebody
   #    actually executes. Whether #535 ships that runbook or defers it is
   #    OPEN QUESTION 3.
+  #
+  # 8b. THE RUNBOOK, IN ORDER, AND WHY ADOPTION COMES FIRST. Every command
+  #    exists on this branch; nothing here is new tooling.
+  #
+  #      weos resource-type held-terms meal-planning <slug>
+  #      weos resource-type adopt-term meal-planning recipe
+  #      weos resource-type adopt-term meal-planning recipe-ingredient
+  #      weos resource-type adopt-term meal-planning ingredient
+  #      weos worker normalize-edge-keys --restamp --write
+  #      weos worker reproject
+  #      weos worker checkpoint reset oxigraph --truncate
+  #
+  #    ADOPTION IS FIRST BECAUSE A RE-STAMP CANNOT SUBSTITUTE FOR IT, and an
+  #    operator who runs the migration half alone will conclude it did not
+  #    work. A re-stamp rewrites a stored document's embedded `@context` to
+  #    match the TYPE's current stored context. While a term is held, the
+  #    type's stored context still says `fo:ingredient` — so the re-stamp
+  #    faithfully re-stamps the old IRI, the reproject replays it, and nothing
+  #    moves. Adoption is what changes the type's stored context, which is what
+  #    every later step reads. The three `adopt-term` lines are the three types
+  #    carrying population B; the other eleven meal-planning types need none,
+  #    because population A merged at boot.
   #
   # 9. THE DOWNSTREAM CONSUMER IS SAFE BY CONSTRUCTION, AND IS NOT TESTED HERE.
   #    `mini-me-weos` reuses `ShoppingListItem` and `MealOccurrence` and pins
@@ -427,6 +521,32 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   #    exists from #520 and nothing new is needed to run it — but somebody has
   #    to be told to run it, and "the twin answers a SPARQL query two ways for
   #    a while" is the cost of not being told.
+  #
+  # 4. DO THE FOUR `fo:` REPAIRS SHIP IN #535, OR MOVE TO THEIR OWN CHANGE?
+  #    They are held on Akeem's live instance (CONTRACT 8), so shipping them
+  #    here means this PR no longer has one clean story: 17 properties repair
+  #    themselves at boot and 4 wait on three `adopt-term` commands. Splitting
+  #    them out would keep #535's "no operator action" claim true of everything
+  #    it contains.
+  #
+  #    The SDET recommendation is to SHIP AS IS, with CONTRACT 8b's runbook in
+  #    the PR body. Three reasons. First, the four are the WORST of the
+  #    twenty-one: an untermed property at least claims a term in a vocabulary
+  #    the type already cites, while `fo:hasIngredient` cites a specific small
+  #    ontology at a name it never had — deferring leaves the most clearly false
+  #    statements in the graph the longest. Second, splitting does not avoid the
+  #    adoption; it only moves it to a later date, and the later change carries
+  #    the identical three commands with less context around them. Third, the
+  #    guard ships in THIS story: with the four unrepaired, they are either
+  #    guard violations on day one or they need meal-planning waivers, and
+  #    CONTRACT 5 forbids a meal-planning waiver surviving this story. Deferring
+  #    therefore forces a change to the guard's own rules, which is a worse
+  #    outcome than three documented commands.
+  #
+  #    It is still Akeem's instance and his call. If he defers, the four
+  #    `fo:` rows leave the mint outline and the 1c scenario, the population-B
+  #    scenarios and CONTRACT 0 move with them, and CONTRACT 5 needs an
+  #    explicit temporary meal-planning waiver with the follow-up issue named.
   # ---------------------------------------------------------------------------
 
   # ===========================================================================
@@ -640,8 +760,12 @@ Feature: A meal-planning house property states a predicate its vocabulary define
   # that changes, and one documented thing that does not move on its own.
   # ===========================================================================
 
+  # POPULATION A only — a property that had no term at all. The negative
+  # assertion is the load-bearing one: `unit` must NOT be held, because nothing
+  # about it diverges. Do not read this scenario as a claim about the whole
+  # change; the four `fo:` terms behave the opposite way and are pinned below.
   @wip
-  Scenario: The new terms reach an existing install without the operator doing anything
+  Scenario: A term that never existed before reaches an existing install with no operator action
     Given a WeOS database provisioned by the build before the house properties were termed
     And the operator installs the "meal-planning" preset
     When the twin restarts on the build that terms the house properties
@@ -660,14 +784,15 @@ Feature: A meal-planning house property states a predicate its vocabulary define
     Then reading the "food-item" "Garlic head" back through the projection returns "unit" as "clove"
     And the API read of the "food-item" "Garlic head" returns "unit" as "clove"
 
-  # CONTRACT 3's second half. The edge sibling of the scenario above, asserted
-  # beside it rather than assumed to follow from it, because the reason a
-  # literal survives and the reason an edge survives are not the same reason.
-  # An edge written under `fo:ingredient` is keyed in the stored document by
-  # PROPERTY NAME (#515), so the reverse map never has to resolve the old IRI
-  # and both readers keep working across a term that moved out from under them.
-  # This is the scenario that fails if anyone "fixes" the repair by rewriting
-  # stored edge keys, which nothing in this story should touch.
+  # CONTRACT 3's second half, and population B's whole point. The edge sibling
+  # of the scenario above, asserted beside it rather than assumed to follow
+  # from it, because the reason a literal survives and the reason an edge
+  # survives are not the same reason. Note WHAT it is reading through: the
+  # `ingredient` term is HELD at `fo:ingredient` across this boot (CONTRACT 8),
+  # so this asserts that holding keeps the write working — which is the entire
+  # justification for holding rather than overwriting. It is also the scenario
+  # that fails if anyone "fixes" the repair by rewriting stored edge keys,
+  # which nothing in this story should touch.
   @wip
   Scenario: An edge written under the old ontology term still reads back after the upgrade
     Given a WeOS database provisioned by the build before the house properties were termed
@@ -679,6 +804,86 @@ Feature: A meal-planning house property states a predicate its vocabulary define
     Then reading the "recipe-ingredient" "Two cloves" back through the projection returns "ingredient" as the "ingredient" "Garlic"
     And the API read of the "recipe-ingredient" "Two cloves" returns "ingredient" as the "ingredient" "Garlic"
     And the JSON-LD representation of the "recipe-ingredient" "Two cloves" still carries an "ingredient" edge to the "ingredient" "Garlic"
+
+  # CONTRACT 8, population B. `ingredient` is a PURE population-B type — its
+  # only repairs are the two `fo:` terms — so the boot does nothing to it at
+  # all: `Changed: false`, both terms held at the food-ontology IRIs they were
+  # already stored at. This is the scenario that stops anyone reading "the
+  # upgrade is silent" as "the upgrade is complete". That the hold repeats on
+  # every start is not restated here; `house_vocabulary_domain.feature`'s "The
+  # hold is reported on every boot, not only the first" already pins that
+  # property on this same preset.
+  @wip
+  Scenario Outline: A term moving out of the food ontology is held at its stored definition
+    Given a WeOS database provisioned by the build before the house properties were termed
+    And the operator installs the "meal-planning" preset
+    When the twin restarts on the build that terms the house properties
+    Then the boot reconcile reports the "<term>" context term as held for "<slug>"
+    And the stored "<slug>" context still maps "<term>" to "<stored>"
+
+    Examples:
+      | slug              | term             | stored                                        |
+      | ingredient        | season           | http://purl.org/foodontology#at_its_best      |
+      | ingredient        | shoppingCategory | http://purl.org/foodontology#ShoppingCategory |
+      | recipe            | recipeIngredient | http://purl.org/foodontology#hasIngredient    |
+      | recipe-ingredient | ingredient       | http://purl.org/foodontology#ingredient       |
+
+  # CONTRACT 8's "one type can be both". `recipe-ingredient` carries four
+  # population-A properties and one population-B term, so the boot must merge
+  # and hold in the same pass on the same type. A per-entry refusal that
+  # degraded to per-type would either strand `quantity` and `unit` — silently
+  # reintroducing the drop #510 closed — or overwrite `ingredient` and orphan
+  # its edges. This is #520's "A held prefix does not block an additive change
+  # on the same type", exercised on the real preset rather than a synthetic one.
+  @wip
+  Scenario: A held ontology term does not block the new terms merging on the same type
+    Given a WeOS database provisioned by the build before the house properties were termed
+    And the operator installs the "meal-planning" preset
+    When the twin restarts on the build that terms the house properties
+    Then the boot reconcile reports the "ingredient" context term as held for "recipe-ingredient"
+    And the stored "recipe-ingredient" context maps "quantity" to "https://weos.io/vocab/meal-planning#quantity"
+    And the stored "recipe-ingredient" context maps "unit" to "https://weos.io/vocab/meal-planning#unit"
+    And the stored "recipe-ingredient" context still maps "ingredient" to "http://purl.org/foodontology#ingredient"
+
+  # The other end of the hold: what the operator does about it, and what it
+  # costs. Adoption moves the stored term and records the old IRI as a
+  # historical one, so the edges written under `fo:ingredient` stay readable
+  # while new writes land on the house predicate. The alias is asserted because
+  # it is the mechanism that makes adoption safe — without it this scenario is
+  # indistinguishable from an overwrite that happened to be reprojected in time.
+  # The `held-terms` listing and the class-move reporting are not restated here;
+  # `house_vocabulary_domain.feature` pins both on this preset already.
+  @wip
+  Scenario: Adopting the held term moves new writes without orphaning the old edges
+    Given a WeOS database provisioned by the build before the house properties were termed
+    And the operator installs the "meal-planning" preset
+    And an "ingredient" named "Garlic" exists
+    And a "recipe" named "Tacos" exists
+    And I create a "recipe-ingredient" named "Two cloves" with "ingredient" referring to the "ingredient" "Garlic"
+    And the twin restarts on the build that terms the house properties
+    When the operator adopts the held "ingredient" context term for "meal-planning" "recipe-ingredient"
+    Then the stored "recipe-ingredient" context maps "ingredient" to "https://weos.io/vocab/meal-planning#ingredient"
+    And the stored "recipe-ingredient" context records "http://purl.org/foodontology#ingredient" as a historical IRI for "ingredient"
+    And the JSON-LD representation of the "recipe-ingredient" "Two cloves" still carries an "ingredient" edge to the "ingredient" "Garlic"
+    When I create a "recipe-ingredient" named "Four cloves" with "ingredient" referring to the "ingredient" "Garlic"
+    Then the triple store holds "https://weos.io/vocab/meal-planning#ingredient" from the "recipe-ingredient" "Four cloves" to the "ingredient" "Garlic"
+    And reading the "recipe-ingredient" "Two cloves" back through the projection returns "ingredient" as the "ingredient" "Garlic"
+
+  # The boot has to go quiet once the operator has done the work, or the report
+  # is noise that trains people to ignore it. Asserted on `ingredient` because
+  # it is pure population B: after adopting both terms there is nothing left for
+  # the boot to hold on that type, so a lingering report can only be a bug.
+  @wip
+  Scenario: The boot stops reporting the type once its ontology terms are adopted
+    Given a WeOS database provisioned by the build before the house properties were termed
+    And the operator installs the "meal-planning" preset
+    And the twin restarts on the build that terms the house properties
+    When the operator adopts every held context term for "meal-planning" "ingredient"
+    And the twin restarts on the build that terms the house properties again
+    Then the boot reconcile does not report the "season" context term as held for "ingredient"
+    And the boot reconcile does not report the "shoppingCategory" context term as held for "ingredient"
+    And the boot reconcile records no failure for "ingredient"
+    And the "ingredient" type resolves the property "season" to "https://weos.io/vocab/meal-planning#season"
 
   # CONTRACT 8 and 8a, asserted rather than left to be discovered, and in one
   # scenario because neither half is safe to read without the other. The
@@ -713,10 +918,30 @@ Feature: A meal-planning house property states a predicate its vocabulary define
     And the operator reprojects the event feed
     Then the stored document states "https://weos.io/vocab/meal-planning#unit" from the "food-item" "Garlic head" with the value "clove"
     And the stored document states no statement under "https://schema.org/unit" about the "food-item" "Garlic head"
-    And the triple store holds "https://weos.io/vocab/meal-planning#unit" from the "food-item" "Garlic head" with the value "clove"
-    But the triple store still holds "https://schema.org/unit" from the "food-item" "Garlic head" with the value "clove"
-    When the operator truncates the graph store and rebuilds it
-    Then the triple store holds no statement under "https://schema.org/unit" about the "food-item" "Garlic head"
+    # WHAT IS DELIBERATELY NOT ASSERTED HERE, and it is not because it does not
+    # happen. The lingering Oxigraph row is real: the triple projection is
+    # upsert-only, so after a re-stamp and a reproject the row under
+    # `https://schema.org/unit` survives beside the house one, and only
+    # `weos worker checkpoint reset oxigraph --truncate` clears it. That is why
+    # CONTRACT 8b's runbook ends there.
+    #
+    # It cannot be asserted in THIS gate, for two reasons found by running it.
+    # First, `config.Default()` sets no `OXIGRAPH_URL` and no `Oxigraph.Path`,
+    # so the knowledge-graph store is the nop store and
+    # `ProvideOxigraphGroup` returns no group — there is no store to truncate
+    # and no row to observe. Second, and decisively, this world has no third
+    # surface to observe it ON: `the triple store holds … with the value …` and
+    # `the stored document states … with the value …` are bound to the SAME
+    # function (`documentStatesLiteral`), because literals never reach the
+    # triples table and the stored document is the honest surface. Asserting the
+    # lingering row in this world would assert the exact opposite of the line
+    # above it, about one surface.
+    #
+    # `house_vocabulary_domain.feature` CONTRACT 6a met this same wall and
+    # settled it the same way — the truncate-and-rebuild stays in prose and the
+    # gate asserts only what it can see. This story did not change that
+    # mechanism and should not grow a second gate to restate it. Follow that
+    # precedent if you are tempted to promote these lines into steps.
 
   @wip
   Scenario: A value written after the upgrade lands on the house predicate
