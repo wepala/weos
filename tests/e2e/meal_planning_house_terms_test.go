@@ -283,7 +283,7 @@ func (w *vocabWorld) noTermForAnotherSubject(preset string) error {
 // vocabularyWaiverListIsEmpty is the assertion that makes the sweep above mean
 // anything: a violation set equal to a NON-empty waiver map is the exact state
 // #537 exists to leave behind, and both halves read green without this one.
-func (w *vocabWorld) vocabularyWaiverListIsEmpty() error {
+func (*vocabWorld) vocabularyWaiverListIsEmpty() error {
 	waived := presets.VocabularyWaivers()
 	if len(waived) == 0 {
 		return nil
