@@ -6,6 +6,7 @@ import (
 	"io/fs"
 
 	"github.com/wepala/weos/v3/application"
+	"github.com/wepala/weos/v3/pkg/jsonld"
 )
 
 //go:embed screens/dist/*
@@ -24,7 +25,8 @@ func Register(registry *application.PresetRegistry) {
 		Types: []application.PresetResourceType{
 			application.NewPresetType("Project", "project",
 				"A project that groups related tasks",
-				`{"@vocab":"https://schema.org/","@type":"Project"}`,
+				`{"@vocab":"https://schema.org/","@type":"Project",`+
+					`"task":"`+jsonld.TasksVocab+`","status":"task:status"}`,
 				`{"type":"object","properties":{`+
 					`"name":{"type":"string"},`+
 					`"description":{"type":"string"},`+
@@ -33,7 +35,14 @@ func Register(registry *application.PresetRegistry) {
 			),
 			application.NewPresetType("Task", "task",
 				"An actionable item with status, priority, and optional due date",
-				`{"@vocab":"https://schema.org/","@type":"Action","project":"https://schema.org/isPartOf"}`,
+				`{"@vocab":"https://schema.org/","@type":"Action","project":"https://schema.org/isPartOf",`+
+					`"task":"`+jsonld.TasksVocab+`",`+
+					// One predicate for one concept, declared on both types:
+					// schema:status is the status of a medical study, and
+					// schema:actionStatus is a closed four-member enumeration
+					// while WeOS stores a free-form string.
+					`"status":"task:status","priority":"task:priority",`+
+					`"dueDate":"task:dueDate"}`,
 				`{"type":"object","properties":{`+
 					`"name":{"type":"string"},`+
 					`"description":{"type":"string"},`+

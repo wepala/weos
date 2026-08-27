@@ -486,3 +486,182 @@ func TestPresets_AContextStoredAsABareStringIsStillJudged(t *testing.T) {
 		}
 	}
 }
+
+// TestPresets_TheRepairedWaivedPredicates pins the 23 IRIs #537 settled, and
+// the names on those same types that deliberately did NOT move. The second
+// group is the one that fails if the fix over-corrects: dragging a genuine
+// published name into the house vocabulary breaks no read, so nothing else in
+// the suite would notice. `web-page-element` is the sharpest case — `content`
+// moves to schema:text while `cssSelector` stays, on one type.
+func TestPresets_TheRepairedWaivedPredicates(t *testing.T) {
+	const (
+		schema = "https://schema.org/"
+		skos   = "http://www.w3.org/2004/02/skos/core#"
+		dct    = "http://purl.org/dc/terms/"
+		coreV  = "https://weos.io/vocab/core#"
+		notifV = "https://weos.io/vocab/notifications#"
+		taskV  = "https://weos.io/vocab/tasks#"
+		webV   = "https://weos.io/vocab/website#"
+	)
+	want := map[string]map[string]string{
+		// ---- core: two renames-by-term and one mint ----
+		"person": {
+			// An avatar IS an image of the person, and the stored value is a
+			// URL — one of schema:image's published ranges.
+			"avatarURL": schema + "image",
+			// Must not move.
+			"givenName": schema + "givenName", "familyName": schema + "familyName",
+			"name": schema + "name", "email": schema + "email",
+		},
+		"organization": {
+			// Organization is in schema:logo's own domainIncludes.
+			"logoURL": schema + "logo",
+			// A slug is a routing segment; schema:identifier would claim it is
+			// THE identifier, competing with the urn:<typeSlug>:<ksuid> every
+			// resource already has.
+			"slug": coreV + "slug",
+			// Must not move.
+			"name": schema + "name", "description": schema + "description", "url": schema + "url",
+		},
+		// ---- knowledge: published Dublin Core, no house mint ----
+		"concept-scheme": {"title": dct + "title", "description": dct + "description"},
+		// The SKOS names that stay, and the evidence that the pair above is a
+		// real fault rather than SKOS being the wrong @vocab.
+		"concept":    {"prefLabel": skos + "prefLabel", "altLabel": skos + "altLabel", "definition": skos + "definition"},
+		"collection": {"prefLabel": skos + "prefLabel", "member": skos + "member"},
+		// ---- notifications: two renames-by-term and seven mints ----
+		"notification": {
+			// Message IS a CreativeWork, so both are the published terms for
+			// exactly this. schema:title is published for JobPosting.
+			"title": schema + "name", "body": schema + "text",
+			"kind": notifV + "kind", "actionUrl": notifV + "actionUrl",
+			"actionLabel": notifV + "actionLabel", "taskRef": notifV + "taskRef",
+			"occurredAt": notifV + "occurredAt", "read": notifV + "read",
+			"dedupeKey": notifV + "dedupeKey",
+			// Must not move: schema:recipient IS published for Message.
+			"recipient": schema + "recipient",
+		},
+		// ---- tasks: two mints and one subject misuse on two types ----
+		"task": {
+			"dueDate": taskV + "dueDate", "priority": taskV + "priority",
+			"status": taskV + "status",
+			// Must not move; the only reference property in the five presets.
+			"project": schema + "isPartOf",
+			"name":    schema + "name", "description": schema + "description",
+		},
+		"project": {
+			"status": taskV + "status",
+			"name":   schema + "name", "description": schema + "description",
+		},
+		// ---- website: four mints and one rename-by-term ----
+		"web-page": {
+			"slug": webV + "slug", "template": webV + "template",
+			"name": schema + "name", "description": schema + "description",
+		},
+		"web-page-element": {
+			// WebPageElement is a CreativeWork and this holds the block's text.
+			"content": schema + "text",
+			// THE ROW THIS TEST EXISTS FOR. schema.org's domainIncludes for
+			// cssSelector is literally WebPageElement, and it sits on the same
+			// type as `content`, which does move.
+			"cssSelector": schema + "cssSelector",
+			"name":        schema + "name",
+		},
+		"web-page-template": {
+			// A template body is markup carrying data-weos-* annotations, not
+			// the work's textual content — so NOT schema:text, which `content`
+			// above takes.
+			"templateBody": webV + "templateBody", "slots": webV + "slots",
+			"name": schema + "name",
+		},
+		// The rest of the website names a careless sweep would take on its way
+		// past — whole types that have no repair on them at all.
+		"web-site": {
+			"name": schema + "name", "url": schema + "url",
+			"description": schema + "description", "inLanguage": schema + "inLanguage",
+		},
+		"theme": {"name": schema + "name", "version": schema + "version", "thumbnailUrl": schema + "thumbnailUrl"},
+		"article": {
+			"headline": schema + "headline", "articleBody": schema + "articleBody",
+			"author": schema + "author", "datePublished": schema + "datePublished",
+		},
+		"blog-post": {
+			"headline": schema + "headline", "articleBody": schema + "articleBody",
+			"author": schema + "author", "datePublished": schema + "datePublished",
+		},
+		"faq":             {"name": schema + "name", "mainEntity": schema + "mainEntity"},
+		"breadcrumb-list": {"name": schema + "name", "itemListElement": schema + "itemListElement"},
+	}
+	bySlug := map[string]application.PresetResourceType{}
+	for _, preset := range presets.NewDefaultRegistry().List() {
+		for _, pt := range preset.Types {
+			bySlug[pt.Slug] = pt
+		}
+	}
+	slugs := make([]string, 0, len(want))
+	for slug := range want {
+		slugs = append(slugs, slug)
+	}
+	sort.Strings(slugs)
+	for _, slug := range slugs {
+		pt, ok := bySlug[slug]
+		if !ok {
+			t.Errorf("type %q is missing from the registry", slug)
+			continue
+		}
+		declared := declaredProperties(t, pt)
+		props := make([]string, 0, len(want[slug]))
+		for prop := range want[slug] {
+			props = append(props, prop)
+		}
+		sort.Strings(props)
+		for _, prop := range props {
+			// Check the property still EXISTS before checking where it points.
+			// ResolvedPredicateFor resolves any name at all through `@vocab`,
+			// so without this every untermed row here would pass identically
+			// against a type whose schema had been emptied.
+			if !declared[prop] {
+				t.Errorf("%s no longer declares %q; the pin below cannot protect a property that is gone", slug, prop)
+				continue
+			}
+			if got := presets.ResolvedPredicateFor(pt, prop); got != want[slug][prop] {
+				t.Errorf("%s.%s resolves to %s, want %s", slug, prop, got, want[slug][prop])
+			}
+		}
+	}
+}
+
+// TestPresets_TheGuardPolicesDublinCore proves the namespace #537 added is
+// actually policed, rather than being a claim about a map literal.
+//
+// This is the control for the silent pass the repair would otherwise be. The
+// guard ignores any namespace absent from policedVocabularies, so had dcterms
+// been left out, concept-scheme's `title` and `description` would produce no
+// violation and no report — indistinguishable from a repair. If somebody edits
+// the namespace string, this test reddens and the sweep does not.
+func TestPresets_TheGuardPolicesDublinCore(t *testing.T) {
+	probe := application.PresetResourceType{
+		Slug:    "dct-probe",
+		Context: json.RawMessage(`{"@vocab":"http://purl.org/dc/terms/"}`),
+		Schema:  json.RawMessage(`{"type":"object","properties":{"notADublinCoreTerm":{"type":"string"}}}`),
+	}
+	got := presets.PublishedVocabularyViolations([]application.PresetResourceType{probe})
+	if len(got) != 1 {
+		t.Fatalf("want exactly one violation, got %d: %v", len(got), got)
+	}
+	if got[0].Fault != presets.FaultUndefinedTerm {
+		t.Errorf("fault is %q, want %q", got[0].Fault, presets.FaultUndefinedTerm)
+	}
+	if got[0].PredicateIRI != "http://purl.org/dc/terms/notADublinCoreTerm" {
+		t.Errorf("predicate is %s, want the dcterms IRI", got[0].PredicateIRI)
+	}
+	// And the two names the repair actually uses are accepted.
+	ok := application.PresetResourceType{
+		Slug:    "dct-ok",
+		Context: json.RawMessage(`{"@vocab":"http://purl.org/dc/terms/"}`),
+		Schema:  json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"},"description":{"type":"string"}}}`),
+	}
+	if v := presets.PublishedVocabularyViolations([]application.PresetResourceType{ok}); len(v) != 0 {
+		t.Errorf("dcterms title/description should be allow-listed, got %v", v)
+	}
+}

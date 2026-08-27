@@ -1,7 +1,10 @@
 // Package website provides resource types for website structure and content.
 package website
 
-import "github.com/wepala/weos/v3/application"
+import (
+	"github.com/wepala/weos/v3/application"
+	"github.com/wepala/weos/v3/pkg/jsonld"
+)
 
 // Register adds the website preset to the registry.
 func Register(registry *application.PresetRegistry) {
@@ -17,19 +20,24 @@ func Register(registry *application.PresetRegistry) {
 			),
 			application.NewPresetType("Web Page", "web-page",
 				"Individual page with name, slug, description, and template reference",
-				`{"@vocab":"https://schema.org/","@type":"WebPage"}`,
+				`{"@vocab":"https://schema.org/","@type":"WebPage",`+
+					`"web":"`+jsonld.WebsiteVocab+`",`+
+					`"slug":"web:slug","template":"web:template"}`,
 				`{"type":"object","properties":{"name":{"type":"string"},"slug":{"type":"string"},`+
 					`"description":{"type":"string"},"template":{"type":"string"}},"required":["name"]}`,
 			),
 			application.NewPresetType("Web Page Element", "web-page-element",
 				"Content section or block within a page",
-				`{"@vocab":"https://schema.org/","@type":"WebPageElement"}`,
+				`{"@vocab":"https://schema.org/","@type":"WebPageElement",`+
+					`"content":"https://schema.org/text"}`,
 				`{"type":"object","properties":{"name":{"type":"string"},"cssSelector":{"type":"string"},`+
 					`"content":{"type":"string"}},"required":["name"]}`,
 			),
 			application.NewPresetType("Web Page Template", "web-page-template",
 				"HTML page template defining layout and slots",
-				`{"@vocab":"https://schema.org/","@type":"WebPage","variant":"template"}`,
+				`{"@vocab":"https://schema.org/","@type":"WebPage","variant":"template",`+
+					`"web":"`+jsonld.WebsiteVocab+`",`+
+					`"templateBody":"web:templateBody","slots":"web:slots"}`,
 				`{"type":"object","properties":{"name":{"type":"string"},"templateBody":{"type":"string"},`+
 					`"slots":{"type":"array","items":{"type":"string"}}},"required":["name"]}`,
 			),

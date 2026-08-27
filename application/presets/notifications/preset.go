@@ -20,7 +20,10 @@
 // every weos service gets, so the type is created at startup with no opt-in.
 package notifications
 
-import "github.com/wepala/weos/v3/application"
+import (
+	"github.com/wepala/weos/v3/application"
+	"github.com/wepala/weos/v3/pkg/jsonld"
+)
 
 // Slug is the resource type slug for a notification, aliasing the canonical
 // value the application package owns (avoids drift between the type this preset
@@ -41,7 +44,18 @@ func Register(registry *application.PresetRegistry) {
 				// schema:Message is the closest ontology fit for an inbox item.
 				// No x-resource-type properties: taskRef stays a plain string so
 				// the store never couples to any particular consumer's types.
-				`{"@vocab":"https://schema.org/","@type":"Message"}`,
+				`{"@vocab":"https://schema.org/","@type":"Message",`+
+					`"notif":"`+jsonld.NotificationsVocab+`",`+
+					// title and body are the notification's label and textual
+					// content. Message IS a CreativeWork, so schema:name and
+					// schema:text are the published terms for exactly this;
+					// schema:title is published for JobPosting.
+					`"title":"https://schema.org/name","body":"https://schema.org/text",`+
+					// The rest are house concepts schema.org never named.
+					`"kind":"notif:kind","actionUrl":"notif:actionUrl",`+
+					`"actionLabel":"notif:actionLabel","taskRef":"notif:taskRef",`+
+					`"occurredAt":"notif:occurredAt","read":"notif:read",`+
+					`"dedupeKey":"notif:dedupeKey"}`,
 				`{
 					"type": "object",
 					"properties": {

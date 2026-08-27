@@ -29,4 +29,15 @@ const (
 	MealPlanningVocab = HouseVocabBase + "meal-planning#"
 	MemoryVocab       = HouseVocabBase + "memory#"
 	AgentsVocab       = HouseVocabBase + "agents#"
+
+	// Issue #537 retired the waived predicates in four more presets. Each
+	// namespace segment is the preset's own name, matching the three above.
+	//
+	// There is deliberately no KnowledgeVocab. Both of that preset's repairs
+	// are published Dublin Core terms, so it mints nothing — a fifth constant
+	// here would have nothing to point at it.
+	CoreVocab          = HouseVocabBase + "core#"
+	NotificationsVocab = HouseVocabBase + "notifications#"
+	TasksVocab         = HouseVocabBase + "tasks#"
+	WebsiteVocab       = HouseVocabBase + "website#"
 )
