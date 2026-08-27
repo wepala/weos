@@ -83,54 +83,59 @@ func TestPresets_NoPropertyClaimsAPublishedTermForAnotherSubject(t *testing.T) {
 func assertViolationsEqualWaivers(t *testing.T, fault presets.VocabularyFault) {
 	t.Helper()
 	waivers := presets.VocabularyWaivers()
-	seen := map[string]bool{}
+	mealPlanning := mealPlanningSlugs()
 	for _, v := range presets.PublishedVocabularyViolations(allBuiltInTypes(t)) {
 		if v.Fault != fault {
 			continue
 		}
-		seen[v.Key()] = true
 		if _, waived := waivers[v.Key()]; !waived {
 			// Name the property and the IRI on its own line. A bare count
 			// tells whoever broke it nothing about what to fix.
 			t.Errorf("unwaived violation: %s", v)
 		}
-		if isMealPlanningSlug(v.Slug) {
+		if mealPlanning[v.Slug] {
 			t.Errorf("#535 repaired meal-planning; %s must not be waived or violating", v)
 		}
 	}
-	// The other direction: a waiver whose violation is gone is a line that
-	// should have been deleted with the repair.
-	for key := range waivers {
-		if !seen[key] && waiverFault(t, key) == fault {
+}
+
+// TestPresets_NoWaiverOutlivesItsViolation is the other half of the equality,
+// and it is a separate test because folding it into the two fault-specific
+// sweeps made it DEAD CODE: a waiver naming nothing at all exhibits no fault,
+// so it matched neither sweep's filter and was silently tolerated. The list
+// could then only grow. Proved by adding a waiver for a property that does not
+// exist and watching the suite stay green.
+//
+// A waiver that outlives its violation is not harmless. Every entry is a
+// standing permission for one property to state a predicate its vocabulary
+// does not define, and a stale one silently re-permits that name the moment
+// somebody reuses it.
+func TestPresets_NoWaiverOutlivesItsViolation(t *testing.T) {
+	violations := map[string]bool{}
+	for _, v := range presets.PublishedVocabularyViolations(allBuiltInTypes(t)) {
+		violations[v.Key()] = true
+	}
+	for key := range presets.VocabularyWaivers() {
+		if !violations[key] {
 			t.Errorf("stale waiver %q: nothing violates any more, so delete the line", key)
 		}
 	}
 }
 
-// waiverFault reports which fault a waived key currently exhibits, so the
-// stale-waiver check in one fault's test does not fire on the other's entries.
-func waiverFault(t *testing.T, key string) presets.VocabularyFault {
-	t.Helper()
-	for _, v := range presets.PublishedVocabularyViolations(allBuiltInTypes(t)) {
-		if v.Key() == key {
-			return v.Fault
-		}
-	}
-	return ""
-}
-
-func isMealPlanningSlug(slug string) bool {
+// mealPlanningSlugs is computed once per call rather than per violation; the
+// registry is rebuilt from scratch on every List() and the sweep asks this
+// question for every entry it reports.
+func mealPlanningSlugs() map[string]bool {
+	out := map[string]bool{}
 	for _, preset := range presets.NewDefaultRegistry().List() {
 		if preset.Name != "meal-planning" {
 			continue
 		}
 		for _, pt := range preset.Types {
-			if pt.Slug == slug {
-				return true
-			}
+			out[pt.Slug] = true
 		}
 	}
-	return false
+	return out
 }
 
 // TestPresets_EveryAllowListedTermIsStillUsed keeps the curated list honest.
