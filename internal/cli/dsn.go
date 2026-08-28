@@ -33,7 +33,7 @@ import (
 // Shared by every such command rather than copied into each, so they cannot
 // drift into disagreeing about when it is safe to guess.
 func requireExplicitDSN(command string) error {
-	if os.Getenv("DATABASE_DSN") != "" || databaseDSN != "" {
+	if os.Getenv("DATABASE_DSN") != "" || databaseDSN != "" { //nolint:forbidigo // presence check, before config is built
 		return nil
 	}
 	return fmt.Errorf(

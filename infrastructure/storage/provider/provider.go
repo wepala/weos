@@ -50,7 +50,7 @@ func ProvideFileService(params struct {
 
 	// Eagerly create the local upload directory at startup so missing-path
 	// errors surface immediately rather than on the first upload request.
-	if err := os.MkdirAll(cfg.LocalPath, 0o755); err != nil {
+	if err := os.MkdirAll(cfg.LocalPath, 0o750); err != nil {
 		return nil, fmt.Errorf("cannot create local storage path %q: %w", cfg.LocalPath, err)
 	}
 

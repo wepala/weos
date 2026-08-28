@@ -16,6 +16,7 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -1349,7 +1350,7 @@ func (w *vocabWorld) onlyTheseFourEventTypesRewritten(a, b, c, d string) error {
 	}
 	allowed := map[string]bool{a: true, b: true, c: true, d: true}
 	for i := range before {
-		if i >= len(after) || string(before[i].Payload) == string(after[i].Payload) {
+		if i >= len(after) || bytes.Equal(before[i].Payload, after[i].Payload) {
 			continue
 		}
 		if t := after[i].EventType; !allowed[t] {

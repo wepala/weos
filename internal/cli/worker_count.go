@@ -121,6 +121,7 @@ func runWorkerCountIRIEdgeKeys(cmd *cobra.Command, _ []string) error {
 		stopCtx, stopCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
 		_ = app.Stop(stopCtx)
 		stopCancel()
+		//nolint:gocritic // exitAfterDefer: the deferred Stop is run explicitly above.
 		os.Exit(2)
 	case application.VerdictInconclusive:
 		// Exits 1 through cobra; the deferred Stop runs on the way out.

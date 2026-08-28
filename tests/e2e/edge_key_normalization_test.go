@@ -16,6 +16,7 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -691,7 +692,7 @@ func (w *contextWorld) storedEventsUnchanged() error {
 		return fmt.Errorf("the feed held %d events before the run and %d after", len(before), len(after))
 	}
 	for i := range before {
-		if before[i].ID != after[i].ID || string(before[i].Payload) != string(after[i].Payload) {
+		if before[i].ID != after[i].ID || !bytes.Equal(before[i].Payload, after[i].Payload) {
 			return fmt.Errorf("event %s (%s) changed across the run:\n before %s\n after  %s",
 				before[i].ID, before[i].EventType, before[i].Payload, after[i].Payload)
 		}
@@ -740,7 +741,7 @@ func (w *contextWorld) onlyTheseEventTypesRewritten(first, second string) error 
 		return err
 	}
 	for i := range before {
-		if i >= len(after) || string(before[i].Payload) == string(after[i].Payload) {
+		if i >= len(after) || bytes.Equal(before[i].Payload, after[i].Payload) {
 			continue
 		}
 		if t := after[i].EventType; t != first && t != second {

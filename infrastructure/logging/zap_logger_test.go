@@ -80,8 +80,10 @@ func TestZapLogger_KvFieldsParsed(t *testing.T) {
 // LOG_LEVEL=ERROR falling through to info, which is the bug this mapping
 // exists to remove.
 func TestZapLevelForIsCaseInsensitive(t *testing.T) {
+	// The padded " Debug " key is deliberate: it proves the mapping trims
+	// whitespace as well as folding case.
 	cases := map[string]zapcore.Level{
-		"debug": zapcore.DebugLevel, "DEBUG": zapcore.DebugLevel, " Debug ": zapcore.DebugLevel,
+		"debug": zapcore.DebugLevel, "DEBUG": zapcore.DebugLevel, " Debug ": zapcore.DebugLevel, //nolint:gocritic // mapKey: the padding is the input under test
 		"warn": zapcore.WarnLevel, "WARN": zapcore.WarnLevel, "Warning": zapcore.WarnLevel,
 		"error": zapcore.ErrorLevel, "ERROR": zapcore.ErrorLevel, "Error": zapcore.ErrorLevel,
 		"fatal": zapcore.FatalLevel, "panic": zapcore.PanicLevel,

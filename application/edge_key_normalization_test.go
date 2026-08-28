@@ -16,6 +16,7 @@
 package application
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -122,7 +123,7 @@ func TestNormalizeEdgeKeys_RewritesAndEmbedsTheStorableContext(t *testing.T) {
 		}
 	}
 	entityAfter, _ := json.Marshal(doc["@graph"].([]any)[0])
-	if string(entityBefore) != string(entityAfter) {
+	if !bytes.Equal(entityBefore, entityAfter) {
 		t.Errorf("entity node changed: %s -> %s", entityBefore, entityAfter)
 	}
 	ctx, _ := doc["@context"].(map[string]any)
@@ -180,7 +181,7 @@ func TestNormalizeEdgeKeys_IsANoOpOnCompactDocuments(t *testing.T) {
 	before, _ := json.Marshal(doc)
 	changed, problems, _ := normalizeEdgeKeys(doc, r)
 	after, _ := json.Marshal(doc)
-	if changed || len(problems) != 0 || string(before) != string(after) {
+	if changed || len(problems) != 0 || !bytes.Equal(before, after) {
 		t.Errorf("compact document was touched: changed=%v problems=%v\n%s\n%s", changed, problems, before, after)
 	}
 	if changed, _, _ := normalizeEdgeKeys(decodeDoc(t, `{"@graph":[{"@id":"urn:widget:1"}]}`), r); changed {

@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+**Read [`constitution.md`](constitution.md) first.** It states the non-negotiable rules for this service. Where this file conflicts with an article of the constitution, the article wins.
+
 ## Project Overview
 
 **WeOS** is an open source Go application for building a **digital twin** — of yourself or your business — that gives any LLM context-rich access to the information from the apps and devices you use. WeOS stores that information as a knowledge graph and exposes an MCP server so any MCP-compatible LLM (Claude, GPT, Gemini, Ollama) can query it. WeOS is MCP-first by default; optional built-in agent integrations (e.g. Google ADK/Gemini) are available when configured.
@@ -22,7 +24,7 @@ See `.claude/local-context.md` for full product vision, user personas, and busin
 - **Dual license** — AGPL 3.0 (open source) + commercial license via WeOS Cloud
 
 ### Technology Stack
-- Go 1.24
+- Go 1.25 (see `go.mod` for the exact patch version)
 - Event Sourcing / CQRS (pericarp library: BaseEntity, EventDispatcher, UnitOfWork, EventStore)
 - Uber Fx for dependency injection
 - GORM for database (auto-detects PostgreSQL/SQLite from DSN)
@@ -64,12 +66,23 @@ make clean              # Remove build artifacts
 
 ## Linting Constraints
 
-golangci-lint is configured with strict rules (`.golangci.yml`):
-- **Line length:** 120 characters max
-- **Function length:** 100 lines / 50 statements max
-- **Cyclomatic complexity:** 15 max
-- **Duplicate threshold:** 100 tokens
-- These limits are relaxed in `_test.go` files (errcheck, dupl, funlen, gocognit excluded)
+golangci-lint (`.golangci.yml`, schema v2, 5m timeout) runs two formatters and ten linters:
+
+- **Formatters:** `gofmt`, `goimports`
+- **Correctness:** `errcheck`, `govet`, `ineffassign`, `staticcheck`, `unused`, `misspell` (US locale)
+- **Security:** `gosec`
+- **Diagnostics/performance:** `gocritic` (tags `diagnostic` + `performance`; `hugeParam` and
+  `rangeValCopy` disabled — they contradict Fx `fx.In` by-value injection and Article III)
+- **Architecture:** `depguard` bans outward imports from `domain/` (Article II);
+  `forbidigo` bans `os.Getenv`/`os.LookupEnv` outside `internal/config` (Article III)
+
+**Relaxations:** `errcheck`, `gosec`, and `forbidigo` are excluded in `_test.go` files.
+`forbidigo` is also excluded inside `internal/config/`.
+
+There are no line-length, function-length, cyclomatic-complexity, or duplication
+linters enabled. The CI linter version is pinned to `v2.11.3` — bump it deliberately.
+Run `make lint` before opening a pull request. See Article VII of
+[`constitution.md`](constitution.md).
 
 ## Architecture Overview
 
