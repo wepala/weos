@@ -42,8 +42,9 @@ rule in `.golangci.yml`. An import of `api/`, `application/`, or
 
 Two waivers exist. `domain/repositories/role_settings_repository.go` and
 `role_resource_access_repository.go` still name the GORM persistence model in
-their interfaces. Clearing them needs a domain-owned type plus a mapping in the
-gorm layer, which is an architectural change and wants its own ADR.
+their interfaces. Clearing them needs domain-typed accessors plus the JSON
+encoding moved into the gorm layer, which is an architectural change and wants
+its own ADR. Tracked in issue #545.
 
 ---
 

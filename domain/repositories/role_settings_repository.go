@@ -20,8 +20,8 @@ import (
 
 	// Article II debt: this interface still names the GORM persistence model.
 	// Fixing it means a domain-owned type plus a mapping in the gorm layer.
-	// Tracked separately; no new domain code may import infrastructure.
-	//nolint:depguard // pre-existing Article II violation, see note above
+	// Tracked in #545; no new domain code may import infrastructure.
+	//nolint:depguard // pre-existing Article II violation, see #545
 	"github.com/wepala/weos/v3/infrastructure/models"
 )
 
