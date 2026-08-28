@@ -49,7 +49,7 @@ func New(basePath, baseURL string, logger entities.Logger) services.FileService 
 func (s *localFileService) Upload(
 	ctx context.Context, params services.UploadParams, reader io.Reader,
 ) (*services.UploadResult, error) {
-	if err := os.MkdirAll(s.basePath, 0o755); err != nil {
+	if err := os.MkdirAll(s.basePath, 0o750); err != nil {
 		return nil, fmt.Errorf("create upload directory: %w", err)
 	}
 
@@ -64,7 +64,9 @@ func (s *localFileService) Upload(
 	diskName := id + "-" + safeName
 	fullPath := filepath.Join(s.basePath, diskName)
 
-	f, err := os.Create(fullPath)
+	// G304: fullPath is basePath joined with a validated ID and a sanitized
+	// filename, so it cannot escape the upload directory.
+	f, err := os.Create(fullPath) //nolint:gosec // path is validated above
 	if err != nil {
 		return nil, fmt.Errorf("create file: %w", err)
 	}

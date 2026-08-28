@@ -84,7 +84,9 @@ type scriptedModel struct {
 
 // NewScriptedModel loads a script file into a deterministic model.
 func NewScriptedModel(path string) (model.LLM, error) {
-	raw, err := os.ReadFile(path)
+	// G304: the script path comes from the operator's own WEOS_AGENT_SCRIPT,
+	// not from a request, and the scripted model is a test/dev fixture.
+	raw, err := os.ReadFile(path) //nolint:gosec // operator-supplied path
 	if err != nil {
 		return nil, fmt.Errorf("read agent script: %w", err)
 	}

@@ -758,20 +758,21 @@ func (pm *projectionManager) baseColumnDefs() []columnDef {
 func (pm *projectionManager) createTableIfNotExists(ctx context.Context, tableName string, columns []columnDef) error {
 	dialect := pm.db.Name()
 
-	var colDefs []string
-	colDefs = append(colDefs, "id TEXT PRIMARY KEY")
-	colDefs = append(colDefs, "type_slug TEXT NOT NULL")
-	colDefs = append(colDefs, "status TEXT NOT NULL DEFAULT 'active'")
-	colDefs = append(colDefs, "created_by TEXT")
-	colDefs = append(colDefs, "account_id TEXT")
-	colDefs = append(colDefs, "sequence_no INTEGER")
+	colDefs := []string{
+		"id TEXT PRIMARY KEY",
+		"type_slug TEXT NOT NULL",
+		"status TEXT NOT NULL DEFAULT 'active'",
+		"created_by TEXT",
+		"account_id TEXT",
+		"sequence_no INTEGER",
+	}
 
 	if dialect == "postgres" {
-		colDefs = append(colDefs, "created_at TIMESTAMP WITH TIME ZONE")
-		colDefs = append(colDefs, "updated_at TIMESTAMP WITH TIME ZONE")
+		colDefs = append(colDefs,
+			"created_at TIMESTAMP WITH TIME ZONE",
+			"updated_at TIMESTAMP WITH TIME ZONE")
 	} else {
-		colDefs = append(colDefs, "created_at DATETIME")
-		colDefs = append(colDefs, "updated_at DATETIME")
+		colDefs = append(colDefs, "created_at DATETIME", "updated_at DATETIME")
 	}
 
 	for _, col := range columns {

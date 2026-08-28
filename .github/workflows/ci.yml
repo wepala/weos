@@ -155,6 +155,9 @@ jobs:
           go-version: '1.25'
 
       - name: Run linter
+        # Pinned, not `latest`. The linter set now includes gocritic, gosec,
+        # depguard and forbidigo; a floating version turns CI red on a new
+        # check with no code change. Bump this deliberately.
         uses: golangci/golangci-lint-action@v7
         with:
-          version: latest
+          version: v2.11.3

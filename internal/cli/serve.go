@@ -687,7 +687,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 func loadServeConfig() config.Config {
 	appCfg := cfg.Config
-	if portStr := os.Getenv("PORT"); portStr != "" {
+	if portStr := os.Getenv("PORT"); portStr != "" { //nolint:forbidigo // late PORT override for PaaS entrypoints
 		if port, err := strconv.Atoi(portStr); err == nil && port > 0 {
 			appCfg.Server.Port = port
 		}
@@ -698,7 +698,7 @@ func loadServeConfig() config.Config {
 	// the only place the var is honored — short-lived CLI commands never start
 	// workers regardless of the environment.
 	appCfg.Worker.RunInProcess = true
-	if v := os.Getenv("WORKER_RUN_IN_PROCESS"); v != "" {
+	if v := os.Getenv("WORKER_RUN_IN_PROCESS"); v != "" { //nolint:forbidigo // serve-only worker toggle, see comment above
 		if b, err := strconv.ParseBool(v); err == nil {
 			appCfg.Worker.RunInProcess = b
 		}

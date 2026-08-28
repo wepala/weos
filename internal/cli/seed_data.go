@@ -58,7 +58,7 @@ func writeSeedManifest(manifest seedManifest) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal seed manifest: %w", err)
 	}
-	if err := os.WriteFile(seedManifestPath, data, 0644); err != nil {
+	if err := os.WriteFile(seedManifestPath, data, 0o600); err != nil {
 		return fmt.Errorf("failed to write seed manifest: %w", err)
 	}
 	return nil

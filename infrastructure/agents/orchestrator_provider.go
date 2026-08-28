@@ -56,7 +56,7 @@ func ProvideOrchestrator(cfg config.Config, logger entities.Logger) (*appagents.
 	// behavior). Postgres has no single-writer limit, so this only matters
 	// for SQLite deployments.
 	sessionDSN := cfg.DatabaseDSN
-	if v := os.Getenv("AGENT_SESSION_DSN"); v != "" {
+	if v := os.Getenv("AGENT_SESSION_DSN"); v != "" { //nolint:forbidigo // SQLite-only session split, see comment above
 		sessionDSN = v
 	}
 	sessions, err := database.NewSessionService(gormdb.DialectorForDSN(sessionDSN))
@@ -74,7 +74,7 @@ func ProvideOrchestrator(cfg config.Config, logger entities.Logger) (*appagents.
 // WEOS_AGENT_SCRIPT is set (deterministic turns, no key — see #420), else
 // Gemini when configured, else nil (agent unconfigured).
 func provideModel(cfg config.Config, logger entities.Logger) (model.LLM, error) {
-	if script := os.Getenv(AgentScriptEnv); script != "" {
+	if script := os.Getenv(AgentScriptEnv); script != "" { //nolint:forbidigo // test-model switch, see #420
 		m, err := NewScriptedModel(script)
 		if err != nil {
 			return nil, fmt.Errorf("load %s: %w", AgentScriptEnv, err)

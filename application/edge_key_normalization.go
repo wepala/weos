@@ -114,9 +114,7 @@ func NormalizeEdgeKeysModule(cfg config.Config, registry *PresetRegistry) fx.Opt
 		fx.Provide(gormprov.ProvideEventStore),
 		fx.Invoke(func(pericarpdomain.EventStore) {}),
 		fx.Provide(gormprov.ProvideResourceTypeRepository),
-		fx.Provide(func(r *PresetRegistry, logger entities.Logger) *LinkRegistry {
-			return buildLinkRegistry(r, logger)
-		}),
+		fx.Provide(buildLinkRegistry),
 	)
 }
 

@@ -1,13 +1,18 @@
 # Contributing
 
+Read [`constitution.md`](constitution.md) first. It states the non-negotiable rules
+for this service. Where this file conflicts with an article of the constitution, the
+article wins.
+
 ## Development Workflow
 
-1. Create a feature branch from `main`
-2. Write tests first (TDD approach)
-3. Implement the feature
-4. Ensure all tests pass
-5. Run linters and formatters
-6. Submit a pull request
+1. Create a feature branch from `v3` — the integration branch for this service
+2. Write the acceptance scenarios first, and get them confirmed (Article IX)
+3. Write tests, then implement the feature
+4. Ensure all tests pass — `make test`
+5. Run linters and formatters — `make lint`, `make fmt`
+6. Submit a pull request against `v3`. Stacking onto another feature branch is fine.
+   Never push directly to `v3`, `develop`, or `main` (Article XIV)
 
 ## Code Standards
 
@@ -23,7 +28,7 @@
 - Write integration tests in `tests/integration/`
 - Write E2E tests in `tests/e2e/` using Godog/Gherkin
 - Use `go test -race` to detect race conditions
-- Aim for >80% test coverage
+- Do not let coverage regress; explain any drop in the PR body (Article XII)
 
 ## Event Sourcing Patterns
 

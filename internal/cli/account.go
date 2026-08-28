@@ -26,6 +26,8 @@ import (
 // password in the process table, and shells remember what was typed at them;
 // the environment is the one channel a deployment already has a private way to
 // fill (a sensitive workspace variable, a secret mount).
+//
+//nolint:gosec // G101: this is the name of an environment variable, not a credential.
 const passwordEnvVar = "WEOS_ACCOUNT_PASSWORD"
 
 var (
@@ -86,6 +88,7 @@ func resolveAccountPassword(stdin io.Reader) (string, error) {
 	// --password for a second account, and silently getting the entrypoint's
 	// password instead of the one they typed — discovered at first sign-in.
 	offered := 0
+	//nolint:forbidigo // the password channel is deliberately not in config.Config
 	for _, supplied := range []bool{accountPasswordStdin, os.Getenv(passwordEnvVar) != "", accountPassword != ""} {
 		if supplied {
 			offered++
@@ -109,7 +112,7 @@ func resolveAccountPassword(stdin io.Reader) (string, error) {
 		}
 		return password, nil
 	}
-	if password := os.Getenv(passwordEnvVar); password != "" {
+	if password := os.Getenv(passwordEnvVar); password != "" { //nolint:forbidigo // secret never enters config.Config
 		return password, nil
 	}
 	if accountPassword != "" {

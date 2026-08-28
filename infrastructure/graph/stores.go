@@ -89,7 +89,7 @@ func newPerAccountStores(
 			"knowledge graph: per-account store base is unsafe (root or cwd), using nop store", "path", base)
 		return repositories.NewSingleKnowledgeGraphStores(NewNopStore())
 	}
-	if err := os.MkdirAll(base, 0o755); err != nil {
+	if err := os.MkdirAll(base, 0o750); err != nil {
 		logger.Error(context.Background(),
 			"knowledge graph: failed to create per-account store base directory, falling back to nop",
 			"path", base, "error", err)

@@ -23,7 +23,6 @@ import (
 	authgorm "github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/database/gorm"
 	"github.com/gorilla/sessions"
 	"go.uber.org/fx"
-	gormdb "gorm.io/gorm"
 )
 
 // Module provides all application dependencies.
@@ -79,16 +78,12 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		fx.Provide(graph.ProvideKnowledgeGraphStores),
 
 		// Auth repositories (from pericarp)
-		fx.Provide(func(db *gormdb.DB) authrepos.AgentRepository { return authgorm.NewAgentRepository(db) }),
-		fx.Provide(func(db *gormdb.DB) authrepos.CredentialRepository { return authgorm.NewCredentialRepository(db) }),
-		fx.Provide(func(db *gormdb.DB) authrepos.AuthSessionRepository {
-			return authgorm.NewAuthSessionRepository(db)
-		}),
-		fx.Provide(func(db *gormdb.DB) authrepos.AccountRepository { return authgorm.NewAccountRepository(db) }),
-		fx.Provide(func(db *gormdb.DB) authrepos.InviteRepository { return authgorm.NewInviteRepository(db) }),
-		fx.Provide(func(db *gormdb.DB) authrepos.PasswordCredentialRepository {
-			return authgorm.NewPasswordCredentialRepository(db)
-		}),
+		fx.Provide(authgorm.NewAgentRepository),
+		fx.Provide(authgorm.NewCredentialRepository),
+		fx.Provide(authgorm.NewAuthSessionRepository),
+		fx.Provide(authgorm.NewAccountRepository),
+		fx.Provide(authgorm.NewInviteRepository),
+		fx.Provide(authgorm.NewPasswordCredentialRepository),
 
 		// Auth infrastructure
 		fx.Provide(ProvideOAuthProviderRegistry),
@@ -152,9 +147,7 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		// Both entry points converge here so the service wiring sees one
 		// authoritative registry. Also exposed as a repositories.LinkSource so
 		// the projection manager can replay link refs after schema re-parse.
-		fx.Provide(func(r *PresetRegistry, logger entities.Logger) *LinkRegistry {
-			return buildLinkRegistry(r, logger)
-		}),
+		fx.Provide(buildLinkRegistry),
 		fx.Provide(func(r *LinkRegistry) repositories.LinkSource { return r }),
 		fx.Provide(ProvideLinkActivator),
 

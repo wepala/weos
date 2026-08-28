@@ -460,8 +460,15 @@ func (w *accountCLIWorld) startInstance(registration bool) error {
 	}
 	for k, v := range setEnvFor {
 		os.Setenv(k, v)
-		defer os.Unsetenv(k)
 	}
+	// One deferred sweep rather than a defer per iteration: same restore point
+	// (this function's return, once the config has been loaded), no growing
+	// defer stack inside the loop.
+	defer func() {
+		for k := range setEnvFor {
+			os.Unsetenv(k)
+		}
+	}()
 
 	cfg := config.Default()
 	cfg.LoadFromEnvironment()

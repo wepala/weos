@@ -17,6 +17,44 @@ linters:
     govet: {}
     misspell:
       locale: US
+
+    # Article VII. Defaults plus the diagnostic and performance tags.
+    # hugeParam and rangeValCopy are disabled deliberately: this codebase passes
+    # Uber Fx `fx.In` structs and config.Config by value because Fx requires it
+    # and Article III mandates it. Those two checkers advise the opposite, and
+    # between them they account for 205 of the 224 findings the performance tag
+    # would otherwise raise here.
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+      disabled-checks:
+        - hugeParam
+        - rangeValCopy
+
+    # Article II. Dependencies point inward, so domain/ imports no outer layer.
+    depguard:
+      rules:
+        domain-points-inward:
+          list-mode: lax
+          files:
+            - "**/domain/**"
+          deny:
+            - pkg: github.com/wepala/weos/v3/api
+              desc: "Article II: domain must not import api"
+            - pkg: github.com/wepala/weos/v3/application
+              desc: "Article II: domain must not import application"
+            - pkg: github.com/wepala/weos/v3/infrastructure
+              desc: "Article II: domain must not import infrastructure"
+
+    # Article III. Configuration is read in internal/config and nowhere else.
+    forbidigo:
+      forbid:
+        - pattern: '^os\.Getenv$'
+          msg: "Article III: add the setting to internal/config and read it from config.Config"
+        - pattern: '^os\.LookupEnv$'
+          msg: "Article III: add the setting to internal/config and read it from config.Config"
+
   enable:
     - errcheck
     - govet
@@ -24,8 +62,19 @@ linters:
     - staticcheck
     - unused
     - misspell
+    - gocritic
+    - gosec
+    - depguard
+    - forbidigo
+
   exclusions:
     rules:
       - path: _test\.go
         linters:
           - errcheck
+          - gosec
+          - forbidigo
+      # internal/config is the one place allowed to read the environment.
+      - path: internal/config/
+        linters:
+          - forbidigo
