@@ -270,3 +270,10 @@ Messages are accumulated per-request by the `Messages()` middleware and automati
 ## CI
 
 GitHub Actions runs on pushes/PRs to `main` and `develop` branches: build, test (with race detection + coverage uploaded to Codecov), and lint.
+## Task tracking
+
+Task tracking for this checkout is provided by the surrounding workspace. It uses `bd` (beads),
+resolved through the `BEADS_DIR` environment variable set at the workspace root.
+
+- Do **not** run `bd init` in this repository.
+- If `BEADS_DIR` is not set, task tracking is unavailable here. Do not create a local database.

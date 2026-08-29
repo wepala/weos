@@ -87,3 +87,8 @@ weos
 docs/_site/
 docs/.jekyll-cache/
 docs/.jekyll-metadata
+# Beads task tracking lives in ONE database at the weos-mono workspace root,
+# resolved via BEADS_DIR. Never run `bd init` here. This guard stops a stray
+# local database — created by an agent launched without BEADS_DIR — from being
+# committed and publishing the private planning graph.
+.beads/
