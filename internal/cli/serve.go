@@ -118,6 +118,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	var resourcePermService application.ResourcePermissionService
 	var fileService application.FileService
 	var authService authapp.AuthenticationService
+	var providerRegistry authapp.OAuthProviderRegistry
 	var sessionManager session.SessionManager
 	var credentialRepo authrepos.CredentialRepository
 	var agentRepo authrepos.AgentRepository
@@ -159,6 +160,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		fx.Populate(&resourcePermService),
 		fx.Populate(&fileService),
 		fx.Populate(&authService),
+		fx.Populate(&providerRegistry),
 		fx.Populate(&sessionManager),
 		fx.Populate(&credentialRepo),
 		fx.Populate(&agentRepo),
@@ -243,6 +245,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 	} else {
 		api.GET("/auth/me", handlers.DevMe(credentialRepo, agentRepo, accountRepo, logger))
 	}
+	// Provider discovery for the sign-in screen. Reads the registry
+	// /auth/login resolves against, and sits with /auth/login and
+	// /auth/callback outside the protected group — the caller is anonymous
+	// by definition.
+	handlers.MountAuthProviders(api, handlers.NewAuthProvidersHandler(providerRegistry))
 	// Email + password account flow. Public routes — must reach the handler
 	// even when no session exists yet, so they sit outside the protected group.
 	// Mirror the SessionManager's dev-default Secure flag (Secure=false when
