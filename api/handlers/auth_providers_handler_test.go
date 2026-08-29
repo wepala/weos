@@ -20,11 +20,13 @@ import (
 // does — through application.ProvideOAuthProviderRegistry — so these tests
 // hold the endpoint to what /api/auth/login will actually accept, including
 // the all-four-fields Apple gate, rather than to a hand-rolled fixture.
-func buildProviderRegistry(cfg config.Config) authapp.OAuthProviderRegistry {
+// The pointer parameter is not a micro-optimisation: config.Config is 768
+// bytes, and the analyser blocks a by-value pass of anything over 80.
+func buildProviderRegistry(cfg *config.Config) authapp.OAuthProviderRegistry {
 	return application.ProvideOAuthProviderRegistry(struct {
 		fx.In
 		Config config.Config
-	}{Config: cfg})
+	}{Config: *cfg})
 }
 
 // newAuthBootServer mirrors the serve.go topology this endpoint lives in: an
@@ -38,7 +40,7 @@ func newAuthBootServer(reg authapp.OAuthProviderRegistry, mount bool) *echo.Echo
 	e := echo.New()
 	api := e.Group("/api")
 	protected := api.Group("")
-	protected.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+	protected.Use(func(_ echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			// Pericarp's RequireAuth answers a session-less caller with a
 			// 401 JSON body (and no WWW-Authenticate header) — mirror that.
@@ -54,7 +56,7 @@ func newAuthBootServer(reg authapp.OAuthProviderRegistry, mount bool) *echo.Echo
 // getProviders performs an anonymous GET /api/auth/providers — no session
 // cookie, no bearer token — and returns the recorded response.
 func getProviders(e *echo.Echo) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(http.MethodGet, "/api/auth/providers", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/providers", http.NoBody)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	return rec
@@ -99,7 +101,7 @@ func assertProviderNames(t *testing.T, rec *httptest.ResponseRecorder, want []st
 
 func TestAuthProviders_NoneConfigured(t *testing.T) {
 	t.Parallel()
-	rec := getProviders(newAuthBootServer(buildProviderRegistry(config.Config{}), true))
+	rec := getProviders(newAuthBootServer(buildProviderRegistry(&config.Config{}), true))
 
 	assertProviderNames(t, rec, []string{})
 	// The empty list must serialize as [], not null — a client telling "no
@@ -116,7 +118,7 @@ func TestAuthProviders_GoogleOnly(t *testing.T) {
 		GoogleClientID:     "google-client-id",
 		GoogleClientSecret: "google-client-secret",
 	}}
-	rec := getProviders(newAuthBootServer(buildProviderRegistry(cfg), true))
+	rec := getProviders(newAuthBootServer(buildProviderRegistry(&cfg), true))
 
 	assertProviderNames(t, rec, []string{"google"})
 }
@@ -131,7 +133,7 @@ func TestAuthProviders_GoogleAndApple(t *testing.T) {
 		AppleKeyID:         "KEY1234567",
 		ApplePrivateKey:    "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----",
 	}}
-	rec := getProviders(newAuthBootServer(buildProviderRegistry(cfg), true))
+	rec := getProviders(newAuthBootServer(buildProviderRegistry(&cfg), true))
 
 	assertProviderNames(t, rec, []string{"apple", "google"})
 }
@@ -149,7 +151,7 @@ func TestAuthProviders_PartialAppleOmitted(t *testing.T) {
 		AppleKeyID:         "KEY1234567",
 		// ApplePrivateKey deliberately missing.
 	}}
-	rec := getProviders(newAuthBootServer(buildProviderRegistry(cfg), true))
+	rec := getProviders(newAuthBootServer(buildProviderRegistry(&cfg), true))
 
 	assertProviderNames(t, rec, []string{"google"})
 }
@@ -182,7 +184,7 @@ func TestAuthProviders_ResponseNeverCarriesCredentials(t *testing.T) {
 		AppleKeyID:           secrets["AppleKeyID"],
 		ApplePrivateKey:      secrets["ApplePrivateKey"],
 	}}
-	rec := getProviders(newAuthBootServer(buildProviderRegistry(cfg), true))
+	rec := getProviders(newAuthBootServer(buildProviderRegistry(&cfg), true))
 
 	assertProviderNames(t, rec, []string{"apple", "google", "netsuite"})
 	body := rec.Body.String()
@@ -204,7 +206,7 @@ func TestAuthProviders_AnonymousOnRequireAuthBoot(t *testing.T) {
 		GoogleClientID:     "google-client-id",
 		GoogleClientSecret: "google-client-secret",
 	}}
-	reg := buildProviderRegistry(cfg)
+	reg := buildProviderRegistry(&cfg)
 
 	rec := getProviders(newAuthBootServer(reg, true))
 	assertProviderNames(t, rec, []string{"google"})
