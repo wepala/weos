@@ -39,6 +39,11 @@ import (
 type columnDef struct {
 	Name    string
 	SQLType string
+	// Derived marks a column the projection writes but no document declares —
+	// today only the `<fk>_display` sibling of a reference property. Absence of
+	// a derived column from a write means "nothing to denormalize here", never
+	// "the client cleared it", so nullClearedColumns must not touch one.
+	Derived bool
 }
 
 // standardColumnNames lists column names already part of the projection table DDL
@@ -66,6 +71,10 @@ type tableInfo struct {
 	name    string
 	context json.RawMessage
 	columns map[string]bool // cached column names for fast lookup
+	// declared holds the subset of columns that come from a declared property —
+	// every schema property plus every activated link FK, and never a derived
+	// `<fk>_display` sibling or a standard column. See DeclaredColumns.
+	declared map[string]bool
 }
 
 type projectionManager struct {
@@ -134,8 +143,12 @@ func (pm *projectionManager) EnsureTable(
 			colSet[col] = true
 		}
 	}
+	declaredSet := make(map[string]bool, len(columns))
 	for _, col := range columns {
 		colSet[col.Name] = true
+		if !col.Derived {
+			declaredSet[col.Name] = true
+		}
 	}
 	// Re-add previously activated link columns so a schema re-parse doesn't
 	// silently drop them from the cache. Schema-derived columns alone won't
@@ -149,6 +162,10 @@ func (pm *projectionManager) EnsureTable(
 			displayCol := colName + "_display"
 			if migrator.HasColumn(tableName, colName) {
 				colSet[colName] = true
+				// A link FK is declared, just outside the type's own schema: a
+				// document carries it in its edges node exactly as it carries an
+				// x-resource-type reference, so clearing it must work the same way.
+				declaredSet[colName] = true
 			}
 			if migrator.HasColumn(tableName, displayCol) {
 				colSet[displayCol] = true
@@ -160,7 +177,9 @@ func (pm *projectionManager) EnsureTable(
 	// real columns. If the backfill then errors we invalidate the entry below,
 	// so the lazy HasProjectionTable path re-runs EnsureTable next call rather
 	// than trusting a table that never got its pre-existing rows filled.
-	pm.tables.Store(slug, tableInfo{name: tableName, context: ldContext, columns: colSet})
+	pm.tables.Store(slug, tableInfo{
+		name: tableName, context: ldContext, columns: colSet, declared: declaredSet,
+	})
 	if parentSlug := jsonld.SubClassOf(ldContext); parentSlug != "" {
 		pm.parentOf.Store(slug, parentSlug)
 	} else {
@@ -353,6 +372,25 @@ func (pm *projectionManager) HasColumn(slug, column string) bool {
 		}
 	}
 	return false
+}
+
+// DeclaredColumns returns the projection columns a document can carry for a
+// slug — see the ProjectionManager interface for the contract. A fresh slice
+// is returned on every call so a caller cannot mutate the cached set.
+func (pm *projectionManager) DeclaredColumns(slug string) []string {
+	v, ok := pm.tables.Load(slug)
+	if !ok {
+		return nil
+	}
+	info, ok := v.(tableInfo)
+	if !ok {
+		return nil
+	}
+	cols := make([]string, 0, len(info.declared))
+	for col := range info.declared {
+		cols = append(cols, col)
+	}
+	return cols
 }
 
 // writeDB returns the gorm handle a projection write must use. When a
@@ -701,6 +739,15 @@ func (pm *projectionManager) RegisterLink(ctx context.Context, ref repositories.
 				updatedColumns[col.Name] = true
 			}
 			info.columns = updatedColumns
+			// Same copy-on-write for the declared set, which DeclaredColumns
+			// reads without a lock. Only the FK is declared — its `_display`
+			// sibling is derived.
+			updatedDeclared := make(map[string]bool, len(info.declared)+1)
+			for name, exists := range info.declared {
+				updatedDeclared[name] = exists
+			}
+			updatedDeclared[colName] = true
+			info.declared = updatedDeclared
 			pm.tables.Store(ref.SourceSlug, info)
 		}
 	}
@@ -839,7 +886,9 @@ func schemaToColumns(schema json.RawMessage) []columnDef {
 
 		// Add a denormalized display column for reference properties.
 		if propDef.XResourceType != "" {
-			cols = append(cols, columnDef{Name: colName + "_display", SQLType: "VARCHAR(512)"})
+			cols = append(cols, columnDef{
+				Name: colName + "_display", SQLType: "VARCHAR(512)", Derived: true,
+			})
 		}
 	}
 	return cols

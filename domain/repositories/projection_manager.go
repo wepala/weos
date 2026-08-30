@@ -64,6 +64,16 @@ type ProjectionManager interface {
 	// Uses the column set cached during EnsureTable for fast lookup without DB queries.
 	HasColumn(slug, column string) bool
 
+	// DeclaredColumns returns the projection columns of a type that a document
+	// can carry: one per declared schema property, plus the FK column of every
+	// activated link. It deliberately excludes the standard columns and the
+	// derived `<fk>_display` siblings, which no document ever states.
+	//
+	// A wholesale projection write uses this to tell "the client cleared this
+	// property" from "this column is not the client's to write". Returns nil
+	// for a slug with no cached projection table.
+	DeclaredColumns(slug string) []string
+
 	// AncestorSlugs returns the ordered chain of ancestor type slugs for a type,
 	// derived from rdfs:subClassOf declarations cached during EnsureTable.
 	// For "loan" with subClassOf "financial-instrument", returns ["financial-instrument"].
