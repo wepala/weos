@@ -231,3 +231,55 @@ func TestAuthLoginHandler_RefusalUsesTheConfiguredFrontendOrigin(t *testing.T) {
 		t.Errorf("auth_error = %q, want %q", got, AuthLoginRefusalCode)
 	}
 }
+
+// The inner handler must act on the provider this wrapper checked, not on the
+// one that arrived. Pericarp's Login reads the raw query value without
+// trimming and falls back to its own configured default when it is empty, so
+// a request delegated untouched can resolve to something the registry check
+// never saw — and produce the 500 JSON page this wrapper exists to prevent.
+func TestAuthLoginHandler_HandsOnTheProviderItChecked(t *testing.T) {
+	for _, target := range []string{
+		"/api/auth/login",
+		"/api/auth/login?provider=",
+		"/api/auth/login?provider=%20",
+		"/api/auth/login?provider=%20google%20",
+	} {
+		var seen string
+		inner := func(_ http.ResponseWriter, r *http.Request) {
+			seen = r.URL.Query().Get("provider")
+		}
+		e := echo.New()
+		rec := httptest.NewRecorder()
+		c := e.NewContext(httptest.NewRequest(http.MethodGet, target, http.NoBody), rec)
+		if err := authLoginHandler(inner, authLoginConfig{
+			Registry:        registryWith("google"),
+			DefaultProvider: "google",
+		})(c); err != nil {
+			t.Fatalf("%s: %v", target, err)
+		}
+		if seen != "google" {
+			t.Errorf("%s: inner handler saw provider %q, want %q", target, seen, "google")
+		}
+	}
+}
+
+// A request that already names a usable provider is delegated untouched.
+func TestAuthLoginHandler_LeavesAUsableRequestAlone(t *testing.T) {
+	var seenQuery string
+	inner := func(_ http.ResponseWriter, r *http.Request) { seenQuery = r.URL.RawQuery }
+	e := echo.New()
+	rec := httptest.NewRecorder()
+	c := e.NewContext(
+		httptest.NewRequest(http.MethodGet, "/api/auth/login?provider=google&redirect=%2Fhome", http.NoBody),
+		rec,
+	)
+	if err := authLoginHandler(inner, authLoginConfig{
+		Registry:        registryWith("google"),
+		DefaultProvider: "google",
+	})(c); err != nil {
+		t.Fatal(err)
+	}
+	if seenQuery != "provider=google&redirect=%2Fhome" {
+		t.Errorf("query was rewritten unnecessarily: %q", seenQuery)
+	}
+}

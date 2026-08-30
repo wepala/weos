@@ -93,6 +93,20 @@ func authLoginHandler(inner http.HandlerFunc, cfg authLoginConfig) echo.HandlerF
 				authLoginRefusalLocation(cfg.FrontendURL, query.Get("redirect")))
 		}
 
+		// Hand the inner handler the provider that was actually CHECKED, not
+		// the one that arrived. Pericarp's Login reads the raw query value
+		// without trimming it and, when it is empty, falls back to its own
+		// configured default rather than the resolution above. Delegating the
+		// request untouched would let it act on a different value than the one
+		// this wrapper validated — "?provider=%20" would reach it as a space
+		// and produce the very 500 JSON page this exists to prevent, and an
+		// absent provider would resolve twice, by two different rules.
+		if query.Get("provider") != provider {
+			query.Set("provider", provider)
+			r = r.Clone(r.Context())
+			r.URL.RawQuery = query.Encode()
+		}
+
 		inner(c.Response(), r)
 		return nil
 	}
