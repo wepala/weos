@@ -80,7 +80,7 @@ func setupGraphProjectionTest(t *testing.T) (*ResourceRepository, *capturingLogg
 // seedGraphCourseInstance saves a course and a course instance that references
 // it, both in the @graph form, and asserts the projection started populated.
 func seedGraphCourseInstance(
-	t *testing.T, repo *ResourceRepository, ctx context.Context, id, courseID string,
+	ctx context.Context, t *testing.T, repo *ResourceRepository, id, courseID string,
 ) {
 	t.Helper()
 	course := makeTestResource(t, courseID, "course",
@@ -111,7 +111,7 @@ func TestUpdateProjection_GraphEdges_ClearedReference_NullsFKColumn(t *testing.T
 	t.Parallel()
 	repo, _, ctx := setupGraphProjectionTest(t)
 	const id = "urn:course-instance:g1"
-	seedGraphCourseInstance(t, repo, ctx, id, "urn:course:g1")
+	seedGraphCourseInstance(ctx, t, repo, id, "urn:course:g1")
 
 	cleared := makeTestResource(t, id, "course-instance",
 		courseInstanceGraph(id, "Easter Camp", "", ""))
@@ -135,7 +135,7 @@ func TestUpdateProjection_GraphEdges_VocabKeyedReference_Survives(t *testing.T) 
 	t.Parallel()
 	repo, _, ctx := setupGraphProjectionTest(t)
 	const id = "urn:course-instance:g2"
-	seedGraphCourseInstance(t, repo, ctx, id, "urn:course:g2")
+	seedGraphCourseInstance(ctx, t, repo, id, "urn:course:g2")
 
 	kept := makeTestResource(t, id, "course-instance",
 		courseInstanceGraph(id, "Easter Camp", "https://schema.org/courseId", "urn:course:g2"))
@@ -162,7 +162,7 @@ func TestUpdateProjection_UnresolvableEdgeKey_KeepsReference(t *testing.T) {
 	t.Parallel()
 	repo, _, ctx := setupGraphProjectionTest(t)
 	const id = "urn:course-instance:g3"
-	seedGraphCourseInstance(t, repo, ctx, id, "urn:course:g3")
+	seedGraphCourseInstance(ctx, t, repo, id, "urn:course:g3")
 
 	drifted := makeTestResource(t, id, "course-instance",
 		courseInstanceGraph(id, "Easter Camp", "https://other.example/courseId", "urn:course:g3"))
@@ -185,7 +185,7 @@ func TestUpdateProjection_UnresolvableEdgeKey_IsLogged(t *testing.T) {
 	t.Parallel()
 	repo, logger, ctx := setupGraphProjectionTest(t)
 	const id = "urn:course-instance:g4"
-	seedGraphCourseInstance(t, repo, ctx, id, "urn:course:g4")
+	seedGraphCourseInstance(ctx, t, repo, id, "urn:course:g4")
 
 	drifted := makeTestResource(t, id, "course-instance",
 		courseInstanceGraph(id, "Easter Camp", "https://other.example/courseId", "urn:course:g4"))
@@ -206,7 +206,7 @@ func TestUpdateProjection_UnusableEdgeValue_KeepsReference(t *testing.T) {
 	t.Parallel()
 	repo, _, ctx := setupGraphProjectionTest(t)
 	const id = "urn:course-instance:g8"
-	seedGraphCourseInstance(t, repo, ctx, id, "urn:course:g8")
+	seedGraphCourseInstance(ctx, t, repo, id, "urn:course:g8")
 
 	// An edges node whose value is an object with no @id at all.
 	malformed := makeTestResource(t, id, "course-instance", fmt.Sprintf(
@@ -232,7 +232,7 @@ func TestUpdateProjection_UnparsableData_KeepsEveryColumn(t *testing.T) {
 	t.Parallel()
 	repo, _, ctx := setupGraphProjectionTest(t)
 	const id = "urn:course-instance:g5"
-	seedGraphCourseInstance(t, repo, ctx, id, "urn:course:g5")
+	seedGraphCourseInstance(ctx, t, repo, id, "urn:course:g5")
 
 	broken := makeTestResource(t, id, "course-instance", `{"@graph":[{"@id":`)
 	if err := repo.Update(ctx, broken); err != nil {
@@ -257,7 +257,7 @@ func TestUpdateProjection_UnparsableData_IsLogged(t *testing.T) {
 	t.Parallel()
 	repo, logger, ctx := setupGraphProjectionTest(t)
 	const id = "urn:course-instance:g6"
-	seedGraphCourseInstance(t, repo, ctx, id, "urn:course:g6")
+	seedGraphCourseInstance(ctx, t, repo, id, "urn:course:g6")
 
 	broken := makeTestResource(t, id, "course-instance", `{"@graph":[{"@id":`)
 	if err := repo.Update(ctx, broken); err != nil {
