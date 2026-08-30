@@ -196,6 +196,12 @@ func (r *ResourceRepository) updateProjectionBySlug(
 	ldCtx := r.projMgr.Context(targetSlug)
 	ExtractFlatColumns(entity.Data(), ldCtx, row)
 	r.dropMissingColumns(targetSlug, row)
+	// Issue #550. This path writes the entity's data WHOLESALE, so a declared
+	// property missing from it was cleared by the client and must be nulled.
+	// It runs BEFORE populateDisplayColumns on purpose: that helper already
+	// nulls a display column whose FK key is present and nil, which is exactly
+	// the input this produces for a cleared reference.
+	r.nullClearedColumns(targetSlug, row)
 	r.populateDisplayColumns(ctx, targetSlug, row,
 		buildLookupScope(entity.AccountID(), entity.CreatedBy()))
 
@@ -217,6 +223,31 @@ func (r *ResourceRepository) updateProjectionBySlug(
 		return fmt.Errorf("failed to upsert resource in %s: %w", tableName, err)
 	}
 	return nil
+}
+
+// nullClearedColumns adds an explicit nil for every declared property the
+// document no longer carries, so the upsert clears the stored value instead of
+// leaving the column out of its UPDATE list.
+//
+// It belongs ONLY to the wholesale write path. updateDataInProjection is a
+// partial patch whose caller supplies just the fields it means to change, so
+// absence there means "unchanged"; calling this from the shared
+// ExtractFlatColumns + dropMissingColumns sequence would turn every patch into
+// a wipe of everything it omitted.
+//
+// Only DECLARED columns are nulled. The derived `<fk>_display` siblings are
+// absent from every write by construction, so nulling whatever is missing
+// would erase the label of a reference the update never touched.
+//
+// Dual-projection is safe without an extra guard: the declared set is the
+// TARGET table's own, so an ancestor that declares fewer properties than its
+// concrete child nulls only the columns it actually has.
+func (r *ResourceRepository) nullClearedColumns(targetSlug string, row map[string]any) {
+	for _, col := range r.projMgr.DeclaredColumns(targetSlug) {
+		if _, present := row[col]; !present {
+			row[col] = nil
+		}
+	}
 }
 
 // dropMissingColumns removes keys from row that don't exist as columns in the target table.
