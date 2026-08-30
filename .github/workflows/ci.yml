@@ -121,14 +121,22 @@ jobs:
         run: go mod download
 
       - name: Run tests
-        # tests/e2e takes ~504s under -race on a developer machine and more on
-        # a runner, against `go test`'s 600s default per-package timeout. The
-        # package was being killed mid-run and reported as a failure, which is
-        # why the gate has been red on v3 since 2026-08-20 regardless of the
-        # change under test. Raised with headroom rather than set just above
-        # the current figure, so the gate does not go red again on the next
-        # scenario added.
-        run: go test -v -race -timeout 20m -coverprofile=coverage.out ./...
+        # tests/e2e is the long pole and it grows with every scenario added.
+        # Measured on the runner, under -race:
+        #   2026-08-30 v3 03:48   1001s
+        #   2026-08-30 v3 15:12   1158s   — 96.5% of a 20m timeout
+        #   2026-08-30 PR #551    killed at 1200s
+        # The 20m set on 2026-08-20 was chosen with headroom "so the gate does
+        # not go red again on the next scenario added". That headroom is spent:
+        # v3 passed by 42 seconds, so the next scenario was always going to be
+        # the one that broke it, whatever it was.
+        #
+        # Raised to 40m on the same sizing logic as before — roughly double the
+        # measured figure — rather than just above 1200s, which would buy one
+        # more scenario. If this needs raising a third time, split the package
+        # or shard it instead: a 20-minute single-package test is the real
+        # problem, and the timeout is only how it reports.
+        run: go test -v -race -timeout 40m -coverprofile=coverage.out ./...
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
