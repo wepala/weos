@@ -30,20 +30,17 @@ Feature: A cleared reference reaches the flat projection
     And a clean WeOS database provisioned by that build
     And a "vendor" named "Acme" exists
 
-  @wip
   Scenario: A cleared reference is gone from the projection read
     Given I create a "widget" named "Bolt cutter" with "maker" referring to the "vendor" "Acme"
     When I update the "widget" "Bolt cutter" clearing "maker"
     Then reading the "widget" "Bolt cutter" back through the projection returns no value for "maker"
 
-  @wip
   Scenario: The display value of a cleared reference goes with it
     Given I create a "widget" named "Bolt cutter" with "maker" referring to the "vendor" "Acme"
     And reading the "widget" "Bolt cutter" back through the projection returns "makerDisplay" as "Acme"
     When I update the "widget" "Bolt cutter" clearing "maker"
     Then reading the "widget" "Bolt cutter" back through the projection returns no value for "makerDisplay"
 
-  @wip
   Scenario: A cleared list reference is gone from the projection read
     Given I create a "widget" named "Bolt cutter" with these references:
       | property  | vendor |
@@ -51,7 +48,6 @@ Feature: A cleared reference reaches the flat projection
     When I update the "widget" "Bolt cutter" clearing "suppliers"
     Then reading the "widget" "Bolt cutter" back through the projection returns no value for "suppliers"
 
-  @wip
   Scenario: A reference the update keeps is not cleared with the one it removes
     Given I create a "widget" named "Bolt cutter" with these references:
       | property  | vendor |
@@ -60,7 +56,6 @@ Feature: A cleared reference reaches the flat projection
     When I update the "widget" "Bolt cutter" clearing "suppliers"
     Then reading the "widget" "Bolt cutter" back through the projection returns "maker" as the "vendor" "Acme"
 
-  @wip
   Scenario: The display value of a reference the update keeps is not cleared
     Given I create a "widget" named "Bolt cutter" with these references:
       | property  | vendor |
@@ -69,19 +64,16 @@ Feature: A cleared reference reaches the flat projection
     When I update the "widget" "Bolt cutter" clearing "suppliers"
     Then reading the "widget" "Bolt cutter" back through the projection returns "makerDisplay" as "Acme"
 
-  @wip
   Scenario: A literal property the update keeps survives a cleared reference
     Given I create a "widget" named "Bolt cutter" with "maker" referring to the "vendor" "Acme"
     When I update the "widget" "Bolt cutter" clearing "maker"
     Then reading the "widget" "Bolt cutter" back through the projection returns "name" as "Bolt cutter"
 
-  @wip
   Scenario: Clearing a reference with an empty value has the same result as removing it
     Given I create a "widget" named "Bolt cutter" with "maker" referring to the "vendor" "Acme"
     When I update the "widget" "Bolt cutter" setting "maker" to an empty value
     Then reading the "widget" "Bolt cutter" back through the projection returns no value for "maker"
 
-  @wip
   Scenario: A reference set again after a clear reads back
     Given I create a "widget" named "Bolt cutter" with "maker" referring to the "vendor" "Acme"
     And I update the "widget" "Bolt cutter" clearing "maker"
