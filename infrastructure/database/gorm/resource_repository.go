@@ -167,7 +167,11 @@ func (r *ResourceRepository) saveToProjection(
 		"created_at":  entity.CreatedAt(),
 	}
 	ldCtx := r.projMgr.Context(targetSlug)
-	ExtractFlatColumns(entity.Data(), ldCtx, row)
+	report := ExtractFlatColumns(entity.Data(), ldCtx, row)
+	// The INSERT path clears nothing, so a partly-read document costs a NULL
+	// column rather than a lost value. It is still drift, so it is still said.
+	r.logIncompleteExtract(ctx, targetSlug, entity.GetID(), report,
+		"row inserted with those values missing")
 	r.dropMissingColumns(targetSlug, row)
 	r.populateDisplayColumns(ctx, targetSlug, row,
 		buildLookupScope(entity.AccountID(), entity.CreatedBy()))
@@ -194,14 +198,28 @@ func (r *ResourceRepository) updateProjectionBySlug(
 		"updated_at":  time.Now(),
 	}
 	ldCtx := r.projMgr.Context(targetSlug)
-	ExtractFlatColumns(entity.Data(), ldCtx, row)
+	report := ExtractFlatColumns(entity.Data(), ldCtx, row)
 	r.dropMissingColumns(targetSlug, row)
 	// Issue #550. This path writes the entity's data WHOLESALE, so a declared
 	// property missing from it was cleared by the client and must be nulled.
 	// It runs BEFORE populateDisplayColumns on purpose: that helper already
 	// nulls a display column whose FK key is present and nil, which is exactly
 	// the input this produces for a cleared reference.
-	r.nullClearedColumns(targetSlug, row)
+	//
+	// The clear is conditional on a COMPLETE read, and that condition is the
+	// whole safety of it. A column is missing from the row for one of two
+	// reasons — the client dropped the property, or this extraction could not
+	// read it — and only the first is a clear. Acting on the second nulls a
+	// reference the document still carries, which is mass data loss the moment
+	// an operator runs `worker reproject` over a type whose @context drifted.
+	// An incomplete read therefore leaves the row exactly as stale as it was
+	// before this issue: the old defect, not a new one.
+	if report.Complete() {
+		r.nullClearedColumns(targetSlug, row)
+	} else {
+		r.logIncompleteExtract(ctx, targetSlug, entity.GetID(), report,
+			"stale columns kept rather than cleared")
+	}
 	r.populateDisplayColumns(ctx, targetSlug, row,
 		buildLookupScope(entity.AccountID(), entity.CreatedBy()))
 
@@ -242,12 +260,34 @@ func (r *ResourceRepository) updateProjectionBySlug(
 // Dual-projection is safe without an extra guard: the declared set is the
 // TARGET table's own, so an ancestor that declares fewer properties than its
 // concrete child nulls only the columns it actually has.
+//
+// PRECONDITION: the extraction that built row read the WHOLE document —
+// ExtractReport.Complete. Absence is evidence of a clear only then. Call this
+// after a partial read and it erases values the document still states; the
+// caller enforces the precondition, not this function.
 func (r *ResourceRepository) nullClearedColumns(targetSlug string, row map[string]any) {
 	for _, col := range r.projMgr.DeclaredColumns(targetSlug) {
 		if _, present := row[col]; !present {
 			row[col] = nil
 		}
 	}
+}
+
+// logIncompleteExtract surfaces a document the projection could read only in
+// part, naming the keys it could not read so a drifted @context is findable
+// instead of silent (Article XI). It is a no-op for a complete read.
+//
+// consequence says what this particular write path did about it, because the
+// answer differs per path and the operator needs the one that applies.
+func (r *ResourceRepository) logIncompleteExtract(
+	ctx context.Context, targetSlug, id string, report ExtractReport, consequence string,
+) {
+	if report.Complete() {
+		return
+	}
+	r.logger.Warn(ctx, "projection read the resource data only in part; "+consequence,
+		"targetSlug", targetSlug, "id", id,
+		"readError", report.ReadError, "unreadableEdgeKeys", report.UnreadableEdges)
 }
 
 // dropMissingColumns removes keys from row that don't exist as columns in the target table.
@@ -1468,7 +1508,10 @@ func (r *ResourceRepository) updateDataInProjection(
 		row["sequence_no"] = sequenceNo
 	}
 	ldCtx := r.projMgr.Context(targetSlug)
-	ExtractFlatColumns(data, ldCtx, row)
+	report := ExtractFlatColumns(data, ldCtx, row)
+	// A partial patch never clears by absence, so an unread property here just
+	// does not get patched. Say so anyway — the cause is the same drift.
+	r.logIncompleteExtract(ctx, targetSlug, id, report, "those fields not patched")
 	r.dropMissingColumns(targetSlug, row)
 	// updateDataInProjection runs partial patches that don't include
 	// account_id/created_by, so we have to load the row owner ourselves to
