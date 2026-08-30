@@ -39,6 +39,11 @@ import (
 type columnDef struct {
 	Name    string
 	SQLType string
+	// Derived marks a column the projection writes but no document declares —
+	// today only the `<fk>_display` sibling of a reference property. Absence of
+	// a derived column from a write means "nothing to denormalize here", never
+	// "the client cleared it", so nullClearedColumns must not touch one.
+	Derived bool
 }
 
 // standardColumnNames lists column names already part of the projection table DDL
@@ -66,6 +71,10 @@ type tableInfo struct {
 	name    string
 	context json.RawMessage
 	columns map[string]bool // cached column names for fast lookup
+	// declared holds the subset of columns that come from a declared property —
+	// every schema property plus every activated link FK, and never a derived
+	// `<fk>_display` sibling or a standard column. See DeclaredColumns.
+	declared map[string]bool
 }
 
 type projectionManager struct {
@@ -134,8 +143,12 @@ func (pm *projectionManager) EnsureTable(
 			colSet[col] = true
 		}
 	}
+	declaredSet := make(map[string]bool, len(columns))
 	for _, col := range columns {
 		colSet[col.Name] = true
+		if !col.Derived {
+			declaredSet[col.Name] = true
+		}
 	}
 	// Re-add previously activated link columns so a schema re-parse doesn't
 	// silently drop them from the cache. Schema-derived columns alone won't
@@ -149,6 +162,10 @@ func (pm *projectionManager) EnsureTable(
 			displayCol := colName + "_display"
 			if migrator.HasColumn(tableName, colName) {
 				colSet[colName] = true
+				// A link FK is declared, just outside the type's own schema: a
+				// document carries it in its edges node exactly as it carries an
+				// x-resource-type reference, so clearing it must work the same way.
+				declaredSet[colName] = true
 			}
 			if migrator.HasColumn(tableName, displayCol) {
 				colSet[displayCol] = true
@@ -160,7 +177,9 @@ func (pm *projectionManager) EnsureTable(
 	// real columns. If the backfill then errors we invalidate the entry below,
 	// so the lazy HasProjectionTable path re-runs EnsureTable next call rather
 	// than trusting a table that never got its pre-existing rows filled.
-	pm.tables.Store(slug, tableInfo{name: tableName, context: ldContext, columns: colSet})
+	pm.tables.Store(slug, tableInfo{
+		name: tableName, context: ldContext, columns: colSet, declared: declaredSet,
+	})
 	if parentSlug := jsonld.SubClassOf(ldContext); parentSlug != "" {
 		pm.parentOf.Store(slug, parentSlug)
 	} else {
@@ -237,6 +256,17 @@ func (pm *projectionManager) backfillFromCanonical(
 		"NOT EXISTS (SELECT 1 FROM %s p WHERE p.id = resources.id)", tableName)
 
 	skipped := 0
+	// Backfill never clears a column — it only inserts rows that have none —
+	// so a partly-read document costs a stale column, not a lost value. Count
+	// them and report once per run: a per-row warning over a drifted type
+	// would print one line per record and bury the signal it exists to give.
+	unreadable := 0
+	reportUnreadable := func() {
+		if unreadable > 0 {
+			pm.logger.Warn(ctx, "projection backfill read some documents only in part",
+				"slug", slug, "table", tableName, "rows", unreadable)
+		}
+	}
 	lastID := ""
 	for {
 		q := pm.db.WithContext(ctx).
@@ -247,9 +277,11 @@ func (pm *projectionManager) backfillFromCanonical(
 		}
 		var batch []models.Resource
 		if err := q.Order("resources.id").Limit(backfillBatchSize).Find(&batch).Error; err != nil {
+			reportUnreadable()
 			return skipped, err
 		}
 		if len(batch) == 0 {
+			reportUnreadable()
 			return skipped, nil
 		}
 
@@ -265,7 +297,11 @@ func (pm *projectionManager) backfillFromCanonical(
 				"created_at":  res.CreatedAt,
 			}
 			// ExtractFlatColumns understands both legacy flat and @graph payloads.
-			ExtractFlatColumns(json.RawMessage(res.Data), ldContext, row)
+			if report := ExtractFlatColumns(
+				json.RawMessage(res.Data), ldContext, row,
+			); !report.Complete() {
+				unreadable++
+			}
 			// Drop keys with no column on this table (mirrors dropMissingColumns).
 			for col := range row {
 				if standardColumnNames[col] {
@@ -291,6 +327,7 @@ func (pm *projectionManager) backfillFromCanonical(
 
 		lastID = batch[len(batch)-1].ID
 		if len(batch) < backfillBatchSize {
+			reportUnreadable()
 			return skipped, nil
 		}
 	}
@@ -353,6 +390,25 @@ func (pm *projectionManager) HasColumn(slug, column string) bool {
 		}
 	}
 	return false
+}
+
+// DeclaredColumns returns the projection columns a document can carry for a
+// slug — see the ProjectionManager interface for the contract. A fresh slice
+// is returned on every call so a caller cannot mutate the cached set.
+func (pm *projectionManager) DeclaredColumns(slug string) []string {
+	v, ok := pm.tables.Load(slug)
+	if !ok {
+		return nil
+	}
+	info, ok := v.(tableInfo)
+	if !ok {
+		return nil
+	}
+	cols := make([]string, 0, len(info.declared))
+	for col := range info.declared {
+		cols = append(cols, col)
+	}
+	return cols
 }
 
 // writeDB returns the gorm handle a projection write must use. When a
@@ -682,7 +738,7 @@ func (pm *projectionManager) RegisterLink(ctx context.Context, ref repositories.
 	colName := utils.CamelToSnake(ref.PropertyName)
 	cols := []columnDef{
 		{Name: colName, SQLType: "TEXT"},
-		{Name: colName + "_display", SQLType: "VARCHAR(512)"},
+		{Name: colName + "_display", SQLType: "VARCHAR(512)", Derived: true},
 	}
 	if err := pm.addMissingColumns(ctx, tableName, cols); err != nil {
 		return fmt.Errorf("RegisterLink: add columns to %q: %w", tableName, err)
@@ -701,6 +757,15 @@ func (pm *projectionManager) RegisterLink(ctx context.Context, ref repositories.
 				updatedColumns[col.Name] = true
 			}
 			info.columns = updatedColumns
+			// Same copy-on-write for the declared set, which DeclaredColumns
+			// reads without a lock. Only the FK is declared — its `_display`
+			// sibling is derived.
+			updatedDeclared := make(map[string]bool, len(info.declared)+1)
+			for name, exists := range info.declared {
+				updatedDeclared[name] = exists
+			}
+			updatedDeclared[colName] = true
+			info.declared = updatedDeclared
 			pm.tables.Store(ref.SourceSlug, info)
 		}
 	}
@@ -839,7 +904,9 @@ func schemaToColumns(schema json.RawMessage) []columnDef {
 
 		// Add a denormalized display column for reference properties.
 		if propDef.XResourceType != "" {
-			cols = append(cols, columnDef{Name: colName + "_display", SQLType: "VARCHAR(512)"})
+			cols = append(cols, columnDef{
+				Name: colName + "_display", SQLType: "VARCHAR(512)", Derived: true,
+			})
 		}
 	}
 	return cols
@@ -861,33 +928,70 @@ func jsonTypeToSQL(jsonType string) string {
 	}
 }
 
+// ExtractReport says how completely ExtractFlatColumns read one document.
+//
+// The absence of a column from the extracted row is ambiguous on its own: the
+// client may have cleared the property, or the extraction may simply have
+// failed to read it. Issue #550 made that ambiguity load-bearing — the
+// wholesale write path nulls a declared column it does not find — so the
+// extraction now says which of the two happened. A caller that acts on absence
+// must check Complete first; a caller that only writes what it found may
+// ignore the report, but should log it (Article XI).
+type ExtractReport struct {
+	// ReadError is set when the document itself could not be read: it is not
+	// valid JSON, or its @graph nodes are not objects. Nothing was extracted,
+	// so EVERY column is missing for a reason that is not a clear.
+	ReadError error
+	// UnreadableEdges lists the edges-node keys that produced no column value.
+	// Two causes, one consequence: no term, alias or @vocab in the stored
+	// @context names the key (the context drifted away from the record), or
+	// the value carried no usable reference. Either way the document still
+	// states a reference the row does not carry.
+	UnreadableEdges []string
+}
+
+// Complete reports whether the whole document was read. Only a complete read
+// makes a missing column mean "the client cleared this property".
+func (r ExtractReport) Complete() bool {
+	return r.ReadError == nil && len(r.UnreadableEdges) == 0
+}
+
 // ExtractFlatColumns extracts flat key-value pairs from JSON data into a row map.
 // Supports both @graph format and legacy flat format.
 // For @graph: extracts intrinsic props from entity node, FK values from edges node.
 // Skips JSON-LD meta-keys and standard column names.
-func ExtractFlatColumns(data, ldContext json.RawMessage, row map[string]any) {
+//
+// It returns an ExtractReport rather than nothing, because a caller that treats
+// a missing column as a deliberate clear needs to know the difference between
+// "the document omits this" and "this extraction could not read the document".
+func ExtractFlatColumns(data, ldContext json.RawMessage, row map[string]any) ExtractReport {
 	var doc map[string]any
 	if err := json.Unmarshal(data, &doc); err != nil {
-		return
+		return ExtractReport{ReadError: fmt.Errorf("resource data is not valid JSON: %w", err)}
 	}
 
 	// Check for @graph format.
 	if graphArr, ok := doc["@graph"].([]any); ok && len(graphArr) > 0 {
 		// Extract intrinsic properties from entity node (first in @graph).
-		if entityNode, ok := graphArr[0].(map[string]any); ok {
-			extractNodeColumns(entityNode, row)
+		entityNode, ok := graphArr[0].(map[string]any)
+		if !ok {
+			return ExtractReport{ReadError: errors.New("@graph entity node is not an object")}
 		}
+		extractNodeColumns(entityNode, row)
 		// Extract FK values from edges node (second in @graph).
 		if len(graphArr) > 1 {
-			if edgesNode, ok := graphArr[1].(map[string]any); ok {
-				extractEdgeColumns(edgesNode, ldContext, row)
+			edgesNode, ok := graphArr[1].(map[string]any)
+			if !ok {
+				return ExtractReport{ReadError: errors.New("@graph edges node is not an object")}
 			}
+			return ExtractReport{UnreadableEdges: extractEdgeColumns(edgesNode, ldContext, row)}
 		}
-		return
+		return ExtractReport{}
 	}
 
 	// Legacy flat format.
 	extractNodeColumns(doc, row)
+	return ExtractReport{}
 }
 
 // extractNodeColumns extracts flat properties from a JSON-LD node into a row map.
@@ -915,7 +1019,15 @@ func extractNodeColumns(m map[string]any, row map[string]any) {
 // extractEdgeColumns extracts FK values from a JSON-LD edges node into a row map.
 // Uses the @context to reverse-map predicate IRIs back to property names,
 // then converts property names to snake_case column names.
-func extractEdgeColumns(edges map[string]any, ldContext json.RawMessage, row map[string]any) {
+//
+// It returns the keys it could not turn into a column value. Skipping one used
+// to be silent, which made the edge indistinguishable from an edge the document
+// never had — and issue #550 reads that absence as a clear. The caller decides
+// what to do; this function's job is to stop hiding the difference.
+func extractEdgeColumns(
+	edges map[string]any, ldContext json.RawMessage, row map[string]any,
+) []string {
+	var unreadable []string
 	for key, val := range edges {
 		if key == "@id" {
 			continue
@@ -924,14 +1036,22 @@ func extractEdgeColumns(edges map[string]any, ldContext json.RawMessage, row map
 		// newer ones key them by property name. Both forms are stored.
 		propName, ok := jsonld.EdgeProperty(key, ldContext)
 		if !ok {
+			// The stored @context no longer names this predicate. The reference
+			// is still in the document, so report the key rather than drop it.
+			unreadable = append(unreadable, key)
 			continue
 		}
 		colName := utils.CamelToSnake(propName)
 		if standardColumnNames[colName] {
+			// A standard column is never a declared property, so nothing reads
+			// its absence as a clear. Not a defect.
 			continue
 		}
 		ids, isList := jsonld.EdgeIDs(val)
 		if len(ids) == 0 {
+			// BuildResourceGraph writes an edge key only with at least one
+			// reference, so an empty one is a shape this reader does not know.
+			unreadable = append(unreadable, key)
 			continue
 		}
 		if !isList {
@@ -944,8 +1064,10 @@ func extractEdgeColumns(edges map[string]any, ldContext json.RawMessage, row map
 		// with the canonical record about whether the value existed at all.
 		encoded, err := json.Marshal(ids)
 		if err != nil {
+			unreadable = append(unreadable, key)
 			continue
 		}
 		row[colName] = string(encoded)
 	}
+	return unreadable
 }

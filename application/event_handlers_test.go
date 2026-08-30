@@ -104,6 +104,14 @@ func (s *stubProjMgr) AncestorSlugs(slug string) []string {
 
 func (s *stubProjMgr) HasColumn(slug, column string) bool { return s.columns[slug][column] }
 
+// DeclaredColumns reports nothing. The stub has no schema, so it cannot tell a
+// declared property from a derived display sibling. Returning nil keeps the
+// double conservative: it never claims a column is the client's to clear, so no
+// test here can go green on projection-clearing behavior the stub invented.
+// The clearing path is covered against the real projection manager in
+// infrastructure/database/gorm/resource_repository_clear_test.go.
+func (s *stubProjMgr) DeclaredColumns(_ string) []string { return nil }
+
 func (s *stubProjMgr) RegisterLink(_ context.Context, _ repositories.LinkReference) error {
 	return nil
 }

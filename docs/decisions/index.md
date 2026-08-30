@@ -18,3 +18,4 @@ Architecture Decision Records (ADRs) capture significant technical decisions mad
 | [Admin Index Override for Thin-Wrap Binaries]({% link decisions/admin-index-override.md %}) | Proposed | 2026-04-14 |
 | [Cross-Preset Link Definitions]({% link decisions/cross-preset-link-definitions.md %}) | Accepted (Implemented) | 2026-04-19 |
 | [Projection Schema Migration]({% link decisions/projection-schema-migration.md %}) | Accepted (Implemented) | 2026-08-06 |
+| [A Projection Clears an Omitted Property]({% link decisions/projection-clears-omitted-properties.md %}) | Accepted (Implemented) | 2026-08-30 |

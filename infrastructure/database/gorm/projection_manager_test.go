@@ -320,7 +320,13 @@ func TestExtractFlatColumns(t *testing.T) {
 	}`)
 
 	row := map[string]any{}
-	ExtractFlatColumns(data, nil, row)
+	// The report is the precondition nullClearedColumns reads (#550): a clear
+	// runs only for a document that was read whole. A well-formed document must
+	// report complete, or the clear silently stops happening on the path this
+	// test covers.
+	if report := ExtractFlatColumns(data, nil, row); !report.Complete() {
+		t.Errorf("a well-formed document must read complete, got %+v", report)
+	}
 
 	if row["name"] != "Widget" {
 		t.Errorf("expected name=Widget, got %v", row["name"])
@@ -1455,5 +1461,82 @@ func TestUpdateColumnByFK_EscapesWildcards(t *testing.T) {
 	}
 	if v := rows[0]["suppliers_display"]; v != nil {
 		t.Errorf("an unescaped wildcard updated an unrelated row (display = %v)", v)
+	}
+}
+
+// TestDeclaredColumns_ExcludesDerivedDisplaySibling pins the `!col.Derived`
+// filter on DeclaredColumns ITSELF.
+//
+// Issue #550's clear nulls every declared column a write does not carry. A
+// `<fk>_display` sibling is absent from every write by construction — no
+// document ever states it — so a declared set that contained one would wipe the
+// label of a reference the update never touched.
+//
+// That property was previously protected only by the ORDER of the two helpers
+// in updateProjectionBySlug: populateDisplayColumns runs after the clear and
+// rewrites the display value. Ordering is indirect and a refactor can change it
+// without changing this. The claim belongs on the declared set, so it is made
+// here.
+func TestDeclaredColumns_ExcludesDerivedDisplaySibling(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	schema := json.RawMessage(`{"type":"object","properties":{` +
+		`"name":{"type":"string"},` +
+		`"courseId":{"type":"string","x-resource-type":"course"}}}`)
+	if err := pm.EnsureTable(ctx, "course-instance", schema, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	declared := make(map[string]bool)
+	for _, col := range pm.DeclaredColumns("course-instance") {
+		declared[col] = true
+	}
+	if !declared["name"] {
+		t.Errorf("declared set %v is missing the literal property column", declared)
+	}
+	if !declared["course_id"] {
+		t.Errorf("declared set %v is missing the reference FK column", declared)
+	}
+	if declared["course_id_display"] {
+		t.Errorf("declared set %v contains course_id_display, which no document states",
+			declared)
+	}
+	if declared["id"] || declared["created_at"] {
+		t.Errorf("declared set %v contains a standard column", declared)
+	}
+}
+
+// TestDeclaredColumns_LinkFKDeclaredDisplayDerived holds the same split for a
+// link activated OUTSIDE the type's schema. RegisterLink adds a FK and a
+// display sibling in one call, and only the FK is a value a document carries.
+func TestDeclaredColumns_LinkFKDeclaredDisplayDerived(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	schema := json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`)
+	if err := pm.EnsureTable(ctx, "course-instance", schema, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := pm.RegisterLink(ctx, repositories.LinkReference{
+		SourceSlug: "course-instance", PropertyName: "sponsorId", TargetSlug: "course",
+	}); err != nil {
+		t.Fatalf("RegisterLink: %v", err)
+	}
+
+	declared := make(map[string]bool)
+	for _, col := range pm.DeclaredColumns("course-instance") {
+		declared[col] = true
+	}
+	if !declared["sponsor_id"] {
+		t.Errorf("declared set %v is missing the activated link FK", declared)
+	}
+	if declared["sponsor_id_display"] {
+		t.Errorf("declared set %v contains sponsor_id_display, which no document states",
+			declared)
 	}
 }
