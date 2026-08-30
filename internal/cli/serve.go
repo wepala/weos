@@ -233,7 +233,19 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Logger:      logger,
 	})
 
-	api.GET("/auth/login", echo.WrapHandler(http.HandlerFunc(authHandlers.Login)))
+	// Wrapped so a provider this instance cannot begin a sign-in with returns
+	// the browser to the sign-in screen with a reason, rather than replacing
+	// the page with the bare handler's JSON error. See authLoginHandler.
+	api.GET("/auth/login", authLoginHandler(authHandlers.Login, authLoginConfig{
+		Registry: providerRegistry,
+		// The same resolution /auth/login has always used, so a link that
+		// names no provider keeps working wherever it works today. The
+		// wrapper checks the RESULT against the registry, which is what
+		// catches the auto-pick's "google" fallback on an unconfigured
+		// instance.
+		DefaultProvider: appCfg.DefaultOAuthProvider(),
+		FrontendURL:     appCfg.OAuth.FrontendURL,
+	}))
 	// Wrapped so the callback handles Apple's form_post (POST) and appends
 	// ?new_account=1 for first-time signups. Registered for both GET (Google,
 	// NetSuite) and POST (Apple). See authCallbackHandler.
