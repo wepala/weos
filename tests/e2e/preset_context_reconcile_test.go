@@ -87,6 +87,16 @@ func TestPresetContextGuards(t *testing.T) {
 	runContextFeature(t, "preset-context-guards", "features/preset_context_guards.feature")
 }
 
+// TestReferenceClearProjection is the acceptance suite for issue #550: an unset
+// of a reference property never reaches the flat projection. The event store
+// records the clear; the projection row keeps the old value forever.
+//
+// It shares its step world with TestPresetContextReconcile: the shapes are the
+// same, and only the update path is new.
+func TestReferenceClearProjection(t *testing.T) {
+	runContextFeature(t, "reference-clear-projection", "features/reference_clear_projection.feature")
+}
+
 // runContextFeature runs one feature file against the shared context step world.
 func runContextFeature(t *testing.T, name, path string) {
 	t.Helper()
@@ -184,6 +194,13 @@ type contextWorld struct {
 
 	createdIDs map[string]string
 
+	// createdData is the flat data each resource was last written with, keyed
+	// like createdIDs. The update steps rebuild a whole document from it because
+	// the update path replaces a resource's data WHOLESALE — "clearing maker"
+	// means resubmitting everything else without it, which is exactly how a
+	// client clears a reference and exactly what issue #550 is about.
+	createdData map[string]map[string]any
+
 	// bootErr is the LAST boot's start error, kept rather than propagated so a
 	// scenario can assert a boot was refused. Whether a refusal fails startup or
 	// only reports is the implementer's call (issue #515); the assertions accept
@@ -224,7 +241,11 @@ type contextProperty struct {
 }
 
 func initPresetContextScenario(sc *godog.ScenarioContext) {
-	w := &contextWorld{createdIDs: map[string]string{}, widgetContextExtras: map[string]string{}}
+	w := &contextWorld{
+		createdIDs:          map[string]string{},
+		createdData:         map[string]map[string]any{},
+		widgetContextExtras: map[string]string{},
+	}
 
 	sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
 		w.teardown()
@@ -262,6 +283,12 @@ func initPresetContextScenario(sc *godog.ScenarioContext) {
 		w.iCreateWidgetWithReference)
 	sc.Step(`^I create a "widget" named "([^"]*)" with these references:$`, w.iCreateWidgetWithReferences)
 	sc.Step(`^I create a "widget" named "([^"]*)" with "([^"]*)" set to "([^"]*)"$`, w.iCreateWidgetWithLiteral)
+
+	sc.Step(`^I update the "widget" "([^"]*)" clearing "([^"]*)"$`, w.iUpdateWidgetClearing)
+	sc.Step(`^I update the "widget" "([^"]*)" setting "([^"]*)" to an empty value$`,
+		w.iUpdateWidgetSettingEmpty)
+	sc.Step(`^I update the "widget" "([^"]*)" setting "([^"]*)" to the "vendor" "([^"]*)"$`,
+		w.iUpdateWidgetSettingReference)
 
 	sc.Step(`^reading the "widget" "([^"]*)" back through the projection returns "([^"]*)" as the "vendor" "([^"]*)"$`,
 		w.readingReturnsReference)
@@ -851,7 +878,74 @@ func (w *contextWorld) createResource(slug, name string, data map[string]any) er
 		return fmt.Errorf("failed to create %s %q: %w", slug, name, err)
 	}
 	w.createdIDs[slug+"/"+name] = res.GetID()
+	w.createdData[slug+"/"+name] = cloneData(data)
 	return nil
+}
+
+// cloneData copies one resource's flat data so a later update mutates its own
+// document rather than the record of what was created.
+func cloneData(data map[string]any) map[string]any {
+	out := make(map[string]any, len(data))
+	for k, v := range data {
+		out[k] = v
+	}
+	return out
+}
+
+// updateResource rewrites a widget through the normal update path with the data
+// the world last wrote, after applying one change. Update REPLACES a resource's
+// data, so a property this document omits is a property the client removed.
+func (w *contextWorld) updateResource(name string, mutate func(map[string]any)) error {
+	key := "widget/" + name
+	id, ok := w.createdIDs[key]
+	if !ok {
+		return fmt.Errorf("no widget named %q was created in this scenario", name)
+	}
+	data := cloneData(w.createdData[key])
+	mutate(data)
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	if _, err := w.rs.Update(context.Background(),
+		application.UpdateResourceCommand{ID: id, Data: raw}); err != nil {
+		return fmt.Errorf("failed to update widget %q: %w", name, err)
+	}
+	w.createdData[key] = data
+	return nil
+}
+
+// iUpdateWidgetClearing removes a property from the widget's document and
+// rewrites it — the client-side shape of "this widget no longer has a maker".
+func (w *contextWorld) iUpdateWidgetClearing(name, property string) error {
+	return w.updateResource(name, func(data map[string]any) {
+		delete(data, property)
+	})
+}
+
+// iUpdateWidgetSettingEmpty is the other shape a client clears a reference in:
+// the property is still named, with an empty value. The write path drops an
+// empty reference, so it must reach the projection as the same clear.
+func (w *contextWorld) iUpdateWidgetSettingEmpty(name, property string) error {
+	return w.updateResource(name, func(data map[string]any) {
+		if w.widgetPropertyIsList(property) {
+			data[property] = []string{}
+			return
+		}
+		data[property] = ""
+	})
+}
+
+// iUpdateWidgetSettingReference rebinds a reference, so a scenario can prove a
+// cleared column is not stuck at NULL.
+func (w *contextWorld) iUpdateWidgetSettingReference(name, property, vendorName string) error {
+	value, err := w.referenceValue(property, vendorName)
+	if err != nil {
+		return err
+	}
+	return w.updateResource(name, func(data map[string]any) {
+		data[property] = value
+	})
 }
 
 func (w *contextWorld) aVendorExists(name string) error {
