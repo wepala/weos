@@ -320,7 +320,13 @@ func TestExtractFlatColumns(t *testing.T) {
 	}`)
 
 	row := map[string]any{}
-	ExtractFlatColumns(data, nil, row)
+	// The report is the precondition nullClearedColumns reads (#550): a clear
+	// runs only for a document that was read whole. A well-formed document must
+	// report complete, or the clear silently stops happening on the path this
+	// test covers.
+	if report := ExtractFlatColumns(data, nil, row); !report.Complete() {
+		t.Errorf("a well-formed document must read complete, got %+v", report)
+	}
 
 	if row["name"] != "Widget" {
 		t.Errorf("expected name=Widget, got %v", row["name"])
