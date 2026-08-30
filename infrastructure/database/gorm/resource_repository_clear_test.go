@@ -159,14 +159,23 @@ func TestDualProjection_ClearedProperty_NullsAncestorColumn(t *testing.T) {
 // --- the boundary: only a DECLARED SCHEMA PROPERTY is nulled by absence ---
 
 // TestUpdateProjection_ClearedLiteral_KeepsUnrelatedDisplayColumn is the
-// display-column boundary on the full-update path.
+// display-column boundary on the full-update path: an update that clears a
+// literal must leave an untouched reference and its label alone.
 //
 // A display column is DERIVED, not declared: it never appears in a document, so
-// it is absent from the row on every single write. A fix that nulls whatever is
-// absent — or that nulls AFTER populateDisplayColumns has filled the row —
-// wipes the label of a reference the update never touched.
+// it is absent from the row on every single write.
 //
-// This test passes today. It fails against exactly that mistake.
+// Read the neighboring pins, because this test does not carry that claim on
+// its own — verified by mutation, it stays green against both mistakes it once
+// said it caught:
+//
+//   - Nulling whatever is absent, derived columns included, is caught by
+//     TestDeclaredColumns_ExcludesDerivedDisplaySibling in
+//     projection_manager_test.go. populateDisplayColumns re-fills the label
+//     here afterwards, so this test never sees the damage.
+//   - Nulling AFTER populateDisplayColumns has filled the row is caught by
+//     TestUpdateProjection_ClearedReference_NullsDisplayColumn above, which
+//     goes red because the cleared reference keeps its label.
 func TestUpdateProjection_ClearedLiteral_KeepsUnrelatedDisplayColumn(t *testing.T) {
 	t.Parallel()
 	repo, ctx := setupReferenceProjectionTest(t)

@@ -720,7 +720,7 @@ func (pm *projectionManager) RegisterLink(ctx context.Context, ref repositories.
 	colName := utils.CamelToSnake(ref.PropertyName)
 	cols := []columnDef{
 		{Name: colName, SQLType: "TEXT"},
-		{Name: colName + "_display", SQLType: "VARCHAR(512)"},
+		{Name: colName + "_display", SQLType: "VARCHAR(512)", Derived: true},
 	}
 	if err := pm.addMissingColumns(ctx, tableName, cols); err != nil {
 		return fmt.Errorf("RegisterLink: add columns to %q: %w", tableName, err)
