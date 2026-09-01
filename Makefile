@@ -141,12 +141,24 @@ test-graph-embedded: fetch-oxigraph-lib ## Test the embedded oxigraph backend (C
 RELEASE_TAG_PREFIX  := v3.0.1-beta.
 RELEASE_TAG_PATTERN := ^$(subst .,\.,$(strip $(RELEASE_TAG_PREFIX)))[1-9][0-9]*$$
 
+# TAG reaches the recipe through the ENVIRONMENT, never through Make's textual
+# substitution. `$(TAG)` inside a quoted shell word is pasted in verbatim, so a
+# value carrying a quote and a semicolon closes the string and runs whatever
+# follows. Whoever supplies TAG is already running make, so the severity is low
+# — but this is a public repository and recipes get copied out of it.
+#
+# A target-specific `check-release-tag: export TAG` would scope this more
+# tightly. It needs make 4.x: GNU Make 3.81, which is what macOS still ships,
+# reads that line as a rule with a prerequisite named `export` and stops. This
+# file-scope directive works on both.
+export TAG
+
 check-release-tag: ## Check a release tag against the scheme and re-prove the scheme sorts (make check-release-tag TAG=v3.0.1-beta.1)
-	@test -n "$(TAG)" || { \
-		echo "check-release-tag: name the tag, e.g. make check-release-tag TAG=$(RELEASE_TAG_PREFIX)1"; \
+	@test -n "$$TAG" || { \
+		echo "check-release-tag: name the tag, e.g. make check-release-tag TAG=$(strip $(RELEASE_TAG_PREFIX))1"; \
 		exit 1; }
-	@printf '%s\n' "$(TAG)" | grep -Eq '$(RELEASE_TAG_PATTERN)' || { \
-		echo "check-release-tag: refusing \"$(TAG)\"."; \
+	@printf '%s\n' "$$TAG" | grep -Eq '$(RELEASE_TAG_PATTERN)' || { \
+		echo "check-release-tag: refusing \"$$TAG\"."; \
 		echo ""; \
 		echo "  A release tag on this line is $(strip $(RELEASE_TAG_PREFIX))N, with a literal"; \
 		echo "  period before the number and no leading zero on it:"; \
@@ -175,9 +187,9 @@ check-release-tag: ## Check a release tag against the scheme and re-prove the sc
 # target and recurse.
 	@WEOS_IN_CHECK_RELEASE_TAG=1 go test -count=1 ./tests/unit/ -run 'ReleaseTag|Scheme' || { \
 		echo ""; \
-		echo "check-release-tag: \"$(TAG)\" has the right SHAPE, but the scheme the"; \
+		echo "check-release-tag: \"$$TAG\" has the right SHAPE, but the scheme the"; \
 		echo "  Makefile declares no longer sorts above every published tag. The shape"; \
 		echo "  check alone cannot see this — it derives its pattern from the same"; \
 		echo "  RELEASE_TAG_PREFIX it is checking. Fix the prefix before tagging."; \
 		exit 1; }
-	@echo "check-release-tag: $(TAG) is a valid release tag."
+	@echo "check-release-tag: $$TAG is a valid release tag."

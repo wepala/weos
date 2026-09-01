@@ -52,10 +52,18 @@ so a tag is never cut against a scheme that has stopped sorting. `Makefile`'s
 would not sort above every tag already published, and shells back out to
 `make check-release-tag` so the guard's own pattern is exercised too.
 
-Moving the line — to `v3.1.0-beta.N`, or to the final `v3.0.1` that ends it —
-means editing `RELEASE_TAG_PREFIX`. The check pins the version as well as the
-shape, deliberately, so the sort order is re-proven whenever the line moves; a
+Moving to another pre-release line — `v3.1.0-beta.N`, say — means editing
+`RELEASE_TAG_PREFIX`. The check pins the version as well as the shape,
+deliberately, so the sort order is re-proven whenever the line moves; a
 correctly shaped tag on a different line is refused until you make that edit.
+
+Graduating the line to a **stable** release is the one case the check cannot
+cover. `v3.0.1` with no pre-release identifier has no number to append, so no
+prefix produces it — setting the prefix to `v3.0.1` yields a pattern that
+refuses `v3.0.1` and accepts `v3.0.11`. Cut that tag by hand, and move
+`RELEASE_TAG_PREFIX` on to the next pre-release line in the same commit. The
+reasoning is in `docs/decisions/release-tag-scheme.md`, "How this version line
+ends".
 
 ### Why the period matters
 

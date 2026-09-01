@@ -11,10 +11,15 @@ import (
 	"golang.org/x/mod/semver"
 )
 
-// publishedV3Tags is every tag published on the v3 line under the old
-// `alphaN` scheme, frozen as of 2026-08-31. They are never renamed or deleted
-// — a module proxy caches them and a pinned consumer would break — so any new
-// tag has to sort above all of them to be reachable by `go get -u`.
+// publishedV3Tags is every tag published on the v3 line under the old, now
+// retired `alphaN` scheme, as it stood on 2026-08-31. They are never renamed
+// or deleted — a module proxy caches them and a pinned consumer would break —
+// so any new tag has to sort above all of them to be reachable by `go get -u`.
+//
+// This list is CLOSED. It records a scheme nothing publishes under any more,
+// so it does not need maintaining and must not grow: no `beta.N` tag belongs
+// in it. A `beta.N` tag added here would assert that the current scheme has to
+// sort above itself, which is a test that can only fail.
 var publishedV3Tags = []string{
 	"v3.0.0-alpha",
 	"v3.0.1-alpha1", "v3.0.1-alpha2", "v3.0.1-alpha3", "v3.0.1-alpha4",
@@ -30,7 +35,11 @@ var publishedV3Tags = []string{
 // its own because it is the specific version the bug stalls upgrades at.
 const highestPublishedV3Tag = "v3.0.1-alpha9"
 
-var releaseTagPrefixDecl = regexp.MustCompile(`(?m)^RELEASE_TAG_PREFIX\s*:?=[ \t]*(\S+)`)
+// Make has five assignment forms and the prefix could reasonably be declared
+// with any of them — `?=` in particular, to make it overridable. Matching only
+// `=` and `:=` made the test abort with "the Makefile declares no
+// RELEASE_TAG_PREFIX" against a Makefile that plainly declares one.
+var releaseTagPrefixDecl = regexp.MustCompile(`(?m)^RELEASE_TAG_PREFIX[ \t]*[:?+]*=[ \t]*(\S+)`)
 
 // releaseTagPrefix reads the declared release tag scheme out of the
 // repository Makefile. The Makefile is the single source of truth: its
@@ -44,11 +53,15 @@ func releaseTagPrefix(t *testing.T) string {
 		t.Fatalf("read Makefile: %v", err)
 	}
 
-	match := releaseTagPrefixDecl.FindSubmatch(makefile)
-	if match == nil {
+	// The LAST declaration, not the first: make takes the last assignment it
+	// evaluates, so a later conditional override is the value the guard
+	// actually enforces. Reading the first would prove the ordering of a
+	// prefix nothing uses, and prove it silently.
+	matches := releaseTagPrefixDecl.FindAllSubmatch(makefile, -1)
+	if matches == nil {
 		t.Fatal("the Makefile declares no RELEASE_TAG_PREFIX; the release tag scheme has no single source of truth")
 	}
-	return string(match[1])
+	return string(matches[len(matches)-1][1])
 }
 
 // tag builds the Nth release tag under the declared scheme.
@@ -93,10 +106,10 @@ func TestReleaseTagNumbersCompareNumerically(t *testing.T) {
 	}
 }
 
-// Both schemes wm-1jkb's own body prescribed were disproven: each sorts BELOW
-// the version upgrades are already stalled at, so neither fixes anything. This
-// pins that result so the prescription cannot be adopted later by someone
-// reading the bug report alone.
+// Both schemes originally prescribed for this bug were disproven: each sorts
+// BELOW the version upgrades are already stalled at, so neither fixes
+// anything. This pins that result, so neither can be adopted later by someone
+// who reads the original prescription and not the measurement.
 func TestSchemesRejectedForThisBugStillSortBelowAlpha9(t *testing.T) {
 	rejected := map[string]string{
 		"v3.0.1-alpha.22": "a separate numeric identifier makes the FIRST identifier `alpha`, a shorter prefix of `alpha9`, and a shorter prefix sorts first",

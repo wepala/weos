@@ -143,13 +143,24 @@ prose changes nothing that is checked.
 ### How this version line ends
 
 `RELEASE_TAG_PREFIX` describes a *pre-release* line — a fixed prefix followed by
-a number — and the final release that closes the line does not have that shape.
-Setting the prefix to `v3.0.1` to cut `v3.0.1` itself does not work: the derived
-pattern becomes `^v3\.0\.1[1-9][0-9]*$`, which accepts `v3.0.11` and refuses
-`v3.0.1`. So the final tag on this line is cut by hand, and `RELEASE_TAG_PREFIX`
-moves to the next pre-release line (`v3.0.2-beta.`, say) in the same commit.
-`check-release-tag` guards the pre-release tags within a line, not the release
-that ends it.
+a number — and it cannot express graduation. The first stable release, `v3.0.1`
+with no pre-release identifier at all, has no number to append and therefore no
+prefix that produces it. This is the first thing the guard cannot handle, and it
+arrives before any move to a new pre-release line does.
+
+Setting `RELEASE_TAG_PREFIX := v3.0.1` to cut that release is not merely
+unhelpful, it is wrong in both directions: the derived pattern becomes
+`^v3\.0\.1[1-9][0-9]*$`, which **refuses `v3.0.1`** — the very tag being cut —
+and **accepts `v3.0.11`**, a version on a different patch line entirely.
+
+So the release that graduates this line is cut by hand, without the guard, and
+`RELEASE_TAG_PREFIX` moves in the same commit to whatever pre-release line comes
+next (`v3.0.2-beta.`, say) so the guard covers the tags after it. Extending the
+guard to cover stable tags would mean expressing "prefix plus a number" and "an
+exact version" in one variable; that is not worth doing for a tag cut once per
+line. `check-release-tag` guards the pre-release tags *within* a line, not the
+release that ends it, and that limit is recorded here rather than discovered at
+the moment of a release.
 
 ## Consequences
 
