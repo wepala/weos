@@ -10,10 +10,10 @@ test: ## Run all tests
 	go test -v -race -coverprofile=coverage.out ./...
 
 test-unit: ## Run unit tests only
-	go test -v -short ./tests/unit/...
+	go test -v -race -short ./tests/unit/...
 
 test-integration: ## Run integration tests only
-	go test -v ./tests/integration/...
+	go test -v -race ./tests/integration/...
 
 test-e2e: ## Run E2E tests
 	go test -v ./tests/e2e/...
@@ -29,6 +29,8 @@ build: ## Build the weos binary
 	@test -f web/dist/index.html || { \
 		echo "web/dist/index.html is missing (web/dist is not checked in; //go:embed all:dist needs it)."; \
 		echo "Run 'make dev-build-frontend' first."; \
+		echo "If 'git status' also shows web/dist/PLACEHOLDER deleted, an older build removed it:"; \
+		echo "  git checkout -- web/dist/PLACEHOLDER"; \
 		exit 1; }
 	go build -o bin/weos ./cmd/weos
 
@@ -74,9 +76,33 @@ dev-test-api: build dev-seed ## Run Newman API regression tests (requires: npm i
 	kill $$SERVER_PID 2>/dev/null; \
 	exit $$EXIT_CODE
 
+# web/dist/PLACEHOLDER is tracked — .gitignore ignores web/dist/* and un-ignores
+# that one entry — because `//go:embed all:dist` in web/embed.go does not compile
+# against an empty directory. The placeholder is the only reason the module
+# builds for a consumer who never runs this target. So clear the generated
+# contents and leave the directory and the placeholder alone: `rm -rf web/dist`
+# here left a tracked file deleted in every developer's `git status`, and
+# committing that deletion broke the build for every downstream consumer while
+# still passing locally, because the author's own web/dist was full at the time.
+# The exclusion matches by -path, not -name: -name would also spare a nested
+# PLACEHOLDER left by a previous build, and how that breaks depends on the find
+# make happens to get. BSD find — /usr/bin/find, the one it gets on macOS —
+# exits 0 and silently leaves web/dist/_nuxt/ and everything in it behind; GNU
+# find and bfs abort the recipe with "Directory not empty". Stale output either
+# way, so match the one tracked path.
+#
+# A tree where the old recipe already deleted the placeholder does not heal
+# itself: sparing a file only helps a file that is still there. So restore it
+# first. `touch` would leave a modified file rather than a clean one, hence the
+# checkout; the trailing `|| true` keeps a build from a tarball with no git
+# working.
 dev-build-frontend: ## Build Nuxt frontend into web/dist/
 	cd web/admin && npx nuxt generate
-	rm -rf web/dist && cp -r web/admin/.output/public web/dist
+	test ! -L web/dist || { echo "web/dist is a symlink; find cannot sweep through one, so stale output would pile up unnoticed"; exit 1; }
+	mkdir -p web/dist
+	test -f web/dist/PLACEHOLDER || git checkout -- web/dist/PLACEHOLDER 2>/dev/null || true
+	find web/dist -mindepth 1 ! -path web/dist/PLACEHOLDER -delete
+	cp -r web/admin/.output/public/. web/dist/
 
 dev-test-ui: dev-build-frontend build dev-seed ## Run Playwright UI tests (headless)
 	cd tests/browser && npx playwright test
@@ -115,8 +141,8 @@ build-embedded: fetch-oxigraph-lib ## Build weos with the embedded oxigraph back
 	CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go build -tags oxigraph_embedded -o bin/weos ./cmd/weos
 
 test-graph-embedded: fetch-oxigraph-lib ## Test the embedded oxigraph backend (CGO + vendored lib): unit + godog acceptance
-	CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go test -tags oxigraph_embedded ./infrastructure/graph/...
-	CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go test -tags oxigraph_embedded ./tests/e2e/ -run 'KnowledgeGraph'
+	CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go test -race -tags oxigraph_embedded ./infrastructure/graph/...
+	CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go test -race -tags oxigraph_embedded ./tests/e2e/ -run 'KnowledgeGraph'
 
 # --- Release tagging (wm-1jkb) ---
 # A semver pre-release identifier that is not purely numeric is compared as a

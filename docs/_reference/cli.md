@@ -240,9 +240,10 @@ For convenience, the Makefile provides shortcuts:
 | `make build` | `go build -o bin/weos ./cmd/weos` | Build binary |
 | `make run` | `go run ./cmd/weos serve` | Run server |
 | `make test` | `go test -v -race -coverprofile=coverage.out ./...` | All tests |
-| `make test-unit` | `go test -v -short ./tests/unit/...` | Unit tests |
-| `make test-integration` | `go test -v ./tests/integration/...` | Integration tests |
+| `make test-unit` | `go test -v -race -short ./tests/unit/...` | Unit tests |
+| `make test-integration` | `go test -v -race ./tests/integration/...` | Integration tests |
 | `make test-e2e` | `go test -v ./tests/e2e/...` | E2E tests |
+| `make test-graph-embedded` | `CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go test -race -tags oxigraph_embedded ./infrastructure/graph/...` then `CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go test -race -tags oxigraph_embedded ./tests/e2e/ -run 'KnowledgeGraph'` | Embedded oxigraph backend tests (fetches the vendored static lib first) |
 | `make lint` | `golangci-lint run ./...` | Lint |
 | `make fmt` | `go fmt` + `goimports` | Format code |
 | `make deps` | `go mod download && go mod tidy` | Install dependencies |
