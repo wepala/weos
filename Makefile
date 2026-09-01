@@ -1,4 +1,4 @@
-.PHONY: help test build run clean lint fmt vet coverage
+.PHONY: help test build run clean lint fmt vet coverage check-release-tag
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -117,3 +117,79 @@ build-embedded: fetch-oxigraph-lib ## Build weos with the embedded oxigraph back
 test-graph-embedded: fetch-oxigraph-lib ## Test the embedded oxigraph backend (CGO + vendored lib): unit + godog acceptance
 	CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go test -tags oxigraph_embedded ./infrastructure/graph/...
 	CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go test -tags oxigraph_embedded ./tests/e2e/ -run 'KnowledgeGraph'
+
+# --- Release tagging (wm-1jkb) ---
+# A semver pre-release identifier that is not purely numeric is compared as a
+# STRING, so `v3.0.1-alpha21` sorts BELOW `v3.0.1-alpha9` and `go get -u` never
+# reaches it. The number therefore has to be its own dot-separated identifier.
+# `alpha.N` cannot rescue the v3.0.1 line — it makes the first identifier
+# `alpha`, a shorter prefix of `alpha9`, which still sorts first — so the line
+# moves to `beta.N`. RELEASE_TAG_PREFIX is the single source of truth for the
+# scheme: tests/unit/release_tag_test.go reads it from here and proves what it
+# declares sorts above every published v3 tag. See CONTRIBUTING.md, "Cutting a
+# release", and docs/decisions/release-tag-scheme.md.
+#
+# The number is matched as `[1-9][0-9]*`, not `[0-9]+`: semver forbids a leading
+# zero in a numeric identifier, so `v3.0.1-beta.01` is not a valid version at
+# all and the Go toolchain drops it — published, cached by the proxy, and
+# reachable by nobody. The guard has to refuse what Go cannot see.
+#
+# $(strip) because make keeps trailing whitespace in a `:=` value, and an inline
+# comment after the value leaves a space behind as well. Unstripped, that space
+# lands in the middle of the pattern and the guard refuses the correct tag with
+# a message whose only clue is a character you cannot see.
+RELEASE_TAG_PREFIX  := v3.0.1-beta.
+RELEASE_TAG_PATTERN := ^$(subst .,\.,$(strip $(RELEASE_TAG_PREFIX)))[1-9][0-9]*$$
+
+# TAG reaches the recipe through the ENVIRONMENT, never through Make's textual
+# substitution. `$(TAG)` inside a quoted shell word is pasted in verbatim, so a
+# value carrying a quote and a semicolon closes the string and runs whatever
+# follows. Whoever supplies TAG is already running make, so the severity is low
+# — but this is a public repository and recipes get copied out of it.
+#
+# A target-specific `check-release-tag: export TAG` would scope this more
+# tightly. It needs make 4.x: GNU Make 3.81, which is what macOS still ships,
+# reads that line as a rule with a prerequisite named `export` and stops. This
+# file-scope directive works on both.
+export TAG
+
+check-release-tag: ## Check a release tag against the scheme and re-prove the scheme sorts (make check-release-tag TAG=v3.0.1-beta.1)
+	@test -n "$$TAG" || { \
+		echo "check-release-tag: name the tag, e.g. make check-release-tag TAG=$(strip $(RELEASE_TAG_PREFIX))1"; \
+		exit 1; }
+	@printf '%s\n' "$$TAG" | grep -Eq '$(RELEASE_TAG_PATTERN)' || { \
+		echo "check-release-tag: refusing \"$$TAG\"."; \
+		echo ""; \
+		echo "  A release tag on this line is $(strip $(RELEASE_TAG_PREFIX))N, with a literal"; \
+		echo "  period before the number and no leading zero on it:"; \
+		echo "      good  $(strip $(RELEASE_TAG_PREFIX))1   $(strip $(RELEASE_TAG_PREFIX))10   $(strip $(RELEASE_TAG_PREFIX))22"; \
+		echo "      bad   v3.0.1-alpha22   v3.0.1-beta22   v3.0.1-alpha022   v3.0.1-alpha.22   v3.0.1-beta.01"; \
+		echo ""; \
+		echo "  Without the period the identifier is compared as a string, so alpha21"; \
+		echo "  sorts below alpha9 and 'go get -u' never sees the tag. With it, but"; \
+		echo "  still under alpha, the first identifier becomes a prefix of alpha9 and"; \
+		echo "  sorts below it for the same reason. A leading zero is not valid semver"; \
+		echo "  at all, so the Go toolchain ignores such a tag entirely."; \
+		echo ""; \
+		echo "  If the tag you named is the right shape on a DIFFERENT version line"; \
+		echo "  (v3.1.0-beta.1, say, or the final v3.0.1), this check is not the thing"; \
+		echo "  to work around: the version is pinned on purpose. Move the line by"; \
+		echo "  editing RELEASE_TAG_PREFIX in the Makefile, which re-proves the sort"; \
+		echo "  order against every published tag."; \
+		echo ""; \
+		echo "  See CONTRIBUTING.md, \"Cutting a release\"."; \
+		exit 1; }
+# The shape check above proves the tag matches the prefix. It cannot prove the
+# PREFIX is right, because it derives its pattern from that same prefix — a
+# prefix typo produces a matching pattern and passes silently. So re-prove the
+# ordering here, at the one moment ordering matters. WEOS_IN_CHECK_RELEASE_TAG
+# tells the guard test in that package to skip, so it cannot re-enter this
+# target and recurse.
+	@WEOS_IN_CHECK_RELEASE_TAG=1 go test -count=1 ./tests/unit/ -run 'ReleaseTag|Scheme' || { \
+		echo ""; \
+		echo "check-release-tag: \"$$TAG\" has the right SHAPE, but the scheme the"; \
+		echo "  Makefile declares no longer sorts above every published tag. The shape"; \
+		echo "  check alone cannot see this — it derives its pattern from the same"; \
+		echo "  RELEASE_TAG_PREFIX it is checking. Fix the prefix before tagging."; \
+		exit 1; }
+	@echo "check-release-tag: $$TAG is a valid release tag."

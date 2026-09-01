@@ -1,0 +1,214 @@
+// Package unit holds the unit-test layer required by Article V of the
+// constitution.
+package unit
+
+import (
+	"os"
+	"os/exec"
+	"regexp"
+	"testing"
+
+	"golang.org/x/mod/semver"
+)
+
+// publishedV3Tags is every tag published on the v3 line under the old, now
+// retired `alphaN` scheme, as it stood on 2026-08-31. They are never renamed
+// or deleted — a module proxy caches them and a pinned consumer would break —
+// so any new tag has to sort above all of them to be reachable by `go get -u`.
+//
+// This list is CLOSED. It records a scheme nothing publishes under any more,
+// so it does not need maintaining and must not grow: no `beta.N` tag belongs
+// in it. A `beta.N` tag added here would assert that the current scheme has to
+// sort above itself, which is a test that can only fail.
+var publishedV3Tags = []string{
+	"v3.0.0-alpha",
+	"v3.0.1-alpha1", "v3.0.1-alpha2", "v3.0.1-alpha3", "v3.0.1-alpha4",
+	"v3.0.1-alpha5", "v3.0.1-alpha6", "v3.0.1-alpha7", "v3.0.1-alpha8",
+	"v3.0.1-alpha9", "v3.0.1-alpha10", "v3.0.1-alpha11", "v3.0.1-alpha12",
+	"v3.0.1-alpha13", "v3.0.1-alpha14", "v3.0.1-alpha15", "v3.0.1-alpha16",
+	"v3.0.1-alpha17", "v3.0.1-alpha18", "v3.0.1-alpha19", "v3.0.1-alpha20",
+	"v3.0.1-alpha21",
+}
+
+// highestPublishedV3Tag is the tag `go list -m -versions` reported as the
+// newest on 2026-08-31, twelve tags behind the real tip. It is named here on
+// its own because it is the specific version the bug stalls upgrades at.
+const highestPublishedV3Tag = "v3.0.1-alpha9"
+
+// The four assignment forms this matches — `=`, `:=`, `::=`, `?=` — are Make's
+// single-valued ones: each states a complete value, so taking the last one is
+// taking the value Make would use. `?=` is here because the prefix could
+// reasonably be made overridable; matching only `=` and `:=` made the test
+// abort with "the Makefile declares no RELEASE_TAG_PREFIX" against a Makefile
+// that plainly declares one.
+//
+// Make's other two forms are excluded on purpose, and neither is an oversight.
+// `+=` appends, so no single declaration holds the whole value, and reading the
+// last one would report an appended fragment as if it were the prefix. `!=`
+// assigns a shell command's output, so what the Makefile holds is a command
+// rather than the tag prefix, and there is nothing here to read.
+var releaseTagPrefixDecl = regexp.MustCompile(`(?m)^RELEASE_TAG_PREFIX[ \t]*(?:::=|:=|\?=|=)[ \t]*(\S+)`)
+
+// releaseTagPrefix reads the declared release tag scheme out of the
+// repository Makefile. The Makefile is the single source of truth: its
+// `check-release-tag` target refuses anything that does not match, and these
+// tests prove that what it declares actually sorts.
+func releaseTagPrefix(t *testing.T) string {
+	t.Helper()
+
+	makefile, err := os.ReadFile("../../Makefile")
+	if err != nil {
+		t.Fatalf("read Makefile: %v", err)
+	}
+
+	// The LAST declaration, not the first: make takes the last assignment it
+	// evaluates, so a later conditional override is the value the guard
+	// actually enforces. Reading the first would prove the ordering of a
+	// prefix nothing uses, and prove it silently.
+	matches := releaseTagPrefixDecl.FindAllSubmatch(makefile, -1)
+	if matches == nil {
+		t.Fatal("the Makefile declares no RELEASE_TAG_PREFIX; the release tag scheme has no single source of truth")
+	}
+	return string(matches[len(matches)-1][1])
+}
+
+// tag builds the Nth release tag under the declared scheme.
+func tag(t *testing.T, n string) string {
+	t.Helper()
+	return releaseTagPrefix(t) + n
+}
+
+// The regex above is the only thing standing between a renamed assignment form
+// and a silently wrong prefix, in either direction: too narrow and the suite
+// aborts on a Makefile that declares one, too wide and it reads a fragment of
+// an appended value as the whole scheme.
+func TestPrefixDeclarationMatchesOnlySingleValuedAssignments(t *testing.T) {
+	cases := []struct {
+		form    string
+		line    string
+		matched bool
+	}{
+		{form: "=", line: "RELEASE_TAG_PREFIX = v3.0.1-beta.", matched: true},
+		{form: ":=", line: "RELEASE_TAG_PREFIX := v3.0.1-beta.", matched: true},
+		{form: "::=", line: "RELEASE_TAG_PREFIX ::= v3.0.1-beta.", matched: true},
+		{form: "?=", line: "RELEASE_TAG_PREFIX ?= v3.0.1-beta.", matched: true},
+		{form: "+=", line: "RELEASE_TAG_PREFIX += v3.0.1-beta."},
+		{form: "!=", line: "RELEASE_TAG_PREFIX != echo v3.0.1-beta."},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.form, func(t *testing.T) {
+			match := releaseTagPrefixDecl.FindStringSubmatch(testCase.line)
+
+			switch {
+			case testCase.matched && match == nil:
+				t.Fatalf("%q was not read as a declaration, so a Makefile using %s would abort the suite", testCase.line, testCase.form)
+			case !testCase.matched && match != nil:
+				t.Fatalf("%q was read as a declaration yielding %q, but %s cannot be read one declaration at a time", testCase.line, match[1], testCase.form)
+			case testCase.matched && match[1] != "v3.0.1-beta.":
+				t.Errorf("%q yielded the prefix %q, not the value it declares", testCase.line, match[1])
+			}
+		})
+	}
+}
+
+func TestDeclaredReleaseTagIsValidSemver(t *testing.T) {
+	first := tag(t, "1")
+	if !semver.IsValid(first) {
+		t.Fatalf("the declared scheme produces %q, which is not valid semver", first)
+	}
+}
+
+// The bug: every tag from alpha10 to alpha21 sorts below alpha9, so `go get -u`
+// never reaches them. A new tag is only useful if it sorts above all of them.
+func TestNextReleaseTagSortsAboveEveryPublishedV3Tag(t *testing.T) {
+	next := tag(t, "1")
+
+	for _, published := range publishedV3Tags {
+		if semver.Compare(next, published) <= 0 {
+			t.Errorf("%s does not sort above the published tag %s, so `go get -u` would never reach it", next, published)
+		}
+	}
+
+	if semver.Compare(next, highestPublishedV3Tag) <= 0 {
+		t.Errorf("%s does not sort above %s, the version `go get -u` is stalled at", next, highestPublishedV3Tag)
+	}
+}
+
+// The scheme also has to keep working as the number grows past 9, which is the
+// exact point the old one broke.
+func TestReleaseTagNumbersCompareNumerically(t *testing.T) {
+	ascending := []string{"1", "2", "9", "10", "21", "100"}
+
+	for i := 1; i < len(ascending); i++ {
+		lower, higher := tag(t, ascending[i-1]), tag(t, ascending[i])
+		if semver.Compare(higher, lower) <= 0 {
+			t.Errorf("%s does not sort above %s; the number is being compared as a string, not numerically", higher, lower)
+		}
+	}
+}
+
+// Both schemes originally prescribed for this bug were disproven: each sorts
+// BELOW the version upgrades are already stalled at, so neither fixes
+// anything. This pins that result, so neither can be adopted later by someone
+// who reads the original prescription and not the measurement.
+func TestSchemesRejectedForThisBugStillSortBelowAlpha9(t *testing.T) {
+	rejected := map[string]string{
+		"v3.0.1-alpha.22": "a separate numeric identifier makes the FIRST identifier `alpha`, a shorter prefix of `alpha9`, and a shorter prefix sorts first",
+		"v3.0.1-alpha022": "zero padding keeps one string identifier, and `alpha0...` still sorts below `alpha9`",
+	}
+
+	for candidate, why := range rejected {
+		if semver.Compare(candidate, highestPublishedV3Tag) > 0 {
+			t.Errorf("%s now sorts above %s, which contradicts the measurement this decision rests on (%s)", candidate, highestPublishedV3Tag, why)
+		}
+	}
+}
+
+// The Makefile's `check-release-tag` target is the other half of the guard, and
+// nothing ran it until this test existed. Only RELEASE_TAG_PREFIX was read back
+// by the tests above; RELEASE_TAG_PATTERN and the recipe were unexecuted. The
+// escaping is what makes the pattern a guard at all — drop the `$(subst)` and
+// every literal period becomes a regex wildcard, so `v3X0X1-betaX9` is blessed
+// as a release tag while this suite stays green.
+//
+// It is deliberately small. It proves the target's SHAPE decisions and nothing
+// else: the ordering proof belongs to the tests above, which `check-release-tag`
+// now runs for itself.
+func TestMakeGuardAcceptsAndRefusesTheRightTags(t *testing.T) {
+	// `check-release-tag` re-runs this package to re-prove the ordering, and
+	// sets this variable while it does. Without the skip the target and this
+	// test would call each other without end.
+	if os.Getenv("WEOS_IN_CHECK_RELEASE_TAG") != "" {
+		t.Skip("running underneath `make check-release-tag`; skipping so the two cannot recurse")
+	}
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skipf("make is not on PATH, so the Makefile half of the guard cannot be exercised: %v", err)
+	}
+
+	cases := []struct {
+		tag      string
+		accepted bool
+		why      string
+	}{
+		{tag: tag(t, "1"), accepted: true, why: "the first tag in the scheme the Makefile itself declares"},
+		{tag: "v3.0.1-alpha.22", why: "the rejected option 1 shape: it sorts below v3.0.1-alpha9"},
+		{tag: "v3.0.1-beta22", why: "no period, so the number is compared as a string again"},
+		{tag: "v3.0.1-beta.01", why: "a leading zero is not valid semver, so the Go toolchain ignores the tag"},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.tag, func(t *testing.T) {
+			// `go test` runs with the package directory as the working
+			// directory, so the Makefile is two levels up.
+			output, err := exec.Command("make", "-C", "../..", "check-release-tag", "TAG="+testCase.tag).CombinedOutput()
+
+			switch {
+			case testCase.accepted && err != nil:
+				t.Errorf("`make check-release-tag TAG=%s` refused a tag that is %s: %v\n%s", testCase.tag, testCase.why, err, output)
+			case !testCase.accepted && err == nil:
+				t.Errorf("`make check-release-tag TAG=%s` accepted it, but %s\n%s", testCase.tag, testCase.why, output)
+			}
+		})
+	}
+}
