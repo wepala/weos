@@ -35,11 +35,19 @@ var publishedV3Tags = []string{
 // its own because it is the specific version the bug stalls upgrades at.
 const highestPublishedV3Tag = "v3.0.1-alpha9"
 
-// Make has five assignment forms and the prefix could reasonably be declared
-// with any of them — `?=` in particular, to make it overridable. Matching only
-// `=` and `:=` made the test abort with "the Makefile declares no
-// RELEASE_TAG_PREFIX" against a Makefile that plainly declares one.
-var releaseTagPrefixDecl = regexp.MustCompile(`(?m)^RELEASE_TAG_PREFIX[ \t]*[:?+]*=[ \t]*(\S+)`)
+// The four assignment forms this matches — `=`, `:=`, `::=`, `?=` — are Make's
+// single-valued ones: each states a complete value, so taking the last one is
+// taking the value Make would use. `?=` is here because the prefix could
+// reasonably be made overridable; matching only `=` and `:=` made the test
+// abort with "the Makefile declares no RELEASE_TAG_PREFIX" against a Makefile
+// that plainly declares one.
+//
+// Make's other two forms are excluded on purpose, and neither is an oversight.
+// `+=` appends, so no single declaration holds the whole value, and reading the
+// last one would report an appended fragment as if it were the prefix. `!=`
+// assigns a shell command's output, so what the Makefile holds is a command
+// rather than the tag prefix, and there is nothing here to read.
+var releaseTagPrefixDecl = regexp.MustCompile(`(?m)^RELEASE_TAG_PREFIX[ \t]*(?:::=|:=|\?=|=)[ \t]*(\S+)`)
 
 // releaseTagPrefix reads the declared release tag scheme out of the
 // repository Makefile. The Makefile is the single source of truth: its
@@ -68,6 +76,40 @@ func releaseTagPrefix(t *testing.T) string {
 func tag(t *testing.T, n string) string {
 	t.Helper()
 	return releaseTagPrefix(t) + n
+}
+
+// The regex above is the only thing standing between a renamed assignment form
+// and a silently wrong prefix, in either direction: too narrow and the suite
+// aborts on a Makefile that declares one, too wide and it reads a fragment of
+// an appended value as the whole scheme.
+func TestPrefixDeclarationMatchesOnlySingleValuedAssignments(t *testing.T) {
+	cases := []struct {
+		form    string
+		line    string
+		matched bool
+	}{
+		{form: "=", line: "RELEASE_TAG_PREFIX = v3.0.1-beta.", matched: true},
+		{form: ":=", line: "RELEASE_TAG_PREFIX := v3.0.1-beta.", matched: true},
+		{form: "::=", line: "RELEASE_TAG_PREFIX ::= v3.0.1-beta.", matched: true},
+		{form: "?=", line: "RELEASE_TAG_PREFIX ?= v3.0.1-beta.", matched: true},
+		{form: "+=", line: "RELEASE_TAG_PREFIX += v3.0.1-beta."},
+		{form: "!=", line: "RELEASE_TAG_PREFIX != echo v3.0.1-beta."},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.form, func(t *testing.T) {
+			match := releaseTagPrefixDecl.FindStringSubmatch(testCase.line)
+
+			switch {
+			case testCase.matched && match == nil:
+				t.Fatalf("%q was not read as a declaration, so a Makefile using %s would abort the suite", testCase.line, testCase.form)
+			case !testCase.matched && match != nil:
+				t.Fatalf("%q was read as a declaration yielding %q, but %s cannot be read one declaration at a time", testCase.line, match[1], testCase.form)
+			case testCase.matched && match[1] != "v3.0.1-beta.":
+				t.Errorf("%q yielded the prefix %q, not the value it declares", testCase.line, match[1])
+			}
+		})
+	}
 }
 
 func TestDeclaredReleaseTagIsValidSemver(t *testing.T) {
