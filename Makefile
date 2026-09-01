@@ -42,7 +42,10 @@ GO_LDFLAGS  := $(if $(strip $(VERSION)),-X $(VERSION_PKG).version=$(strip $(VERS
 
 build: ## Build the weos binary
 	@test -f web/dist/index.html || { \
-		echo "web/dist/index.html is missing (web/dist is not checked in; //go:embed all:dist needs it)."; \
+		echo "web/dist/index.html is missing, so this binary would ship no SPA."; \
+		echo "(//go:embed all:dist only needs web/dist to be non-empty, which the"; \
+		echo " tracked web/dist/PLACEHOLDER already guarantees. index.html is a"; \
+		echo " separate requirement: it is what makes the served UI work.)"; \
 		echo "Run 'make dev-build-frontend' first."; \
 		echo "If 'git status' also shows web/dist/PLACEHOLDER deleted, an older build removed it:"; \
 		echo "  git checkout -- web/dist/PLACEHOLDER"; \
