@@ -1,9 +1,11 @@
 package unit
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -23,11 +25,20 @@ import (
 const placeholder = "PLACEHOLDER"
 
 // nuxtGenerate is the one line of the dev-build-frontend recipe this test
-// cannot run: it shells out to `npx nuxt generate`, which needs an installed
+// cannot run: it shells out to the Nuxt build, which needs an installed
 // node_modules and the network. Everything after it is plain file shuffling,
 // and that is the half that loses the placeholder, so dropping this line
 // leaves the behavior under test intact.
-const nuxtGenerate = "npx nuxt generate"
+//
+// It matches on the Nuxt command rather than the runner in front of it:
+// anchored on `npx nuxt generate`, swapping npx for pnpm or yarn would stop
+// the line being skipped and this test would go and run the frontend build.
+const nuxtGenerate = "nuxt generate"
+
+// repoRoot is this repository, seen from tests/unit. Several tests here pin
+// the real tree rather than a fixture copy of it, because the failure they
+// guard against is a file going missing from the repository itself.
+const repoRoot = "../.."
 
 // devBuildFrontendRecipe returns the shell commands `make dev-build-frontend`
 // would run, read out of the real Makefile rather than restated here. Reading
@@ -36,7 +47,7 @@ const nuxtGenerate = "npx nuxt generate"
 func devBuildFrontendRecipe(t *testing.T) []string {
 	t.Helper()
 
-	makefile, err := os.ReadFile("../../Makefile")
+	makefile, err := os.ReadFile(filepath.Join(repoRoot, "Makefile"))
 	if err != nil {
 		t.Fatalf("read Makefile: %v", err)
 	}
@@ -51,8 +62,20 @@ func devBuildFrontendRecipe(t *testing.T) []string {
 		if !inRecipe {
 			continue
 		}
-		// In make, a line that does not begin with a tab ends the recipe.
+		// A line that does not begin with a tab ends the recipe — but make
+		// makes two exceptions, and stopping at either would hide every line
+		// below it, which is exactly where a reintroduced `rm -rf web/dist`
+		// would sit. Make ignores a blank line and a column-0 comment inside a
+		// recipe and carries on to the next tab-indented line, so do the same.
+		// A "blank" line of spaces counts, hence the TrimSpace.
+		//
+		// The tab is hardcoded on purpose: .RECIPEPREFIX arrived in GNU Make
+		// 3.82, this repository builds under 3.81, and nothing sets it.
 		if !strings.HasPrefix(line, "\t") {
+			ignored := strings.TrimSpace(line)
+			if ignored == "" || strings.HasPrefix(ignored, "#") {
+				continue
+			}
 			break
 		}
 		// `@` silences the line, `-` ignores its exit status and `+` runs it
@@ -70,17 +93,17 @@ func devBuildFrontendRecipe(t *testing.T) []string {
 	return recipe
 }
 
-// TestDevBuildFrontendKeepsTheTrackedPlaceholder runs the real recipe against
-// a fixture laid out like the repository and proves web/dist survives it with
-// the tracked file still in place.
-func TestDevBuildFrontendKeepsTheTrackedPlaceholder(t *testing.T) {
+// writeFixture lays out a temp tree shaped like the repository just after a
+// previous build: a web/dist holding the tracked placeholder and stale
+// generated output, and the fresh output `nuxt generate` would have left.
+func writeFixture(t *testing.T) string {
+	t.Helper()
+
 	root := t.TempDir()
 	dist := filepath.Join(root, "web", "dist")
 	generated := filepath.Join(root, "web", "admin", ".output", "public")
 
-	// web/dist as a developer finds it after a previous build: the tracked
-	// placeholder, plus stale generated output the recipe still has to clear.
-	writeFile(t, filepath.Join(dist, placeholder), "")
+	writeFile(t, filepath.Join(dist, placeholder), placeholderContents)
 	writeFile(t, filepath.Join(dist, "index.html"), "stale")
 	writeFile(t, filepath.Join(dist, "_nuxt", "stale.js"), "stale")
 	// Stale output that happens to carry the placeholder's name. Only the one
@@ -90,12 +113,25 @@ func TestDevBuildFrontendKeepsTheTrackedPlaceholder(t *testing.T) {
 	// recipe with "Directory not empty".
 	writeFile(t, filepath.Join(dist, "_nuxt", placeholder), "stale")
 
-	// What `npx nuxt generate` would have left behind, including a dotfile —
+	// What the Nuxt build would have left behind, including a dotfile —
 	// `cp -r src/* dst` drops those silently, so the recipe has to copy in a
 	// way that does not.
 	writeFile(t, filepath.Join(generated, "index.html"), "fresh")
 	writeFile(t, filepath.Join(generated, "_nuxt", "app.js"), "fresh")
 	writeFile(t, filepath.Join(generated, ".nojekyll"), "")
+
+	return root
+}
+
+// placeholderContents stands in for the real file's prose. It only has to be
+// non-empty and recognizable: a restored placeholder has to come back with its
+// committed contents, not as an empty file `touch` would leave.
+const placeholderContents = "tracked, and the embed needs it\n"
+
+// runDevBuildFrontend runs the real recipe against a fixture root, one line per
+// shell, the way make does.
+func runDevBuildFrontend(t *testing.T, root string) {
+	t.Helper()
 
 	for _, command := range devBuildFrontendRecipe(t) {
 		if strings.Contains(command, nuxtGenerate) {
@@ -106,20 +142,51 @@ func TestDevBuildFrontendKeepsTheTrackedPlaceholder(t *testing.T) {
 		if strings.Contains(command, "$(") || strings.Contains(command, "${") {
 			t.Fatalf("the recipe line %q expands a make variable, which this test runs unexpanded; teach it that line before relying on this result", command)
 		}
+		// Same reasoning for a continued line: make joins it with the next one
+		// before running it, this test would hand `sh` half a command, and the
+		// syntax error would point nowhere near the edit that caused it.
+		if strings.HasSuffix(strings.TrimRight(command, " \t"), `\`) {
+			t.Fatalf("the recipe line %q continues onto the next line, which this test runs on its own; teach it that line before relying on this result", command)
+		}
 
 		// Make runs each recipe line in its own shell, from the directory it
 		// was invoked in.
 		cmd := exec.Command("sh", "-c", command)
 		cmd.Dir = root
+		// The recipe is trusted, but it is read off disk and run here, so keep
+		// it inside the fixture: a `~/...` path in some future line resolves
+		// under the temp root rather than in the developer's home directory.
+		// PATH stays real — the recipe needs find, cp and mkdir.
+		cmd.Env = []string{
+			"HOME=" + root,
+			"TMPDIR=" + root,
+			"PATH=" + os.Getenv("PATH"),
+		}
 		if output, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("recipe line %q failed: %v\n%s", command, err, output)
 		}
 	}
+}
+
+// TestDevBuildFrontendKeepsTheTrackedPlaceholder runs the real recipe against
+// a fixture laid out like the repository and proves web/dist survives it with
+// the tracked file still in place.
+func TestDevBuildFrontendKeepsTheTrackedPlaceholder(t *testing.T) {
+	requireShell(t)
+
+	root := writeFixture(t)
+	dist := filepath.Join(root, "web", "dist")
+
+	runDevBuildFrontend(t, root)
 
 	if _, err := os.Stat(filepath.Join(dist, placeholder)); err != nil {
 		t.Errorf("web/dist/%s did not survive `make dev-build-frontend`: %v\n"+
 			"It is tracked, so every developer who builds the frontend now carries a spurious deletion, "+
 			"and committing it breaks `//go:embed all:dist` for every consumer of the module.", placeholder, err)
+	} else {
+		// Surviving as an empty file would still show up as a modification in
+		// `git status`, so the contents have to be untouched too.
+		assertFileContains(t, filepath.Join(dist, placeholder), placeholderContents)
 	}
 
 	// The recipe still has to do its actual job, or "keep the placeholder"
@@ -137,34 +204,174 @@ func TestDevBuildFrontendKeepsTheTrackedPlaceholder(t *testing.T) {
 	}
 }
 
-// TestPlaceholderIsTrackedAndDistIsNot pins the .gitignore pair the test above
-// rests on. Drop the negation and the placeholder stops being tracked, at
-// which point the recipe could delete it harmlessly and this suite would be
-// guarding nothing.
-func TestPlaceholderIsTrackedAndDistIsNot(t *testing.T) {
-	gitignore, err := os.ReadFile("../../.gitignore")
-	if err != nil {
-		t.Fatalf("read .gitignore: %v", err)
+// TestDevBuildFrontendRestoresADeletedPlaceholder covers the tree the fix above
+// does not reach on its own: every developer who ran the old `rm -rf web/dist`
+// recipe still has the placeholder deleted, and sparing a file that is already
+// gone changes nothing. `touch` would only produce a modified file — the prose
+// has to come back from git — so the recipe restores it before it sweeps.
+func TestDevBuildFrontendRestoresADeletedPlaceholder(t *testing.T) {
+	requireShell(t)
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not on PATH, so the recipe's restore step cannot be exercised")
 	}
 
-	for _, rule := range []string{"web/dist/*", "!web/dist/" + placeholder} {
-		if !strings.Contains(string(gitignore), rule) {
-			t.Errorf(".gitignore no longer declares %q; web/dist/%s is what keeps `//go:embed all:dist` compiling in a fresh clone", rule, placeholder)
+	root := writeFixture(t)
+	dist := filepath.Join(root, "web", "dist")
+
+	for _, args := range [][]string{
+		{"init", "-q"},
+		{"add", "web/dist/" + placeholder},
+		{"-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-q", "-m", "track the placeholder"},
+	} {
+		if output, code := gitIn(t, root, args...); code != 0 {
+			t.Skipf("cannot build a git fixture (`git %s` exited %d): %s", strings.Join(args, " "), code, output)
 		}
+	}
+
+	// The state the old recipe left behind.
+	if err := os.Remove(filepath.Join(dist, placeholder)); err != nil {
+		t.Fatalf("delete the fixture's placeholder: %v", err)
+	}
+
+	runDevBuildFrontend(t, root)
+
+	assertFileContains(t, filepath.Join(dist, placeholder), placeholderContents)
+}
+
+// TestTheRealPlaceholderIsPresentAndTracked pins the file in this repository,
+// not a fixture copy of it. Nothing else does: the recipe tests reason about a
+// temp directory, and CI's Go jobs download the built SPA into web/dist before
+// they compile, so `go build` passes there whether or not the tracked file
+// exists. A branch that committed the deletion would merge cleanly — a delete
+// against an unmodified file is not a conflict — and stay green until the next
+// tagged version failed to build for everyone importing weos/v3/web.
+func TestTheRealPlaceholderIsPresentAndTracked(t *testing.T) {
+	relative := "web/dist/" + placeholder
+
+	info, err := os.Stat(filepath.Join(repoRoot, "web", "dist", placeholder))
+	if err != nil {
+		t.Fatalf("%s is missing: %v\n"+
+			"`//go:embed all:dist` does not compile against an empty directory, so a fresh clone or a "+
+			"module zip without this file breaks every consumer importing weos/v3/web. "+
+			"Restore it with `git checkout -- %s`.", relative, err, relative)
+	}
+	if info.Size() == 0 {
+		t.Errorf("%s is empty, and `//go:embed all:dist` needs a file with contents in it", relative)
+	}
+
+	requireGitRepository(t)
+
+	if output, code := gitIn(t, repoRoot, "ls-files", "--error-unmatch", relative); code != 0 {
+		t.Errorf("git does not track %s: %s\n"+
+			"An untracked placeholder is absent from a fresh clone and from the module zip, which is the "+
+			"failure it exists to prevent.", relative, strings.TrimSpace(output))
+	}
+
+	// The .gitignore rules that keep this file trackable are order-dependent: a
+	// negation only un-ignores when it follows the pattern that ignored the
+	// path. Reversed, the rules ignore the placeholder — it survives in the
+	// index for now, because ignore rules do not touch a tracked file, but
+	// anyone who deletes it can no longer `git add` it back, which is the one
+	// recovery the recipe and `make build` both tell them to make. Reading the
+	// two rules out of .gitignore as text cannot see the order, so ask git how
+	// the pair resolves.
+	if isIgnored(t, relative) {
+		t.Errorf(".gitignore ignores %s, so it cannot be added back once it is deleted\n"+
+			"`web/dist/*` has to come before `!%s` — git honors a negation only after the rule it undoes.",
+			relative, relative)
+	}
+	if !isIgnored(t, "web/dist/index.html") {
+		t.Error("git no longer ignores web/dist/index.html, so a generated SPA can be committed by accident")
 	}
 }
 
 // TestEmbedStillNeedsANonEmptyDist records why the placeholder has to exist at
-// all. If this fails, the embed no longer depends on dist being non-empty and
-// the constraint the tests above enforce is worth revisiting.
+// all. It asks the Go toolchain rather than reading web/embed.go: a directive
+// someone commented out (`// //go:embed all:dist`) still contains the text, so
+// a substring match would keep passing after the embed stopped existing.
 func TestEmbedStillNeedsANonEmptyDist(t *testing.T) {
-	embed, err := os.ReadFile("../../web/embed.go")
-	if err != nil {
-		t.Fatalf("read web/embed.go: %v", err)
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("the go toolchain is not on PATH, so `go list` cannot report what web/embed.go embeds")
 	}
 
-	if !strings.Contains(string(embed), "//go:embed all:dist") {
-		t.Errorf("web/embed.go no longer declares `//go:embed all:dist`; web/dist/%s exists only to satisfy that directive", placeholder)
+	cmd := exec.Command("go", "list", "-f",
+		"{{range .EmbedPatterns}}pattern {{.}}\n{{end}}{{range .EmbedFiles}}file {{.}}\n{{end}}", "./web")
+	cmd.Dir = repoRoot
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("ask `go list` what ./web embeds: %v\n%s", err, output)
+	}
+	embedded := string(output)
+
+	if !strings.Contains(embedded, "pattern all:dist\n") {
+		t.Errorf("the web package no longer embeds all:dist, so web/dist/%s exists for nothing; `go list` reports:\n%s",
+			placeholder, embedded)
+	}
+	if !strings.Contains(embedded, "file dist/"+placeholder+"\n") {
+		t.Errorf("web/dist/%s is not among the files the embed resolves to, so an empty web/dist would stop the "+
+			"module compiling for a consumer who never runs the Nuxt build; `go list` reports:\n%s",
+			placeholder, embedded)
+	}
+}
+
+// requireShell skips a test that runs Makefile recipe lines. The recipe is
+// written for a POSIX shell, and a native Windows toolchain (not Git Bash, not
+// WSL) has no `sh` to run them with.
+func requireShell(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the dev-build-frontend recipe runs through `sh`, which native Windows does not provide")
+	}
+}
+
+// requireGitRepository skips when there is no repository to ask — a consumer
+// running these tests out of a module zip has the files but no git metadata.
+func requireGitRepository(t *testing.T) {
+	t.Helper()
+	if _, code := gitIn(t, repoRoot, "rev-parse", "--git-dir"); code != 0 {
+		t.Skip("this tree is not a git repository, so git cannot be asked what it tracks")
+	}
+}
+
+// gitIn runs one git command in dir and returns its combined output and exit
+// code. It skips the test when git cannot be run at all, which is a missing
+// toolchain rather than an answer about the tree.
+func gitIn(t *testing.T, dir string, args ...string) (string, int) {
+	t.Helper()
+
+	cmd := exec.Command("git", args...) // #nosec G204 -- arguments are literals from this file
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		return string(output), 0
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return string(output), exitErr.ExitCode()
+	}
+	t.Skipf("cannot run `git %s`: %v", strings.Join(args, " "), err)
+	return "", 0
+}
+
+// isIgnored reports what .gitignore says about path, ignoring whether git
+// already tracks it. `--no-index` is what makes the answer mean anything here:
+// by default check-ignore skips a tracked path and reports "not ignored" for
+// it, since ignore rules do not apply to files already in the index — so the
+// question would answer itself for the one file this suite is about, and stay
+// green with the rules reversed. `-q` exits 0 when the rules ignore the path
+// and 1 when they do not; any other code is git failing rather than answering.
+func isIgnored(t *testing.T, path string) bool {
+	t.Helper()
+
+	output, code := gitIn(t, repoRoot, "check-ignore", "--no-index", "-q", path)
+	switch code {
+	case 0:
+		return true
+	case 1:
+		return false
+	default:
+		t.Fatalf("git check-ignore %s exited %d: %s", path, code, output)
+		return false
 	}
 }
 

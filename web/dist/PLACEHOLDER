@@ -1,6 +1,13 @@
-This file keeps web/dist present in the module zip: web/embed.go's
-`//go:embed all:dist` needs at least one committed file, or every
-library consumer of this module (a thin-wrap binary importing
-weos/v3/web for SetStaticFS) fails to compile against a tagged
-version. CI's real SPA build overlays this directory; the placeholder
-is never served.
+This file keeps web/dist non-empty in a fresh clone and in the module
+zip: web/embed.go's `//go:embed all:dist` does not compile against an
+empty directory. Without it, every library consumer of this module — a
+thin-wrap binary importing weos/v3/web for SetStaticFS — fails to build
+against a tagged version.
+
+A build overlays the generated SPA into this directory rather than
+replacing it, so this file survives and the static middleware serves it
+at /PLACEHOLDER. That is intended, and there is nothing here that the
+repository does not already say in public.
+
+Do not delete it. If `git status` shows it deleted, an older build
+removed it; restore it with `git checkout -- web/dist/PLACEHOLDER`.

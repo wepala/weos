@@ -29,6 +29,8 @@ build: ## Build the weos binary
 	@test -f web/dist/index.html || { \
 		echo "web/dist/index.html is missing (web/dist is not checked in; //go:embed all:dist needs it)."; \
 		echo "Run 'make dev-build-frontend' first."; \
+		echo "If 'git status' also shows web/dist/PLACEHOLDER deleted, an older build removed it:"; \
+		echo "  git checkout -- web/dist/PLACEHOLDER"; \
 		exit 1; }
 	go build -o bin/weos ./cmd/weos
 
@@ -83,11 +85,22 @@ dev-test-api: build dev-seed ## Run Newman API regression tests (requires: npm i
 # committing that deletion broke the build for every downstream consumer while
 # still passing locally, because the author's own web/dist was full at the time.
 # The exclusion matches by -path, not -name: -name would also spare a nested
-# PLACEHOLDER left by a previous build, and find then fails the whole recipe
-# with "Directory not empty" trying to remove the directory holding it.
+# PLACEHOLDER left by a previous build, and how that breaks depends on the find
+# make happens to get. BSD find — /usr/bin/find, the one it gets on macOS —
+# exits 0 and silently leaves web/dist/_nuxt/ and everything in it behind; GNU
+# find and bfs abort the recipe with "Directory not empty". Stale output either
+# way, so match the one tracked path.
+#
+# A tree where the old recipe already deleted the placeholder does not heal
+# itself: sparing a file only helps a file that is still there. So restore it
+# first. `touch` would leave a modified file rather than a clean one, hence the
+# checkout; the trailing `|| true` keeps a build from a tarball with no git
+# working.
 dev-build-frontend: ## Build Nuxt frontend into web/dist/
 	cd web/admin && npx nuxt generate
+	test ! -L web/dist || { echo "web/dist is a symlink; find cannot sweep through one, so stale output would pile up unnoticed"; exit 1; }
 	mkdir -p web/dist
+	test -f web/dist/PLACEHOLDER || git checkout -- web/dist/PLACEHOLDER 2>/dev/null || true
 	find web/dist -mindepth 1 ! -path web/dist/PLACEHOLDER -delete
 	cp -r web/admin/.output/public/. web/dist/
 
