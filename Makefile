@@ -74,9 +74,22 @@ dev-test-api: build dev-seed ## Run Newman API regression tests (requires: npm i
 	kill $$SERVER_PID 2>/dev/null; \
 	exit $$EXIT_CODE
 
+# web/dist/PLACEHOLDER is tracked — .gitignore ignores web/dist/* and un-ignores
+# that one entry — because `//go:embed all:dist` in web/embed.go does not compile
+# against an empty directory. The placeholder is the only reason the module
+# builds for a consumer who never runs this target. So clear the generated
+# contents and leave the directory and the placeholder alone: `rm -rf web/dist`
+# here left a tracked file deleted in every developer's `git status`, and
+# committing that deletion broke the build for every downstream consumer while
+# still passing locally, because the author's own web/dist was full at the time.
+# The exclusion matches by -path, not -name: -name would also spare a nested
+# PLACEHOLDER left by a previous build, and find then fails the whole recipe
+# with "Directory not empty" trying to remove the directory holding it.
 dev-build-frontend: ## Build Nuxt frontend into web/dist/
 	cd web/admin && npx nuxt generate
-	rm -rf web/dist && cp -r web/admin/.output/public web/dist
+	mkdir -p web/dist
+	find web/dist -mindepth 1 ! -path web/dist/PLACEHOLDER -delete
+	cp -r web/admin/.output/public/. web/dist/
 
 dev-test-ui: dev-build-frontend build dev-seed ## Run Playwright UI tests (headless)
 	cd tests/browser && npx playwright test
