@@ -4,6 +4,7 @@ package unit
 
 import (
 	"os"
+	"os/exec"
 	"regexp"
 	"testing"
 
@@ -106,5 +107,53 @@ func TestSchemesRejectedForThisBugStillSortBelowAlpha9(t *testing.T) {
 		if semver.Compare(candidate, highestPublishedV3Tag) > 0 {
 			t.Errorf("%s now sorts above %s, which contradicts the measurement this decision rests on (%s)", candidate, highestPublishedV3Tag, why)
 		}
+	}
+}
+
+// The Makefile's `check-release-tag` target is the other half of the guard, and
+// nothing ran it until this test existed. Only RELEASE_TAG_PREFIX was read back
+// by the tests above; RELEASE_TAG_PATTERN and the recipe were unexecuted. The
+// escaping is what makes the pattern a guard at all — drop the `$(subst)` and
+// every literal period becomes a regex wildcard, so `v3X0X1-betaX9` is blessed
+// as a release tag while this suite stays green.
+//
+// It is deliberately small. It proves the target's SHAPE decisions and nothing
+// else: the ordering proof belongs to the tests above, which `check-release-tag`
+// now runs for itself.
+func TestMakeGuardAcceptsAndRefusesTheRightTags(t *testing.T) {
+	// `check-release-tag` re-runs this package to re-prove the ordering, and
+	// sets this variable while it does. Without the skip the target and this
+	// test would call each other without end.
+	if os.Getenv("WEOS_IN_CHECK_RELEASE_TAG") != "" {
+		t.Skip("running underneath `make check-release-tag`; skipping so the two cannot recurse")
+	}
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skipf("make is not on PATH, so the Makefile half of the guard cannot be exercised: %v", err)
+	}
+
+	cases := []struct {
+		tag      string
+		accepted bool
+		why      string
+	}{
+		{tag: tag(t, "1"), accepted: true, why: "the first tag in the scheme the Makefile itself declares"},
+		{tag: "v3.0.1-alpha.22", why: "the rejected option 1 shape: it sorts below v3.0.1-alpha9"},
+		{tag: "v3.0.1-beta22", why: "no period, so the number is compared as a string again"},
+		{tag: "v3.0.1-beta.01", why: "a leading zero is not valid semver, so the Go toolchain ignores the tag"},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.tag, func(t *testing.T) {
+			// `go test` runs with the package directory as the working
+			// directory, so the Makefile is two levels up.
+			output, err := exec.Command("make", "-C", "../..", "check-release-tag", "TAG="+testCase.tag).CombinedOutput()
+
+			switch {
+			case testCase.accepted && err != nil:
+				t.Errorf("`make check-release-tag TAG=%s` refused a tag that is %s: %v\n%s", testCase.tag, testCase.why, err, output)
+			case !testCase.accepted && err == nil:
+				t.Errorf("`make check-release-tag TAG=%s` accepted it, but %s\n%s", testCase.tag, testCase.why, output)
+			}
+		})
 	}
 }

@@ -120,25 +120,47 @@ than three independent restatements of the same string:
   derived from `RELEASE_TAG_PREFIX`, so it pins the version as well as the
   shape: `v3.0.1-alpha22`, `v3.0.1-beta22`, `v3.0.1-alpha022` and
   `v3.0.1-alpha.22` are all refused, and so is a tag on a different line until
-  the prefix is deliberately moved.
+  the prefix is deliberately moved. `v3.0.1-beta.01` is refused as well —
+  semver forbids a leading zero in a numeric identifier, so the Go toolchain
+  drops such a tag entirely and it would reproduce the original symptom with
+  the guard's blessing. The target then runs the ordering tests below, because
+  it derives its pattern from the very prefix it is checking and so cannot
+  catch a typo in that prefix on its own.
 - **`tests/unit/release_tag_test.go`** reads `RELEASE_TAG_PREFIX` out of the
   Makefile and asserts, against `golang.org/x/mod/semver`, that what it declares
   sorts above all 22 published v3 tags and that `beta.10` sorts above `beta.9`.
   It also pins the measurement that rejected options 1 and 2, so the discarded
   prescription cannot be adopted later by someone reading the bug report alone.
+  One test in it shells back out to `make check-release-tag`, so the guard's
+  pattern is executed rather than merely written down — without it the escaping
+  that makes the pattern a guard could be dropped and the suite would stay
+  green.
 
 The coupling is the point. A future engineer who edits the scheme in the
 Makefile gets the ordering re-proven by `make test`; one who edits only the
 prose changes nothing that is checked.
 
+### How this version line ends
+
+`RELEASE_TAG_PREFIX` describes a *pre-release* line — a fixed prefix followed by
+a number — and the final release that closes the line does not have that shape.
+Setting the prefix to `v3.0.1` to cut `v3.0.1` itself does not work: the derived
+pattern becomes `^v3\.0\.1[1-9][0-9]*$`, which accepts `v3.0.11` and refuses
+`v3.0.1`. So the final tag on this line is cut by hand, and `RELEASE_TAG_PREFIX`
+moves to the next pre-release line (`v3.0.2-beta.`, say) in the same commit.
+`check-release-tag` guards the pre-release tags within a line, not the release
+that ends it.
+
 ## Consequences
 
 ### Good
 
-- `go get -u github.com/wepala/weos/v3` reaches new tags again, for every
-  consumer.
-- Pseudo-versions derive from a base that advances, so a commit on the tip stops
-  reading as a downgrade.
+- `go get -u github.com/wepala/weos/v3` will reach new tags again, for every
+  consumer, from the first `beta.N` tag onward. Nothing changes for a consumer
+  until that tag is cut — this decision sets the scheme; cutting `v3.0.1-beta.1`
+  against it is tracked as beads `wm-o53y`.
+- Pseudo-versions will derive from a base that advances once that tag exists, so
+  a commit on the tip stops reading as a downgrade.
 - The failure mode cannot recur silently: the ordering rule has a test, and the
   tag shape has a guard that runs before the tag is created.
 - No published tag moves, so no pinned consumer breaks.
@@ -149,6 +171,13 @@ prose changes nothing that is checked.
   upgrades; they are reachable by explicit pin, as they always were.
 - Consumers still have to run `go get` themselves — a new tag does not move a
   pin. The stale pins across the workspace are tracked separately as `wm-v2tb`.
+- `golang.org/x/mod` becomes a **direct** requirement of a public module, for a
+  test-only import (`semver`, in `tests/unit/release_tag_test.go`). Consumers'
+  minimal version selection will pull or bump `x/mod` to `v0.35.0` and see
+  `go.sum` churn on their next `go get`. It raises no toolchain floor — weos
+  already requires go 1.25.4 — and the alternative, hand-rolling the comparison
+  in the test, would prove the ordering against something other than the library
+  the Go toolchain itself uses. Knowingly accepted.
 
 ### Risks
 

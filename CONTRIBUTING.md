@@ -16,22 +16,46 @@ article wins.
 
 ## Cutting a release
 
-Releases on the `v3` line are tagged **`v3.0.1-beta.N`** — `beta`, a literal
-period, then the number. `v3.0.1-beta.1` is the first tag in this scheme.
+Releases on the `v3` line are to be tagged **`v3.0.1-beta.N`** — `beta`, a
+literal period, then the number, with no leading zero on it. `v3.0.1-beta.1`
+is the first tag in this scheme and has not been cut yet: until it is, the
+newest tag on the line is still `v3.0.1-alpha21` and `go get -u` still resolves
+to `v3.0.1-alpha9`. Cutting that first tag is tracked as beads `wm-o53y`.
 
-Check the tag before you create it:
+To cut a release:
 
 ```bash
+# 1. Fetch every published tag, so the next number is worked out from the real
+#    tip rather than from a stale local view. Minting an N that already exists
+#    on another commit gets the push rejected — or, if it is forced, publishes a
+#    mismatch the module proxy will cache and never let you correct.
+git fetch --tags
+
+# 2. Find the newest tag in the scheme. `--sort=-v:refname` sorts by version;
+#    the obvious `git tag -l 'v3.0.1-beta.*' | tail -1` sorts LEXICALLY and so
+#    reports beta.9 as the newest once beta.10 exists — the same trap this
+#    scheme exists to close, rebuilt in the procedure.
+git tag --list 'v3.0.1-beta.*' --sort=-v:refname | head -1
+
+# 3. Check the tag you are about to create, and re-prove the scheme sorts.
 make check-release-tag TAG=v3.0.1-beta.2
+
+# 4. Tag the commit and publish the tag.
+git tag v3.0.1-beta.2
+git push origin v3.0.1-beta.2
 ```
 
-The target refuses anything outside the scheme. `Makefile`'s
+The check refuses anything outside the scheme, and then runs the ordering tests
+so a tag is never cut against a scheme that has stopped sorting. `Makefile`'s
 `RELEASE_TAG_PREFIX` is the single source of truth for what the scheme is;
-`tests/unit/release_tag_test.go` reads it from there and fails if what it
-declares would not sort above every tag already published. Moving the line
-(to `v3.0.2`, say) means editing `RELEASE_TAG_PREFIX` — the check pins the
-version as well as the shape, deliberately, so the sort order is re-proven
-whenever the line moves.
+`tests/unit/release_tag_test.go` reads it from there, fails if what it declares
+would not sort above every tag already published, and shells back out to
+`make check-release-tag` so the guard's own pattern is exercised too.
+
+Moving the line — to `v3.1.0-beta.N`, or to the final `v3.0.1` that ends it —
+means editing `RELEASE_TAG_PREFIX`. The check pins the version as well as the
+shape, deliberately, so the sort order is re-proven whenever the line moves; a
+correctly shaped tag on a different line is refused until you make that edit.
 
 ### Why the period matters
 

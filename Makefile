@@ -128,26 +128,56 @@ test-graph-embedded: fetch-oxigraph-lib ## Test the embedded oxigraph backend (C
 # scheme: tests/unit/release_tag_test.go reads it from here and proves what it
 # declares sorts above every published v3 tag. See CONTRIBUTING.md, "Cutting a
 # release", and docs/decisions/release-tag-scheme.md.
+#
+# The number is matched as `[1-9][0-9]*`, not `[0-9]+`: semver forbids a leading
+# zero in a numeric identifier, so `v3.0.1-beta.01` is not a valid version at
+# all and the Go toolchain drops it — published, cached by the proxy, and
+# reachable by nobody. The guard has to refuse what Go cannot see.
+#
+# $(strip) because make keeps trailing whitespace in a `:=` value, and an inline
+# comment after the value leaves a space behind as well. Unstripped, that space
+# lands in the middle of the pattern and the guard refuses the correct tag with
+# a message whose only clue is a character you cannot see.
 RELEASE_TAG_PREFIX  := v3.0.1-beta.
-RELEASE_TAG_PATTERN := ^$(subst .,\.,$(RELEASE_TAG_PREFIX))[0-9]+$$
+RELEASE_TAG_PATTERN := ^$(subst .,\.,$(strip $(RELEASE_TAG_PREFIX)))[1-9][0-9]*$$
 
-check-release-tag: ## Check a release tag against the scheme (make check-release-tag TAG=v3.0.1-beta.1)
+check-release-tag: ## Check a release tag against the scheme and re-prove the scheme sorts (make check-release-tag TAG=v3.0.1-beta.1)
 	@test -n "$(TAG)" || { \
 		echo "check-release-tag: name the tag, e.g. make check-release-tag TAG=$(RELEASE_TAG_PREFIX)1"; \
 		exit 1; }
 	@printf '%s\n' "$(TAG)" | grep -Eq '$(RELEASE_TAG_PATTERN)' || { \
 		echo "check-release-tag: refusing \"$(TAG)\"."; \
 		echo ""; \
-		echo "  A release tag on this line is $(RELEASE_TAG_PREFIX)N, with a literal period"; \
-		echo "  before the number:"; \
-		echo "      good  $(RELEASE_TAG_PREFIX)1   $(RELEASE_TAG_PREFIX)10   $(RELEASE_TAG_PREFIX)22"; \
-		echo "      bad   v3.0.1-alpha22   v3.0.1-beta22   v3.0.1-alpha022   v3.0.1-alpha.22"; \
+		echo "  A release tag on this line is $(strip $(RELEASE_TAG_PREFIX))N, with a literal"; \
+		echo "  period before the number and no leading zero on it:"; \
+		echo "      good  $(strip $(RELEASE_TAG_PREFIX))1   $(strip $(RELEASE_TAG_PREFIX))10   $(strip $(RELEASE_TAG_PREFIX))22"; \
+		echo "      bad   v3.0.1-alpha22   v3.0.1-beta22   v3.0.1-alpha022   v3.0.1-alpha.22   v3.0.1-beta.01"; \
 		echo ""; \
 		echo "  Without the period the identifier is compared as a string, so alpha21"; \
 		echo "  sorts below alpha9 and 'go get -u' never sees the tag. With it, but"; \
 		echo "  still under alpha, the first identifier becomes a prefix of alpha9 and"; \
-		echo "  sorts below it for the same reason."; \
+		echo "  sorts below it for the same reason. A leading zero is not valid semver"; \
+		echo "  at all, so the Go toolchain ignores such a tag entirely."; \
+		echo ""; \
+		echo "  If the tag you named is the right shape on a DIFFERENT version line"; \
+		echo "  (v3.1.0-beta.1, say, or the final v3.0.1), this check is not the thing"; \
+		echo "  to work around: the version is pinned on purpose. Move the line by"; \
+		echo "  editing RELEASE_TAG_PREFIX in the Makefile, which re-proves the sort"; \
+		echo "  order against every published tag."; \
 		echo ""; \
 		echo "  See CONTRIBUTING.md, \"Cutting a release\"."; \
+		exit 1; }
+# The shape check above proves the tag matches the prefix. It cannot prove the
+# PREFIX is right, because it derives its pattern from that same prefix — a
+# prefix typo produces a matching pattern and passes silently. So re-prove the
+# ordering here, at the one moment ordering matters. WEOS_IN_CHECK_RELEASE_TAG
+# tells the guard test in that package to skip, so it cannot re-enter this
+# target and recurse.
+	@WEOS_IN_CHECK_RELEASE_TAG=1 go test -count=1 ./tests/unit/ -run 'ReleaseTag|Scheme' || { \
+		echo ""; \
+		echo "check-release-tag: \"$(TAG)\" has the right SHAPE, but the scheme the"; \
+		echo "  Makefile declares no longer sorts above every published tag. The shape"; \
+		echo "  check alone cannot see this — it derives its pattern from the same"; \
+		echo "  RELEASE_TAG_PREFIX it is checking. Fix the prefix before tagging."; \
 		exit 1; }
 	@echo "check-release-tag: $(TAG) is a valid release tag."
