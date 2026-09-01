@@ -41,54 +41,19 @@ const nuxtGenerate = "nuxt generate"
 const repoRoot = "../.."
 
 // devBuildFrontendRecipe returns the shell commands `make dev-build-frontend`
-// would run, read out of the real Makefile rather than restated here. Reading
-// the real recipe is the point: a test that re-implemented it would keep
-// passing after someone reintroduced `rm -rf web/dist`.
+// would run, read out of the real Makefile rather than restated here by the
+// shared parser in makefile_test.go. Reading the real recipe is the point: a
+// test that re-implemented it would keep passing after someone reintroduced
+// `rm -rf web/dist`.
 func devBuildFrontendRecipe(t *testing.T) []string {
 	t.Helper()
 
-	makefile, err := os.ReadFile(filepath.Join(repoRoot, "Makefile"))
-	if err != nil {
-		t.Fatalf("read Makefile: %v", err)
+	recipe, found := makefileRecipe(t, "dev-build-frontend")
+	if !found {
+		t.Fatal("the Makefile declares no dev-build-frontend target; either it was renamed or this test is stale")
 	}
-
-	var recipe []string
-	inRecipe := false
-	for _, line := range strings.Split(string(makefile), "\n") {
-		if strings.HasPrefix(line, "dev-build-frontend:") {
-			inRecipe = true
-			continue
-		}
-		if !inRecipe {
-			continue
-		}
-		// A line that does not begin with a tab ends the recipe — but make
-		// makes two exceptions, and stopping at either would hide every line
-		// below it, which is exactly where a reintroduced `rm -rf web/dist`
-		// would sit. Make ignores a blank line and a column-0 comment inside a
-		// recipe and carries on to the next tab-indented line, so do the same.
-		// A "blank" line of spaces counts, hence the TrimSpace.
-		//
-		// The tab is hardcoded on purpose: .RECIPEPREFIX arrived in GNU Make
-		// 3.82, this repository builds under 3.81, and nothing sets it.
-		if !strings.HasPrefix(line, "\t") {
-			ignored := strings.TrimSpace(line)
-			if ignored == "" || strings.HasPrefix(ignored, "#") {
-				continue
-			}
-			break
-		}
-		// `@` silences the line, `-` ignores its exit status and `+` runs it
-		// even under `make -n`. All three are make's, not the shell's.
-		command := strings.TrimLeft(strings.TrimPrefix(line, "\t"), "@-+")
-		if command == "" || strings.HasPrefix(command, "#") {
-			continue
-		}
-		recipe = append(recipe, command)
-	}
-
 	if len(recipe) == 0 {
-		t.Fatal("the Makefile declares no dev-build-frontend recipe; this test has nothing to prove")
+		t.Fatal("the dev-build-frontend recipe is empty; this test has nothing to prove")
 	}
 	return recipe
 }
@@ -138,17 +103,13 @@ func runDevBuildFrontend(t *testing.T, root string) {
 			continue
 		}
 		// A make variable reaching the shell verbatim would be silently wrong
-		// rather than loud, so refuse it instead of running it.
+		// rather than loud, so refuse it instead of running it. There is no
+		// sibling guard for a continued line any more: the shared parser joins
+		// a backslash continuation onto the line it continues, the way make
+		// does, so `sh` is never handed half a command.
 		if strings.Contains(command, "$(") || strings.Contains(command, "${") {
 			t.Fatalf("the recipe line %q expands a make variable, which this test runs unexpanded; teach it that line before relying on this result", command)
 		}
-		// Same reasoning for a continued line: make joins it with the next one
-		// before running it, this test would hand `sh` half a command, and the
-		// syntax error would point nowhere near the edit that caused it.
-		if strings.HasSuffix(strings.TrimRight(command, " \t"), `\`) {
-			t.Fatalf("the recipe line %q continues onto the next line, which this test runs on its own; teach it that line before relying on this result", command)
-		}
-
 		// Make runs each recipe line in its own shell, from the directory it
 		// was invoked in.
 		cmd := exec.Command("sh", "-c", command)

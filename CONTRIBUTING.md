@@ -104,6 +104,8 @@ published in the old shape.
 - Write integration tests in `tests/integration/`
 - Write E2E tests in `tests/e2e/` using Godog/Gherkin
 - Use `go test -race` to detect race conditions
+- The `make test*` targets pass `-race`, which needs cgo and a C toolchain on Linux and
+  Windows (macOS needs neither); without one, use `go test ./...` directly
 - Do not let coverage regress; explain any drop in the PR body (Article XII)
 
 ## Event Sourcing Patterns
