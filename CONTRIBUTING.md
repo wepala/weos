@@ -58,7 +58,6 @@ already cached them, and a consumer pinned to one would break. They simply sit
 below every `beta.N` tag from now on, which is harmless once nothing new is
 published in the old shape.
 
-
 ## Code Standards
 
 - Follow Go best practices and idioms
