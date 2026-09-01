@@ -25,6 +25,21 @@ coverage: test ## Generate coverage report
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report generated: coverage.html"
 
+# --- Build version stamping (wm-gt1l) ---
+# The binary reports the tag it was built from, rather than a string somebody
+# typed. `git describe --tags` names the nearest tag and how far past it this
+# build is; `--dirty` says when the tree carried uncommitted changes. That is
+# what makes "what version are you running?" answerable from the process.
+#
+# VERSION is EMPTY when git has no tag to describe — a shallow clone, an export,
+# or a fresh repository — and an empty VERSION deliberately passes no -X at all.
+# Stamping a blank version would print as `weos version` with nothing after it;
+# passing nothing instead leaves the binary to fall back on the build info the
+# toolchain records, which reports `dev+<commit>`. See internal/version.
+VERSION     ?= $(shell git describe --tags --dirty 2>/dev/null)
+VERSION_PKG := github.com/wepala/weos/v3/internal/version
+GO_LDFLAGS  := $(if $(strip $(VERSION)),-X $(VERSION_PKG).version=$(strip $(VERSION)))
+
 build: ## Build the weos binary
 	@test -f web/dist/index.html || { \
 		echo "web/dist/index.html is missing (web/dist is not checked in; //go:embed all:dist needs it)."; \
@@ -32,7 +47,7 @@ build: ## Build the weos binary
 		echo "If 'git status' also shows web/dist/PLACEHOLDER deleted, an older build removed it:"; \
 		echo "  git checkout -- web/dist/PLACEHOLDER"; \
 		exit 1; }
-	go build -o bin/weos ./cmd/weos
+	go build -ldflags "$(GO_LDFLAGS)" -o bin/weos ./cmd/weos
 
 run: ## Run the API server
 	go run ./cmd/weos serve
@@ -138,7 +153,7 @@ fetch-oxigraph-lib: ## Download + sha-verify liboxigraph_ffi.a for this platform
 		$(OXIGRAPH_LIB_DIR)/$(OXIGRAPH_PLATFORM)/liboxigraph_ffi.a
 
 build-embedded: fetch-oxigraph-lib ## Build weos with the embedded oxigraph backend
-	CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go build -tags oxigraph_embedded -o bin/weos ./cmd/weos
+	CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go build -tags oxigraph_embedded -ldflags "$(GO_LDFLAGS)" -o bin/weos ./cmd/weos
 
 test-graph-embedded: fetch-oxigraph-lib ## Test the embedded oxigraph backend (CGO + vendored lib): unit + godog acceptance
 	CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go test -race -tags oxigraph_embedded ./infrastructure/graph/...

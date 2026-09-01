@@ -16,6 +16,8 @@
 package cli
 
 import (
+	"github.com/wepala/weos/v3/internal/version"
+
 	"github.com/spf13/cobra"
 )
 
@@ -25,7 +27,7 @@ var (
 		Use:     "weos",
 		Short:   "WeOS - open source digital twin for LLMs",
 		Long:    `WeOS is an open source Go application for building a digital twin — a knowledge graph of the information from the apps and devices you use, exposed to any LLM via MCP for context-rich responses.`,
-		Version: "0.1.0",
+		Version: version.Version(),
 	}
 )
 
