@@ -1,4 +1,4 @@
-.PHONY: help test build run clean lint fmt vet coverage
+.PHONY: help test build run clean lint fmt vet coverage check-release-tag
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -117,3 +117,37 @@ build-embedded: fetch-oxigraph-lib ## Build weos with the embedded oxigraph back
 test-graph-embedded: fetch-oxigraph-lib ## Test the embedded oxigraph backend (CGO + vendored lib): unit + godog acceptance
 	CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go test -tags oxigraph_embedded ./infrastructure/graph/...
 	CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go test -tags oxigraph_embedded ./tests/e2e/ -run 'KnowledgeGraph'
+
+# --- Release tagging (wm-1jkb) ---
+# A semver pre-release identifier that is not purely numeric is compared as a
+# STRING, so `v3.0.1-alpha21` sorts BELOW `v3.0.1-alpha9` and `go get -u` never
+# reaches it. The number therefore has to be its own dot-separated identifier.
+# `alpha.N` cannot rescue the v3.0.1 line — it makes the first identifier
+# `alpha`, a shorter prefix of `alpha9`, which still sorts first — so the line
+# moves to `beta.N`. RELEASE_TAG_PREFIX is the single source of truth for the
+# scheme: tests/unit/release_tag_test.go reads it from here and proves what it
+# declares sorts above every published v3 tag. See CONTRIBUTING.md, "Cutting a
+# release", and docs/decisions/release-tag-scheme.md.
+RELEASE_TAG_PREFIX  := v3.0.1-beta.
+RELEASE_TAG_PATTERN := ^$(subst .,\.,$(RELEASE_TAG_PREFIX))[0-9]+$$
+
+check-release-tag: ## Check a release tag against the scheme (make check-release-tag TAG=v3.0.1-beta.1)
+	@test -n "$(TAG)" || { \
+		echo "check-release-tag: name the tag, e.g. make check-release-tag TAG=$(RELEASE_TAG_PREFIX)1"; \
+		exit 1; }
+	@printf '%s\n' "$(TAG)" | grep -Eq '$(RELEASE_TAG_PATTERN)' || { \
+		echo "check-release-tag: refusing \"$(TAG)\"."; \
+		echo ""; \
+		echo "  A release tag on this line is $(RELEASE_TAG_PREFIX)N, with a literal period"; \
+		echo "  before the number:"; \
+		echo "      good  $(RELEASE_TAG_PREFIX)1   $(RELEASE_TAG_PREFIX)10   $(RELEASE_TAG_PREFIX)22"; \
+		echo "      bad   v3.0.1-alpha22   v3.0.1-beta22   v3.0.1-alpha022   v3.0.1-alpha.22"; \
+		echo ""; \
+		echo "  Without the period the identifier is compared as a string, so alpha21"; \
+		echo "  sorts below alpha9 and 'go get -u' never sees the tag. With it, but"; \
+		echo "  still under alpha, the first identifier becomes a prefix of alpha9 and"; \
+		echo "  sorts below it for the same reason."; \
+		echo ""; \
+		echo "  See CONTRIBUTING.md, \"Cutting a release\"."; \
+		exit 1; }
+	@echo "check-release-tag: $(TAG) is a valid release tag."

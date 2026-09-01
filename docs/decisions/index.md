@@ -19,3 +19,4 @@ Architecture Decision Records (ADRs) capture significant technical decisions mad
 | [Cross-Preset Link Definitions]({% link decisions/cross-preset-link-definitions.md %}) | Accepted (Implemented) | 2026-04-19 |
 | [Projection Schema Migration]({% link decisions/projection-schema-migration.md %}) | Accepted (Implemented) | 2026-08-06 |
 | [A Projection Clears an Omitted Property]({% link decisions/projection-clears-omitted-properties.md %}) | Accepted (Implemented) | 2026-08-30 |
+| [Release Tag Scheme]({% link decisions/release-tag-scheme.md %}) | Accepted | 2026-08-31 |

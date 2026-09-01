@@ -26,6 +26,7 @@ require (
 	github.com/spf13/viper v1.21.0
 	go.uber.org/fx v1.23.0
 	go.uber.org/zap v1.27.0
+	golang.org/x/mod v0.35.0
 	google.golang.org/adk/v2 v2.0.0
 	google.golang.org/genai v1.57.0
 	gorm.io/driver/postgres v1.6.0
