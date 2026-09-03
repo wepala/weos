@@ -26,9 +26,27 @@ import (
 // be driven without building a binary per case.
 func buildInfo(mainVersion string, settings ...debug.BuildSetting) *debug.BuildInfo {
 	return &debug.BuildInfo{
-		Main:     debug.Module{Path: "github.com/wepala/weos/v3", Version: mainVersion},
+		Main:     debug.Module{Path: modulePath, Version: mainVersion},
 		Settings: settings,
 	}
+}
+
+// embeddedInfo is what the toolchain hands back inside a binary that is NOT
+// weos: mini-me-weos, finexity and ic-crm all build their own main module and
+// reach weos through pkg/cli. The main module there is the wrapper's, and the
+// only record of which weos it embeds is the dependency list.
+func embeddedInfo(wrapperVersion string, deps []*debug.Module, settings ...debug.BuildSetting) *debug.BuildInfo {
+	return &debug.BuildInfo{
+		Main:     debug.Module{Path: "github.com/wepala/mini-me-weos", Version: wrapperVersion},
+		Deps:     deps,
+		Settings: settings,
+	}
+}
+
+// weosDep is the dependency entry the toolchain records for the weos module
+// inside a wrapper binary. version is what `go get` resolved.
+func weosDep(version string) *debug.Module {
+	return &debug.Module{Path: modulePath, Version: version}
 }
 
 func vcs(revision string, modified bool) []debug.BuildSetting {
@@ -88,6 +106,78 @@ func TestResolve(t *testing.T) {
 			info: buildInfo("v3.0.1-beta.1.0.20260901054947-d34db33fd34d", vcs("d34db33fd34db33fd34db33f", false)...),
 			ok:   true,
 			want: "dev+d34db33fd34d",
+		},
+		{
+			// wm-r3bv. Go 1.24+ records the exact tag as the main module
+			// version when HEAD sits cleanly on one, so this is the single
+			// case where a source build DOES know a release it can name.
+			// Verified against Go 1.25: a clean checkout at v1.2.3 records
+			// Main.Version "v1.2.3" alongside vcs.revision, where one commit
+			// later it records a derived pseudo-version instead.
+			name: "an exactly tagged clean checkout reports its tag",
+			info: buildInfo("v3.0.1-beta.2", vcs("d34db33fd34db33fd34db33f", false)...),
+			ok:   true,
+			want: "v3.0.1-beta.2",
+		},
+		{
+			// The same checkout with uncommitted changes. The toolchain marks
+			// it by appending +dirty to the main module version — verified on
+			// Go 1.25 — and that build is not the release it sits on, so the
+			// commit is what gets reported.
+			name: "an exactly tagged but dirty checkout names its commit",
+			info: buildInfo("v3.0.1-beta.2+dirty", vcs("d34db33fd34db33fd34db33f", true)...),
+			ok:   true,
+			want: "dev+d34db33fd34d.dirty",
+		},
+		{
+			// wm-62ia. mini-me-weos ships its own tags, so reading the main
+			// module here would make an MCP handshake announce weos v1.4.0 —
+			// a weos release that does not exist.
+			name: "an embedded weos reports the weos it was built against",
+			info: embeddedInfo("v1.4.0", []*debug.Module{weosDep("v3.0.1-beta.2")}),
+			ok:   true,
+			want: "v3.0.1-beta.2",
+		},
+		{
+			// A wrapper commonly tracks weos by pseudo-version between
+			// releases. That is exactly what `go get` resolved and exactly
+			// what `go get` can resolve again, so it is reported as-is — the
+			// pseudo-version rejection above is about a version the toolchain
+			// DERIVED for the main module, not one anyone asked for.
+			name: "an embedded weos reports a resolved pseudo-version as-is",
+			info: embeddedInfo("v1.4.0", []*debug.Module{weosDep("v3.0.1-beta.2.0.20260901054947-d34db33fd34d")}),
+			ok:   true,
+			want: "v3.0.1-beta.2.0.20260901054947-d34db33fd34d",
+		},
+		{
+			// The wrapper's own working tree. The revision belongs to
+			// mini-me-weos, so naming it as the weos version would be a
+			// commit that does not exist in this repository.
+			name: "an embedded weos ignores the wrapper's commit",
+			info: embeddedInfo("(devel)", []*debug.Module{weosDep("v3.0.1-beta.2")}, vcs("d34db33fd34db33fd34db33f", false)...),
+			ok:   true,
+			want: "v3.0.1-beta.2",
+		},
+		{
+			// A local replace or a go.work workspace — how weos-mono builds
+			// mini-me-weos. The toolchain records the replacement as
+			// "(devel)", which names no release, and dev is the honest answer.
+			name: "an embedded weos replaced by a local checkout is dev",
+			info: embeddedInfo("v1.4.0", []*debug.Module{{
+				Path:    modulePath,
+				Version: "v3.0.1-beta.2",
+				Replace: &debug.Module{Path: "../../services/core", Version: "(devel)"},
+			}}),
+			ok:   true,
+			want: "dev",
+		},
+		{
+			// Some other main module that reached this code without depending
+			// on weos at all. There is nothing to report and nothing to guess.
+			name: "a main module that does not depend on weos is dev",
+			info: embeddedInfo("v1.4.0", []*debug.Module{{Path: "github.com/spf13/cobra", Version: "v1.10.2"}}),
+			ok:   true,
+			want: "dev",
 		},
 		{
 			// A build from a tree with uncommitted changes is not the commit
