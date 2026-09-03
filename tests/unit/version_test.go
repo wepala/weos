@@ -262,6 +262,30 @@ func TestEveryBuildPathStampsTheVersion(t *testing.T) {
 	})
 }
 
+// environmentWithout returns the process environment with every entry for the
+// named variable dropped.
+//
+// cmd.Env is a list rather than a map, so appending to os.Environ() does not
+// override a variable the parent already exports — it leaves two entries for
+// it, and which one the child reads is undefined. Measured here, GNU Make 3.81
+// takes the last, so the poison below happens to win; a make that took the
+// first would read the parent's VERSION instead, and the subtest would pass
+// without ever having poisoned anything. Dropping the inherited entry first
+// removes the coin flip, so `VERSION=whatever go test ./tests/unit/...` proves
+// the same thing a clean shell does.
+func environmentWithout(name string) []string {
+	prefix := name + "="
+	inherited := os.Environ()
+	kept := make([]string, 0, len(inherited))
+	for _, entry := range inherited {
+		if strings.HasPrefix(entry, prefix) {
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	return kept
+}
+
 // TestTheEnvironmentCannotStampTheVersion pins the difference between a
 // version somebody asked for and one that merely happened to be lying around.
 //
@@ -277,7 +301,9 @@ func TestTheEnvironmentCannotStampTheVersion(t *testing.T) {
 		t.Helper()
 		cmd := exec.Command("make", append([]string{"-n"}, args...)...)
 		cmd.Dir = filepath.Join("..", "..")
-		cmd.Env = append(os.Environ(), env...)
+		// The inherited VERSION is dropped rather than shadowed, so the only
+		// entry make can read is the one this test put there.
+		cmd.Env = append(environmentWithout("VERSION"), env...)
 		// -n expands the recipe without running it, so nothing here builds.
 		recipe, err := cmd.CombinedOutput()
 		if err != nil {
