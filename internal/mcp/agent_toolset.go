@@ -19,6 +19,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/wepala/weos/v3/internal/version"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"google.golang.org/adk/v2/tool"
@@ -97,7 +99,7 @@ func serverTools(ctx context.Context, server *mcp.Server) ([]*mcp.Tool, error) {
 	if _, err := server.Connect(ctx, serverTransport, nil); err != nil {
 		return nil, fmt.Errorf("connect in-memory MCP server: %w", err)
 	}
-	client := mcp.NewClient(&mcp.Implementation{Name: "weos-internal", Version: "0.1.0"}, nil)
+	client := mcp.NewClient(&mcp.Implementation{Name: "weos-internal", Version: version.Version()}, nil)
 	cs, err := client.Connect(ctx, clientTransport, nil)
 	if err != nil {
 		return nil, fmt.Errorf("connect tool-listing client: %w", err)

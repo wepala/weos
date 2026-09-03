@@ -15,6 +15,7 @@ import (
 	"github.com/wepala/weos/v3/application"
 	"github.com/wepala/weos/v3/application/presets"
 	"github.com/wepala/weos/v3/internal/config"
+	"github.com/wepala/weos/v3/internal/version"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/open-feature/go-sdk/openfeature"
@@ -175,7 +176,7 @@ func newServerWithGates(
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "weos",
 		Title:   "WeOS MCP Server",
-		Version: "0.1.0",
+		Version: version.Version(),
 	}, nil)
 
 	// The gate index is built here and shared with every registrar and with

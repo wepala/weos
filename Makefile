@@ -25,14 +25,50 @@ coverage: test ## Generate coverage report
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report generated: coverage.html"
 
+# --- Build version stamping (wm-gt1l) ---
+# The binary reports the tag it was built from, rather than a string somebody
+# typed. `git describe --tags` names the nearest tag and how far past it this
+# build is; `--dirty` says when the tree carried uncommitted changes. That is
+# what makes "what version are you running?" answerable from the process.
+#
+# VERSION is EMPTY when git has no tag to describe — a shallow clone, an export,
+# or a fresh repository — and an empty VERSION deliberately passes no -X at all.
+# Stamping a blank version would print as `weos version` with nothing after it;
+# passing nothing instead leaves the binary to fall back on the build info the
+# toolchain records, which reports `dev+<commit>`. See internal/version.
+#
+# A RELEASE BUILD THEREFORE NEEDS THE TAGS. `git describe` reads tags from the
+# local clone, and CI clones shallow and tagless by default, so a release job
+# that does not ask for them stamps nothing and ships a binary reporting `dev+`
+# while every step stays green. Use actions/checkout with `fetch-depth: 0`, or
+# run `git fetch --tags --force` before make. Where no tag can reach the build
+# at all — the Docker image, whose .dockerignore excludes .git — pass the
+# version in as the VERSION build arg instead.
+#
+# `?=` is deliberately NOT used here. It would also take an exported VERSION
+# out of the environment, and VERSION is a generic enough name that a shell
+# profile, a wrapper script or an unrelated CI step may well have one set —
+# which would stamp that unrelated string onto the binary and reintroduce the
+# very defect this stamping exists to fix, silently. Testing $(origin) instead
+# keeps `make build VERSION=v3.2.0` working, because only a value given on the
+# command line beats `git describe`.
+ifneq ($(origin VERSION),command line)
+VERSION     := $(shell git describe --tags --dirty 2>/dev/null)
+endif
+VERSION_PKG := github.com/wepala/weos/v3/internal/version
+GO_LDFLAGS  := $(if $(strip $(VERSION)),-X $(VERSION_PKG).version=$(strip $(VERSION)))
+
 build: ## Build the weos binary
 	@test -f web/dist/index.html || { \
-		echo "web/dist/index.html is missing (web/dist is not checked in; //go:embed all:dist needs it)."; \
+		echo "web/dist/index.html is missing, so this binary would ship no SPA."; \
+		echo "(//go:embed all:dist only needs web/dist to be non-empty, which the"; \
+		echo " tracked web/dist/PLACEHOLDER already guarantees. index.html is a"; \
+		echo " separate requirement: it is what makes the served UI work.)"; \
 		echo "Run 'make dev-build-frontend' first."; \
 		echo "If 'git status' also shows web/dist/PLACEHOLDER deleted, an older build removed it:"; \
 		echo "  git checkout -- web/dist/PLACEHOLDER"; \
 		exit 1; }
-	go build -o bin/weos ./cmd/weos
+	go build -ldflags "$(GO_LDFLAGS)" -o bin/weos ./cmd/weos
 
 run: ## Run the API server
 	go run ./cmd/weos serve
@@ -138,7 +174,7 @@ fetch-oxigraph-lib: ## Download + sha-verify liboxigraph_ffi.a for this platform
 		$(OXIGRAPH_LIB_DIR)/$(OXIGRAPH_PLATFORM)/liboxigraph_ffi.a
 
 build-embedded: fetch-oxigraph-lib ## Build weos with the embedded oxigraph backend
-	CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go build -tags oxigraph_embedded -o bin/weos ./cmd/weos
+	CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go build -tags oxigraph_embedded -ldflags "$(GO_LDFLAGS)" -o bin/weos ./cmd/weos
 
 test-graph-embedded: fetch-oxigraph-lib ## Test the embedded oxigraph backend (CGO + vendored lib): unit + godog acceptance
 	CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go test -race -tags oxigraph_embedded ./infrastructure/graph/...

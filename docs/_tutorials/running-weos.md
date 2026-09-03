@@ -42,7 +42,40 @@ This compiles the `weos` binary into `bin/weos`. You can verify it built correct
 ./bin/weos --version
 ```
 
-You should see output like: `weos version 0.1.0`
+`make build` stamps the binary with `git describe --tags --dirty`, and the binary
+prints that string verbatim. On a tag, that is the tag:
+
+```
+weos version v3.0.1-beta.1
+```
+
+Past the tag, `git describe` adds the distance and the commit, so the same build
+prints:
+
+```
+weos version v3.0.1-alpha21-16-gee43392
+```
+
+The rule behind every other form is one sentence: a stamped build prints its
+stamp, and an unstamped build prints `dev` plus the commit the Go toolchain
+recorded. A plain `go build` stamps nothing, so it prints
+`weos version dev+5a14625a3469`. So does `make build` in a shallow clone or a
+fresh repository, where `git describe` finds no tag to stamp.
+
+The commit drops off, leaving a bare `weos version dev`, whenever the toolchain
+recorded none. That is an unpacked source archive, a `git worktree` checkout
+(where `.git` is a file rather than a directory), a build with `-buildvcs=off`,
+and `go run` — which is why `make run` reports a bare `dev`.
+
+The two forms spell "uncommitted changes" differently, because two different
+tools write it. `git describe` appends `-dirty` to a stamp, as in
+`v3.0.1-alpha21-16-gee43392-dirty`; the toolchain appends `.dirty` to a commit,
+as in `dev+5a14625a3469.dirty`.
+
+An unstamped build can still name a release in two cases:
+`go install github.com/wepala/weos/v3/cmd/weos@<tag>` prints the tag it was asked
+for, and a clean checkout sitting exactly on a tag prints that tag. Any of these
+is the binary naming itself honestly; none of them is an error.
 
 ## Step 4: Start the Server
 
