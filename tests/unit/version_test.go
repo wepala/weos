@@ -1,6 +1,7 @@
 package unit
 
 import (
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,12 +17,30 @@ import (
 //
 // Each of these used to carry its own "0.1.0" literal, so all three reported
 // 0.1.0 whatever tag the binary was built from, and a change to one would not
-// have reached the others. Listing them here is what keeps a fourth call site
-// from quietly reintroducing the same defect.
+// have reached the others. They are named here so the guard can assert the
+// positive half — that each one still reads the accessor. The negative half is
+// not a list at all: see TestNoCallSiteHardcodesItsVersion.
 var versionCallSites = []string{
 	"internal/cli/root.go",
 	"internal/mcp/server.go",
 	"internal/mcp/agent_toolset.go",
+}
+
+// versionPackage is the one package allowed to name a version, being the
+// source of truth the rest of the tree reads. The walk below skips it so that
+// a literal there — a fallback, a test fixture, a doc example — is not read as
+// the defect it exists to prevent everywhere else.
+const versionPackage = "internal/version"
+
+// unwalkedDirs are the directories the guard does not descend into: none of
+// them holds weos source. `.git` and `node_modules` are skipped because
+// walking them is pure cost, and `vendor` because third-party code is not ours
+// to hold to this rule. Everything else in the tree is walked, `web/` and
+// `tests/` included — a call site can be added anywhere.
+var unwalkedDirs = map[string]bool{
+	".git":         true,
+	"node_modules": true,
+	"vendor":       true,
 }
 
 // versionFieldLiteral matches a `Version:` struct field set to a string
@@ -45,23 +64,78 @@ const stampedVersion = "v3.0.1-beta.99"
 // this test is here to make loud.
 const versionSymbol = "github.com/wepala/weos/v3/internal/version.version"
 
-// TestNoCallSiteHardcodesItsVersion proves the three places weos names its own
-// version all read the one accessor. It reads the real source rather than
-// restating it: a test that held its own copy of these lines would keep
-// passing after someone typed a literal back into the tree.
+// TestNoCallSiteHardcodesItsVersion walks every non-test .go file in the
+// repository and fails on any `Version:` struct field set to a string literal,
+// then checks that the three known call sites read the accessor.
+//
+// The walk is the point. An earlier version of this test read only the three
+// files in versionCallSites, and claimed that listing them kept a fourth call
+// site from reintroducing the defect. It did not: a new file typing
+// Version: "0.1.0" was never opened, so it passed. Only the whole tree can
+// catch a call site nobody has written yet.
+//
+// Test files are excluded because a test client legitimately names itself — a
+// godog world or an MCP probe passes its own Implementation.Version, which is
+// the identity of the test, not the version of the binary. Every such literal
+// in the tree today is in a _test.go file, so the suffix is the whole
+// exclusion; no file needs naming.
 func TestNoCallSiteHardcodesItsVersion(t *testing.T) {
-	for _, site := range versionCallSites {
-		source, err := os.ReadFile(filepath.Join("..", "..", site))
+	root := filepath.Join("..", "..")
+
+	// Recorded for every file the walk reads, so the accessor check below
+	// costs no second pass and can also tell "does not read it" apart from
+	// "the walk never reached it" — a renamed call site must fail loudly
+	// rather than silently stop being checked.
+	readsAccessor := make(map[string]bool)
+
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
-			t.Fatalf("read %s: %v", site, err)
+			return err
+		}
+		if entry.IsDir() {
+			if unwalkedDirs[entry.Name()] {
+				return fs.SkipDir
+			}
+			return nil
 		}
 
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			return nil
+		}
+
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		relative = filepath.ToSlash(relative)
+		if relative == versionPackage || strings.HasPrefix(relative, versionPackage+"/") {
+			return nil
+		}
+
+		source, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
 		if match := versionFieldLiteral.FindSubmatch(source); match != nil {
 			t.Errorf("%s hardcodes Version: %q. The binary then reports that string whatever "+
 				"tag it was built from, and the other call sites drift from it. Read %s instead.",
-				site, match[1], versionAccessor)
+				relative, match[1], versionAccessor)
 		}
-		if !strings.Contains(string(source), versionAccessor) {
+		readsAccessor[relative] = strings.Contains(string(source), versionAccessor)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk %s: %v", root, err)
+	}
+
+	for _, site := range versionCallSites {
+		reads, walked := readsAccessor[site]
+		switch {
+		case !walked:
+			t.Errorf("%s was not read by the walk, so it is no longer where this test thinks it "+
+				"is. Point versionCallSites at wherever the call site moved to.", site)
+		case !reads:
 			t.Errorf("%s does not read %s, so its version has some other source of truth.", site, versionAccessor)
 		}
 	}
