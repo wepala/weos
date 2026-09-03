@@ -44,7 +44,17 @@ coverage: test ## Generate coverage report
 # run `git fetch --tags --force` before make. Where no tag can reach the build
 # at all — the Docker image, whose .dockerignore excludes .git — pass the
 # version in as the VERSION build arg instead.
-VERSION     ?= $(shell git describe --tags --dirty 2>/dev/null)
+#
+# `?=` is deliberately NOT used here. It would also take an exported VERSION
+# out of the environment, and VERSION is a generic enough name that a shell
+# profile, a wrapper script or an unrelated CI step may well have one set —
+# which would stamp that unrelated string onto the binary and reintroduce the
+# very defect this stamping exists to fix, silently. Testing $(origin) instead
+# keeps `make build VERSION=v3.2.0` working, because only a value given on the
+# command line beats `git describe`.
+ifneq ($(origin VERSION),command line)
+VERSION     := $(shell git describe --tags --dirty 2>/dev/null)
+endif
 VERSION_PKG := github.com/wepala/weos/v3/internal/version
 GO_LDFLAGS  := $(if $(strip $(VERSION)),-X $(VERSION_PKG).version=$(strip $(VERSION)))
 

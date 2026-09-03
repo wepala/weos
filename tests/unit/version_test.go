@@ -187,3 +187,47 @@ func TestEveryBuildPathStampsTheVersion(t *testing.T) {
 		}
 	})
 }
+
+// TestTheEnvironmentCannotStampTheVersion pins the difference between a
+// version somebody asked for and one that merely happened to be lying around.
+//
+// VERSION is a generic name. A shell profile, a wrapper script or an earlier
+// step of a CI job can leave one exported, and a Makefile that read it would
+// stamp that unrelated string onto a release binary — reporting a version
+// nobody built, with every step green. `make VERSION=v3.2.0 build` is still
+// an explicit instruction and still wins, so both halves are pinned here.
+func TestTheEnvironmentCannotStampTheVersion(t *testing.T) {
+	const impostor = "v9.9.9-exported-by-something-else"
+
+	recipeFor := func(t *testing.T, args []string, env ...string) string {
+		t.Helper()
+		cmd := exec.Command("make", append([]string{"-n"}, args...)...)
+		cmd.Dir = filepath.Join("..", "..")
+		cmd.Env = append(os.Environ(), env...)
+		// -n expands the recipe without running it, so nothing here builds.
+		recipe, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("make -n %s: %v\n%s", strings.Join(args, " "), err, recipe)
+		}
+		return string(recipe)
+	}
+
+	t.Run("an exported VERSION is ignored", func(t *testing.T) {
+		recipe := recipeFor(t, []string{"build"}, "VERSION="+impostor)
+		if strings.Contains(recipe, impostor) {
+			t.Errorf("`make build` stamped %q out of the environment. A binary then reports a "+
+				"version nobody built it from, which is the defect this stamping exists to "+
+				"fix:\n%s", impostor, recipe)
+		}
+	})
+
+	t.Run("an explicit make VERSION= still wins", func(t *testing.T) {
+		recipe := recipeFor(t, []string{"build", "VERSION=" + stampedVersion}, "VERSION="+impostor)
+		wantFlag := "-X " + versionSymbol + "=" + stampedVersion
+		if !strings.Contains(recipe, wantFlag) {
+			t.Errorf("`make build VERSION=%s` builds without %q, so a release cut by hand or by "+
+				"a tag-less CI job cannot name its own version:\n%s",
+				stampedVersion, wantFlag, recipe)
+		}
+	})
+}
