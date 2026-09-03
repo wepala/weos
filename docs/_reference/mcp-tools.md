@@ -12,7 +12,7 @@ The WeOS MCP server exposes tools organized into four service groups. All tools 
 **Server details:**
 - Name: `weos`
 - Title: `WeOS MCP Server`
-- Version: `0.1.0`
+- Version: whatever `weos --version` prints for the binary you are running — a tag such as `v3.0.1-beta.1` for a release build, or `dev` / `dev+<commit>` for a build from source. The handshake and the CLI read the same value, so they cannot disagree.
 - Transport: stdio
 
 ## Person Tools

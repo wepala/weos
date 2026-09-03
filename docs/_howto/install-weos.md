@@ -56,9 +56,16 @@ docker run -p 8080:8080 \
 
 ```bash
 weos --version
-# weos version 0.1.0
+# weos version v3.0.1-beta.1      <- a release build names its tag
+# weos version dev+5a14625a3469   <- a build from source names its commit
 
 weos serve &
 curl http://localhost:8080/api/health
 # {"status": "ok"}
 ```
+
+There is no fixed version to check against here. A binary reports the tag it was
+built from when the build stamped one, and `dev` — plus the commit, where the Go
+toolchain recorded it — when it cannot honestly name a release. A release
+download and a `go install github.com/wepala/weos/v3/cmd/weos@<tag>` both give
+you the first form.

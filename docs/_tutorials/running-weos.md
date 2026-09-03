@@ -42,7 +42,22 @@ This compiles the `weos` binary into `bin/weos`. You can verify it built correct
 ./bin/weos --version
 ```
 
-You should see output like: `weos version 0.1.0`
+`make build` stamps the binary with `git describe --tags --dirty`, so it names the
+tag your checkout is on:
+
+```
+weos version v3.0.1-beta.1
+```
+
+Past that tag, `git describe` appends the distance and the commit, and the binary
+repeats it verbatim — `weos version v3.0.1-beta.1-13-g399f004`.
+
+A build with nothing to stamp reports `dev` rather than a version nobody
+published. That covers a plain `go build`, a shallow clone and an unpacked
+source archive. Where the Go toolchain recorded the commit it came from, the
+binary appends it — `weos version dev+5a14625a3469`, with `.dirty` on the end if
+the tree had uncommitted changes. Any of these is the binary naming itself
+honestly; none of them is an error.
 
 ## Step 4: Start the Server
 
