@@ -12,8 +12,12 @@ WeOS ships as a single binary or Docker image. Deploy it anywhere that runs cont
 ## Docker Build
 
 ```bash
-docker build -t weos .
+docker build --build-arg VERSION="$(git describe --tags --dirty)" -t weos .
 ```
+
+`.dockerignore` excludes `.git`, so the builder cannot derive a version on its
+own. Pass it in with `--build-arg` and the deployed instance can name the tag it
+is running; leave it out and every image reports `dev`.
 
 The multi-stage Dockerfile:
 1. Builds the Nuxt 3 admin frontend
@@ -24,7 +28,7 @@ The multi-stage Dockerfile:
 
 ```bash
 # Build and push
-docker build -t gcr.io/YOUR_PROJECT/weos .
+docker build --build-arg VERSION="$(git describe --tags --dirty)" -t gcr.io/YOUR_PROJECT/weos .
 docker push gcr.io/YOUR_PROJECT/weos
 
 # Deploy

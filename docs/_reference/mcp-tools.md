@@ -12,8 +12,15 @@ The WeOS MCP server exposes tools organized into four service groups. All tools 
 **Server details:**
 - Name: `weos`
 - Title: `WeOS MCP Server`
-- Version: whatever `weos --version` prints for the binary you are running — a tag such as `v3.0.1-beta.1` for a release build, or `dev` / `dev+<commit>` for a build from source. The handshake and the CLI read the same value, so they cannot disagree.
+- Version: whatever `weos --version` prints for the binary you are running
 - Transport: stdio
+
+The handshake and the CLI read one value from the same binary, so a client always
+sees what that binary reports: the tag it was stamped with, or `dev` — plus the
+commit where the Go toolchain recorded one — for a build that cannot name a
+release. Inside a binary that embeds WeOS, such as mini-me-weos or finexity, the
+version reported is the WeOS dependency that binary was built against, not the
+wrapper's own tag.
 
 ## Person Tools
 
