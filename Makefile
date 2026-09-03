@@ -36,6 +36,14 @@ coverage: test ## Generate coverage report
 # Stamping a blank version would print as `weos version` with nothing after it;
 # passing nothing instead leaves the binary to fall back on the build info the
 # toolchain records, which reports `dev+<commit>`. See internal/version.
+#
+# A RELEASE BUILD THEREFORE NEEDS THE TAGS. `git describe` reads tags from the
+# local clone, and CI clones shallow and tagless by default, so a release job
+# that does not ask for them stamps nothing and ships a binary reporting `dev+`
+# while every step stays green. Use actions/checkout with `fetch-depth: 0`, or
+# run `git fetch --tags --force` before make. Where no tag can reach the build
+# at all — the Docker image, whose .dockerignore excludes .git — pass the
+# version in as the VERSION build arg instead.
 VERSION     ?= $(shell git describe --tags --dirty 2>/dev/null)
 VERSION_PKG := github.com/wepala/weos/v3/internal/version
 GO_LDFLAGS  := $(if $(strip $(VERSION)),-X $(VERSION_PKG).version=$(strip $(VERSION)))

@@ -69,10 +69,20 @@ func TestNoCallSiteHardcodesItsVersion(t *testing.T) {
 
 // TestTheBinaryReportsTheVersionItWasBuiltWith builds cmd/weos both ways and
 // runs it. This is the acceptance criterion itself: a stamped build has to
-// name its tag, and a plain `go build` — which is what `go install`, `go run`
-// and a library consumer all do — has to still build and report something
-// honest rather than a number somebody typed in 2026.
+// name its tag, and a plain `go build` — which is what `go install` and a
+// library consumer both do — has to still build and report something honest
+// rather than a number somebody typed in 2026.
+//
+// It links cmd/weos twice, which is ~14s, so -short skips it. That is the
+// whole reason `make test-unit` passes -short: the fast loop keeps every test
+// in this package that reads source or expands a recipe, and drops the one
+// that invokes the compiler. The full `make test` and CI's race job still run
+// it, so the acceptance criterion is never merged unproven.
 func TestTheBinaryReportsTheVersionItWasBuiltWith(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds cmd/weos twice; run without -short to check the stamp reaches the CLI")
+	}
+
 	for _, probe := range []struct {
 		name    string
 		ldflags []string
@@ -107,7 +117,7 @@ func TestTheBinaryReportsTheVersionItWasBuiltWith(t *testing.T) {
 				t.Fatalf("go build %v: %v\n%s", probe.ldflags, err, output)
 			}
 
-			output, err := exec.Command(binary, "--version").CombinedOutput() // #nosec G204 -- binary is built into t.TempDir() above
+			output, err := exec.Command(binary, "--version").CombinedOutput()
 			if err != nil {
 				t.Fatalf("weos --version: %v\n%s", err, output)
 			}
@@ -122,8 +132,15 @@ func TestTheBinaryReportsTheVersionItWasBuiltWith(t *testing.T) {
 }
 
 // stampedTargets is every make target that produces a distributable weos
-// binary. `run` is absent on purpose: `go run` builds from the working tree,
-// where the toolchain's own build info already names the commit.
+// binary. `run` is absent because it produces none: it is the dev loop, and
+// the binary it builds is thrown away at exit.
+//
+// It is worth saying what `make run` therefore reports, because the obvious
+// guess is wrong. `go run` does not fall back on the toolchain's VCS stamping
+// — verified on Go 1.25, it records no vcs.revision at all and calls the main
+// module "(devel)" — so `make run` reports a bare `dev`, not `dev+<commit>`.
+// Adding -ldflags to the run target would fix that; it is deliberately not
+// done here, because `make run` is not a build anyone ships or supports.
 var stampedTargets = []string{"build", "build-embedded"}
 
 // TestEveryBuildPathStampsTheVersion closes the seam between the package and
