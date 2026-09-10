@@ -130,6 +130,7 @@ type accountScopedWorld struct {
 	behaviorSettings    repositories.BehaviorSettingsRepository
 	inviteService       *authapp.InviteService
 	inviteRepo          authrepos.InviteRepository
+	erasureLocks        repositories.AccountErasureLocks
 	logger              entities.Logger
 
 	registrationEnabled bool
@@ -297,7 +298,7 @@ func (w *accountScopedWorld) boot(registration bool) error {
 		fx.Populate(&w.sessionManager, &w.sessionStore, &w.authzChecker, &w.logger),
 		fx.Populate(&w.resourceService, &w.resourceTypeService, &w.jwtService),
 		fx.Populate(&w.inviteService, &w.inviteRepo),
-		fx.Populate(&w.behaviorSettings),
+		fx.Populate(&w.behaviorSettings, &w.erasureLocks),
 	}
 	app := fx.New(append(options, w.extraOptions...)...)
 	startCtx, cancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
@@ -334,13 +335,19 @@ func (w *accountScopedWorld) boot(registration bool) error {
 		SessionManager: w.sessionManager,
 		SecureCookies:  false,
 		Logger:         w.logger,
+		AccountRepo:    w.accountRepo,
+		ErasureLocks:   w.erasureLocks,
 	})
 	handlers.MountPasswordAuth(api, passwordHandlers, handlers.PasswordAuthRoutes{
 		SignIn:       true,
 		Registration: registration,
 	})
 
+	// The same order serve.go mounts: the erasure guard in front of
+	// RequireAuth, so an account part-way through a deletion is refused with
+	// the code that says so rather than as merely deactivated.
 	guards := []echo.MiddlewareFunc{
+		apimw.ErasureGuard(w.sessionManager, w.erasureLocks, w.logger),
 		echo.WrapMiddleware(authhttp.RequireAuth(w.sessionManager, w.authService)),
 		apimw.Impersonation(w.sessionStore, w.accountRepo, w.logger),
 		apimw.AuthorizeResource(w.authzChecker, w.accountRepo, w.logger),

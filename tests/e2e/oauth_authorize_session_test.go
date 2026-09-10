@@ -136,6 +136,7 @@ type oauthWorld struct {
 	// world with account erasure, which reads the connector tables directly.
 	db           *gormlib.DB
 	erasureLocks repositories.AccountErasureLocks
+	erasure      *application.AccountErasureService
 	// mountExtraRoutes lets another suite mount more of the application on
 	// this instance — the account routes — behind the auth serve.go gives them.
 	mountExtraRoutes func(api *echo.Group, cfg config.Config, sessionStore sessions.Store, jwtService authapp.JWTService)
@@ -263,7 +264,7 @@ func (w *oauthWorld) boot(opts bootOpts) error {
 		fx.Populate(&w.sessionManager, &sessionStore, &w.logger, &jwtService),
 		fx.Populate(&resourceTypeService, &w.resourceService),
 		fx.Populate(&kgService, &lexicalSearch, &episodicRecall),
-		fx.Populate(&db, &w.erasureLocks),
+		fx.Populate(&db, &w.erasureLocks, &w.erasure),
 	)
 	startCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
