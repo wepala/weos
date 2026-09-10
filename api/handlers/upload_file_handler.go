@@ -19,7 +19,9 @@ import (
 	"errors"
 	"io/fs"
 	"net/http"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/wepala/weos/v3/domain/entities"
@@ -38,7 +40,7 @@ const uploadFilesRoute = "/api/uploads/files/"
 // gets, so a probe cannot tell a file it may not read from one that does not
 // exist.
 func ServeUploadedFiles(localPath string, logger entities.Logger) echo.HandlerFunc {
-	root := http.Dir(localPath)
+	flatRoot := http.Dir(localPath)
 	return func(c echo.Context) error {
 		ctx := c.Request().Context()
 		name, ok := servableUploadName(c.Request().URL.Path, activeAccountID(c))
@@ -46,7 +48,7 @@ func ServeUploadedFiles(localPath string, logger entities.Logger) echo.HandlerFu
 			return uploadNotFound(c)
 		}
 
-		file, err := root.Open(name)
+		file, err := openUpload(localPath, flatRoot, name)
 		if err != nil {
 			if !errors.Is(err, fs.ErrNotExist) {
 				logger.Warn(ctx, "could not open uploaded file", "name", name, "error", err)
@@ -104,6 +106,25 @@ func servableUploadName(requestPath, accountID string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// openUpload opens a name servableUploadName accepted. An account file opens
+// through an os.Root at its account's uploads folder, so a symlink planted there
+// that leads out of the folder is refused, not followed. A flat file opens as
+// it did before account folders.
+func openUpload(localPath string, flatRoot http.FileSystem, name string) (http.File, error) {
+	dir, file := path.Split(name)
+	if dir == "/" {
+		return flatRoot.Open(name)
+	}
+	root, err := os.OpenRoot(filepath.Join(localPath, filepath.FromSlash(dir)))
+	if err != nil {
+		return nil, err
+	}
+	// A file opened through the root stays open after the root closes, and the
+	// root is only read, so a failed close loses nothing.
+	defer func() { _ = root.Close() }()
+	return root.Open(file)
 }
 
 func activeAccountID(c echo.Context) string {

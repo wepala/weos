@@ -16,7 +16,8 @@ import (
 
 const (
 	photoOfA = "photo of account A"
-	photoOfB = "photo of account B"
+	photoOfB     = "photo of account B"
+	photoOutside = "photo outside the upload directory"
 )
 
 // stageUploadDir lays out what the local backend writes: one photo in each of
@@ -96,7 +97,29 @@ func TestServeUploadedFiles_ServesOwnAccountFile(t *testing.T) {
 
 func TestServeUploadedFiles_AnotherAccountsFileIsNotFound(t *testing.T) {
 	dir := stageUploadDir(t)
+
+	// No product code writes a symlink into an account folder, but someone with
+	// filesystem access can, and a link must not carry a read out of the folder.
+	outside := filepath.Join(t.TempDir(), "outside.jpg")
+	if err := os.WriteFile(outside, []byte(photoOutside), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	links := map[string]string{
+		"accounts/acctB/uploads/idS-relative.jpg": "../../acctA/uploads/idA-lasagna.jpg",
+		"accounts/acctB/uploads/idS-absolute.jpg": filepath.Join(dir, "accounts", "acctA", "uploads", "idA-lasagna.jpg"),
+		"accounts/acctB/uploads/idS-outside.jpg":  outside,
+	}
+	for link, dest := range links {
+		if err := os.Symlink(dest, filepath.Join(dir, filepath.FromSlash(link))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	missing := serveAs(t, dir, "acctB", "/api/uploads/files/accounts/acctB/uploads/idX-lasagna.jpg")
+
 	targets := map[string]string{
+		"relative symlink to another account": "accounts/acctB/uploads/idS-relative.jpg",
+		"absolute symlink to another account": "accounts/acctB/uploads/idS-absolute.jpg",
+		"symlink out of the upload directory": "accounts/acctB/uploads/idS-outside.jpg",
 		"direct":             "accounts/acctA/uploads/idA-lasagna.jpg",
 		"literal dot-dot":    "accounts/acctB/uploads/../../acctA/uploads/idA-lasagna.jpg",
 		"encoded dot-dot":    "accounts/acctB/uploads/%2e%2e%2f%2e%2e%2facctA/uploads/idA-lasagna.jpg",
@@ -120,6 +143,12 @@ func TestServeUploadedFiles_AnotherAccountsFileIsNotFound(t *testing.T) {
 			}
 			if strings.Contains(rec.Body.String(), photoOfA) {
 				t.Errorf("body carries account A's photo: %q", rec.Body.String())
+			}
+			if strings.Contains(rec.Body.String(), photoOutside) {
+				t.Errorf("body carries the file outside the upload directory: %q", rec.Body.String())
+			}
+			if rec.Body.String() != missing.Body.String() {
+				t.Errorf("body = %q, want the missing file's %q", rec.Body.String(), missing.Body.String())
 			}
 		})
 	}
