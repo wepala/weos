@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"os"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/wepala/weos/v3/application"
@@ -194,6 +195,54 @@ func TestSidebarHidesDerivedFoodTypes(t *testing.T) {
 	} {
 		if !hidden[slug] {
 			t.Errorf("the sidebar does not hide %q", slug)
+		}
+	}
+	// mini-me's live twin shows every food type in its admin today; only the
+	// three derived ones above may be hidden.
+	for _, slug := range []string{
+		"taste-profile", "meal-log", "restaurant", "planned-meal", "staple", "purchase", "item-kind",
+	} {
+		if hidden[slug] {
+			t.Errorf("the sidebar hides %q, a type mini-me's live twin uses", slug)
+		}
+	}
+}
+
+func TestSidebarGroupsEachTwinPairUnderOneVisibleParent(t *testing.T) {
+	def := mealPlanningPreset(t)
+	if def.Sidebar == nil {
+		t.Fatal("meal-planning declares no sidebar config")
+	}
+	hidden := map[string]bool{}
+	for _, slug := range def.Sidebar.HiddenSlugs {
+		hidden[slug] = true
+	}
+	groups := def.Sidebar.MenuGroups
+	for _, pair := range [][2]string{
+		{"planned-meal", "scheduled-meal"},
+		{"meal-log", "meal-occurrence"},
+		{"grocery-list-item", "shopping-list-item"},
+	} {
+		twin, core := groups[pair[0]], groups[pair[1]]
+		if twin == "" || twin != core {
+			t.Errorf("%s is grouped under %q and %s under %q; a twin pair must share one parent",
+				pair[0], twin, pair[1], core)
+			continue
+		}
+		// The admin nests an entry under its parent only when the parent is shown.
+		if hidden[twin] {
+			t.Errorf("%s and %s are grouped under %q, which the sidebar hides", pair[0], pair[1], twin)
+		}
+	}
+	if got := groups["purchase"]; got != "shopping-list" {
+		t.Errorf("purchase is grouped under %q, want the shopping-list area", got)
+	}
+	for _, slug := range []string{
+		"scheduled-meal", "meal-occurrence", "shopping-list-item",
+		"planned-meal", "meal-log", "grocery-list-item",
+	} {
+		if !strings.Contains(def.Description, slug) {
+			t.Errorf("the preset description does not say which of the twin pair %q belongs to", slug)
 		}
 	}
 }

@@ -23,11 +23,15 @@ import (
 	"github.com/wepala/weos/v3/pkg/jsonld"
 )
 
+const presetDescription = "Recipe management, meal planning, pantry tracking, and shopping lists. " +
+	"A new product writes scheduled-meal, meal-occurrence and shopping-list-item; " +
+	"planned-meal, meal-log and grocery-list-item are mini-me's unmerged twins of them."
+
 // Register adds the meal-planning preset to the registry.
 func Register(registry *application.PresetRegistry) {
 	registry.MustAdd(application.PresetDefinition{
 		Name:        "meal-planning",
-		Description: "Recipe management, meal planning, pantry tracking, and shopping lists",
+		Description: presetDescription,
 		Types: []application.PresetResourceType{
 			recipeType(),
 			howToStepType(),
@@ -60,9 +64,16 @@ func Register(registry *application.PresetRegistry) {
 				"meal-occurrence", "food-item", "shopping-list-item", "restricted-diet",
 				"grocery-list-item", "grocery-amendment", "purchase-line",
 			},
+			// Each unmerged twin pair shares one parent, so the two halves sit
+			// side by side until the P1 merge folds them into one type.
 			MenuGroups: map[string]string{
 				"scheduled-meal":     "meal-plan",
+				"planned-meal":       "meal-plan",
+				"meal-occurrence":    "meal-plan",
+				"meal-log":           "meal-plan",
 				"shopping-list-item": "shopping-list",
+				"grocery-list-item":  "shopping-list",
+				"purchase":           "shopping-list",
 				"food-item":          "pantry",
 			},
 		},
