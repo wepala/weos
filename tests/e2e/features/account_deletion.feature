@@ -305,14 +305,19 @@ Feature: A person can delete their account from the app
     And "counsel@harborlegal.example" signs in again
     Then the recipes they see include "Sunday Lasagna"
 
-  Scenario: A member with another account is told the account went away
+  # wm-1lbdz: the deletion removes every session in the account, the one a
+  # member who keeps another account held there included. A session with no
+  # row is refused as any session that no longer exists is: 401, no code.
+  Scenario: A member with another account is signed out of the deleted one and keeps their own
     Given a WeOS instance where password sign-in is enabled and requests are authenticated by their session
     And the account "Harbor Legal", whose owner "counsel@harborlegal.example" signs in with password "trellis-anchor-mango-9"
     And "counsel@harborlegal.example" was also added to the account "Cedar Realty" and is signed in to it
     When the owner of "Cedar Realty" deletes it, confirming with "DELETE"
     And "counsel@harborlegal.example" makes a request with the session they already held
     Then the request is refused as not authenticated
-    And the refusal says their access to the account was taken away
+    And the refusal carries no code
+    And "counsel@harborlegal.example" signs in again
+    And the account their requests act in is "Harbor Legal"
 
   Scenario: A member with another account lands in it on their next sign-in
     Given a WeOS instance where password sign-in is enabled and requests are authenticated by their session
