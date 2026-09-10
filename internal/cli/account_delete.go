@@ -30,6 +30,7 @@ import (
 
 var (
 	accountDeleteConfirm      bool
+	accountDeleteSkipDrain    bool
 	accountDeleteDrainTimeout time.Duration
 )
 
@@ -47,7 +48,15 @@ part-way leaves the account locked, and running this command finishes it.
 
 The command refuses to run without --confirm, and it opens the store directly,
 so it needs no running server. A server that is running keeps serving; the
-account is locked before anything is removed.`,
+account is locked before anything is removed.
+
+Before it purges, the command waits for the background projections to reach
+the head of the event log, so none of them projects the account's events after
+the purge. A checkpoint row that no process advances any more — a projection
+that was turned off, renamed or retired — is not waited for once it has gone
+unwritten for ACCOUNT_ERASURE_DRAIN_STALE_AFTER_SECONDS. If a deletion still
+times out on a row that will never move, --skip-drain purges without the wait;
+use it only when you know no projection is running.`,
 	Args:         cobra.ExactArgs(1),
 	RunE:         runAccountDelete,
 	SilenceUsage: true,
@@ -58,6 +67,8 @@ func init() {
 		"confirm the erasure; without it the command changes nothing")
 	accountDeleteCmd.Flags().DurationVar(&accountDeleteDrainTimeout, "drain-timeout", 0,
 		"how long to wait for background projections to catch up before purging (default from config)")
+	accountDeleteCmd.Flags().BoolVar(&accountDeleteSkipDrain, "skip-drain", false,
+		"purge without waiting for background projections; for a checkpoint row that will never move")
 	accountCmd.AddCommand(accountDeleteCmd)
 }
 
@@ -102,6 +113,7 @@ func runAccountDelete(cmd *cobra.Command, args []string) error {
 	result, err := erasure.Erase(cmd.Context(), application.EraseAccountCommand{
 		AccountID:   accountID,
 		RequestedBy: "operator",
+		SkipDrain:   accountDeleteSkipDrain,
 	})
 	if err != nil {
 		if errors.Is(err, application.ErrAccountNotFound) {
@@ -109,7 +121,8 @@ func runAccountDelete(cmd *cobra.Command, args []string) error {
 		}
 		if errors.Is(err, application.ErrErasureDrainTimeout) {
 			return fmt.Errorf("account %s is locked but not erased: %v — run this command again "+
-				"once the background projections have caught up, or pass --drain-timeout", accountID, err)
+				"once the background projections have caught up, pass --drain-timeout to wait longer, "+
+				"or pass --skip-drain if the named checkpoint belongs to a projection nothing runs any more", accountID, err)
 		}
 		return fmt.Errorf("account %s is locked but not erased: %v — run this command again to finish", accountID, err)
 	}

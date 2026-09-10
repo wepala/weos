@@ -267,6 +267,12 @@ type WorkerConfig struct {
 	// failure that keeps the account locked, rather than a purge a late
 	// projection undoes. Default 30s.
 	ErasureDrainTimeout time.Duration
+	// ErasureDrainStaleAfter is how long a checkpoint row that no group in
+	// this process runs may go unwritten before the erasure drain stops
+	// waiting on it. A group that was turned off, renamed or retired leaves
+	// its row where it stopped, and nothing else prunes it; without this
+	// every deletion on the instance would time out on it. Default 10m.
+	ErasureDrainStaleAfter time.Duration
 }
 
 // IsPostgresDSN reports whether dsn targets PostgreSQL — a "host=" libpq DSN
@@ -497,7 +503,8 @@ func Default() Config {
 			RetryBackoff:        100 * time.Millisecond,
 			MaxRetryBackoff:     5 * time.Second,
 			LagLogInterval:      30 * time.Second,
-			ErasureDrainTimeout: 30 * time.Second,
+			ErasureDrainTimeout:    30 * time.Second,
+			ErasureDrainStaleAfter: 10 * time.Minute,
 		},
 		Features: FeaturesConfig{
 			CacheMaxAge:   15 * time.Minute,
@@ -753,6 +760,11 @@ func (c *Config) loadWorkerFromEnvironment() {
 	if v := os.Getenv("ACCOUNT_ERASURE_DRAIN_TIMEOUT_SECONDS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			c.Worker.ErasureDrainTimeout = time.Duration(n) * time.Second
+		}
+	}
+	if v := os.Getenv("ACCOUNT_ERASURE_DRAIN_STALE_AFTER_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.Worker.ErasureDrainStaleAfter = time.Duration(n) * time.Second
 		}
 	}
 }

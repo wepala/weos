@@ -27,22 +27,39 @@ type erasureHarness struct {
 	graphs    *erasureGraphs
 	mu        sync.Mutex
 	positions map[string]int64
-	head      int64
-	steps     *[]string
+	// written is when each row was last written; a row absent here was
+	// written just now.
+	written map[string]time.Time
+	running []string
+	head    int64
+	steps   *[]string
 }
 
 func (h *erasureHarness) setPosition(group string, position int64) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.positions[group] = position
+	delete(h.written, group)
 }
 
-func (h *erasureHarness) checkpoints(context.Context) (map[string]int64, error) {
+// setStalePosition stages a row that stopped moving long ago.
+func (h *erasureHarness) setStalePosition(group string, position int64, age time.Duration) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	out := make(map[string]int64, len(h.positions))
-	for k, v := range h.positions {
-		out[k] = v
+	h.positions[group] = position
+	h.written[group] = time.Now().Add(-age)
+}
+
+func (h *erasureHarness) checkpoints(context.Context) ([]SubscriberCheckpoint, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	out := make([]SubscriberCheckpoint, 0, len(h.positions))
+	for name, position := range h.positions {
+		updated, ok := h.written[name]
+		if !ok {
+			updated = time.Now()
+		}
+		out = append(out, SubscriberCheckpoint{Name: name, Position: position, UpdatedAt: updated})
 	}
 	return out, nil
 }
@@ -148,15 +165,21 @@ func newErasureHarness(t *testing.T) *erasureHarness {
 		files:     &erasureFiles{steps: steps},
 		graphs:    &erasureGraphs{steps: steps},
 		positions: map[string]int64{},
+		written:   map[string]time.Time{},
 		steps:     steps,
 	}
 }
 
 func (h *erasureHarness) service(drainTimeout time.Duration) *AccountErasureService {
 	store := esinfra.NewMemoryStore()
-	svc := NewAccountErasureService(h.accounts, h.locks, h.purger, h.files, h.graphs,
-		headOf{store, h.head}, h.checkpoints, drainTimeout, noopWorkerLogger{})
+	svc := NewAccountErasureService(AccountErasureDeps{
+		Accounts: h.accounts, Locks: h.locks, Purger: h.purger, Files: h.files, Graphs: h.graphs,
+		EventStore: headOf{store, h.head}, Checkpoints: h.checkpoints,
+		RunningGroups: func() []string { return h.running },
+		DrainTimeout:  drainTimeout, StaleAfter: time.Minute, Logger: noopWorkerLogger{},
+	})
 	svc.drainPoll = 5 * time.Millisecond
+	svc.frozenGrace = 20 * time.Millisecond
 	return svc
 }
 
@@ -239,6 +262,66 @@ func TestAccountErasure_DrainWaitsForALateGroupThenProceeds(t *testing.T) {
 	}
 	if !h.purger.purged {
 		t.Error("the purge did not run once the group reached the head")
+	}
+}
+
+// wm-gyfdi: a checkpoint row left behind by a group nobody runs any more
+// must not fail every deletion on the instance. It is told from a live row
+// by being both unowned here and unwritten for longer than the staleness
+// window.
+func TestAccountErasure_DrainSetsAsideAFrozenRowOfAGroupNobodyRuns(t *testing.T) {
+	h := newErasureHarness(t)
+	h.head = 10
+	h.setStalePosition("oxigraph", 3, time.Hour) // turned off long ago; nothing here runs it
+	h.setPosition("display-values", 10)
+
+	if _, err := h.service(500 * time.Millisecond).Erase(context.Background(), EraseAccountCommand{AccountID: "acct-harbor"}); err != nil {
+		t.Fatalf("Erase waited on a checkpoint no group advances: %v", err)
+	}
+	if !h.purger.purged {
+		t.Error("the purge did not run past the frozen row")
+	}
+}
+
+func TestAccountErasure_DrainWaitsForAGroupThisProcessRunsHoweverOldItsRow(t *testing.T) {
+	h := newErasureHarness(t)
+	h.head = 10
+	h.running = []string{"oxigraph"}
+	h.setStalePosition("oxigraph", 3, time.Hour) // idle for an hour, but alive here and behind
+
+	_, err := h.service(80 * time.Millisecond).Erase(context.Background(), EraseAccountCommand{AccountID: "acct-harbor"})
+	if !errors.Is(err, ErrErasureDrainTimeout) {
+		t.Fatalf("Erase error = %v, want ErrErasureDrainTimeout for a running group that is behind", err)
+	}
+	if h.purger.purged {
+		t.Error("the purge ran ahead of a group this process runs")
+	}
+}
+
+func TestAccountErasure_DrainWaitsForARowAnotherProcessIsStillWriting(t *testing.T) {
+	h := newErasureHarness(t)
+	h.head = 10
+	h.setPosition("oxigraph", 3) // not run here, but written just now: a worker elsewhere is alive
+
+	_, err := h.service(80 * time.Millisecond).Erase(context.Background(), EraseAccountCommand{AccountID: "acct-harbor"})
+	if !errors.Is(err, ErrErasureDrainTimeout) {
+		t.Fatalf("Erase error = %v, want ErrErasureDrainTimeout for a fresh row that is behind", err)
+	}
+}
+
+func TestAccountErasure_SkipDrainIsTheOperatorsOverride(t *testing.T) {
+	h := newErasureHarness(t)
+	h.head = 10
+	h.running = []string{"oxigraph"}
+	h.setPosition("oxigraph", 3)
+
+	_, err := h.service(80 * time.Millisecond).Erase(context.Background(),
+		EraseAccountCommand{AccountID: "acct-harbor", RequestedBy: "operator", SkipDrain: true})
+	if err != nil {
+		t.Fatalf("Erase with SkipDrain: %v", err)
+	}
+	if !h.purger.purged {
+		t.Error("the purge did not run when the drain was skipped")
 	}
 }
 

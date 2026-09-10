@@ -42,16 +42,34 @@ var (
 	ErrErasureDrainTimeout = errors.New("account erasure: a background projection did not catch up in time")
 )
 
-// CheckpointPositionsFunc reads the committed position of every subscriber
-// group that has a checkpoint row — every group that has ever processed the
-// feed, whether or not this process runs it. A group with no row has never
-// projected anything and has nothing to drain.
-type CheckpointPositionsFunc func(ctx context.Context) (map[string]int64, error)
+// SubscriberCheckpoint is one row of the checkpoint table: where a group has
+// got to, and when it last wrote that down.
+type SubscriberCheckpoint struct {
+	Name      string
+	Position  int64
+	UpdatedAt time.Time
+}
+
+// CheckpointPositionsFunc reads the checkpoint row of every subscriber group
+// that has one — every group that has ever processed the feed, whether or not
+// this process runs it. A group with no row has never projected anything and
+// has nothing to drain.
+type CheckpointPositionsFunc func(ctx context.Context) ([]SubscriberCheckpoint, error)
+
+// RunningGroupsFunc names the subscriber groups this process is running. A
+// group named here is alive by construction, so the drain waits for it
+// however old its checkpoint row is. A process that runs no groups — the
+// operator command, an API-only deployment — names none.
+type RunningGroupsFunc func() []string
 
 // EraseAccountCommand names the account to erase and who asked.
 type EraseAccountCommand struct {
 	AccountID   string
 	RequestedBy string
+	// SkipDrain purges without waiting for the background groups. It is the
+	// operator's override for a checkpoint that will never move, and the
+	// command line refuses it without --confirm; the app never sets it.
+	SkipDrain bool
 }
 
 // ErasureResult is what an erasure removed.
@@ -87,57 +105,93 @@ type AccountErasureService struct {
 	graphs       repositories.KnowledgeGraphStores
 	eventStore   domain.EventStore
 	checkpoints  CheckpointPositionsFunc
+	running      RunningGroupsFunc
 	drainTimeout time.Duration
-	drainPoll    time.Duration
-	logger       entities.Logger
+	// staleAfter is how long a checkpoint row nobody here runs may go
+	// unwritten before the drain treats it as frozen. A live group that is
+	// behind writes its row as it catches up, so a row older than this that
+	// still does not move is one no process is advancing.
+	staleAfter time.Duration
+	// frozenGrace is how long the drain gives a stale row to move before it
+	// stops waiting on it: a worker in another process wakes on the commit
+	// it is behind by and writes its row within this.
+	frozenGrace time.Duration
+	drainPoll   time.Duration
+	logger      entities.Logger
 }
 
-// AccountErasureParams bundles the service's dependencies.
+// AccountErasureDeps is everything the service is built from.
+type AccountErasureDeps struct {
+	Accounts      authrepos.AccountRepository
+	Locks         repositories.AccountErasureLocks
+	Purger        repositories.AccountDataPurger
+	Files         services.FileService
+	Graphs        repositories.KnowledgeGraphStores
+	EventStore    domain.EventStore
+	Checkpoints   CheckpointPositionsFunc
+	RunningGroups RunningGroupsFunc
+	DrainTimeout  time.Duration
+	StaleAfter    time.Duration
+	Logger        entities.Logger
+}
+
+// AccountErasureParams bundles the service's dependencies from the container.
 type AccountErasureParams struct {
 	fx.In
-	Config      config.Config
-	Accounts    authrepos.AccountRepository
-	Locks       repositories.AccountErasureLocks
-	Purger      repositories.AccountDataPurger
-	Files       services.FileService
-	Graphs      repositories.KnowledgeGraphStores
-	EventStore  domain.EventStore
-	Checkpoints CheckpointPositionsFunc
-	Logger      entities.Logger
+	Config        config.Config
+	Accounts      authrepos.AccountRepository
+	Locks         repositories.AccountErasureLocks
+	Purger        repositories.AccountDataPurger
+	Files         services.FileService
+	Graphs        repositories.KnowledgeGraphStores
+	EventStore    domain.EventStore
+	Checkpoints   CheckpointPositionsFunc
+	RunningGroups RunningGroupsFunc
+	Logger        entities.Logger
 }
 
 // ProvideAccountErasureService wires the service from the container.
 func ProvideAccountErasureService(p AccountErasureParams) *AccountErasureService {
-	return NewAccountErasureService(p.Accounts, p.Locks, p.Purger, p.Files, p.Graphs, p.EventStore,
-		p.Checkpoints, p.Config.Worker.ErasureDrainTimeout, p.Logger)
+	return NewAccountErasureService(AccountErasureDeps{
+		Accounts:      p.Accounts,
+		Locks:         p.Locks,
+		Purger:        p.Purger,
+		Files:         p.Files,
+		Graphs:        p.Graphs,
+		EventStore:    p.EventStore,
+		Checkpoints:   p.Checkpoints,
+		RunningGroups: p.RunningGroups,
+		DrainTimeout:  p.Config.Worker.ErasureDrainTimeout,
+		StaleAfter:    p.Config.Worker.ErasureDrainStaleAfter,
+		Logger:        p.Logger,
+	})
 }
 
 // NewAccountErasureService builds the service without fx wiring.
-func NewAccountErasureService(
-	accounts authrepos.AccountRepository,
-	locks repositories.AccountErasureLocks,
-	purger repositories.AccountDataPurger,
-	files services.FileService,
-	graphs repositories.KnowledgeGraphStores,
-	eventStore domain.EventStore,
-	checkpoints CheckpointPositionsFunc,
-	drainTimeout time.Duration,
-	logger entities.Logger,
-) *AccountErasureService {
-	if drainTimeout <= 0 {
-		drainTimeout = 30 * time.Second
+func NewAccountErasureService(d AccountErasureDeps) *AccountErasureService {
+	if d.DrainTimeout <= 0 {
+		d.DrainTimeout = 30 * time.Second
+	}
+	if d.StaleAfter <= 0 {
+		d.StaleAfter = 10 * time.Minute
+	}
+	if d.RunningGroups == nil {
+		d.RunningGroups = func() []string { return nil }
 	}
 	return &AccountErasureService{
-		accounts:     accounts,
-		locks:        locks,
-		purger:       purger,
-		files:        files,
-		graphs:       graphs,
-		eventStore:   eventStore,
-		checkpoints:  checkpoints,
-		drainTimeout: drainTimeout,
+		accounts:     d.Accounts,
+		locks:        d.Locks,
+		purger:       d.Purger,
+		files:        d.Files,
+		graphs:       d.Graphs,
+		eventStore:   d.EventStore,
+		checkpoints:  d.Checkpoints,
+		running:      d.RunningGroups,
+		drainTimeout: d.DrainTimeout,
+		staleAfter:   d.StaleAfter,
+		frozenGrace:  2 * time.Second,
 		drainPoll:    100 * time.Millisecond,
-		logger:       logger,
+		logger:       d.Logger,
 	}
 }
 
@@ -173,7 +227,9 @@ func (s *AccountErasureService) Erase(ctx context.Context, cmd EraseAccountComma
 	}
 	s.logger.Info(ctx, "account erasure: locked", "account_id", cmd.AccountID, "requested_by", cmd.RequestedBy)
 
-	if err := s.drain(ctx); err != nil {
+	if cmd.SkipDrain {
+		s.logger.Warn(ctx, "account erasure: the drain was skipped on the operator's say-so", "account_id", cmd.AccountID)
+	} else if err := s.drain(ctx); err != nil {
 		return nil, err
 	}
 
@@ -206,24 +262,43 @@ func (s *AccountErasureService) Erase(ctx context.Context, cmd EraseAccountComma
 
 // drain reads the head of the event log once — after the lock, so nothing
 // of the account's can be appended past it — and waits until every group
-// with a checkpoint has processed up to it. Groups are read fresh on every
-// poll so one that starts during the wait is waited for too.
+// that can still move has processed up to it. Rows are read fresh on every
+// poll so a group that starts during the wait is waited for too.
+//
+// A row that no process is advancing must not hold the drain forever: a
+// group that was turned off, renamed or retired leaves its row where it
+// stopped, and waiting on it fails every deletion on the instance
+// (wm-gyfdi). Such a row is told from a live one by two things together: it
+// is not a group this process runs, and it has not been written for longer
+// than staleAfter. A live group that is behind writes its row as it catches
+// up, and a worker in another process wakes on the commit it is behind by,
+// so a stale row is given frozenGrace to move before it is set aside.
 func (s *AccountErasureService) drain(ctx context.Context) error {
 	head, err := s.eventStore.HeadPosition(ctx)
 	if err != nil {
 		return fmt.Errorf("account erasure: read the head of the event log: %w", err)
 	}
-	deadline := time.Now().Add(s.drainTimeout)
+	started := time.Now()
+	deadline := started.Add(s.drainTimeout)
+	running := map[string]bool{}
+	for _, name := range s.running() {
+		running[name] = true
+	}
 	for {
-		positions, err := s.checkpoints(ctx)
+		rows, err := s.checkpoints(ctx)
 		if err != nil {
 			return fmt.Errorf("account erasure: read subscriber checkpoints: %w", err)
 		}
-		behind := lagging(positions, head)
+		now := time.Now()
+		behind, frozen := s.lagging(rows, head, running, now, now.Sub(started) >= s.frozenGrace)
 		if len(behind) == 0 {
+			if len(frozen) > 0 {
+				s.logger.Warn(ctx, "account erasure: checkpoint rows nobody is advancing were not waited for",
+					"groups", frozen, "stale_after", s.staleAfter.String())
+			}
 			return nil
 		}
-		if time.Now().After(deadline) {
+		if now.After(deadline) {
 			return fmt.Errorf("%w: %v still behind position %d after %s",
 				ErrErasureDrainTimeout, behind, head, s.drainTimeout)
 		}
@@ -235,13 +310,22 @@ func (s *AccountErasureService) drain(ctx context.Context) error {
 	}
 }
 
-// lagging names the groups whose checkpoint is behind head.
-func lagging(positions map[string]int64, head int64) []string {
-	var behind []string
-	for name, position := range positions {
-		if position < head {
-			behind = append(behind, name)
+// lagging sorts the rows behind head into the ones to wait for and the
+// frozen ones to set aside. Before the grace has passed every row behind head
+// is waited for.
+func (s *AccountErasureService) lagging(
+	rows []SubscriberCheckpoint, head int64, running map[string]bool, now time.Time, graceOver bool,
+) (behind, frozen []string) {
+	for _, row := range rows {
+		if row.Position >= head {
+			continue
 		}
+		stale := !running[row.Name] && now.Sub(row.UpdatedAt) > s.staleAfter
+		if stale && graceOver {
+			frozen = append(frozen, row.Name)
+			continue
+		}
+		behind = append(behind, row.Name)
 	}
-	return behind
+	return behind, frozen
 }
