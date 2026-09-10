@@ -584,6 +584,17 @@ func tasteProfileType() application.PresetResourceType {
 // meal-occurrence has no notion of. Merging the pair is P1 and needs a data
 // migration; do not fold either type into the other before then.
 //
+// KNOWN LIMITATION, wepala/weos#539: `status` is a reserved projection column.
+// extractNodeColumns skips any schema property whose snake_case name is in
+// standardColumnNames, so a meal's status never reaches the projection row and
+// a flat read returns the resource's lifecycle status instead of the meal's.
+// The graph is unaffected, because triple extraction does not consult that
+// list: a consumer reading mp:MealOccurrence from the graph gets the right
+// value. A consumer reading the flat row gets a wrong value, which is worse
+// than a missing one. The field stays: dropping it would fail core's
+// meal-occurrence contract, and the defect is upstream. mini-me recorded
+// wepala/mini-me-weos#410, with the status backfill, as where it is revisited.
+//
 // status is not required because logs written before it existed have none, and
 // the boot reconcile tightens `required` on existing rows at once. orderId is
 // not named `order`, a SQL reserved word that breaks the projection table. Its
