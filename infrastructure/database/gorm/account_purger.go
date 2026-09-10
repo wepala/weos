@@ -190,6 +190,9 @@ type accountFacts struct {
 	members       []string
 	deletedAgents []string
 	credentials   []string // credential ids of the deleted agents
+	// sessions is every session that goes: each one scoped to the account,
+	// whoever holds it, and every session of the deleted agents.
+	sessions []string
 	// invites is every invitation that goes: the account's own, and any from
 	// another account that names a deleted person by agent id or by email.
 	invites      []string
@@ -244,6 +247,13 @@ func (p *AccountPurger) gather(tx *gorm.DB, accountID string) (*accountFacts, er
 		aggregates[id] = true
 	}
 
+	// Every session scoped to the account goes, a surviving member's included
+	// (wm-1lbdz). A session event names its account as `account_id`, not as
+	// the `AccountID` the payload clause reads, so the rows are the index.
+	if err := tx.Table("auth_sessions").Where("account_id = ?", accountID).
+		Pluck("id", &facts.sessions).Error; err != nil {
+		return nil, fmt.Errorf("account erasure: list sessions of %q: %w", accountID, err)
+	}
 	if len(facts.deletedAgents) > 0 {
 		var err error
 		if facts.credentials, err = pluckByChunk(tx, "credentials", "id", "agent_id", facts.deletedAgents); err != nil {
@@ -257,15 +267,16 @@ func (p *AccountPurger) gather(tx *gorm.DB, accountID string) (*accountFacts, er
 		if err != nil {
 			return nil, fmt.Errorf("account erasure: list sessions of deleted agents: %w", err)
 		}
+		facts.sessions = append(facts.sessions, sessions...)
 		for _, id := range facts.credentials {
 			aggregates[id] = true
 		}
 		for _, id := range passwordCredentials {
 			aggregates[id] = true
 		}
-		for _, id := range sessions {
-			aggregates[id] = true
-		}
+	}
+	for _, id := range facts.sessions {
+		aggregates[id] = true
 	}
 
 	// The account's own invitations, and — because an invitation into
@@ -482,22 +493,23 @@ func purgeAuthorization(tx *gorm.DB, facts *accountFacts, report *repositories.P
 	return nil
 }
 
-// purgeIdentity removes the invitations gathered above, the account's
-// memberships and the sessions of the members who go with it, then those
-// members' credentials and agent rows. A member who belongs to another account keeps their agent, their
-// credentials and their sessions: a session of theirs still scoped to this
-// account is refused from now on with the code that says the access was
-// taken away, which is what tells their app to sign them in again.
+// purgeIdentity removes the invitations and sessions gathered above, the
+// account's memberships, then the credentials and agent rows of the members
+// who go with it. Every session scoped to the account goes, whoever holds
+// it (wm-1lbdz): a member who belongs to another account keeps their agent,
+// their credentials and their sessions in that other account, and the one
+// they held here is refused from now on as any session that no longer
+// exists is, which is what tells their app to sign them in again.
 func purgeIdentity(tx *gorm.DB, facts *accountFacts, _ *repositories.PurgeReport) error {
 	if err := forEachChunk(facts.invites, func(chunk []string) error {
 		return tx.Table("invites").Where("id IN ?", chunk).Delete(map[string]any{}).Error
 	}); err != nil {
 		return fmt.Errorf("account erasure: delete invites: %w", err)
 	}
-	if err := forEachChunk(facts.deletedAgents, func(chunk []string) error {
-		return tx.Table("auth_sessions").Where("agent_id IN ?", chunk).Delete(map[string]any{}).Error
+	if err := forEachChunk(facts.sessions, func(chunk []string) error {
+		return tx.Table("auth_sessions").Where("id IN ?", chunk).Delete(map[string]any{}).Error
 	}); err != nil {
-		return fmt.Errorf("account erasure: delete sessions of deleted agents: %w", err)
+		return fmt.Errorf("account erasure: delete sessions: %w", err)
 	}
 	if err := tx.Table("account_members").Where("account_id = ?", facts.accountID).Delete(map[string]any{}).Error; err != nil {
 		return fmt.Errorf("account erasure: delete memberships: %w", err)

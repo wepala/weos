@@ -138,6 +138,10 @@ func TestAccountPurger_TakesOnlyEventsOfAggregatesBeingDeleted(t *testing.T) {
 	// ops's own auth aggregates go with them.
 	f.event("ev-ops", "ops", "tx-ops", "")
 	f.event("ev-ops-cred", "cred-ops", "tx-ops", "")
+	// counsel's sessions are aggregates of their own: the one scoped to the
+	// deleted account goes with it, the one in the other account stays.
+	f.event("ev-sess-counsel-harbor", "sess-counsel-acct-harbor", "tx-sess-h", "")
+	f.event("ev-sess-counsel-cedar", "sess-counsel-acct-cedar", "tx-sess-c", "")
 	// A resource whose row is already gone still names the account in its
 	// payload, so it is enumerated by the payload rather than the row.
 	f.event("ev-gone", "urn:recipe:gone", "tx-gone", "acct-harbor")
@@ -156,12 +160,12 @@ func TestAccountPurger_TakesOnlyEventsOfAggregatesBeingDeleted(t *testing.T) {
 	if len(report.DeletedAgents) != 1 || report.DeletedAgents[0] != "ops" {
 		t.Errorf("report.DeletedAgents = %v, want [ops]", report.DeletedAgents)
 	}
-	for _, gone := range []string{"ev-h1", "ev-acct", "ev-ops", "ev-ops-cred", "ev-gone"} {
+	for _, gone := range []string{"ev-h1", "ev-acct", "ev-ops", "ev-ops-cred", "ev-gone", "ev-sess-counsel-harbor"} {
 		if f.count("events", "id = ?", gone) != 0 {
 			t.Errorf("event %s of a deleted aggregate survived", gone)
 		}
 	}
-	for _, kept := range []string{"ev-c1", "ev-counsel"} {
+	for _, kept := range []string{"ev-c1", "ev-counsel", "ev-sess-counsel-cedar"} {
 		if f.count("events", "id = ?", kept) != 1 {
 			t.Errorf("event %s of a surviving aggregate was deleted through the shared transaction", kept)
 		}
@@ -177,6 +181,14 @@ func TestAccountPurger_TakesOnlyEventsOfAggregatesBeingDeleted(t *testing.T) {
 	}
 	if f.count("account_members", "agent_id = ? AND account_id = ?", "counsel", "acct-cedar") != 1 {
 		t.Error("the shared person lost their other membership")
+	}
+	// wm-1lbdz: the account's sessions go, the shared person's one in it
+	// included; only their session in the other account stays.
+	if f.count("auth_sessions", "id = ?", "sess-counsel-acct-harbor") != 0 {
+		t.Error("the shared person's session in the deleted account survived")
+	}
+	if f.count("auth_sessions", "account_id = ?", "acct-harbor") != 0 {
+		t.Error("a session scoped to the deleted account survived")
 	}
 	if f.count("auth_sessions", "id = ?", "sess-counsel-acct-cedar") != 1 {
 		t.Error("the shared person's session in the other account was deleted")
