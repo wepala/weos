@@ -72,6 +72,7 @@ func assertSecurityHeaders(t *testing.T, rec *httptest.ResponseRecorder) {
 		"Content-Disposition":     "attachment",
 		"X-Content-Type-Options":  "nosniff",
 		"Content-Security-Policy": "default-src 'none'",
+		"Cache-Control":           "private, no-store",
 	}
 	for header, value := range want {
 		if got := rec.Header().Get(header); got != value {

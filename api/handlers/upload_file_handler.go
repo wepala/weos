@@ -67,10 +67,13 @@ func ServeUploadedFiles(localPath string, logger entities.Logger) echo.HandlerFu
 
 		// Stop a stored file from running as a page: force a download, forbid
 		// type sniffing, and deny it every resource if a browser renders it.
+		// The same URL is 200 for its account and 404 for every other, so no
+		// shared cache may keep the 200 and hand it to another account.
 		header := c.Response().Header()
 		header.Set("Content-Disposition", "attachment")
 		header.Set("X-Content-Type-Options", "nosniff")
 		header.Set("Content-Security-Policy", "default-src 'none'")
+		header.Set("Cache-Control", "private, no-store")
 		http.ServeContent(c.Response(), c.Request(), info.Name(), info.ModTime(), file)
 		return nil
 	}
