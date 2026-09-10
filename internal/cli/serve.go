@@ -231,12 +231,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Logger:          logger,
 	})
 	impersonationHandler := handlers.NewImpersonationHandler(handlers.ImpersonationHandlerConfig{
-		Store:       sessionStore,
-		AccountRepo: accountRepo,
-		AgentRepo:   agentRepo,
-		CredRepo:    credentialRepo,
-		Members:     memberQuery,
-		Logger:      logger,
+		Store:          sessionStore,
+		AccountRepo:    accountRepo,
+		AgentRepo:      agentRepo,
+		CredRepo:       credentialRepo,
+		Members:        memberQuery,
+		SessionManager: sessionManager,
+		AuthService:    authService,
+		ErasureLocks:   erasureLocks,
+		Logger:         logger,
 	})
 
 	// Wrapped so a provider this instance cannot begin a sign-in with returns

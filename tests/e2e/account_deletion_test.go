@@ -265,6 +265,7 @@ func initAccountDeletionScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^they list the projects they can see$`, w.actorRequests)
 	sc.Step(`^they make a request with the session on the second device$`, w.requestOnSecondDevice)
 	sc.Step(`^they read who they are signed in as$`, w.readsWhoTheyAre)
+	sc.Step(`^they read who they are signed in as on the second device$`, w.readsWhoTheyAreOnSecondDevice)
 	sc.Step(`^the projects "([^"]*)" sees with the session they already held include "([^"]*)"$`, w.projectsSeenInclude)
 	sc.Step(`^"([^"]*)" can still read its photo "([^"]*)" by its URL$`, w.accountReadsPhoto)
 	sc.Step(`^"([^"]*)" requests "([^"]*)" at its flat URL$`, w.personRequestsFlatPhoto)
@@ -385,7 +386,8 @@ func (w *deletionWorld) mountDeletionRoutes(api *echo.Group, guards []echo.Middl
 
 	impersonation := handlers.NewImpersonationHandler(handlers.ImpersonationHandlerConfig{
 		Store: w.sessionStore, AccountRepo: w.accountRepo, AgentRepo: w.agentRepo,
-		CredRepo: w.credRepo, Members: w.members, Logger: w.logger,
+		CredRepo: w.credRepo, Members: w.members, SessionManager: w.sessionManager,
+		AuthService: w.authService, ErasureLocks: w.locks, Logger: w.logger,
 	})
 	authHandlers := authhttp.NewAuthHandlers(authhttp.HandlerConfig{
 		AuthService: w.authService, SessionManager: w.sessionManager, Credentials: w.credRepo, Logger: w.logger,

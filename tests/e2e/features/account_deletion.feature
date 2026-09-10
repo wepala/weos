@@ -339,6 +339,16 @@ Feature: A person can delete their account from the app
     And they make a request with the session on the second device
     Then the request is refused as not authenticated
 
+  # wm-ccg4f. The identity read sits outside the protected group and used to
+  # answer from the cookie alone, so a second device learned nothing.
+  Scenario: The identity read on a second device is refused after the deletion
+    Given a WeOS instance where password sign-in is enabled and requests are authenticated by their session
+    And the account "Harbor Legal", whose owner "ops@harborlegal.example" signs in with password "correct-horse-battery-staple"
+    And "ops@harborlegal.example" is signed in on a second device as well
+    When "ops@harborlegal.example" deletes their account, confirming with "DELETE"
+    And they read who they are signed in as on the second device
+    Then the request is refused as not authenticated
+
   Scenario: A connector's token issued before the deletion stops authenticating
     Given a demo instance where password sign-in is enabled and no Google provider is configured
     And the bootstrap account "demo@harborlegal.example" with password "correct-horse-battery-staple"
@@ -420,6 +430,17 @@ Feature: A person can delete their account from the app
     And a deletion of "Harbor Legal" failed after the lock was taken, leaving the account locked
     When "ops@harborlegal.example" signs in again
     And they list the projects they can see
+    Then the request is refused as not authenticated
+    And the refusal says the account's deletion is unfinished
+
+  # wm-ccg4f. An app reads the identity route before it offers anything, so
+  # it is where a locked account has to say the deletion is unfinished.
+  Scenario: The identity read of a locked account says the deletion is unfinished
+    Given a WeOS instance where password sign-in is enabled and requests are authenticated by their session
+    And the account "Harbor Legal", whose owner "ops@harborlegal.example" signs in with password "correct-horse-battery-staple"
+    And a deletion of "Harbor Legal" failed after the lock was taken, leaving the account locked
+    When "ops@harborlegal.example" signs in again
+    And they read who they are signed in as
     Then the request is refused as not authenticated
     And the refusal says the account's deletion is unfinished
 

@@ -447,6 +447,21 @@ func (w *deletionWorld) readsWhoTheyAre() error {
 	return w.request(p, http.MethodGet, mePath, "")
 }
 
+func (w *deletionWorld) readsWhoTheyAreOnSecondDevice() error {
+	p, err := w.current()
+	if err != nil {
+		return err
+	}
+	if w.secondDevice == "" {
+		return fmt.Errorf("no second device was signed in")
+	}
+	first := p.cookie
+	p.cookie = w.secondDevice
+	err = w.request(p, http.MethodGet, mePath, "")
+	p.cookie = first
+	return err
+}
+
 func (w *deletionWorld) projectsSeenInclude(email, name string) error {
 	p, err := w.personNamed(email)
 	if err != nil {
