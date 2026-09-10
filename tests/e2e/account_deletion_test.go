@@ -645,6 +645,10 @@ func (w *deletionWorld) signsInThroughProvider(email, provider, name string) err
 	return w.stageSession(email, account.GetID())
 }
 
+// signsInAgainThroughProvider signs the person in a second time the way the
+// callback does. A provider sign-in passes over an inactive account, so for a
+// person whose account is locked it resolves none, and the session it makes
+// names none — which is exactly the session the deletion route has to admit.
 func (w *deletionWorld) signsInAgainThroughProvider(email, provider string) error {
 	ctx := context.Background()
 	agent, _, account, err := w.authService.FindOrCreateAgent(ctx, authapp.UserInfo{
@@ -653,17 +657,18 @@ func (w *deletionWorld) signsInAgainThroughProvider(email, provider string) erro
 	if err != nil {
 		return fmt.Errorf("could not sign %q in again through %s: %w", email, provider, err)
 	}
-	if account == nil {
-		return fmt.Errorf("the second %s sign-in of %q resolved no account", provider, email)
-	}
 	p, err := w.personNamed(email)
 	if err != nil {
 		return err
 	}
 	p.agentID = agent.GetID()
-	p.accountID = account.GetID()
+	accountID := ""
+	if account != nil {
+		accountID = account.GetID()
+	}
+	p.accountID = accountID
 	w.actor = email
-	return w.stageSession(email, account.GetID())
+	return w.stageSession(email, accountID)
 }
 
 // --- pantries, photos, and one of everything --------------------------------

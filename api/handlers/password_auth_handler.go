@@ -364,38 +364,10 @@ func (h *PasswordAuthHandler) completeAuth(
 }
 
 // lockedAccountFor finds an account whose erasure is unfinished that the
-// agent may finish deleting — one they are an owner or admin of. A plain
-// member of a locked account is not offered the deletion, because the account
-// is not theirs to end; their sign-in stays unscoped.
+// agent may finish deleting, by the one rule the deletion route also applies
+// (apimw.LockedAccountFor). Scoping the sign-in's session to it is what lets
+// the answer say erasure_pending; the deletion route would admit the person
+// from an unscoped session just the same.
 func (h *PasswordAuthHandler) lockedAccountFor(ctx context.Context, agentID string) *authentities.Account {
-	if h.cfg.AccountRepo == nil || h.cfg.ErasureLocks == nil {
-		return nil
-	}
-	memberships, err := h.cfg.AccountRepo.FindByMember(ctx, agentID)
-	if err != nil {
-		h.cfg.Logger.Warn(ctx, "password auth: could not read memberships for an unscoped sign-in", "agent_id", agentID, "error", err)
-		return nil
-	}
-	for _, account := range memberships {
-		if account == nil || account.Active() {
-			continue
-		}
-		locked, err := h.cfg.ErasureLocks.IsLocked(ctx, account.GetID())
-		if err != nil {
-			h.cfg.Logger.Warn(ctx, "password auth: could not read the erasure lock", "account_id", account.GetID(), "error", err)
-			continue
-		}
-		if !locked {
-			continue
-		}
-		allowed, err := apimw.IsOwnerOrAdmin(ctx, h.cfg.AccountRepo, account.GetID(), agentID)
-		if err != nil {
-			h.cfg.Logger.Warn(ctx, "password auth: could not read the role in a locked account", "account_id", account.GetID(), "error", err)
-			continue
-		}
-		if allowed {
-			return account
-		}
-	}
-	return nil
+	return apimw.LockedAccountFor(ctx, agentID, h.cfg.AccountRepo, h.cfg.ErasureLocks, h.cfg.Logger)
 }

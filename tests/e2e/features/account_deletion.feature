@@ -434,6 +434,21 @@ Feature: A person can delete their account from the app
     Then the deletion is accepted
     And nothing of "Harbor Legal" remains in any store on the instance
 
+  # wm-or9a5. WeHungry signs people in through Google and Apple, and a
+  # provider sign-in resolves no active account for a locked one, so the
+  # session it makes names no account. The deletion route admits the owner
+  # of a locked account from that session all the same.
+  Scenario: A person who signs in through a provider can finish a deletion that failed part-way
+    Given a WeOS instance where password sign-in is enabled and requests are authenticated by their session
+    And "ops@harborlegal.example" signs in through the provider "google" and owns the account "Harbor Legal"
+    And "Harbor Legal" holds one of everything an account can own: a recipe, a pantry item, a stored photo, a feature grant, an authorized connector and an outstanding invitation
+    And every identifier of "Harbor Legal" has been noted: its id, its resource URNs, its event ids and its members' agent ids
+    And a deletion of "Harbor Legal" failed after the lock was taken, leaving the account locked
+    When "ops@harborlegal.example" signs in again through the provider "google"
+    And "ops@harborlegal.example" deletes their account, confirming with "DELETE"
+    Then the deletion is accepted
+    And nothing of "Harbor Legal" remains in any store on the instance
+
   Scenario: A suspended account gets no deletion path from a fresh sign-in
     Given a WeOS instance where password sign-in is enabled and requests are authenticated by their session
     And the account "Cedar Realty", whose owner "broker@cedarrealty.example" signs in with password "trellis-anchor-mango-9"

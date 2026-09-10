@@ -148,6 +148,17 @@ func SessionAuthForErasure(
 				}
 			}
 			if info.AccountID == "" {
+				// A sign-in resolves no active account for a locked one, so
+				// the session it made names none. That is every provider
+				// sign-in — Google, Apple — after a deletion failed part-way;
+				// the password sign-in scopes its session to the locked account
+				// itself, but the admission has to live where the session is
+				// checked, not where one kind of session is made (wm-or9a5).
+				if locked := LockedAccountFor(ctx, info.AgentID, accounts, locks, logger); locked != nil {
+					id := locked.GetID()
+					admit(c, &auth.Identity{AgentID: info.AgentID, AccountIDs: []string{id}, ActiveAccountID: id}, true)
+					return next(c)
+				}
 				return refuse(c, unscopedCode(ctx, info.AgentID, accounts, locks, logger))
 			}
 			accountIDs := info.AccountIDs
@@ -190,6 +201,48 @@ func unscopedCode(
 		return CodeAccountDeactivated
 	}
 	return CodeUnscopedSession
+}
+
+// LockedAccountFor finds an account whose erasure is unfinished that the
+// agent may finish deleting — one they are an owner or admin of. A plain
+// member of a locked account is not offered the deletion, because the account
+// is not theirs to end. It is the one rule for every way in: the password
+// sign-in uses it to scope its session, and the deletion route uses it to
+// admit a session that names no account.
+func LockedAccountFor(
+	ctx context.Context, agentID string,
+	accounts authrepos.AccountRepository, locks repositories.AccountErasureLocks, logger entities.Logger,
+) *authentities.Account {
+	if accounts == nil || locks == nil {
+		return nil
+	}
+	memberships, err := accounts.FindByMember(ctx, agentID)
+	if err != nil {
+		logger.Warn(ctx, "could not read memberships for an unscoped sign-in", "agent_id", agentID, "error", err)
+		return nil
+	}
+	for _, account := range memberships {
+		if account == nil || account.Active() {
+			continue
+		}
+		locked, err := locks.IsLocked(ctx, account.GetID())
+		if err != nil {
+			logger.Warn(ctx, "could not read the erasure lock", "account_id", account.GetID(), "error", err)
+			continue
+		}
+		if !locked {
+			continue
+		}
+		allowed, err := IsOwnerOrAdmin(ctx, accounts, account.GetID(), agentID)
+		if err != nil {
+			logger.Warn(ctx, "could not read the role in a locked account", "account_id", account.GetID(), "error", err)
+			continue
+		}
+		if allowed {
+			return account
+		}
+	}
+	return nil
 }
 
 func admit(c echo.Context, identity *auth.Identity, locked bool) {

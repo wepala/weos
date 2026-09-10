@@ -205,6 +205,37 @@ func TestSessionAuthForErasure_UnscopedSessionSaysWhy(t *testing.T) {
 	}
 }
 
+// wm-or9a5: a provider sign-in resolves no account for a locked one, so the
+// session names none. The route admits an owner of a locked account from
+// that session, and nobody else.
+func TestSessionAuthForErasure_AdmitsAnOwnerOfALockedAccountFromAnUnscopedSession(t *testing.T) {
+	sm := cookieSessions{data: &session.SessionData{SessionID: "s1", AgentID: "ops"}}
+	unscoped := validating{info: &authapp.SessionInfo{SessionID: "s1", AgentID: "ops"}}
+	lockedAccount := account(t, "acct-harbor", false)
+	book := accountBook{
+		members: map[string][]*authentities.Account{"ops": {lockedAccount}},
+		roles:   map[string]string{"ops|acct-harbor": authentities.RoleOwner},
+	}
+
+	rec, identity, locked := serve(SessionAuthForErasure(sm, unscoped, book, lockSet{"acct-harbor": true}, nopLogger{}), true, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the owner of a locked account was not admitted from an unscoped session: %d %s", rec.Code, rec.Body.String())
+	}
+	if identity == nil || identity.AgentID != "ops" || identity.ActiveAccountID != "acct-harbor" || !locked {
+		t.Fatalf("identity = %+v locked=%v, want ops in acct-harbor, marked locked", identity, locked)
+	}
+
+	member := accountBook{members: book.members, roles: map[string]string{"ops|acct-harbor": "member"}}
+	rec, _, _ = serve(SessionAuthForErasure(sm, unscoped, member, lockSet{"acct-harbor": true}, nopLogger{}), true, nil)
+	if rec.Code != http.StatusUnauthorized || codeOf(t, rec) != CodeAccountErasurePending {
+		t.Fatalf("a plain member got %d %s, want 401 %s", rec.Code, rec.Body.String(), CodeAccountErasurePending)
+	}
+	rec, _, _ = serve(SessionAuthForErasure(sm, unscoped, book, lockSet{}, nopLogger{}), true, nil)
+	if rec.Code != http.StatusUnauthorized || codeOf(t, rec) != CodeAccountDeactivated {
+		t.Fatalf("the owner of a merely suspended account got %d %s, want 401 %s", rec.Code, rec.Body.String(), CodeAccountDeactivated)
+	}
+}
+
 type claimsFor struct {
 	authapp.JWTService
 	claims *authapp.PericarpClaims
