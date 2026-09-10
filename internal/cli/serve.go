@@ -540,7 +540,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 	uploadHandler := handlers.NewUploadHandler(fileService, logger, appCfg.Storage.MaxUploadBytes)
 	protected.POST("/uploads", uploadHandler.Upload)
 
-	protected.GET("/uploads/files/*", handlers.ServeUploadedFiles(appCfg.Storage.LocalPath, logger))
+	// The read route strips its mount path from the request path, so the
+	// registration and the handler take it from this one constant.
+	const uploadFilesPath = "/uploads/files/"
+	protected.GET(uploadFilesPath+"*",
+		handlers.ServeUploadedFiles("/api"+uploadFilesPath, appCfg.Storage.LocalPath, logger))
 
 	// MCP + in-app agent routes — registered before dynamic catch-all. Both
 	// share one auth stack (BearerOrSession under OAuth, SoftAuth in dev).

@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	photoOfA = "photo of account A"
+	photoOfA     = "photo of account A"
 	photoOfB     = "photo of account B"
 	photoOutside = "photo outside the upload directory"
 )
@@ -61,7 +61,8 @@ func serveAs(t *testing.T, dir, accountID, target string) *httptest.ResponseReco
 			return next(c)
 		}
 	}
-	e.GET("/api/uploads/files/*", handlers.ServeUploadedFiles(dir, nopLogger{}), withAccount)
+	const route = "/api/uploads/files/"
+	e.GET(route+"*", handlers.ServeUploadedFiles(route, dir, nopLogger{}), withAccount)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
 	return rec
@@ -95,6 +96,32 @@ func TestServeUploadedFiles_ServesOwnAccountFile(t *testing.T) {
 	assertSecurityHeaders(t, rec)
 }
 
+func TestServeUploadedFiles_ServesAtThePrefixItIsMountedAt(t *testing.T) {
+	dir := stageUploadDir(t)
+	const route = "/base/files/"
+	e := echo.New()
+	e.GET(route+"*", handlers.ServeUploadedFiles(route, dir, nopLogger{}), func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			ctx := auth.ContextWithAgent(c.Request().Context(), &auth.Identity{
+				AgentID:         "agent-acctB",
+				AccountIDs:      []string{"acctB"},
+				ActiveAccountID: "acctB",
+			})
+			c.SetRequest(c.Request().WithContext(ctx))
+			return next(c)
+		}
+	})
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, route+"accounts/acctB/uploads/idB-lasagna.jpg", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if rec.Body.String() != photoOfB {
+		t.Errorf("body = %q, want %q", rec.Body.String(), photoOfB)
+	}
+}
+
 func TestServeUploadedFiles_AnotherAccountsFileIsNotFound(t *testing.T) {
 	dir := stageUploadDir(t)
 
@@ -120,16 +147,16 @@ func TestServeUploadedFiles_AnotherAccountsFileIsNotFound(t *testing.T) {
 		"relative symlink to another account": "accounts/acctB/uploads/idS-relative.jpg",
 		"absolute symlink to another account": "accounts/acctB/uploads/idS-absolute.jpg",
 		"symlink out of the upload directory": "accounts/acctB/uploads/idS-outside.jpg",
-		"direct":             "accounts/acctA/uploads/idA-lasagna.jpg",
-		"literal dot-dot":    "accounts/acctB/uploads/../../acctA/uploads/idA-lasagna.jpg",
-		"encoded dot-dot":    "accounts/acctB/uploads/%2e%2e%2f%2e%2e%2facctA/uploads/idA-lasagna.jpg",
-		"encoded slash":      "accounts/acctB/uploads/..%2f..%2facctA/uploads/idA-lasagna.jpg",
-		"encoded dots":       "accounts/acctB/uploads/%2e%2e/%2e%2e/acctA/uploads/idA-lasagna.jpg",
-		"uppercase encoding": "accounts/acctB/uploads/%2E%2E%2F%2E%2E%2FacctA/uploads/idA-lasagna.jpg",
-		"double encoded":     "accounts/acctB/uploads/%252e%252e%252f%252e%252e%252facctA/uploads/idA-lasagna.jpg",
-		"doubled slash":      "accounts//acctA/uploads/idA-lasagna.jpg",
-		"dot segment":        "accounts/./acctA/uploads/idA-lasagna.jpg",
-		"from a flat folder": "notes/../accounts/acctA/uploads/idA-lasagna.jpg",
+		"direct":                              "accounts/acctA/uploads/idA-lasagna.jpg",
+		"literal dot-dot":                     "accounts/acctB/uploads/../../acctA/uploads/idA-lasagna.jpg",
+		"encoded dot-dot":                     "accounts/acctB/uploads/%2e%2e%2f%2e%2e%2facctA/uploads/idA-lasagna.jpg",
+		"encoded slash":                       "accounts/acctB/uploads/..%2f..%2facctA/uploads/idA-lasagna.jpg",
+		"encoded dots":                        "accounts/acctB/uploads/%2e%2e/%2e%2e/acctA/uploads/idA-lasagna.jpg",
+		"uppercase encoding":                  "accounts/acctB/uploads/%2E%2E%2F%2E%2E%2FacctA/uploads/idA-lasagna.jpg",
+		"double encoded":                      "accounts/acctB/uploads/%252e%252e%252f%252e%252e%252facctA/uploads/idA-lasagna.jpg",
+		"doubled slash":                       "accounts//acctA/uploads/idA-lasagna.jpg",
+		"dot segment":                         "accounts/./acctA/uploads/idA-lasagna.jpg",
+		"from a flat folder":                  "notes/../accounts/acctA/uploads/idA-lasagna.jpg",
 		// On a case-insensitive filesystem these open account A's folder.
 		"uppercase prefix":        "ACCOUNTS/acctA/uploads/idA-lasagna.jpg",
 		"mixed case":              "Accounts/acctA/Uploads/idA-lasagna.jpg",

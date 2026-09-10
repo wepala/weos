@@ -175,7 +175,7 @@ func (w *uploadFoldersWorld) bootWithUploads() error {
 func (w *uploadFoldersWorld) mountUploadRoutes(api *echo.Group, guards []echo.MiddlewareFunc) {
 	uploadHandler := handlers.NewUploadHandler(w.fileService, w.logger, 0)
 	api.POST("/uploads", uploadHandler.Upload, guards...)
-	api.GET("/uploads/files/*", handlers.ServeUploadedFiles(w.uploadDir, w.logger), guards...)
+	api.GET("/uploads/files/*", handlers.ServeUploadedFiles(uploadFilesPath, w.uploadDir, w.logger), guards...)
 }
 
 // --- people -----------------------------------------------------------------

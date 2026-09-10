@@ -30,8 +30,6 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-const uploadFilesRoute = "/api/uploads/files/"
-
 // ServeUploadedFiles serves the files the local storage backend wrote under
 // localPath. A file in an account folder, accounts/<account>/uploads/<name>,
 // is served only to a caller whose active account is <account>. A flat file
@@ -39,11 +37,14 @@ const uploadFilesRoute = "/api/uploads/files/"
 // middleware admitted. Every other request gets the same 404 a missing file
 // gets, so a probe cannot tell a file it may not read from one that does not
 // exist.
-func ServeUploadedFiles(localPath string, logger entities.Logger) echo.HandlerFunc {
+//
+// routePrefix is the full path the route is mounted at, ending in a slash. It
+// is stripped from the request path, so it must match the registration.
+func ServeUploadedFiles(routePrefix, localPath string, logger entities.Logger) echo.HandlerFunc {
 	flatRoot := http.Dir(localPath)
 	return func(c echo.Context) error {
 		ctx := c.Request().Context()
-		name, ok := servableUploadName(c.Request().URL.Path, activeAccountID(c))
+		name, ok := servableUploadName(routePrefix, c.Request().URL.Path, activeAccountID(c))
 		if !ok {
 			return uploadNotFound(c)
 		}
@@ -90,8 +91,8 @@ func ServeUploadedFiles(localPath string, logger entities.Logger) echo.HandlerFu
 // and "uploads" match exactly rather than case-folded, which also stops a
 // case-insensitive filesystem from opening another account's folder through
 // ACCOUNTS/<other>/.
-func servableUploadName(requestPath, accountID string) (string, bool) {
-	rest, ok := strings.CutPrefix(requestPath, uploadFilesRoute)
+func servableUploadName(routePrefix, requestPath, accountID string) (string, bool) {
+	rest, ok := strings.CutPrefix(requestPath, routePrefix)
 	if !ok {
 		return "", false
 	}
