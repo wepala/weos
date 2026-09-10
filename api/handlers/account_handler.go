@@ -183,7 +183,10 @@ func readsConfirmation(r *http.Request) bool {
 	if err := dec.Decode(&fields); err != nil || len(fields) != 1 {
 		return false
 	}
-	if dec.More() {
+	// Only whitespace may follow the document. json.Decoder.More is not this
+	// check: it reports false when the next byte is ] or }, so a stray closing
+	// bracket after the confirmation would slip through it.
+	if len(bytes.TrimSpace(raw[dec.InputOffset():])) != 0 {
 		return false
 	}
 	value, ok := fields["confirm"]

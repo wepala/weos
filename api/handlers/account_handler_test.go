@@ -154,6 +154,10 @@ func TestAccountDelete_RefusesEveryBodyThatDoesNotConfirm(t *testing.T) {
 		// second document after the first.
 		`{"Confirm":"DELETE"}`, `{"CONFIRM":"DELETE"}`, `{"confirm":"DELETE","extra":true}`, `{"confirm":"DELETE"} {}`,
 		`{"confirm":["DELETE"]}`, `"DELETE"`,
+		// PR 561 Copilot review: json.Decoder.More reports false when the next
+		// byte is a closing bracket, so a stray one after the document must be
+		// refused by something other than More.
+		`{"confirm":"DELETE"}}`, `{"confirm":"DELETE"}]`, `{"confirm":"DELETE"} ]`, `{"confirm":"DELETE"}"x"`,
 	} {
 		t.Run(body, func(t *testing.T) {
 			f := newDeleteFixture(t)
