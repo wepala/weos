@@ -1,4 +1,4 @@
-@wip @story-wm-kb6sg-2
+@story-wm-kb6sg-2
 Feature: Every upload lands in its account's own folder
   As an account holder
   I want a photo I upload to be stored under my own account's folder
