@@ -2,6 +2,7 @@ package local_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,8 @@ import (
 	"github.com/wepala/weos/v3/domain/services"
 	"github.com/wepala/weos/v3/infrastructure/storage/local"
 )
+
+const testAccount = "acct_1"
 
 type nopLogger struct{}
 
@@ -23,7 +26,7 @@ func TestUpload(t *testing.T) {
 	svc := local.New(dir, "/api/uploads/files", nopLogger{})
 
 	body := "hello world"
-	params := services.UploadParams{Filename: "test.txt", ContentType: "text/plain"}
+	params := services.UploadParams{Filename: "test.txt", ContentType: "text/plain", AccountID: testAccount}
 	result, err := svc.Upload(context.Background(), params, strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("Upload() error: %v", err)
@@ -38,21 +41,84 @@ func TestUpload(t *testing.T) {
 	if result.Size != int64(len(body)) {
 		t.Errorf("Size = %d, want %d", result.Size, len(body))
 	}
-	if !strings.HasPrefix(result.URL, "/api/uploads/files/") {
-		t.Errorf("URL = %q, want prefix /api/uploads/files/", result.URL)
+	if !strings.HasPrefix(result.URL, "/api/uploads/files/accounts/"+testAccount+"/uploads/") {
+		t.Errorf("URL = %q, want prefix /api/uploads/files/accounts/%s/uploads/", result.URL, testAccount)
 	}
 	if result.ID == "" {
 		t.Error("ID is empty")
 	}
 
-	// Verify file on disk
-	diskName := filepath.Base(result.URL)
-	data, err := os.ReadFile(filepath.Join(dir, diskName))
+	// Verify the file is on disk where its URL says.
+	stored := strings.TrimPrefix(result.URL, "/api/uploads/files/")
+	data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(stored)))
 	if err != nil {
 		t.Fatalf("ReadFile() error: %v", err)
 	}
 	if string(data) != body {
 		t.Errorf("file contents = %q, want %q", data, body)
+	}
+}
+
+func TestUpload_WritesUnderAccountFolder(t *testing.T) {
+	dir := t.TempDir()
+	svc := local.New(dir, "/api/uploads/files", nopLogger{})
+
+	params := services.UploadParams{
+		Filename:    "My Photo.jpg",
+		ContentType: "image/jpeg",
+		ID:          "fixed-id-123",
+		AccountID:   testAccount,
+	}
+	result, err := svc.Upload(context.Background(), params, strings.NewReader("jpeg-bytes"))
+	if err != nil {
+		t.Fatalf("Upload() error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "accounts", testAccount, "uploads", "fixed-id-123-My_Photo.jpg"))
+	if err != nil {
+		t.Fatalf("the file is not in the account folder: %v", err)
+	}
+	if string(data) != "jpeg-bytes" {
+		t.Errorf("file contents = %q, want %q", data, "jpeg-bytes")
+	}
+	if want := "/api/uploads/files/accounts/" + testAccount + "/uploads/fixed-id-123-My_Photo.jpg"; result.URL != want {
+		t.Errorf("URL = %q, want %q", result.URL, want)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "fixed-id-123-My_Photo.jpg")); !os.IsNotExist(err) {
+		t.Errorf("a flat copy was written beside the account folder (stat error %v)", err)
+	}
+}
+
+func TestUpload_RefusesUnsafeAccountID(t *testing.T) {
+	for _, accountID := range []string{"", ".", "..", "../acct_2", "acct_1/../acct_2", `acct\1`, "acct 1"} {
+		t.Run(fmt.Sprintf("%q", accountID), func(t *testing.T) {
+			parent := t.TempDir()
+			dir := filepath.Join(parent, "uploads")
+			svc := local.New(dir, "/api/uploads/files", nopLogger{})
+
+			params := services.UploadParams{Filename: "test.txt", ContentType: "text/plain", AccountID: accountID}
+			_, err := svc.Upload(context.Background(), params, strings.NewReader("data"))
+			if err == nil || !strings.Contains(err.Error(), "invalid account ID") {
+				t.Fatalf("Upload() error = %v, want an invalid account ID error", err)
+			}
+
+			var written []string
+			walkErr := filepath.WalkDir(parent, func(p string, d os.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if !d.IsDir() {
+					written = append(written, p)
+				}
+				return nil
+			})
+			if walkErr != nil {
+				t.Fatalf("WalkDir() error: %v", walkErr)
+			}
+			if len(written) != 0 {
+				t.Errorf("files written for a refused upload: %v", written)
+			}
+		})
 	}
 }
 
@@ -64,6 +130,7 @@ func TestUpload_UsesCallerSuppliedID(t *testing.T) {
 		Filename:    "test.txt",
 		ContentType: "text/plain",
 		ID:          "fixed-id-123",
+		AccountID:   testAccount,
 	}
 	result, err := svc.Upload(context.Background(), params, strings.NewReader("data"))
 	if err != nil {
@@ -81,7 +148,7 @@ func TestUpload_SanitizesFilename(t *testing.T) {
 	dir := t.TempDir()
 	svc := local.New(dir, "/api/uploads/files", nopLogger{})
 
-	params := services.UploadParams{Filename: "../../etc/passwd", ContentType: "text/plain"}
+	params := services.UploadParams{Filename: "../../etc/passwd", ContentType: "text/plain", AccountID: testAccount}
 	result, err := svc.Upload(context.Background(), params, strings.NewReader("x"))
 	if err != nil {
 		t.Fatalf("Upload() error: %v", err)
@@ -113,6 +180,7 @@ func TestUpload_RejectsPathTraversalID(t *testing.T) {
 				Filename:    "test.txt",
 				ContentType: "text/plain",
 				ID:          tt.id,
+				AccountID:   testAccount,
 			}
 			_, err := svc.Upload(context.Background(), params, strings.NewReader("data"))
 			if err == nil {
@@ -129,13 +197,13 @@ func TestUpload_CreatesDirectory(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "nested", "uploads")
 	svc := local.New(dir, "/api/uploads/files", nopLogger{})
 
-	params := services.UploadParams{Filename: "file.txt", ContentType: "text/plain"}
+	params := services.UploadParams{Filename: "file.txt", ContentType: "text/plain", AccountID: testAccount}
 	_, err := svc.Upload(context.Background(), params, strings.NewReader("data"))
 	if err != nil {
 		t.Fatalf("Upload() error: %v", err)
 	}
 
-	info, err := os.Stat(dir)
+	info, err := os.Stat(filepath.Join(dir, "accounts", testAccount, "uploads"))
 	if err != nil {
 		t.Fatalf("directory not created: %v", err)
 	}

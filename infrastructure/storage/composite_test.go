@@ -21,18 +21,38 @@ func (nopLogger) Warn(_ context.Context, _ string, _ ...interface{})  {}
 func (nopLogger) Error(_ context.Context, _ string, _ ...interface{}) {}
 
 type capturingFileService struct {
-	url      string
-	gotID    string
-	gotFname string
-	gotCType string
-	gotBody  []byte
-	err      error
+	url        string
+	gotID      string
+	gotAccount string
+	gotFname   string
+	gotCType   string
+	gotBody    []byte
+	err        error
+}
+
+func TestComposite_PassesAccountIDToEveryBackend(t *testing.T) {
+	primary := &capturingFileService{}
+	first := &capturingFileService{}
+	second := &capturingFileService{}
+
+	svc := storage.NewComposite(primary, []services.FileService{first, second}, nopLogger{})
+	params := services.UploadParams{Filename: "photo.jpg", ContentType: "image/jpeg", AccountID: "acct_1"}
+	if _, err := svc.Upload(context.Background(), params, strings.NewReader("body")); err != nil {
+		t.Fatalf("Upload() error: %v", err)
+	}
+
+	for name, backend := range map[string]*capturingFileService{"primary": primary, "first secondary": first, "second secondary": second} {
+		if backend.gotAccount != "acct_1" {
+			t.Errorf("%s received account %q, want %q", name, backend.gotAccount, "acct_1")
+		}
+	}
 }
 
 func (m *capturingFileService) Upload(
 	_ context.Context, params services.UploadParams, reader io.Reader,
 ) (*services.UploadResult, error) {
 	m.gotID = params.ID
+	m.gotAccount = params.AccountID
 	m.gotFname = params.Filename
 	m.gotCType = params.ContentType
 	if reader != nil {

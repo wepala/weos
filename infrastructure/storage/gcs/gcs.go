@@ -54,8 +54,11 @@ func (s *gcsFileService) Upload(
 	if err := storage.ValidateID(id); err != nil {
 		return nil, fmt.Errorf("invalid upload ID: %w", err)
 	}
+	if err := storage.ValidateAccountID(params.AccountID); err != nil {
+		return nil, fmt.Errorf("invalid account ID: %w", err)
+	}
 	safeName := storage.SanitizeFilename(params.Filename)
-	key := "uploads/" + id + "-" + safeName
+	key := storage.ObjectKey(params.AccountID, id, safeName)
 
 	obj := s.client.Bucket(s.bucket).Object(key)
 	w := obj.NewWriter(ctx)

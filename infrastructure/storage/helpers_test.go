@@ -71,3 +71,41 @@ func TestGenerateObjectKey(t *testing.T) {
 		t.Errorf("key after prefix too short: %q", parts[1])
 	}
 }
+
+func TestObjectKey(t *testing.T) {
+	got := storage.ObjectKey("2RpNqLbKz5dVfPjOmTgQhJnE123", "2SxAbCdEfGhIjKlMnOpQrStUv45", "photo.jpg")
+	want := "accounts/2RpNqLbKz5dVfPjOmTgQhJnE123/uploads/2SxAbCdEfGhIjKlMnOpQrStUv45-photo.jpg"
+	if got != want {
+		t.Errorf("ObjectKey() = %q, want %q", got, want)
+	}
+}
+
+func TestValidateAccountID(t *testing.T) {
+	tests := []struct {
+		name      string
+		accountID string
+		wantErr   bool
+	}{
+		{"valid ksuid", "2RpNqLbKz5dVfPjOmTgQhJnE123", false},
+		{"local sentinel", "local", false},
+		{"with hyphens", "my-account", false},
+		{"with underscores", "my_account", false},
+		{"empty", "", true},
+		{"dot", ".", true},
+		{"dot-dot", "..", true},
+		{"climbs out", "../other", true},
+		{"nested", "a/b", true},
+		{"backslash", `a\b`, true},
+		{"dotted", "a.b", true},
+		{"encoded traversal", "%2e%2e", true},
+		{"spaces", "a b", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := storage.ValidateAccountID(tt.accountID)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateAccountID(%q) error = %v, wantErr %v", tt.accountID, err, tt.wantErr)
+			}
+		})
+	}
+}

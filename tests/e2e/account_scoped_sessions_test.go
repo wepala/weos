@@ -146,6 +146,12 @@ type accountScopedWorld struct {
 	order []string
 
 	envBefore map[string]*string
+
+	// extraOptions and mountExtraRoutes let another suite boot this same
+	// instance with more of the application wired in, rather than copying the
+	// staging this file already does.
+	extraOptions     []fx.Option
+	mountExtraRoutes func(api *echo.Group, guards []echo.MiddlewareFunc)
 }
 
 func initAccountScopedSessionScenario(sc *godog.ScenarioContext) {
@@ -283,7 +289,7 @@ func (w *accountScopedWorld) boot(registration bool) error {
 	cfg.DatabaseDSN = w.dsn
 	cfg.LogLevel = "error"
 
-	app := fx.New(
+	options := []fx.Option{
 		fx.NopLogger,
 		application.Module(cfg, presets.NewDefaultRegistry()),
 		fx.Provide(weosoauth.ProvideJWTService),
@@ -292,7 +298,8 @@ func (w *accountScopedWorld) boot(registration bool) error {
 		fx.Populate(&w.resourceService, &w.resourceTypeService, &w.jwtService),
 		fx.Populate(&w.inviteService, &w.inviteRepo),
 		fx.Populate(&w.behaviorSettings),
-	)
+	}
+	app := fx.New(append(options, w.extraOptions...)...)
 	startCtx, cancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
 	defer cancel()
 	if err := app.Start(startCtx); err != nil {
@@ -342,6 +349,9 @@ func (w *accountScopedWorld) boot(registration bool) error {
 	api.POST("/:typeSlug", resourceHandler.Create, guards...)
 	api.GET("/:typeSlug", resourceHandler.List, guards...)
 	api.GET("/:typeSlug/:id", resourceHandler.Get, guards...)
+	if w.mountExtraRoutes != nil {
+		w.mountExtraRoutes(api, guards)
+	}
 
 	// Accepting an invitation carries its own authorization in the token, so
 	// serve.go mounts it outside the guarded group. With no OAuth provider

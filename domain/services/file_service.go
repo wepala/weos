@@ -30,6 +30,9 @@ type UploadParams struct {
 	// this value as the upload ID to ensure consistent identification across
 	// primary and secondary replicas.
 	ID string
+	// AccountID is the account that owns the upload. Backends store the file
+	// under that account's folder and refuse an upload that names none.
+	AccountID string
 }
 
 // UploadResult contains the metadata returned after a successful file upload.

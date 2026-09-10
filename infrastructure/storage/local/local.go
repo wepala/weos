@@ -49,10 +49,6 @@ func New(basePath, baseURL string, logger entities.Logger) services.FileService 
 func (s *localFileService) Upload(
 	ctx context.Context, params services.UploadParams, reader io.Reader,
 ) (*services.UploadResult, error) {
-	if err := os.MkdirAll(s.basePath, 0o750); err != nil {
-		return nil, fmt.Errorf("create upload directory: %w", err)
-	}
-
 	id := params.ID
 	if id == "" {
 		id = ksuid.New().String()
@@ -60,12 +56,19 @@ func (s *localFileService) Upload(
 	if err := storage.ValidateID(id); err != nil {
 		return nil, fmt.Errorf("invalid upload ID: %w", err)
 	}
+	if err := storage.ValidateAccountID(params.AccountID); err != nil {
+		return nil, fmt.Errorf("invalid account ID: %w", err)
+	}
 	safeName := storage.SanitizeFilename(params.Filename)
-	diskName := id + "-" + safeName
-	fullPath := filepath.Join(s.basePath, diskName)
+	key := storage.ObjectKey(params.AccountID, id, safeName)
+	fullPath := filepath.Join(s.basePath, filepath.FromSlash(key))
 
-	// G304: fullPath is basePath joined with a validated ID and a sanitized
-	// filename, so it cannot escape the upload directory.
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0o750); err != nil {
+		return nil, fmt.Errorf("create upload directory: %w", err)
+	}
+
+	// G304: fullPath is basePath joined with a validated account ID, a validated
+	// ID and a sanitized filename, so it cannot escape the upload directory.
 	f, err := os.Create(fullPath) //nolint:gosec // path is validated above
 	if err != nil {
 		return nil, fmt.Errorf("create file: %w", err)
@@ -94,7 +97,7 @@ func (s *localFileService) Upload(
 
 	return &services.UploadResult{
 		ID:          id,
-		URL:         s.baseURL + "/" + diskName,
+		URL:         s.baseURL + "/" + key,
 		Filename:    safeName,
 		ContentType: params.ContentType,
 		Size:        written,

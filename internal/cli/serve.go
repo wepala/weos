@@ -540,25 +540,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	uploadHandler := handlers.NewUploadHandler(fileService, logger, appCfg.Storage.MaxUploadBytes)
 	protected.POST("/uploads", uploadHandler.Upload)
 
-	// Serve uploaded files with security headers to prevent stored XSS.
-	// Content-Disposition: attachment forces download instead of inline render;
-	// X-Content-Type-Options: nosniff prevents browser MIME-type guessing.
-	// Directory listings are blocked to avoid leaking filenames/IDs.
-	uploadFS := http.Dir(appCfg.Storage.LocalPath)
-	protected.GET("/uploads/files/*", echo.WrapHandler(
-		http.StripPrefix("/api/uploads/files/", http.FileServer(uploadFS)),
-	), func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			reqPath := c.Param("*")
-			if reqPath == "" || reqPath == "/" || strings.HasSuffix(reqPath, "/") {
-				return echo.ErrNotFound
-			}
-			c.Response().Header().Set("Content-Disposition", "attachment")
-			c.Response().Header().Set("X-Content-Type-Options", "nosniff")
-			c.Response().Header().Set("Content-Security-Policy", "default-src 'none'")
-			return next(c)
-		}
-	})
+	protected.GET("/uploads/files/*", handlers.ServeUploadedFiles(appCfg.Storage.LocalPath, logger))
 
 	// MCP + in-app agent routes — registered before dynamic catch-all. Both
 	// share one auth stack (BearerOrSession under OAuth, SoftAuth in dev).

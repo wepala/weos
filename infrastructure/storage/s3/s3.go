@@ -68,8 +68,11 @@ func (s *s3FileService) Upload(
 	if err := storage.ValidateID(id); err != nil {
 		return nil, fmt.Errorf("invalid upload ID: %w", err)
 	}
+	if err := storage.ValidateAccountID(params.AccountID); err != nil {
+		return nil, fmt.Errorf("invalid account ID: %w", err)
+	}
 	safeName := storage.SanitizeFilename(params.Filename)
-	key := "uploads/" + id + "-" + safeName
+	key := storage.ObjectKey(params.AccountID, id, safeName)
 
 	cr := &countingReader{r: reader}
 

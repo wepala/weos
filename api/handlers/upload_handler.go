@@ -24,6 +24,7 @@ import (
 	"github.com/wepala/weos/v3/application"
 	"github.com/wepala/weos/v3/domain/entities"
 
+	"github.com/akeemphilbert/pericarp/pkg/auth"
 	"github.com/labstack/echo/v4"
 )
 
@@ -59,6 +60,14 @@ func NewUploadHandler(
 
 // Upload accepts a multipart file upload and stores it via the FileService.
 func (h *UploadHandler) Upload(c echo.Context) error {
+	// The account is only ever the one the auth middleware resolved. A header,
+	// form field or query value is written by the caller, and trusting one would
+	// let a caller store files in another account's folder.
+	identity := auth.AgentFromCtx(c.Request().Context())
+	if identity == nil || identity.ActiveAccountID == "" {
+		return respondError(c, http.StatusUnauthorized, "authentication required")
+	}
+
 	// Enforce upload size limit before reading any data.
 	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, h.maxUploadBytes)
 
@@ -100,6 +109,7 @@ func (h *UploadHandler) Upload(c echo.Context) error {
 	params := application.UploadParams{
 		Filename:    fh.Filename,
 		ContentType: contentType,
+		AccountID:   identity.ActiveAccountID,
 	}
 	result, err := h.fileService.Upload(ctx, params, file)
 	if err != nil {
