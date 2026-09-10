@@ -258,3 +258,18 @@ func (q *AccountMemberQuery) ListMemberIDsByRole(
 	}
 	return agentIDs, nil
 }
+
+func (q *AccountMemberQuery) CountMembers(ctx context.Context, accountID string) (int, error) {
+	if accountID == "" {
+		return 0, nil
+	}
+	var count int64
+	err := q.db.WithContext(ctx).
+		Table("account_members").
+		Where("account_id = ?", accountID).
+		Count(&count).Error
+	if err != nil {
+		return 0, fmt.Errorf("failed to count the members of account %q: %w", accountID, err)
+	}
+	return int(count), nil
+}

@@ -45,6 +45,16 @@ type KnowledgeGraphStores interface {
 	// owning account's store.
 	Truncate(ctx context.Context) error
 
+	// DropAccount removes everything the graph holds for one account, as part
+	// of erasing it. In per-account mode that is the account's store: it is
+	// closed if open and its directory removed, but only when the directory
+	// carries the marker this package writes, so a misconfigured base can
+	// never delete a directory it did not create. In single-tenant mode the
+	// account has no store of its own, so each of subjects — the account's
+	// resource URNs — is removed from the shared graph instead. A store that
+	// is not active drops nothing and reports no error.
+	DropAccount(ctx context.Context, accountID string, subjects []string) error
+
 	// Close releases every open store (flush + unlock). Registered on the fx
 	// OnStop hook so restarts reopen cleanly without stale directory locks.
 	Close() error
@@ -78,6 +88,21 @@ func (s singleStores) Truncate(ctx context.Context) error {
 		return nil
 	}
 	return s.store.Clear(ctx)
+}
+
+// DropAccount removes each subject from the one shared store. The account id
+// is not needed: a single-tenant graph keys nothing by account, so the
+// account's resource URNs are the only handle on what it holds.
+func (s singleStores) DropAccount(ctx context.Context, _ string, subjects []string) error {
+	if s.store == nil || !s.store.Active() {
+		return nil
+	}
+	for _, subject := range subjects {
+		if err := s.store.RemoveSubject(ctx, subject); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Close is a no-op: the wrapped store's io.Closer (if any) is registered on the

@@ -17,6 +17,7 @@ package gcs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/wepala/weos/v3/infrastructure/storage"
 
 	"github.com/segmentio/ksuid"
+	"google.golang.org/api/iterator"
 
 	gcsstorage "cloud.google.com/go/storage"
 )
@@ -87,4 +89,35 @@ func (s *gcsFileService) Upload(
 		ContentType: params.ContentType,
 		Size:        written,
 	}, nil
+}
+
+// DeleteAccountFolder lists every object under accounts/<accountID>/ and
+// deletes each one. GCS has no folders, so the prefix is the folder, and an
+// account with nothing stored lists nothing and is not an error. A delete
+// that fails stops the walk: an object left behind is data that was promised
+// gone, so the caller must see the failure and run the deletion again.
+func (s *gcsFileService) DeleteAccountFolder(ctx context.Context, accountID string) error {
+	if err := storage.ValidateAccountID(accountID); err != nil {
+		return fmt.Errorf("invalid account ID: %w", err)
+	}
+	prefix := storage.AccountPrefix(accountID)
+	bucket := s.client.Bucket(s.bucket)
+	it := bucket.Objects(ctx, &gcsstorage.Query{Prefix: prefix})
+	deleted := 0
+	for {
+		attrs, err := it.Next()
+		if errors.Is(err, iterator.Done) {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("list GCS objects under %s: %w", prefix, err)
+		}
+		if err := bucket.Object(attrs.Name).Delete(ctx); err != nil && !errors.Is(err, gcsstorage.ErrObjectNotExist) {
+			return fmt.Errorf("delete GCS object %s: %w", attrs.Name, err)
+		}
+		deleted++
+	}
+	s.logger.Info(ctx, "account folder removed from GCS",
+		"bucket", s.bucket, "prefix", prefix, "objects", deleted)
+	return nil
 }

@@ -103,3 +103,20 @@ func (s *localFileService) Upload(
 		Size:        written,
 	}, nil
 }
+
+// DeleteAccountFolder removes <basePath>/accounts/<accountID> and everything
+// under it. The account id is validated first, so the folder removed is always
+// one this backend could have written, never a path a crafted id climbs to.
+func (s *localFileService) DeleteAccountFolder(ctx context.Context, accountID string) error {
+	if err := storage.ValidateAccountID(accountID); err != nil {
+		return fmt.Errorf("invalid account ID: %w", err)
+	}
+	folder := filepath.Join(s.basePath, filepath.FromSlash(storage.AccountFolder(accountID)))
+	// RemoveAll reports nothing for a folder that is not there, which is what
+	// a re-run after a failed deletion needs.
+	if err := os.RemoveAll(folder); err != nil {
+		return fmt.Errorf("remove account folder: %w", err)
+	}
+	s.logger.Info(ctx, "account folder removed from local storage", "path", folder)
+	return nil
+}

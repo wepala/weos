@@ -261,6 +261,12 @@ type WorkerConfig struct {
 	// LagLogInterval is how often each subscriber's checkpoint lag is logged.
 	// Zero disables lag logging. Default 30s.
 	LagLogInterval time.Duration
+	// ErasureDrainTimeout bounds how long an account erasure waits for every
+	// subscriber group's checkpoint to reach the head of the event log before
+	// it purges. A group that never catches up turns the deletion into a
+	// failure that keeps the account locked, rather than a purge a late
+	// projection undoes. Default 30s.
+	ErasureDrainTimeout time.Duration
 }
 
 // IsPostgresDSN reports whether dsn targets PostgreSQL — a "host=" libpq DSN
@@ -484,13 +490,14 @@ func Default() Config {
 			MaxUploadBytes: 50 << 20, // 50 MB
 		},
 		Worker: WorkerConfig{
-			RunInProcess:    false,
-			BatchSize:       100,
-			PollInterval:    time.Second,
-			MaxRetries:      5,
-			RetryBackoff:    100 * time.Millisecond,
-			MaxRetryBackoff: 5 * time.Second,
-			LagLogInterval:  30 * time.Second,
+			RunInProcess:        false,
+			BatchSize:           100,
+			PollInterval:        time.Second,
+			MaxRetries:          5,
+			RetryBackoff:        100 * time.Millisecond,
+			MaxRetryBackoff:     5 * time.Second,
+			LagLogInterval:      30 * time.Second,
+			ErasureDrainTimeout: 30 * time.Second,
 		},
 		Features: FeaturesConfig{
 			CacheMaxAge:   15 * time.Minute,
@@ -741,6 +748,11 @@ func (c *Config) loadWorkerFromEnvironment() {
 	if v := os.Getenv("WORKER_LAG_LOG_INTERVAL_SECONDS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 			c.Worker.LagLogInterval = time.Duration(n) * time.Second
+		}
+	}
+	if v := os.Getenv("ACCOUNT_ERASURE_DRAIN_TIMEOUT_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.Worker.ErasureDrainTimeout = time.Duration(n) * time.Second
 		}
 	}
 }

@@ -176,3 +176,67 @@ func TestProvideKnowledgeGraphStores_SingleTenantUnchanged(t *testing.T) {
 		t.Error("single-tenant ForAccount should return the (inactive nop) process store")
 	}
 }
+
+// closableStore stands in for an embedded account store: DropAccount must
+// close it before removing its directory, and forget it, so a later
+// ForAccount cannot hand back a handle onto a directory that is gone.
+type closableStore struct {
+	nopStore
+	closed bool
+}
+
+func (s *closableStore) Close() error { s.closed = true; return nil }
+
+func TestPerAccountStores_DropAccountClosesAndRemovesOnlyThatAccount(t *testing.T) {
+	f := newTestPerAccountStores(t)
+	for _, id := range []string{"harbor", "cedar"} {
+		dir := filepath.Join(f.base, id)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, accountMarkerFile), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	open := &closableStore{}
+	f.open["harbor"] = open
+
+	if err := f.DropAccount(context.Background(), "harbor", []string{"urn:project:1"}); err != nil {
+		t.Fatalf("DropAccount: %v", err)
+	}
+	if !open.closed {
+		t.Error("the open store was not closed before its directory was removed")
+	}
+	if _, still := f.open["harbor"]; still {
+		t.Error("the dropped store is still cached, so a later request would reopen a removed directory")
+	}
+	if _, err := os.Stat(filepath.Join(f.base, "harbor")); !os.IsNotExist(err) {
+		t.Errorf("harbor's directory survived DropAccount (stat err %v)", err)
+	}
+	if _, err := os.Stat(filepath.Join(f.base, "cedar", accountMarkerFile)); err != nil {
+		t.Errorf("cedar's directory was touched: %v", err)
+	}
+}
+
+func TestPerAccountStores_DropAccountLeavesUnmarkedAndMissingDirs(t *testing.T) {
+	f := newTestPerAccountStores(t)
+	unmarked := filepath.Join(f.base, "postgresql")
+	if err := os.MkdirAll(unmarked, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(unmarked, "data"), []byte("precious"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.DropAccount(context.Background(), "postgresql", nil); err != nil {
+		t.Fatalf("DropAccount on an unmarked directory: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(unmarked, "data")); err != nil {
+		t.Errorf("an unmarked directory (not ours) must survive DropAccount, got %v", err)
+	}
+	if err := f.DropAccount(context.Background(), "never-opened", nil); err != nil {
+		t.Fatalf("DropAccount on a missing directory must be nil, got %v", err)
+	}
+	if err := f.DropAccount(context.Background(), "../escape", nil); err == nil {
+		t.Fatal("DropAccount accepted an unsafe account id")
+	}
+}

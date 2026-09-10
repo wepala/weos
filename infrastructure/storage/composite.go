@@ -17,6 +17,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -129,4 +130,22 @@ func (c *compositeFileService) Upload(
 	}
 
 	return primaryResult, nil
+}
+
+// DeleteAccountFolder asks every backend to remove the folder and reports
+// every failure it met, joined. Unlike Upload, where a secondary that fails is
+// a replica that can be rebuilt, a folder a secondary keeps is the account's
+// data still on the instance — so no backend is best-effort here, and one
+// failure does not stop the others from being asked.
+func (c *compositeFileService) DeleteAccountFolder(ctx context.Context, accountID string) error {
+	var errs []error
+	if err := c.primary.DeleteAccountFolder(ctx, accountID); err != nil {
+		errs = append(errs, fmt.Errorf("primary: %w", err))
+	}
+	for i, sec := range c.secondaries {
+		if err := sec.DeleteAccountFolder(ctx, accountID); err != nil {
+			errs = append(errs, fmt.Errorf("secondary %d: %w", i, err))
+		}
+	}
+	return errors.Join(errs...)
 }

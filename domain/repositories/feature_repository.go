@@ -115,4 +115,9 @@ type AccountMemberQuery interface {
 	// ListMemberIDsByRole returns the agent IDs holding roleID in accountID.
 	// An empty result is not an error: a role nobody holds invalidates nothing.
 	ListMemberIDsByRole(ctx context.Context, accountID, roleID string) ([]string, error)
+
+	// CountMembers returns how many agents belong to accountID. The identity
+	// read reports it so an app can say how many people share the account
+	// before one of them deletes it.
+	CountMembers(ctx context.Context, accountID string) (int, error)
 }

@@ -46,6 +46,7 @@ func WorkerModule() fx.Option {
 		fx.Provide(ProvideInProcessNotifier),
 		fx.Provide(ProvideCheckpointStore),
 		fx.Provide(ProvideEnsureCheckpoint),
+		fx.Provide(ProvideCheckpointPositions),
 		fx.Provide(ProvideParkingLot),
 		fx.Provide(ProvideWorkerManager),
 		fx.Invoke(runWorkerManager),
@@ -89,6 +90,25 @@ func ProvideEnsureCheckpoint(db *gorm.DB) EnsureCheckpointFunc {
 			return fmt.Errorf("ensure checkpoint for %q at %d: %w", subscriber, position, err)
 		}
 		return nil
+	}
+}
+
+// ProvideCheckpointPositions reads every subscriber checkpoint row, for the
+// erasure drain. It reads the table rather than asking the Manager, because
+// a group another process runs — a separate worker on Postgres, an overlay's
+// subscriber — still projects the feed, and its checkpoint is the only sign
+// of it here.
+func ProvideCheckpointPositions(db *gorm.DB) CheckpointPositionsFunc {
+	return func(ctx context.Context) (map[string]int64, error) {
+		var rows []subscriptions.GormCheckpointModel
+		if err := db.WithContext(ctx).Find(&rows).Error; err != nil {
+			return nil, fmt.Errorf("read subscriber checkpoints: %w", err)
+		}
+		positions := make(map[string]int64, len(rows))
+		for _, row := range rows {
+			positions[row.Subscriber] = row.Position
+		}
+		return positions, nil
 	}
 }
 

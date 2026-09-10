@@ -211,3 +211,62 @@ func TestUpload_CreatesDirectory(t *testing.T) {
 		t.Error("expected directory")
 	}
 }
+
+func TestDeleteAccountFolder_RemovesOnlyThatAccount(t *testing.T) {
+	dir := t.TempDir()
+	svc := local.New(dir, "/api/uploads/files", nopLogger{})
+	ctx := context.Background()
+
+	for _, account := range []string{"acct_1", "acct_10", "acct_2"} {
+		params := services.UploadParams{Filename: "photo.jpg", ContentType: "image/jpeg", AccountID: account}
+		if _, err := svc.Upload(ctx, params, strings.NewReader(account)); err != nil {
+			t.Fatalf("Upload(%s) error: %v", account, err)
+		}
+	}
+	flat := filepath.Join(dir, "legacy-flat.jpg")
+	if err := os.WriteFile(flat, []byte("flat"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.DeleteAccountFolder(ctx, "acct_1"); err != nil {
+		t.Fatalf("DeleteAccountFolder() error: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, "accounts", "acct_1")); !os.IsNotExist(err) {
+		t.Errorf("acct_1's folder still exists (stat err %v)", err)
+	}
+	for _, survivor := range []string{"acct_10", "acct_2"} {
+		entries, err := os.ReadDir(filepath.Join(dir, "accounts", survivor, "uploads"))
+		if err != nil || len(entries) != 1 {
+			t.Errorf("%s's folder was touched: entries %v err %v", survivor, entries, err)
+		}
+	}
+	if _, err := os.Stat(flat); err != nil {
+		t.Errorf("the flat file from before account folders was removed: %v", err)
+	}
+}
+
+func TestDeleteAccountFolder_MissingFolderIsNotAnError(t *testing.T) {
+	svc := local.New(t.TempDir(), "/api/uploads/files", nopLogger{})
+	if err := svc.DeleteAccountFolder(context.Background(), "never-uploaded"); err != nil {
+		t.Fatalf("DeleteAccountFolder() on a missing folder: %v", err)
+	}
+}
+
+func TestDeleteAccountFolder_RefusesUnsafeAccount(t *testing.T) {
+	dir := t.TempDir()
+	svc := local.New(filepath.Join(dir, "uploads"), "/api/uploads/files", nopLogger{})
+	sibling := filepath.Join(dir, "keep")
+	if err := os.MkdirAll(sibling, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	for _, account := range []string{"", "..", "../keep", "acct/../../keep"} {
+		err := svc.DeleteAccountFolder(context.Background(), account)
+		if err == nil || !strings.Contains(err.Error(), "invalid account ID") {
+			t.Errorf("DeleteAccountFolder(%q) error = %v, want an invalid account ID error", account, err)
+		}
+	}
+	if _, err := os.Stat(sibling); err != nil {
+		t.Fatalf("a sibling directory was removed through an unsafe id: %v", err)
+	}
+}

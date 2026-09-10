@@ -70,6 +70,11 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		fx.Provide(gorm.ProvideRoleResourceAccessRepository),
 		fx.Provide(gorm.ProvideTripleRepository),
 		fx.Provide(gorm.ProvideResourcePermissionRepository),
+		// Account erasure (story wm-kb6sg.3): the lock that tells a deletion
+		// in progress from a suspension, and the one purger allowed to delete
+		// event rows — the Article I exception, confined to that type.
+		fx.Provide(gorm.ProvideAccountErasureLocks),
+		fx.Provide(gorm.ProvideAccountPurger),
 
 		// Optional knowledge-graph stores (Oxigraph over SPARQL HTTP, an
 		// embedded on-disk store, or — in multi-tenant per-account mode — one
@@ -157,6 +162,7 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		fx.Provide(ProvideResourcePermissionService),
 		fx.Provide(ProvideKnowledgeGraphService),
 		fx.Provide(storageprovider.ProvideFileService),
+		fx.Provide(ProvideAccountErasureService),
 		// Generic notification store + inbox (#427): production and mark-read
 		// route through ResourceService, so writes hit the behavior/event
 		// pipeline and inbox reads inherit the ownership visibility scope.

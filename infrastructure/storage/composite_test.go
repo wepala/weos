@@ -28,6 +28,14 @@ type capturingFileService struct {
 	gotCType   string
 	gotBody    []byte
 	err        error
+
+	deletedAccount string
+	deleteErr      error
+}
+
+func (m *capturingFileService) DeleteAccountFolder(_ context.Context, accountID string) error {
+	m.deletedAccount = accountID
+	return m.deleteErr
 }
 
 func TestComposite_PassesAccountIDToEveryBackend(t *testing.T) {
@@ -212,5 +220,44 @@ func TestComposite_BufferingFailure(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "spool upload data") {
 		t.Errorf("error = %q, want to contain 'spool upload data'", err.Error())
+	}
+}
+
+func TestComposite_DeleteAccountFolderAsksEveryBackend(t *testing.T) {
+	primary := &capturingFileService{}
+	first := &capturingFileService{}
+	second := &capturingFileService{}
+
+	svc := storage.NewComposite(primary, []services.FileService{first, second}, nopLogger{})
+	if err := svc.DeleteAccountFolder(context.Background(), "acct_1"); err != nil {
+		t.Fatalf("DeleteAccountFolder() error: %v", err)
+	}
+	for name, backend := range map[string]*capturingFileService{"primary": primary, "first secondary": first, "second secondary": second} {
+		if backend.deletedAccount != "acct_1" {
+			t.Errorf("%s was asked to delete %q, want %q", name, backend.deletedAccount, "acct_1")
+		}
+	}
+}
+
+// A secondary that keeps the folder is the account's data still on the
+// instance, so its failure is reported — alongside every other failure, not
+// instead of the primary's, and without sparing the backends after it.
+func TestComposite_DeleteAccountFolderJoinsEveryFailure(t *testing.T) {
+	primary := &capturingFileService{deleteErr: errors.New("bucket refused")}
+	first := &capturingFileService{deleteErr: errors.New("disk read-only")}
+	second := &capturingFileService{}
+
+	svc := storage.NewComposite(primary, []services.FileService{first, second}, nopLogger{})
+	err := svc.DeleteAccountFolder(context.Background(), "acct_1")
+	if err == nil {
+		t.Fatal("DeleteAccountFolder() returned nil, want the joined failures")
+	}
+	for _, want := range []string{"bucket refused", "disk read-only"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not report %q", err, want)
+		}
+	}
+	if second.deletedAccount != "acct_1" {
+		t.Errorf("the backend after a failure was not asked: got %q", second.deletedAccount)
 	}
 }

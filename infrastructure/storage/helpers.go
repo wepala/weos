@@ -63,7 +63,21 @@ func ValidateAccountID(accountID string) error {
 // upload's ownership record, which the read route checks. Validate accountID
 // and id, and sanitize the name, before calling it.
 func ObjectKey(accountID, id, safeName string) string {
-	return "accounts/" + accountID + "/uploads/" + id + "-" + safeName
+	return AccountFolder(accountID) + "/uploads/" + id + "-" + safeName
+}
+
+// AccountFolder returns the folder every one of an account's objects sits
+// under: accounts/<accountID>. Erasing the account is a delete of everything
+// below it, so the prefix has to be built in one place. Validate accountID
+// before calling it.
+func AccountFolder(accountID string) string {
+	return "accounts/" + accountID
+}
+
+// AccountPrefix is AccountFolder with the trailing slash a bucket listing
+// needs, so accounts/acct-1/ never matches accounts/acct-10/.
+func AccountPrefix(accountID string) string {
+	return AccountFolder(accountID) + "/"
 }
 
 // SanitizeFilename strips path separators, collapses unsafe characters,

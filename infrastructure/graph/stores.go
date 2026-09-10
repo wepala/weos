@@ -182,6 +182,43 @@ func (f *perAccountStores) Truncate(_ context.Context) error {
 	return nil
 }
 
+// DropAccount closes the account's store if it is open and removes its
+// directory. The subjects are ignored: in per-account mode the whole store is
+// the account's, so there is nothing to pick out of it. Only a directory
+// carrying the marker this factory writes is removed — the same rule Truncate
+// applies — so a base pointed at an operator's directory cannot lose it to an
+// erasure. A directory that is not there is not an error, which is what a
+// re-run after a failed deletion needs.
+func (f *perAccountStores) DropAccount(_ context.Context, accountID string, _ []string) error {
+	dir, err := f.accountDir(accountID)
+	if err != nil {
+		return err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if st, ok := f.open[accountID]; ok {
+		delete(f.open, accountID)
+		if closer, isCloser := st.(io.Closer); isCloser {
+			if closeErr := closer.Close(); closeErr != nil {
+				return fmt.Errorf("knowledge graph: close account store %q before dropping it: %w", accountID, closeErr)
+			}
+		}
+	}
+	if _, statErr := os.Stat(dir); os.IsNotExist(statErr) {
+		return nil
+	}
+	if !isAccountStoreDir(dir) {
+		f.logger.Warn(context.Background(),
+			"knowledge graph: account directory carries no marker, leaving it in place",
+			"accountID", accountID, "path", dir)
+		return nil
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("knowledge graph: remove account graph %q: %w", accountID, err)
+	}
+	return nil
+}
+
 // Close flushes and unlocks every open account store. Idempotent — the embedded
 // store's own Close is a no-op after the first call.
 func (f *perAccountStores) Close() error {

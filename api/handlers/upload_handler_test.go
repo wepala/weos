@@ -50,6 +50,8 @@ func (m *mockFileService) Upload(
 	return m.result, m.err
 }
 
+func (m *mockFileService) DeleteAccountFolder(context.Context, string) error { return nil }
+
 func newMultipartRequest(t *testing.T, fieldName, filename, body string) *http.Request {
 	t.Helper()
 	var buf bytes.Buffer

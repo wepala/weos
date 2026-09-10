@@ -50,6 +50,19 @@ func (f fakeMembers) ListMemberIDsByRole(_ context.Context, accountID, roleID st
 	return f.byRole[accountID+"|"+roleID], nil
 }
 
+func (f fakeMembers) CountMembers(_ context.Context, accountID string) (int, error) {
+	if f.err != nil {
+		return 0, f.err
+	}
+	n := 0
+	for key, ids := range f.byRole {
+		if strings.HasPrefix(key, accountID+"|") {
+			n += len(ids)
+		}
+	}
+	return n, nil
+}
+
 func testService(t *testing.T, members fakeMembers, features ...entities.FeatureMeta) (
 	*FeatureService, *fakeSettings, *fakeGrants, *recordingInvalidator,
 ) {
