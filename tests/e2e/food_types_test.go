@@ -18,6 +18,7 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -28,6 +29,7 @@ import (
 
 	"github.com/wepala/weos/v3/application"
 	"github.com/wepala/weos/v3/application/presets"
+	"github.com/wepala/weos/v3/domain/repositories"
 )
 
 // Story wm-kb6sg.1: mini-me's ten food types move into core's meal-planning
@@ -74,6 +76,20 @@ func initFoodTypesScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a WeOS database provisioned by the build whose "([^"]*)" preset carries mini-me's food definitions `+
 		`at commit "([^"]*)"$`, w.aDatabaseFromTheMiniMeFoodBuild)
 	sc.Step(`^the twin restarts on the build that moves the food definitions into meal-planning$`, w.restartOnThisBuild)
+	sc.Step(`^no "([^"]*)" resource type is installed$`, w.noTypeInstalled)
+}
+
+// noTypeInstalled keeps a core-only scenario honest: once a core preset
+// defines the slug, the scenario no longer tests a reference to a missing type.
+func (w *foodTypesWorld) noTypeInstalled(slug string) error {
+	_, err := w.rts.GetBySlug(context.Background(), slug)
+	if err == nil {
+		return fmt.Errorf("the %q resource type is installed, so this is not a core-only install", slug)
+	}
+	if !errors.Is(err, repositories.ErrNotFound) {
+		return fmt.Errorf("look up the %q resource type: %w", slug, err)
+	}
+	return nil
 }
 
 // --- the listing ---

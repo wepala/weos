@@ -83,6 +83,14 @@ Feature: The food types live in core's meal-planning preset
     And the "restaurant" "Roti Palace" carries the RDF type "https://schema.org/Restaurant" in the stored document
     And the triple store holds "https://schema.org/servesCuisine" from the "restaurant" "Roti Palace" with the value "Trinidadian"
 
+  Scenario: A meal log that names an order is recorded on a core-only install that has no order type
+    Given a clean WeOS database
+    And the operator installs the "meal-planning" preset
+    And no "order" resource type is installed
+    When I create a "meal-log" named "Roti takeout" with "orderId" set to "urn:order:31Xy8aQ2mZk7vT1bZ8wR4yN6cD0"
+    Then the API read of the "meal-log" "Roti takeout" returns "orderId" as "urn:order:31Xy8aQ2mZk7vT1bZ8wR4yN6cD0"
+    And reading the "meal-log" "Roti takeout" back through the projection returns "orderId" as "urn:order:31Xy8aQ2mZk7vT1bZ8wR4yN6cD0"
+
   Scenario Outline: A twin food type keeps its own slug and table while it shares a core class
     Given a clean WeOS database
     When the operator installs the "meal-planning" preset
