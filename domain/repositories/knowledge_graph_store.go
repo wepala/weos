@@ -3,6 +3,8 @@ package repositories
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 )
 
 // ErrNoAccount is returned by KnowledgeGraphStores.ForAccount when per-account
@@ -93,16 +95,61 @@ func (s singleStores) Truncate(ctx context.Context) error {
 // DropAccount removes each subject from the one shared store. The account id
 // is not needed: a single-tenant graph keys nothing by account, so the
 // account's resource URNs are the only handle on what it holds.
+//
+// A resource is projected as a JSON-LD document, so what the graph holds for
+// it is more than the triples off its own URN: an ingredient list, a
+// nutrition block, a step — anything nested without an @id of its own — is a
+// blank node reachable only from that URN, and another resource may point at
+// the URN as an object. Both go with it (wm-fo2f9): the blank nodes reachable
+// through blank nodes only, deepest first so each level is still reachable
+// when its turn comes, then every triple with the URN as object, then the
+// URN's own triples. A nested node that carries an @id of its own is an IRI
+// and cannot be told from a link to another resource, so it is left.
 func (s singleStores) DropAccount(ctx context.Context, _ string, subjects []string) error {
 	if s.store == nil || !s.store.Active() {
 		return nil
 	}
 	for _, subject := range subjects {
+		if !safeIRI(subject) {
+			return fmt.Errorf("knowledge graph: refusing to drop %q, which is not a plain IRI", subject)
+		}
+		for depth := nestedNodeDepth; depth >= 1; depth-- {
+			if err := s.store.Update(ctx, deleteNestedNodes(subject, depth)); err != nil {
+				return fmt.Errorf("knowledge graph: remove the nested nodes of %s: %w", subject, err)
+			}
+		}
+		if err := s.store.Update(ctx, fmt.Sprintf("DELETE WHERE { ?s ?p <%s> }", subject)); err != nil {
+			return fmt.Errorf("knowledge graph: remove the triples pointing at %s: %w", subject, err)
+		}
 		if err := s.store.RemoveSubject(ctx, subject); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// nestedNodeDepth is how many levels of blank nodes below a resource the drop
+// reaches. A resource document nests a few levels at most; anything deeper
+// than this is left, and documented as such.
+const nestedNodeDepth = 8
+
+// deleteNestedNodes is the SPARQL update that removes the outgoing triples of
+// every blank node exactly depth hops below subject, where every hop lands on
+// a blank node. SPARQL cannot name a blank node from a query result, so the
+// nodes are reached by pattern rather than by label.
+func deleteNestedNodes(subject string, depth int) string {
+	var where strings.Builder
+	fmt.Fprintf(&where, "<%s> ?q1 ?b1 . FILTER(isBlank(?b1))", subject)
+	for i := 2; i <= depth; i++ {
+		fmt.Fprintf(&where, " ?b%d ?q%d ?b%d . FILTER(isBlank(?b%d))", i-1, i, i, i)
+	}
+	return fmt.Sprintf("DELETE { ?b%d ?p ?o } WHERE { %s ?b%d ?p ?o }", depth, where.String(), depth)
+}
+
+// safeIRI reports whether the subject can be written between angle brackets
+// in a SPARQL update without changing its meaning.
+func safeIRI(subject string) bool {
+	return subject != "" && !strings.ContainsAny(subject, "<>\"{}|^`\\ \t\n\r")
 }
 
 // Close is a no-op: the wrapped store's io.Closer (if any) is registered on the
