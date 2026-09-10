@@ -22,6 +22,7 @@ import (
 	"strings"
 	"testing"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/wepala/weos/v3/application"
 )
@@ -166,10 +167,11 @@ func namesAPerson(description string) []string {
 	var names []string
 	words := strings.FieldsFunc(description, func(r rune) bool { return !unicode.IsLetter(r) })
 	for i, word := range words {
+		first, _ := utf8.DecodeRuneInString(word)
 		switch {
 		case firstPerson[strings.ToLower(word)]:
 			names = append(names, word)
-		case i > 0 && unicode.IsUpper([]rune(word)[0]) && !notAPerson[word]:
+		case i > 0 && unicode.IsUpper(first) && !notAPerson[word]:
 			names = append(names, word)
 		}
 	}
