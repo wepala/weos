@@ -40,6 +40,15 @@ projection, and it is never a way to correct history. A second delete path for
 events anywhere else in the tree is a violation of this article, exception or no
 exception. See `docs/decisions/wehungry-food-types-uploads-and-account-erasure.md`.
 
+**What this article governs.** The rule is about core's own entities and the
+event store they commit to. pericarp's authentication aggregates — accounts,
+agents, credentials, sessions, invites — are persisted by pericarp's own
+repositories, the way pericarp's authentication service writes them, and are
+outside this article's scope. The erasure lock is written that way: the
+`account_erasures` row and the deactivation of the `accounts` row that precede
+a purge go through those repositories, not through a unit of work, and that is
+not a violation of this article.
+
 ---
 
 ## Article II — Dependencies point inward
@@ -301,4 +310,4 @@ review but has no automated gate. Remove the marker when a gate lands.
 |---|---|---|
 | 1.0.0 | 2026-08-27 | Ratified |
 | 1.1.0 | 2026-08-27 | Article VII expanded from six linters to ten. `gosec`, `gocritic`, `depguard`, and `forbidigo` added; `depguard` and `forbidigo` now machine-enforce Articles II and III. CI linter version pinned. |
-| 1.2.0 | 2026-09-10 | Article I expanded to name account erasure as its one exception: the `AccountDataPurger` may delete the event rows of an account being erased, and nothing else may delete an event. Story wm-kb6sg.3. |
+| 1.2.0 | 2026-09-10 | Article I expanded to name account erasure as its one exception: the `AccountDataPurger` may delete the event rows of an account being erased, and nothing else may delete an event. The article states its scope: core's own entities; pericarp's auth aggregates, which the erasure lock writes, are outside it. Story wm-kb6sg.3. |
