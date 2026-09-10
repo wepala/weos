@@ -69,6 +69,16 @@ type PurgeReport struct {
 	// DeletedAgents lists the agents removed with the account: the members
 	// who belonged to nothing else.
 	DeletedAgents []string
+	// Groupings lists the role assignments in the account that the purge
+	// deleted from the authorization table, so the caller can revoke them
+	// from the running enforcer's copy as well.
+	Groupings []AccountGrouping
+}
+
+// AccountGrouping is one role an agent held in the account being erased.
+type AccountGrouping struct {
+	AgentID string
+	RoleID  string
 }
 
 // AccountDataPurger enumerates and deletes every SQL row an account owns.

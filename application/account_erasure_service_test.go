@@ -133,7 +133,18 @@ func (p *erasurePurger) Purge(context.Context, string) (*repositories.PurgeRepor
 	}
 	p.purged = true
 	p.purges++
-	return &repositories.PurgeReport{Members: 2, Resources: len(p.urns), Events: 7, DeletedAgents: []string{"ops"}}, nil
+	return &repositories.PurgeReport{Members: 2, Resources: len(p.urns), Events: 7, DeletedAgents: []string{"ops"},
+		Groupings: []repositories.AccountGrouping{{AgentID: "ops", RoleID: "owner"}, {AgentID: "counsel", RoleID: "member"}}}, nil
+}
+
+// revokedRoles records what the erasure asked the enforcer to forget.
+type revokedRoles struct {
+	calls []string
+}
+
+func (r *revokedRoles) RevokeAccountRole(agentID, roleID, accountID string) error {
+	r.calls = append(r.calls, agentID+":"+roleID+"@"+accountID)
+	return nil
 }
 
 type erasureFiles struct {
@@ -510,6 +521,26 @@ func TestAccountErasure_ASecondDeletionThatFindsNothingLeftIsNotFound(t *testing
 	_, err := h.service(time.Second).Erase(context.Background(), EraseAccountCommand{AccountID: "acct-harbor"})
 	if !errors.Is(err, ErrAccountNotFound) {
 		t.Fatalf("Erase error = %v, want ErrAccountNotFound", err)
+	}
+}
+
+// wm-wrnzb: the purge deletes the account's grouping rows; the running
+// enforcer's copy of them is revoked through the checker.
+func TestAccountErasure_RevokesTheAccountsRolesFromTheRunningEnforcer(t *testing.T) {
+	h := newErasureHarness(t)
+	revoked := &revokedRoles{}
+	svc := NewAccountErasureService(AccountErasureDeps{
+		Accounts: h.accounts, Locks: h.locks, Purger: h.purger, Files: h.files, Graphs: h.graphs,
+		EventStore: headOf{esinfra.NewMemoryStore(), h.head}, Checkpoints: h.checkpoints,
+		DrainTimeout: time.Second, Roles: revoked, Logger: noopWorkerLogger{},
+	})
+	svc.drainPoll = 5 * time.Millisecond
+	if _, err := svc.Erase(context.Background(), EraseAccountCommand{AccountID: "acct-harbor"}); err != nil {
+		t.Fatalf("Erase: %v", err)
+	}
+	want := "ops:owner@acct-harbor,counsel:member@acct-harbor"
+	if strings.Join(revoked.calls, ",") != want {
+		t.Fatalf("revoked %v, want %s", revoked.calls, want)
 	}
 }
 

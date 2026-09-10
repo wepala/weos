@@ -392,3 +392,29 @@ func TestAccountPurger_SweepsTheOrphansOfAGoneAccount(t *testing.T) {
 		t.Error("Remains still true after the orphans were swept")
 	}
 }
+
+// wm-wrnzb: the groupings the purge deletes are reported, so the caller can
+// revoke the running enforcer's copy of them.
+func TestAccountPurger_ReportsTheGroupingsItDeleted(t *testing.T) {
+	f := newPurgeFixture(t)
+	f.account("acct-harbor")
+	f.account("acct-cedar")
+	f.person("ops", "acct-harbor")
+	f.person("counsel", "acct-harbor", "acct-cedar")
+	purger := NewAccountPurgerForTest(f.db, f.pm, &testLogger{})
+
+	report, err := purger.Purge(context.Background(), "acct-harbor")
+	if err != nil {
+		t.Fatalf("Purge: %v", err)
+	}
+	got := map[string]bool{}
+	for _, g := range report.Groupings {
+		got[g.AgentID+":"+g.RoleID] = true
+	}
+	if len(got) != 2 || !got["ops:owner"] || !got["counsel:owner"] {
+		t.Fatalf("report.Groupings = %v, want ops and counsel as owner of acct-harbor", report.Groupings)
+	}
+	if n := f.count("casbin_rule", "ptype = 'g' AND v2 = ?", "acct-cedar"); n != 1 {
+		t.Errorf("counsel's grouping in acct-cedar: %d row(s), want 1 kept", n)
+	}
+}

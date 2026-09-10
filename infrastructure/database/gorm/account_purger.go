@@ -426,12 +426,25 @@ func purgeConnectorAccess(tx *gorm.DB, facts *accountFacts, _ *repositories.Purg
 }
 
 // purgeAuthorization removes the casbin grouping policies whose domain is the
-// account. The table is the casbin gorm adapter's; it is read by name so this
-// package takes no dependency on the adapter, and skipped when an instance
-// never created it.
-func purgeAuthorization(tx *gorm.DB, facts *accountFacts, _ *repositories.PurgeReport) error {
+// account, and reports them: the running process's enforcer keeps its own
+// copy of every grouping it has loaded, and only the caller can reach that
+// (wm-wrnzb). The table is the casbin gorm adapter's; it is read by name so
+// this package takes no dependency on the adapter, and skipped when an
+// instance never created it.
+func purgeAuthorization(tx *gorm.DB, facts *accountFacts, report *repositories.PurgeReport) error {
 	if !tx.Migrator().HasTable("casbin_rule") {
 		return nil
+	}
+	var rows []struct {
+		V0 string
+		V1 string
+	}
+	if err := tx.Table("casbin_rule").Select("v0, v1").Where("ptype = 'g' AND v2 = ?", facts.accountID).
+		Scan(&rows).Error; err != nil {
+		return fmt.Errorf("account erasure: list grouping policies: %w", err)
+	}
+	for _, row := range rows {
+		report.Groupings = append(report.Groupings, repositories.AccountGrouping{AgentID: row.V0, RoleID: row.V1})
 	}
 	if err := tx.Exec("DELETE FROM casbin_rule WHERE ptype = 'g' AND v2 = ?", facts.accountID).Error; err != nil {
 		return fmt.Errorf("account erasure: delete grouping policies: %w", err)

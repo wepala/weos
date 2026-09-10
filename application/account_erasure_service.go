@@ -28,6 +28,7 @@ import (
 	"github.com/wepala/weos/v3/internal/config"
 
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
+	authcasbin "github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/casbin"
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 	"go.uber.org/fx"
 )
@@ -66,6 +67,13 @@ type CheckpointPositionsFunc func(ctx context.Context) ([]SubscriberCheckpoint, 
 // however old its checkpoint row is. A process that runs no groups — the
 // operator command, an API-only deployment — names none.
 type RunningGroupsFunc func() []string
+
+// AccountRoleRevoker is what the erasure needs of the authorization checker:
+// a way to drop, from the running enforcer's memory, the role assignments
+// the purge deleted from the table underneath it.
+type AccountRoleRevoker interface {
+	RevokeAccountRole(agentID, roleID, accountID string) error
+}
 
 // EraseAccountCommand names the account to erase and who asked.
 type EraseAccountCommand struct {
@@ -125,6 +133,7 @@ type AccountErasureService struct {
 	// timeout bounds the whole erasure. The run is detached from the
 	// caller's context, so this is the only deadline it has.
 	timeout time.Duration
+	roles   AccountRoleRevoker
 	logger  entities.Logger
 
 	mu       sync.Mutex
@@ -144,7 +153,10 @@ type AccountErasureDeps struct {
 	DrainTimeout  time.Duration
 	StaleAfter    time.Duration
 	Timeout       time.Duration
-	Logger        entities.Logger
+	// Roles is optional: a process with no enforcer has no copy to revoke
+	// from.
+	Roles  AccountRoleRevoker
+	Logger entities.Logger
 }
 
 // AccountErasureParams bundles the service's dependencies from the container.
@@ -159,12 +171,18 @@ type AccountErasureParams struct {
 	EventStore    domain.EventStore
 	Checkpoints   CheckpointPositionsFunc
 	RunningGroups RunningGroupsFunc
+	Roles         *authcasbin.CasbinAuthorizationChecker `optional:"true"`
 	Logger        entities.Logger
 }
 
 // ProvideAccountErasureService wires the service from the container.
 func ProvideAccountErasureService(p AccountErasureParams) *AccountErasureService {
+	var roles AccountRoleRevoker
+	if p.Roles != nil {
+		roles = p.Roles
+	}
 	return NewAccountErasureService(AccountErasureDeps{
+		Roles:         roles,
 		Accounts:      p.Accounts,
 		Locks:         p.Locks,
 		Purger:        p.Purger,
@@ -208,6 +226,7 @@ func NewAccountErasureService(d AccountErasureDeps) *AccountErasureService {
 		frozenGrace:  2 * time.Second,
 		drainPoll:    100 * time.Millisecond,
 		timeout:      d.Timeout,
+		roles:        d.Roles,
 		logger:       d.Logger,
 		inFlight:     map[string]bool{},
 	}
@@ -309,6 +328,8 @@ func (s *AccountErasureService) Erase(ctx context.Context, cmd EraseAccountComma
 		report.Resources += again.Resources
 	}
 
+	s.revokeGroupings(ctx, cmd.AccountID, report.Groupings)
+
 	s.logger.Info(ctx, "account erasure: finished",
 		"account_id", cmd.AccountID, "members", report.Members,
 		"resources", report.Resources, "events", report.Events, "deleted_agents", len(report.DeletedAgents))
@@ -318,6 +339,25 @@ func (s *AccountErasureService) Erase(ctx context.Context, cmd EraseAccountComma
 		Resources:   report.Resources,
 		Events:      report.Events,
 	}, nil
+}
+
+// revokeGroupings drops the account's role assignments from the running
+// enforcer. The purge deleted the rows; the enforcer loaded its copy of them
+// on every request the account served and keeps it until restart, and a
+// deleted account's ids are the account's data still held (wm-wrnzb). The
+// ids are KSUIDs and never reused, so a copy that outlives a failure here
+// authorizes nothing; the failure is logged, not turned into a failed
+// deletion.
+func (s *AccountErasureService) revokeGroupings(ctx context.Context, accountID string, groupings []repositories.AccountGrouping) {
+	if s.roles == nil {
+		return
+	}
+	for _, g := range groupings {
+		if err := s.roles.RevokeAccountRole(g.AgentID, g.RoleID, accountID); err != nil {
+			s.logger.Error(ctx, "account erasure: could not revoke a role from the running enforcer",
+				"account_id", accountID, "agent_id", g.AgentID, "role", g.RoleID, "error", err)
+		}
+	}
 }
 
 // orphanSweeps bounds how many times the purge is run again for rows that
