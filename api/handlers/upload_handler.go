@@ -64,8 +64,13 @@ func (h *UploadHandler) Upload(c echo.Context) error {
 	// form field or query value is written by the caller, and trusting one would
 	// let a caller store files in another account's folder.
 	identity := auth.AgentFromCtx(c.Request().Context())
-	if identity == nil || identity.ActiveAccountID == "" {
+	if identity == nil {
 		return respondError(c, http.StatusUnauthorized, "authentication required")
+	}
+	// A signed-in caller with no account is not an expired session; a 401 here
+	// would send the app back to sign-in, which cannot give it an account.
+	if identity.ActiveAccountID == "" {
+		return respondError(c, http.StatusForbidden, "no active account")
 	}
 
 	// Enforce upload size limit before reading any data.

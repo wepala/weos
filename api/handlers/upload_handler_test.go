@@ -172,11 +172,13 @@ func TestUploadHandler_AccountComesFromSignedInIdentity(t *testing.T) {
 
 func TestUploadHandler_RefusesUploadWithNoAccount(t *testing.T) {
 	tests := []struct {
-		name     string
-		identity *auth.Identity
+		name       string
+		identity   *auth.Identity
+		wantStatus int
+		wantError  string
 	}{
-		{"no identity", nil},
-		{"identity with no active account", &auth.Identity{AgentID: "agent-1"}},
+		{"no identity", nil, http.StatusUnauthorized, "authentication required"},
+		{"identity with no active account", &auth.Identity{AgentID: "agent-1"}, http.StatusForbidden, "no active account"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -195,8 +197,15 @@ func TestUploadHandler_RefusesUploadWithNoAccount(t *testing.T) {
 			if err := handler.Upload(e.NewContext(req, rec)); err != nil {
 				t.Fatalf("Upload() error: %v", err)
 			}
-			if rec.Code != http.StatusUnauthorized {
-				t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+			if rec.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d", rec.Code, tt.wantStatus)
+			}
+			var env map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+				t.Fatalf("unmarshal response %q: %v", rec.Body.String(), err)
+			}
+			if len(env) != 1 || env["error"] != tt.wantError {
+				t.Errorf("body = %s, want the error envelope {\"error\":%q}", rec.Body.String(), tt.wantError)
 			}
 			if svc.called {
 				t.Error("the file service was called for an upload with no account")
