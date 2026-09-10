@@ -104,7 +104,21 @@ func (l *erasureLocks) IsLocked(_ context.Context, accountID string) (bool, erro
 type erasurePurger struct {
 	urns   []string
 	purged bool
-	steps  *[]string
+	purges int
+	// remains is what each Remains call answers, in order; past the end it
+	// answers false. gone makes Purge answer ErrNothingToPurge.
+	remains []bool
+	gone    bool
+	steps   *[]string
+}
+
+func (p *erasurePurger) Remains(context.Context, string) (bool, error) {
+	if len(p.remains) == 0 {
+		return false, nil
+	}
+	answer := p.remains[0]
+	p.remains = p.remains[1:]
+	return answer, nil
 }
 
 func (p *erasurePurger) Enumerate(context.Context, string) (*repositories.AccountEnumeration, error) {
@@ -114,7 +128,11 @@ func (p *erasurePurger) Enumerate(context.Context, string) (*repositories.Accoun
 
 func (p *erasurePurger) Purge(context.Context, string) (*repositories.PurgeReport, error) {
 	*p.steps = append(*p.steps, "purge")
+	if p.gone {
+		return nil, repositories.ErrNothingToPurge
+	}
 	p.purged = true
+	p.purges++
 	return &repositories.PurgeReport{Members: 2, Resources: len(p.urns), Events: 7, DeletedAgents: []string{"ops"}}, nil
 }
 
@@ -275,7 +293,7 @@ func TestAccountErasure_DrainSetsAsideAFrozenRowOfAGroupNobodyRuns(t *testing.T)
 	h.setStalePosition("oxigraph", 3, time.Hour) // turned off long ago; nothing here runs it
 	h.setPosition("display-values", 10)
 
-	if _, err := h.service(500 * time.Millisecond).Erase(context.Background(), EraseAccountCommand{AccountID: "acct-harbor"}); err != nil {
+	if _, err := h.service(500*time.Millisecond).Erase(context.Background(), EraseAccountCommand{AccountID: "acct-harbor"}); err != nil {
 		t.Fatalf("Erase waited on a checkpoint no group advances: %v", err)
 	}
 	if !h.purger.purged {
@@ -289,7 +307,7 @@ func TestAccountErasure_DrainWaitsForAGroupThisProcessRunsHoweverOldItsRow(t *te
 	h.running = []string{"oxigraph"}
 	h.setStalePosition("oxigraph", 3, time.Hour) // idle for an hour, but alive here and behind
 
-	_, err := h.service(80 * time.Millisecond).Erase(context.Background(), EraseAccountCommand{AccountID: "acct-harbor"})
+	_, err := h.service(80*time.Millisecond).Erase(context.Background(), EraseAccountCommand{AccountID: "acct-harbor"})
 	if !errors.Is(err, ErrErasureDrainTimeout) {
 		t.Fatalf("Erase error = %v, want ErrErasureDrainTimeout for a running group that is behind", err)
 	}
@@ -303,7 +321,7 @@ func TestAccountErasure_DrainWaitsForARowAnotherProcessIsStillWriting(t *testing
 	h.head = 10
 	h.setPosition("oxigraph", 3) // not run here, but written just now: a worker elsewhere is alive
 
-	_, err := h.service(80 * time.Millisecond).Erase(context.Background(), EraseAccountCommand{AccountID: "acct-harbor"})
+	_, err := h.service(80*time.Millisecond).Erase(context.Background(), EraseAccountCommand{AccountID: "acct-harbor"})
 	if !errors.Is(err, ErrErasureDrainTimeout) {
 		t.Fatalf("Erase error = %v, want ErrErasureDrainTimeout for a fresh row that is behind", err)
 	}
@@ -315,7 +333,7 @@ func TestAccountErasure_SkipDrainIsTheOperatorsOverride(t *testing.T) {
 	h.running = []string{"oxigraph"}
 	h.setPosition("oxigraph", 3)
 
-	_, err := h.service(80 * time.Millisecond).Erase(context.Background(),
+	_, err := h.service(80*time.Millisecond).Erase(context.Background(),
 		EraseAccountCommand{AccountID: "acct-harbor", RequestedBy: "operator", SkipDrain: true})
 	if err != nil {
 		t.Fatalf("Erase with SkipDrain: %v", err)
@@ -430,6 +448,68 @@ func TestAccountErasure_ASecondRunOfTheSameAccountIsRefusedWhileTheFirstRuns(t *
 	// Once the first run has returned the account may be erased again.
 	if _, err := svc.Erase(context.Background(), EraseAccountCommand{AccountID: "acct-harbor"}); errors.Is(err, ErrErasureInProgress) {
 		t.Fatal("the account stayed marked in progress after the run returned")
+	}
+}
+
+// wm-mnry2: a request admitted before the lock can commit after the purge.
+// What it left is swept again in the same run.
+func TestAccountErasure_RowsThatLandAfterThePurgeAreSweptAgain(t *testing.T) {
+	h := newErasureHarness(t)
+	h.purger.remains = []bool{true, false}
+	result, err := h.service(time.Second).Erase(context.Background(), EraseAccountCommand{AccountID: "acct-harbor"})
+	if err != nil {
+		t.Fatalf("Erase: %v", err)
+	}
+	if h.purger.purges != 2 {
+		t.Fatalf("the purge ran %d time(s), want 2: once, and once more for what landed after it", h.purger.purges)
+	}
+	if result.Events != 14 {
+		t.Errorf("result counts %d events, want both sweeps' (14)", result.Events)
+	}
+	want := []string{"lock", "deactivate", "enumerate", "files", "graph", "purge", "enumerate", "files", "graph", "purge"}
+	if strings.Join(*h.steps, ",") != strings.Join(want, ",") {
+		t.Fatalf("steps = %v, want %v", *h.steps, want)
+	}
+}
+
+func TestAccountErasure_RowsThatKeepArrivingFailTheRunAfterTheBound(t *testing.T) {
+	h := newErasureHarness(t)
+	h.purger.remains = []bool{true, true, true, true}
+	_, err := h.service(time.Second).Erase(context.Background(), EraseAccountCommand{AccountID: "acct-harbor"})
+	if err == nil || !strings.Contains(err.Error(), "kept arriving") {
+		t.Fatalf("Erase error = %v, want the bound reported", err)
+	}
+	if h.purger.purges != 1+orphanSweeps {
+		t.Errorf("the purge ran %d time(s), want %d", h.purger.purges, 1+orphanSweeps)
+	}
+}
+
+// wm-mnry2: the orphans of an account whose row is already gone are swept
+// by a run named after it, with no lock to take.
+func TestAccountErasure_OrphansOfAGoneAccountAreSweptWithoutALock(t *testing.T) {
+	h := newErasureHarness(t)
+	h.accounts.account = nil
+	h.purger.remains = []bool{true, false}
+	if _, err := h.service(time.Second).Erase(context.Background(), EraseAccountCommand{AccountID: "acct-harbor"}); err != nil {
+		t.Fatalf("Erase of a gone account's orphans: %v", err)
+	}
+	want := []string{"enumerate", "files", "graph", "purge"}
+	if strings.Join(*h.steps, ",") != strings.Join(want, ",") {
+		t.Fatalf("steps = %v, want %v (no lock, no deactivation)", *h.steps, want)
+	}
+	if len(h.locks.locked) != 0 {
+		t.Error("a lock was taken for an account with no row")
+	}
+}
+
+// wm-4cysr: the second of two deletions that arrived together finds the
+// purge already done and is told the account is not found.
+func TestAccountErasure_ASecondDeletionThatFindsNothingLeftIsNotFound(t *testing.T) {
+	h := newErasureHarness(t)
+	h.purger.gone = true
+	_, err := h.service(time.Second).Erase(context.Background(), EraseAccountCommand{AccountID: "acct-harbor"})
+	if !errors.Is(err, ErrAccountNotFound) {
+		t.Fatalf("Erase error = %v, want ErrAccountNotFound", err)
 	}
 }
 

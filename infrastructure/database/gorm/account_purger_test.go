@@ -3,6 +3,7 @@ package gorm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -332,5 +333,62 @@ func TestAccountPurger_EnumerateReadsWithoutDeleting(t *testing.T) {
 	}
 	if f.count("resources", "account_id = ?", "acct-harbor") != 1 {
 		t.Error("Enumerate deleted something")
+	}
+}
+
+// wm-4cysr: two deletions that arrive together both reach the purge; the
+// second finds the account row gone and nothing left, and says so.
+func TestAccountPurger_ASecondPurgeOfAGoneAccountIsNothingToPurge(t *testing.T) {
+	f := newPurgeFixture(t)
+	f.account("acct-harbor")
+	f.person("ops", "acct-harbor")
+	f.recipe("urn:recipe:1", "acct-harbor", "ops")
+	f.event("ev-1", "urn:recipe:1", "tx-1", "acct-harbor")
+	purger := NewAccountPurgerForTest(f.db, f.pm, &testLogger{})
+
+	if _, err := purger.Purge(context.Background(), "acct-harbor"); err != nil {
+		t.Fatalf("first Purge: %v", err)
+	}
+	left, err := purger.Remains(context.Background(), "acct-harbor")
+	if err != nil || left {
+		t.Fatalf("Remains after the purge = %v, %v; want false", left, err)
+	}
+	_, err = purger.Purge(context.Background(), "acct-harbor")
+	if !errors.Is(err, repositories.ErrNothingToPurge) {
+		t.Fatalf("second Purge error = %v, want ErrNothingToPurge", err)
+	}
+}
+
+// wm-mnry2: rows that name an account whose row is gone are orphans; the
+// purge takes them rather than refusing.
+func TestAccountPurger_SweepsTheOrphansOfAGoneAccount(t *testing.T) {
+	f := newPurgeFixture(t)
+	f.account("acct-harbor")
+	f.person("ops", "acct-harbor")
+	purger := NewAccountPurgerForTest(f.db, f.pm, &testLogger{})
+	if _, err := purger.Purge(context.Background(), "acct-harbor"); err != nil {
+		t.Fatalf("Purge: %v", err)
+	}
+	// A request admitted before the lock lands its resource and event now.
+	f.recipe("urn:recipe:late", "acct-harbor", "ops")
+	f.event("ev-late", "urn:recipe:late", "tx-late", "acct-harbor")
+
+	left, err := purger.Remains(context.Background(), "acct-harbor")
+	if err != nil || !left {
+		t.Fatalf("Remains with a late resource = %v, %v; want true", left, err)
+	}
+	report, err := purger.Purge(context.Background(), "acct-harbor")
+	if err != nil {
+		t.Fatalf("Purge of the orphans: %v", err)
+	}
+	if report.Resources != 1 || report.Events != 1 {
+		t.Errorf("report = %+v, want the late resource and its event", report)
+	}
+	if n := f.count("resources", "account_id = ?", "acct-harbor") + f.count("events", "aggregate_id = ?", "urn:recipe:late") +
+		f.count("triples", "subject = ?", "urn:recipe:late"); n != 0 {
+		t.Errorf("%d orphan row(s) remain after the sweep", n)
+	}
+	if left, _ := purger.Remains(context.Background(), "acct-harbor"); left {
+		t.Error("Remains still true after the orphans were swept")
 	}
 }

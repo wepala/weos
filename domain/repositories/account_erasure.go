@@ -15,7 +15,16 @@
 
 package repositories
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// ErrNothingToPurge is what Purge answers for an account whose row is gone
+// and that nothing else names: a second deletion that arrived beside the
+// first, or a re-run of one that already finished. The caller reports the
+// account as not found.
+var ErrNothingToPurge = errors.New("account erasure: nothing of the account remains to purge")
 
 // AccountErasureLocks records which accounts are part-way through an erasure.
 //
@@ -78,6 +87,16 @@ type AccountDataPurger interface {
 	// sweep takes only events of aggregates being deleted: the account, its
 	// resources, and the auth aggregates of the members who belonged to
 	// nothing else. An event of a surviving aggregate that shares a
-	// transaction with one of those is left alone.
+	// transaction with one of those is left alone. When the account row is
+	// already gone and nothing names the account, it answers
+	// ErrNothingToPurge; when the row is gone but rows naming the account
+	// remain — a request admitted before the lock that committed after the
+	// purge — it purges those.
 	Purge(ctx context.Context, accountID string) (*PurgeReport, error)
+
+	// Remains reports whether anything still names the account: its row,
+	// events, resources, memberships or invites. The erasure asks it after
+	// the purge, and again for an account whose row is gone, so a row that
+	// landed late is swept rather than stranded.
+	Remains(ctx context.Context, accountID string) (bool, error)
 }

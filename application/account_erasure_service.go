@@ -240,24 +240,37 @@ func (s *AccountErasureService) Erase(ctx context.Context, cmd EraseAccountComma
 		return nil, fmt.Errorf("account erasure: load account %q: %w", cmd.AccountID, err)
 	}
 	if account == nil {
-		return nil, fmt.Errorf("%w: %s", ErrAccountNotFound, cmd.AccountID)
-	}
-
-	// Lock first, and the lock row before the deactivation: from the moment
-	// the account is inactive, every refusal it produces has to be able to
-	// say the deletion is unfinished.
-	if err := s.locks.Lock(ctx, cmd.AccountID, cmd.RequestedBy); err != nil {
-		return nil, err
-	}
-	if account.Active() {
-		if err := account.Deactivate(); err != nil {
-			return nil, fmt.Errorf("account erasure: deactivate %q: %w", cmd.AccountID, err)
+		// The row is gone. Either the deletion finished — nothing names the
+		// account any more — or a request admitted before the lock committed
+		// after the purge and left rows the finished deletion refused to
+		// touch (wm-mnry2). The second is swept here, with no lock to take:
+		// the row the lock hangs off is the one that is gone.
+		left, err := s.purger.Remains(ctx, cmd.AccountID)
+		if err != nil {
+			return nil, err
 		}
-		if err := s.accounts.Save(ctx, account); err != nil {
-			return nil, fmt.Errorf("account erasure: save the lock on %q: %w", cmd.AccountID, err)
+		if !left {
+			return nil, fmt.Errorf("%w: %s", ErrAccountNotFound, cmd.AccountID)
 		}
+		s.logger.Warn(ctx, "account erasure: the account row is gone but rows naming it remain; sweeping them",
+			"account_id", cmd.AccountID, "requested_by", cmd.RequestedBy)
+	} else {
+		// Lock first, and the lock row before the deactivation: from the
+		// moment the account is inactive, every refusal it produces has to be
+		// able to say the deletion is unfinished.
+		if err := s.locks.Lock(ctx, cmd.AccountID, cmd.RequestedBy); err != nil {
+			return nil, err
+		}
+		if account.Active() {
+			if err := account.Deactivate(); err != nil {
+				return nil, fmt.Errorf("account erasure: deactivate %q: %w", cmd.AccountID, err)
+			}
+			if err := s.accounts.Save(ctx, account); err != nil {
+				return nil, fmt.Errorf("account erasure: save the lock on %q: %w", cmd.AccountID, err)
+			}
+		}
+		s.logger.Info(ctx, "account erasure: locked", "account_id", cmd.AccountID, "requested_by", cmd.RequestedBy)
 	}
-	s.logger.Info(ctx, "account erasure: locked", "account_id", cmd.AccountID, "requested_by", cmd.RequestedBy)
 
 	if cmd.SkipDrain {
 		s.logger.Warn(ctx, "account erasure: the drain was skipped on the operator's say-so", "account_id", cmd.AccountID)
@@ -265,22 +278,37 @@ func (s *AccountErasureService) Erase(ctx context.Context, cmd EraseAccountComma
 		return nil, err
 	}
 
-	enumeration, err := s.purger.Enumerate(ctx, cmd.AccountID)
+	report, err := s.sweep(ctx, cmd.AccountID)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := s.files.DeleteAccountFolder(ctx, cmd.AccountID); err != nil {
-		return nil, fmt.Errorf("account erasure: remove the file folder of %q: %w", cmd.AccountID, err)
-	}
-	if err := s.graphs.DropAccount(ctx, cmd.AccountID, enumeration.ResourceURNs); err != nil {
-		return nil, fmt.Errorf("account erasure: drop the graph of %q: %w", cmd.AccountID, err)
+	// The lock stops new requests, not requests already admitted: one
+	// admitted a moment before it can commit after the head was read, even
+	// after the purge's transaction. What it left is swept again, up to a
+	// bound, so the deletion does not strand rows it can no longer reach
+	// through the account row (wm-mnry2).
+	for pass := 1; ; pass++ {
+		left, err := s.purger.Remains(ctx, cmd.AccountID)
+		if err != nil {
+			return nil, err
+		}
+		if !left {
+			break
+		}
+		if pass > orphanSweeps {
+			return nil, fmt.Errorf("account erasure: rows naming %q kept arriving after %d sweeps; run the deletion again",
+				cmd.AccountID, orphanSweeps)
+		}
+		s.logger.Warn(ctx, "account erasure: rows landed after the purge; sweeping again", "account_id", cmd.AccountID, "pass", pass)
+		again, err := s.sweep(ctx, cmd.AccountID)
+		if err != nil {
+			return nil, err
+		}
+		report.Events += again.Events
+		report.Resources += again.Resources
 	}
 
-	report, err := s.purger.Purge(ctx, cmd.AccountID)
-	if err != nil {
-		return nil, err
-	}
 	s.logger.Info(ctx, "account erasure: finished",
 		"account_id", cmd.AccountID, "members", report.Members,
 		"resources", report.Resources, "events", report.Events, "deleted_agents", len(report.DeletedAgents))
@@ -290,6 +318,37 @@ func (s *AccountErasureService) Erase(ctx context.Context, cmd EraseAccountComma
 		Resources:   report.Resources,
 		Events:      report.Events,
 	}, nil
+}
+
+// orphanSweeps bounds how many times the purge is run again for rows that
+// landed after it.
+const orphanSweeps = 2
+
+// sweep is the part of the sequence that removes things: enumerate, then the
+// external stores, then the SQL purge. Every step is idempotent, so it is
+// safe to run again on whatever a late commit left.
+func (s *AccountErasureService) sweep(ctx context.Context, accountID string) (*repositories.PurgeReport, error) {
+	enumeration, err := s.purger.Enumerate(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.files.DeleteAccountFolder(ctx, accountID); err != nil {
+		return nil, fmt.Errorf("account erasure: remove the file folder of %q: %w", accountID, err)
+	}
+	if err := s.graphs.DropAccount(ctx, accountID, enumeration.ResourceURNs); err != nil {
+		return nil, fmt.Errorf("account erasure: drop the graph of %q: %w", accountID, err)
+	}
+	report, err := s.purger.Purge(ctx, accountID)
+	if err != nil {
+		if errors.Is(err, repositories.ErrNothingToPurge) {
+			// Another run finished it between the checks above and the
+			// purge's own: the second of two deletions that arrived together
+			// (wm-4cysr).
+			return nil, fmt.Errorf("%w: %s", ErrAccountNotFound, accountID)
+		}
+		return nil, err
+	}
+	return report, nil
 }
 
 // begin claims the account for one run in this process. It answers false

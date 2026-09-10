@@ -133,6 +133,24 @@ func (p *AccountPurger) Purge(ctx context.Context, accountID string) (*repositor
 	}
 	report := &repositories.PurgeReport{}
 	err := p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// A gone account row with nothing else naming the account is a
+		// deletion that already finished — the second of two that arrived
+		// together, or a re-run — and is reported as such rather than
+		// purged again to no effect (wm-4cysr). A gone row with rows still
+		// naming the account is the orphan case, and those are purged.
+		var rows int64
+		if err := tx.Table("accounts").Where("id = ?", accountID).Count(&rows).Error; err != nil {
+			return fmt.Errorf("account erasure: read the account row of %q: %w", accountID, err)
+		}
+		if rows == 0 {
+			left, err := remains(tx, accountID)
+			if err != nil {
+				return err
+			}
+			if !left {
+				return repositories.ErrNothingToPurge
+			}
+		}
 		facts, err := p.gather(tx, accountID)
 		if err != nil {
 			return err
@@ -463,6 +481,44 @@ func purgeAccountRow(tx *gorm.DB, facts *accountFacts, _ *repositories.PurgeRepo
 		return fmt.Errorf("account erasure: delete the account row: %w", err)
 	}
 	return nil
+}
+
+func (p *AccountPurger) Remains(ctx context.Context, accountID string) (bool, error) {
+	if accountID == "" {
+		return false, nil
+	}
+	return remains(p.db.WithContext(ctx), accountID)
+}
+
+// remains reports whether any row still names the account: the account row
+// itself, an event by payload or aggregate, a resource, a membership, an
+// invite. It is the predicate the purge and the erasure share, so what one
+// calls left over the other sweeps.
+func remains(db *gorm.DB, accountID string) (bool, error) {
+	checks := []struct {
+		table string
+		where string
+	}{
+		{"accounts", "id = ?"},
+		{"resources", "account_id = ?"},
+		{"account_members", "account_id = ?"},
+		{"invites", "account_id = ?"},
+	}
+	for _, check := range checks {
+		var n int64
+		if err := db.Table(check.table).Where(check.where, accountID).Count(&n).Error; err != nil {
+			return false, fmt.Errorf("account erasure: count %s naming %q: %w", check.table, accountID, err)
+		}
+		if n > 0 {
+			return true, nil
+		}
+	}
+	var n int64
+	err := db.Table("events").Where("aggregate_id = ? OR "+payloadAccountClause(db), accountID, accountID).Count(&n).Error
+	if err != nil {
+		return false, fmt.Errorf("account erasure: count events naming %q: %w", accountID, err)
+	}
+	return n > 0, nil
 }
 
 func resourceURNsOf(db *gorm.DB, accountID string) ([]string, error) {
