@@ -108,7 +108,8 @@ func (w *vocabWorld) registerVocabSteps(sc *godog.ScenarioContext) {
 	sc.Step(`^no installed resource type resolves any term, prefix or "@type" under "([^"]*)"$`, w.noTypeResolvesUnder)
 	sc.Step(`^every installed type of "([^"]*)" that declares "([^"]*)" resolves it to "([^"]*)"$`,
 		w.everyTypeResolvesPrefix)
-	sc.Step(`^every house IRI the installed types of "([^"]*)" resolve is under "([^"]*)"$`, w.everyHouseIRIUnder)
+	sc.Step(`^every house IRI the installed types of "([^"]*)" resolve is under "([^"]*)" or the reused "([^"]*)"$`,
+		w.everyHouseIRIUnder)
 	sc.Step(`^every reference property of every installed type reverse-maps to its own name$`, w.everyReferenceReverseMaps)
 	sc.Step(`^no two properties of one installed type resolve to the same predicate IRI$`, w.noPredicateShared)
 	sc.Step(`^the boot reconcile reports the "([^"]*)" context term as held for "([^"]*)"$`, w.bootReportsContextTermHeld)
@@ -711,21 +712,42 @@ func isHouseIRI(iri string) bool {
 	return strings.Contains(iri, "weos.io") || strings.Contains(iri, "weos.org")
 }
 
-func (w *vocabWorld) everyHouseIRIUnder(preset, ns string) error {
+// noReusedVocabulary is the `reuses` cell of a preset that resolves house IRIs
+// under its own namespace only.
+const noReusedVocabulary = "none"
+
+// everyHouseIRIUnder allows exactly one reused house vocabulary per row
+// (finding wm-8m547). A named one must be another namespace on the weos.io
+// house domain, and one of the preset's types must actually resolve under it,
+// so a row cannot name weos.org or keep an allowance nothing needs any more.
+func (w *vocabWorld) everyHouseIRIUnder(preset, ns, reused string) error {
+	if reused != noReusedVocabulary &&
+		(!strings.HasPrefix(reused, newHouseDomain) || !strings.HasSuffix(reused, "#") || reused == ns) {
+		return fmt.Errorf("reused vocabulary %q is not another house namespace under %s ending in #", reused, newHouseDomain)
+	}
 	slugs, err := presetTypeSlugs(preset)
 	if err != nil {
 		return err
 	}
+	reusedResolved := false
 	for _, slug := range slugs {
 		rt, err := w.rts.GetBySlug(context.Background(), slug)
 		if err != nil {
 			return fmt.Errorf("failed to load the %q type: %w", slug, err)
 		}
 		for term, iri := range resolvedIRIs(rt.Context()) {
-			if isHouseIRI(iri) && !strings.HasPrefix(iri, ns) {
-				return fmt.Errorf("installed type %q resolves %q to %s, not under %s", slug, term, iri, ns)
+			switch {
+			case !isHouseIRI(iri), strings.HasPrefix(iri, ns):
+			case reused != noReusedVocabulary && strings.HasPrefix(iri, reused):
+				reusedResolved = true
+			default:
+				return fmt.Errorf("installed type %q resolves %q to %s, not under %s or the reused %s",
+					slug, term, iri, ns, reused)
 			}
 		}
+	}
+	if reused != noReusedVocabulary && !reusedResolved {
+		return fmt.Errorf("no installed type of %q resolves anything under the reused %s", preset, reused)
 	}
 	return nil
 }
