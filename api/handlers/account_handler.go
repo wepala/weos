@@ -35,9 +35,15 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// CodeAccountErasureUnfinished is the code a deletion that failed part-way
-// answers with. The account is locked and the deletion can be run again.
-const CodeAccountErasureUnfinished = "account_erasure_unfinished"
+const (
+	// CodeAccountErasureUnfinished is the code a deletion that failed part-way
+	// answers with. The account is locked and the deletion can be run again.
+	CodeAccountErasureUnfinished = "account_erasure_unfinished"
+	// CodeAccountErasureInProgress is the code a second deletion request gets
+	// while the first is still running. Nothing is wrong; the app should wait
+	// for the first answer rather than send a third.
+	CodeAccountErasureInProgress = "account_erasure_in_progress"
+)
 
 // deleteConfirmation is the one body DELETE /api/account accepts. The field is
 // "confirm" and the value is the word DELETE exactly, decided at the plan gate
@@ -138,6 +144,11 @@ func (h *AccountHandler) Delete(c echo.Context) error {
 	if err != nil {
 		if errors.Is(err, application.ErrAccountNotFound) {
 			return respondError(c, http.StatusNotFound, "account not found")
+		}
+		if errors.Is(err, application.ErrErasureInProgress) {
+			return respondErrorCode(c, http.StatusConflict,
+				"a deletion of this account is already running; wait for it to finish",
+				CodeAccountErasureInProgress)
 		}
 		h.cfg.Logger.Error(ctx, "account delete: erasure did not finish",
 			"account_id", identity.ActiveAccountID, "error", err)

@@ -273,6 +273,11 @@ type WorkerConfig struct {
 	// its row where it stopped, and nothing else prunes it; without this
 	// every deletion on the instance would time out on it. Default 10m.
 	ErasureDrainStaleAfter time.Duration
+	// ErasureTimeout bounds a whole account erasure. The run is detached
+	// from the request that asked for it — a client that hangs up must not
+	// abort a deletion it asked for — so this is its only deadline. It has to
+	// cover a bucket walk of every file the account ever stored. Default 15m.
+	ErasureTimeout time.Duration
 }
 
 // IsPostgresDSN reports whether dsn targets PostgreSQL — a "host=" libpq DSN
@@ -505,6 +510,7 @@ func Default() Config {
 			LagLogInterval:      30 * time.Second,
 			ErasureDrainTimeout:    30 * time.Second,
 			ErasureDrainStaleAfter: 10 * time.Minute,
+			ErasureTimeout:         15 * time.Minute,
 		},
 		Features: FeaturesConfig{
 			CacheMaxAge:   15 * time.Minute,
@@ -765,6 +771,11 @@ func (c *Config) loadWorkerFromEnvironment() {
 	if v := os.Getenv("ACCOUNT_ERASURE_DRAIN_STALE_AFTER_SECONDS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			c.Worker.ErasureDrainStaleAfter = time.Duration(n) * time.Second
+		}
+	}
+	if v := os.Getenv("ACCOUNT_ERASURE_TIMEOUT_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.Worker.ErasureTimeout = time.Duration(n) * time.Second
 		}
 	}
 }

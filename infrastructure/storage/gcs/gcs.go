@@ -20,12 +20,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync/atomic"
 
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/services"
 	"github.com/wepala/weos/v3/infrastructure/storage"
 
 	"github.com/segmentio/ksuid"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/iterator"
 
 	gcsstorage "cloud.google.com/go/storage"
@@ -91,33 +93,56 @@ func (s *gcsFileService) Upload(
 	}, nil
 }
 
+// deleteWorkers is how many objects are deleted at once. GCS has no batch
+// delete, and one object at a time is thirty to a hundred milliseconds each,
+// so an account with a thousand photos would take a minute or more inside one
+// request; this bounds the walk to a few seconds without flooding the bucket.
+const deleteWorkers = 16
+
 // DeleteAccountFolder lists every object under accounts/<accountID>/ and
-// deletes each one. GCS has no folders, so the prefix is the folder, and an
-// account with nothing stored lists nothing and is not an error. A delete
-// that fails stops the walk: an object left behind is data that was promised
-// gone, so the caller must see the failure and run the deletion again.
+// deletes each one, deleteWorkers at a time. GCS has no folders, so the
+// prefix is the folder, and an account with nothing stored lists nothing and
+// is not an error. A delete that fails stops the walk: an object left behind
+// is data that was promised gone, so the caller must see the failure and run
+// the deletion again.
 func (s *gcsFileService) DeleteAccountFolder(ctx context.Context, accountID string) error {
 	if err := storage.ValidateAccountID(accountID); err != nil {
 		return fmt.Errorf("invalid account ID: %w", err)
 	}
 	prefix := storage.AccountPrefix(accountID)
 	bucket := s.client.Bucket(s.bucket)
+	group, ctx := errgroup.WithContext(ctx)
+	group.SetLimit(deleteWorkers)
 	it := bucket.Objects(ctx, &gcsstorage.Query{Prefix: prefix})
-	deleted := 0
+	var deleted atomic.Int64
+	listed := 0
 	for {
 		attrs, err := it.Next()
 		if errors.Is(err, iterator.Done) {
 			break
 		}
 		if err != nil {
+			// A failed delete has already cancelled ctx; report that rather
+			// than the listing it interrupted.
+			if waitErr := group.Wait(); waitErr != nil {
+				return waitErr
+			}
 			return fmt.Errorf("list GCS objects under %s: %w", prefix, err)
 		}
-		if err := bucket.Object(attrs.Name).Delete(ctx); err != nil && !errors.Is(err, gcsstorage.ErrObjectNotExist) {
-			return fmt.Errorf("delete GCS object %s: %w", attrs.Name, err)
-		}
-		deleted++
+		listed++
+		name := attrs.Name
+		group.Go(func() error {
+			if err := bucket.Object(name).Delete(ctx); err != nil && !errors.Is(err, gcsstorage.ErrObjectNotExist) {
+				return fmt.Errorf("delete GCS object %s: %w", name, err)
+			}
+			deleted.Add(1)
+			return nil
+		})
+	}
+	if err := group.Wait(); err != nil {
+		return err
 	}
 	s.logger.Info(ctx, "account folder removed from GCS",
-		"bucket", s.bucket, "prefix", prefix, "objects", deleted)
+		"bucket", s.bucket, "prefix", prefix, "objects", deleted.Load(), "listed", listed)
 	return nil
 }

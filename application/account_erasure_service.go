@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/wepala/weos/v3/domain/entities"
@@ -40,6 +41,10 @@ var (
 	// left locked and nothing has been removed; running the deletion again
 	// waits again.
 	ErrErasureDrainTimeout = errors.New("account erasure: a background projection did not catch up in time")
+	// ErrErasureInProgress is returned when this process is already erasing
+	// the account: a retry that arrives while the first run is still walking
+	// the bucket must not start a second walk beside it.
+	ErrErasureInProgress = errors.New("account erasure: a deletion of this account is already running")
 )
 
 // SubscriberCheckpoint is one row of the checkpoint table: where a group has
@@ -117,7 +122,13 @@ type AccountErasureService struct {
 	// it is behind by and writes its row within this.
 	frozenGrace time.Duration
 	drainPoll   time.Duration
-	logger      entities.Logger
+	// timeout bounds the whole erasure. The run is detached from the
+	// caller's context, so this is the only deadline it has.
+	timeout time.Duration
+	logger  entities.Logger
+
+	mu       sync.Mutex
+	inFlight map[string]bool
 }
 
 // AccountErasureDeps is everything the service is built from.
@@ -132,6 +143,7 @@ type AccountErasureDeps struct {
 	RunningGroups RunningGroupsFunc
 	DrainTimeout  time.Duration
 	StaleAfter    time.Duration
+	Timeout       time.Duration
 	Logger        entities.Logger
 }
 
@@ -163,6 +175,7 @@ func ProvideAccountErasureService(p AccountErasureParams) *AccountErasureService
 		RunningGroups: p.RunningGroups,
 		DrainTimeout:  p.Config.Worker.ErasureDrainTimeout,
 		StaleAfter:    p.Config.Worker.ErasureDrainStaleAfter,
+		Timeout:       p.Config.Worker.ErasureTimeout,
 		Logger:        p.Logger,
 	})
 }
@@ -178,6 +191,9 @@ func NewAccountErasureService(d AccountErasureDeps) *AccountErasureService {
 	if d.RunningGroups == nil {
 		d.RunningGroups = func() []string { return nil }
 	}
+	if d.Timeout <= 0 {
+		d.Timeout = 15 * time.Minute
+	}
 	return &AccountErasureService{
 		accounts:     d.Accounts,
 		locks:        d.Locks,
@@ -191,18 +207,34 @@ func NewAccountErasureService(d AccountErasureDeps) *AccountErasureService {
 		staleAfter:   d.StaleAfter,
 		frozenGrace:  2 * time.Second,
 		drainPoll:    100 * time.Millisecond,
+		timeout:      d.Timeout,
 		logger:       d.Logger,
+		inFlight:     map[string]bool{},
 	}
 }
 
 // Erase runs the whole sequence for one account. It answers
-// ErrAccountNotFound for an account that does not exist, and
-// ErrErasureDrainTimeout when a background group never caught up; any other
-// error is a step that failed with the account left locked.
+// ErrAccountNotFound for an account that does not exist,
+// ErrErasureDrainTimeout when a background group never caught up, and
+// ErrErasureInProgress when this process is already erasing the account;
+// any other error is a step that failed with the account left locked.
+//
+// The run is detached from the caller's context and given its own deadline.
+// A person who asked for the deletion and then hung up — a mobile client
+// whose timeout is shorter than a bucket walk — must not abort it: the lock
+// row is the state the deletion keeps, and a cancelled walk would leave it
+// locked with nothing removed (wm-mpj0l).
 func (s *AccountErasureService) Erase(ctx context.Context, cmd EraseAccountCommand) (*ErasureResult, error) {
 	if cmd.AccountID == "" {
 		return nil, fmt.Errorf("%w: no account named", ErrAccountNotFound)
 	}
+	if !s.begin(cmd.AccountID) {
+		return nil, fmt.Errorf("%w: %s", ErrErasureInProgress, cmd.AccountID)
+	}
+	defer s.end(cmd.AccountID)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.timeout)
+	defer cancel()
+
 	account, err := s.accounts.FindByID(ctx, cmd.AccountID)
 	if err != nil {
 		return nil, fmt.Errorf("account erasure: load account %q: %w", cmd.AccountID, err)
@@ -258,6 +290,24 @@ func (s *AccountErasureService) Erase(ctx context.Context, cmd EraseAccountComma
 		Resources:   report.Resources,
 		Events:      report.Events,
 	}, nil
+}
+
+// begin claims the account for one run in this process. It answers false
+// when another run holds it.
+func (s *AccountErasureService) begin(accountID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.inFlight[accountID] {
+		return false
+	}
+	s.inFlight[accountID] = true
+	return true
+}
+
+func (s *AccountErasureService) end(accountID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.inFlight, accountID)
 }
 
 // drain reads the head of the event log once — after the lock, so nothing

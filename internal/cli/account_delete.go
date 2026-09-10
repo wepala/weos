@@ -119,6 +119,9 @@ func runAccountDelete(cmd *cobra.Command, args []string) error {
 		if errors.Is(err, application.ErrAccountNotFound) {
 			return fmt.Errorf("no account with id %s exists on this instance", accountID)
 		}
+		if errors.Is(err, application.ErrErasureInProgress) {
+			return fmt.Errorf("a deletion of account %s is already running in this process; wait for it to finish", accountID)
+		}
 		if errors.Is(err, application.ErrErasureDrainTimeout) {
 			return fmt.Errorf("account %s is locked but not erased: %v — run this command again "+
 				"once the background projections have caught up, pass --drain-timeout to wait longer, "+

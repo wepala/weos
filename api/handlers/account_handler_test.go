@@ -238,6 +238,26 @@ func TestAccountDelete_ErasesReportsWhoLostItAndSignsOut(t *testing.T) {
 	}
 }
 
+func TestAccountDelete_ARunAlreadyInProgressAnswersConflict(t *testing.T) {
+	f := newDeleteFixture(t)
+	f.erasure.result = nil
+	f.erasure.err = application.ErrErasureInProgress
+	rec := f.deleteAs("ops", "acct-harbor", `{"confirm":"DELETE"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("got %d %s, want 409", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Code string `json:"code"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if body.Code != handlers.CodeAccountErasureInProgress {
+		t.Errorf("code = %q, want %s", body.Code, handlers.CodeAccountErasureInProgress)
+	}
+	if f.sessions.destroyed != 0 {
+		t.Error("the session was cleared while the first run was still going")
+	}
+}
+
 func TestAccountDelete_UnfinishedDeletionAnswersWithTheCode(t *testing.T) {
 	f := newDeleteFixture(t)
 	f.erasure.result = nil

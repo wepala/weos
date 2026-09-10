@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync/atomic"
 
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/services"
@@ -29,6 +30,7 @@ import (
 	s3sdk "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/segmentio/ksuid"
+	"golang.org/x/sync/errgroup"
 )
 
 type s3FileService struct {
@@ -107,17 +109,25 @@ func (s *s3FileService) Upload(
 // deleteBatchSize is the most keys one DeleteObjects call accepts.
 const deleteBatchSize = 1000
 
+// deleteBatchWorkers is how many DeleteObjects calls are in flight at once.
+// A page of the listing is up to a thousand keys, one batch, so this only
+// matters across pages; it keeps a large account from serialising a batch
+// per round trip.
+const deleteBatchWorkers = 4
+
 // DeleteAccountFolder walks every page of ListObjectsV2 under
 // accounts/<accountID>/ and deletes the keys in batches of a thousand, the
-// most one DeleteObjects call accepts. A key S3 reports it could not delete
-// fails the call: a file left behind is data that was promised gone, so the
-// caller must see it and run the deletion again.
+// most one DeleteObjects call accepts, a few batches at a time. A key S3
+// reports it could not delete fails the call: a file left behind is data that
+// was promised gone, so the caller must see it and run the deletion again.
 func (s *s3FileService) DeleteAccountFolder(ctx context.Context, accountID string) error {
 	if err := storage.ValidateAccountID(accountID); err != nil {
 		return fmt.Errorf("invalid account ID: %w", err)
 	}
 	prefix := storage.AccountPrefix(accountID)
-	deleted := 0
+	var deleted atomic.Int64
+	group, ctx := errgroup.WithContext(ctx)
+	group.SetLimit(deleteBatchWorkers)
 	pages := s3sdk.NewListObjectsV2Paginator(s.client, &s3sdk.ListObjectsV2Input{
 		Bucket: aws.String(s.bucket),
 		Prefix: aws.String(prefix),
@@ -125,6 +135,11 @@ func (s *s3FileService) DeleteAccountFolder(ctx context.Context, accountID strin
 	for pages.HasMorePages() {
 		page, err := pages.NextPage(ctx)
 		if err != nil {
+			// A failed batch has already cancelled ctx; report that rather
+			// than the listing it interrupted.
+			if waitErr := group.Wait(); waitErr != nil {
+				return waitErr
+			}
 			return fmt.Errorf("list S3 objects under %s: %w", prefix, err)
 		}
 		keys := make([]types.ObjectIdentifier, 0, len(page.Contents))
@@ -135,16 +150,22 @@ func (s *s3FileService) DeleteAccountFolder(ctx context.Context, accountID strin
 			keys = append(keys, types.ObjectIdentifier{Key: object.Key})
 		}
 		for start := 0; start < len(keys); start += deleteBatchSize {
-			end := min(start+deleteBatchSize, len(keys))
-			n, err := s.deleteBatch(ctx, keys[start:end])
-			if err != nil {
-				return err
-			}
-			deleted += n
+			batch := keys[start:min(start+deleteBatchSize, len(keys))]
+			group.Go(func() error {
+				n, err := s.deleteBatch(ctx, batch)
+				if err != nil {
+					return err
+				}
+				deleted.Add(int64(n))
+				return nil
+			})
 		}
 	}
+	if err := group.Wait(); err != nil {
+		return err
+	}
 	s.logger.Info(ctx, "account folder removed from S3",
-		"bucket", s.bucket, "region", s.region, "prefix", prefix, "objects", deleted)
+		"bucket", s.bucket, "region", s.region, "prefix", prefix, "objects", deleted.Load())
 	return nil
 }
 

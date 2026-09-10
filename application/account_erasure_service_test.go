@@ -365,6 +365,74 @@ func TestAccountErasure_AFailedFileDeleteKeepsTheLockAndTheSQLState(t *testing.T
 	}
 }
 
+// wm-mpj0l: the run is detached from the request. A client that hangs up
+// mid-walk cancels the request's context; the erasure carries on and finishes.
+func TestAccountErasure_ACancelledRequestDoesNotAbortTheRun(t *testing.T) {
+	h := newErasureHarness(t)
+	h.head = 10
+	h.setPosition("oxigraph", 8)
+	go func() {
+		time.Sleep(30 * time.Millisecond)
+		h.setPosition("oxigraph", 10)
+	}()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // the client is already gone when the service starts
+	if _, err := h.service(time.Second).Erase(ctx, EraseAccountCommand{AccountID: "acct-harbor"}); err != nil {
+		t.Fatalf("Erase under a cancelled request context: %v", err)
+	}
+	if !h.purger.purged {
+		t.Error("the purge did not run after the request's context was cancelled")
+	}
+}
+
+// blockingPurger holds the purge until released, so a second run can arrive
+// while the first is still inside the sequence.
+type blockingPurger struct {
+	erasurePurger
+	once    sync.Once
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (p *blockingPurger) Purge(ctx context.Context, id string) (*repositories.PurgeReport, error) {
+	p.once.Do(func() {
+		close(p.entered)
+		<-p.release
+	})
+	return p.erasurePurger.Purge(ctx, id)
+}
+
+func TestAccountErasure_ASecondRunOfTheSameAccountIsRefusedWhileTheFirstRuns(t *testing.T) {
+	h := newErasureHarness(t)
+	blocking := &blockingPurger{erasurePurger: *h.purger, entered: make(chan struct{}), release: make(chan struct{})}
+	h.purger = &blocking.erasurePurger
+	svc := NewAccountErasureService(AccountErasureDeps{
+		Accounts: h.accounts, Locks: h.locks, Purger: blocking, Files: h.files, Graphs: h.graphs,
+		EventStore: headOf{esinfra.NewMemoryStore(), h.head}, Checkpoints: h.checkpoints,
+		DrainTimeout: time.Second, Logger: noopWorkerLogger{},
+	})
+	svc.drainPoll = 5 * time.Millisecond
+
+	first := make(chan error, 1)
+	go func() {
+		_, err := svc.Erase(context.Background(), EraseAccountCommand{AccountID: "acct-harbor"})
+		first <- err
+	}()
+	<-blocking.entered
+	_, err := svc.Erase(context.Background(), EraseAccountCommand{AccountID: "acct-harbor"})
+	if !errors.Is(err, ErrErasureInProgress) {
+		t.Fatalf("second Erase error = %v, want ErrErasureInProgress", err)
+	}
+	close(blocking.release)
+	if err := <-first; err != nil {
+		t.Fatalf("the first run failed: %v", err)
+	}
+	// Once the first run has returned the account may be erased again.
+	if _, err := svc.Erase(context.Background(), EraseAccountCommand{AccountID: "acct-harbor"}); errors.Is(err, ErrErasureInProgress) {
+		t.Fatal("the account stayed marked in progress after the run returned")
+	}
+}
+
 func TestAccountErasure_UnknownAccountIsNotFound(t *testing.T) {
 	h := newErasureHarness(t)
 	_, err := h.service(time.Second).Erase(context.Background(), EraseAccountCommand{AccountID: "acct-nobody"})

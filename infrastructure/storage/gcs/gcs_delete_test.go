@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -93,14 +94,13 @@ func TestDeleteAccountFolder_DeletesEveryObjectUnderThePrefixAcrossPages(t *test
 		t.Fatalf("DeleteAccountFolder() error: %v", err)
 	}
 
-	want := fake.objects[:5]
-	if len(fake.deleted) != len(want) {
-		t.Fatalf("deleted %v, want exactly %v", fake.deleted, want)
-	}
-	for i, name := range want {
-		if fake.deleted[i] != name {
-			t.Errorf("deleted[%d] = %q, want %q", i, fake.deleted[i], name)
-		}
+	// Objects are deleted a few at a time, so the order is not promised; the
+	// set is.
+	want := append([]string(nil), fake.objects[:5]...)
+	got := append([]string(nil), fake.deleted...)
+	sort.Strings(got)
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("deleted %v, want exactly %v", got, want)
 	}
 	for _, prefix := range fake.lists {
 		if prefix != "accounts/acct_1/" {
