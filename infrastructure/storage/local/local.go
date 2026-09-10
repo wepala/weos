@@ -49,10 +49,6 @@ func New(basePath, baseURL string, logger entities.Logger) services.FileService 
 func (s *localFileService) Upload(
 	ctx context.Context, params services.UploadParams, reader io.Reader,
 ) (*services.UploadResult, error) {
-	if err := os.MkdirAll(s.basePath, 0o750); err != nil {
-		return nil, fmt.Errorf("create upload directory: %w", err)
-	}
-
 	id := params.ID
 	if id == "" {
 		id = ksuid.New().String()
@@ -60,12 +56,19 @@ func (s *localFileService) Upload(
 	if err := storage.ValidateID(id); err != nil {
 		return nil, fmt.Errorf("invalid upload ID: %w", err)
 	}
+	if err := storage.ValidateAccountID(params.AccountID); err != nil {
+		return nil, fmt.Errorf("invalid account ID: %w", err)
+	}
 	safeName := storage.SanitizeFilename(params.Filename)
-	diskName := id + "-" + safeName
-	fullPath := filepath.Join(s.basePath, diskName)
+	key := storage.ObjectKey(params.AccountID, id, safeName)
+	fullPath := filepath.Join(s.basePath, filepath.FromSlash(key))
 
-	// G304: fullPath is basePath joined with a validated ID and a sanitized
-	// filename, so it cannot escape the upload directory.
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0o750); err != nil {
+		return nil, fmt.Errorf("create upload directory: %w", err)
+	}
+
+	// G304: fullPath is basePath joined with a validated account ID, a validated
+	// ID and a sanitized filename, so it cannot escape the upload directory.
 	f, err := os.Create(fullPath) //nolint:gosec // path is validated above
 	if err != nil {
 		return nil, fmt.Errorf("create file: %w", err)
@@ -94,9 +97,26 @@ func (s *localFileService) Upload(
 
 	return &services.UploadResult{
 		ID:          id,
-		URL:         s.baseURL + "/" + diskName,
+		URL:         s.baseURL + "/" + key,
 		Filename:    safeName,
 		ContentType: params.ContentType,
 		Size:        written,
 	}, nil
+}
+
+// DeleteAccountFolder removes <basePath>/accounts/<accountID> and everything
+// under it. The account id is validated first, so the folder removed is always
+// one this backend could have written, never a path a crafted id climbs to.
+func (s *localFileService) DeleteAccountFolder(ctx context.Context, accountID string) error {
+	if err := storage.ValidateAccountID(accountID); err != nil {
+		return fmt.Errorf("invalid account ID: %w", err)
+	}
+	folder := filepath.Join(s.basePath, filepath.FromSlash(storage.AccountFolder(accountID)))
+	// RemoveAll reports nothing for a folder that is not there, which is what
+	// a re-run after a failed deletion needs.
+	if err := os.RemoveAll(folder); err != nil {
+		return fmt.Errorf("remove account folder: %w", err)
+	}
+	s.logger.Info(ctx, "account folder removed from local storage", "path", folder)
+	return nil
 }

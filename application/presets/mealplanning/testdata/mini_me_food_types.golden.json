@@ -1,0 +1,80 @@
+{
+  "source": {
+    "blob": "99f92d2b7170087af64223387460f79e783a7e30",
+    "commit": "fbf90ba6",
+    "path": "cmd/mini-me/food_preset.go",
+    "repo": "wepala/mini-me-weos"
+  },
+  "types": [
+    {
+      "name": "TasteProfile",
+      "slug": "taste-profile",
+      "description": "A person's food preferences: cuisines and ingredients liked, disliked, dietary rules, never-eat rules, and per-context budget caps",
+      "context": "{\"@vocab\":\"https://schema.org/\",\"@type\":\"https://weos.io/vocab/meal-planning#TasteProfile\",\"name\":\"https://schema.org/name\",\"likes\":\"https://weos.io/vocab/meal-planning#likes\",\"dislikes\":\"https://weos.io/vocab/meal-planning#dislikes\",\"diet\":\"https://weos.io/vocab/meal-planning#diet\",\"neverEat\":\"https://weos.io/vocab/meal-planning#neverEat\",\"budgetCaps\":\"https://weos.io/vocab/meal-planning#budgetCaps\",\"notes\":\"https://schema.org/description\"}",
+      "schema": "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},\"likes\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"dislikes\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"diet\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"neverEat\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"budgetCaps\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"context\":{\"type\":\"string\"},\"amount\":{\"type\":\"number\",\"minimum\":0},\"currency\":{\"type\":\"string\"}},\"required\":[\"context\",\"amount\"]}},\"notes\":{\"type\":\"string\"}},\"required\":[\"name\"]}"
+    },
+    {
+      "name": "MealLog",
+      "slug": "meal-log",
+      "description": "One meal Akeem ate: when, what kind, and the recipe cooked or order placed",
+      "context": "{\"@vocab\":\"https://schema.org/\",\"@type\":\"https://weos.io/vocab/meal-planning#MealOccurrence\",\"date\":\"https://schema.org/startDate\",\"mealType\":\"https://weos.io/vocab/meal-planning#mealType\",\"servings\":\"https://weos.io/vocab/meal-planning#servings\",\"orderId\":\"https://schema.org/isBasedOn\",\"recipe\":\"https://weos.io/vocab/meal-planning#recipe\",\"scheduledMeal\":\"https://weos.io/vocab/meal-planning#occurrenceOf\",\"status\":\"https://weos.io/vocab/meal-planning#status\",\"notes\":\"https://schema.org/description\",\"rating\":\"https://weos.io/vocab/meal-planning#rating\"}",
+      "schema": "{\"type\":\"object\",\"properties\":{\"date\":{\"type\":\"string\",\"format\":\"date\"},\"mealType\":{\"type\":\"string\",\"enum\":[\"breakfast\",\"lunch\",\"dinner\",\"snack\"]},\"status\":{\"type\":\"string\",\"enum\":[\"planned\",\"cooked\",\"skipped\"]},\"recipe\":{\"type\":\"string\",\"x-resource-type\":\"recipe\",\"x-display-property\":\"name\"},\"orderId\":{\"type\":\"string\",\"x-resource-type\":\"order\",\"x-display-property\":\"orderNumber\"},\"scheduledMeal\":{\"type\":\"string\",\"x-resource-type\":\"planned-meal\",\"x-display-property\":\"mealType\"},\"servings\":{\"type\":\"integer\",\"minimum\":1},\"notes\":{\"type\":\"string\"},\"rating\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":5}},\"required\":[\"date\",\"mealType\"]}"
+    },
+    {
+      "name": "Restaurant",
+      "slug": "restaurant",
+      "description": "A restaurant Akeem orders from, standing as the providing agent on orders and invoices",
+      "context": "{\"@vocab\":\"https://schema.org/\",\"@type\":\"Restaurant\",\"rdfs:subClassOf\":\"agent\"}",
+      "schema": "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},\"servesCuisine\":{\"type\":\"string\"},\"address\":{\"type\":\"string\"},\"telephone\":{\"type\":\"string\"},\"url\":{\"type\":\"string\"}},\"required\":[\"name\"]}"
+    },
+    {
+      "name": "PlannedMeal",
+      "slug": "planned-meal",
+      "description": "A recipe planned for an upcoming meal, with an optional headcount that scales its grocery needs",
+      "context": "{\"@vocab\":\"https://schema.org/\",\"@type\":\"https://schema.org/Schedule\",\"recipe\":\"https://weos.io/vocab/meal-planning#recipe\",\"people\":\"https://weos.io/vocab/meal-planning#people\",\"scaleFactor\":\"https://weos.io/vocab/meal-planning#scaleFactor\",\"plannedFor\":\"https://weos.io/vocab/meal-planning#plannedFor\"}",
+      "schema": "{\"type\":\"object\",\"properties\":{\"recipe\":{\"type\":\"string\",\"x-resource-type\":\"recipe\",\"x-display-property\":\"name\"},\"people\":{\"type\":\"integer\",\"minimum\":1},\"scaleFactor\":{\"type\":\"number\",\"minimum\":0},\"plannedFor\":{\"type\":\"string\",\"format\":\"date\"}},\"required\":[\"recipe\"]}"
+    },
+    {
+      "name": "GroceryAmendment",
+      "slug": "grocery-amendment",
+      "description": "A manual change to the grocery list: an add of an ingredient, or a check-off of one already on it",
+      "context": "{\"@vocab\":\"https://schema.org/\",\"@type\":\"https://weos.io/vocab/meal-planning#ShoppingListAmendment\",\"ingredient\":\"https://weos.io/vocab/meal-planning#ingredient\",\"kind\":\"https://weos.io/vocab/meal-planning#amendmentKind\"}",
+      "schema": "{\"type\":\"object\",\"properties\":{\"kind\":{\"type\":\"string\",\"enum\":[\"add\",\"check-off\"]},\"ingredient\":{\"type\":\"string\",\"x-resource-type\":\"ingredient\",\"x-display-property\":\"name\"}},\"required\":[\"kind\",\"ingredient\"]}"
+    },
+    {
+      "name": "GroceryListItem",
+      "slug": "grocery-list-item",
+      "description": "One materialized line on the grocery list: an ingredient to get, an optional combined quantity, and the per-recipe component needs behind it",
+      "context": "{\"@vocab\":\"https://schema.org/\",\"@type\":\"https://weos.io/vocab/meal-planning#ShoppingListItem\",\"ingredient\":\"https://weos.io/vocab/meal-planning#ingredient\",\"quantity\":\"https://weos.io/vocab/meal-planning#quantity\",\"unit\":\"https://weos.io/vocab/meal-planning#unit\",\"manuallyAdded\":\"https://weos.io/vocab/meal-planning#manuallyAdded\",\"stapleLow\":\"https://weos.io/vocab/meal-planning#stapleLow\",\"components\":\"https://weos.io/vocab/meal-planning#components\"}",
+      "schema": "{\"type\":\"object\",\"properties\":{\"ingredient\":{\"type\":\"string\",\"x-resource-type\":\"ingredient\",\"x-display-property\":\"name\"},\"quantity\":{\"type\":\"number\"},\"unit\":{\"type\":\"string\"},\"manuallyAdded\":{\"type\":\"boolean\"},\"stapleLow\":{\"type\":\"boolean\"},\"components\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"quantity\":{\"type\":\"number\"},\"unit\":{\"type\":\"string\"},\"recipe\":{\"type\":\"string\"}}}}},\"required\":[\"ingredient\",\"manuallyAdded\"]}"
+    },
+    {
+      "name": "Staple",
+      "slug": "staple",
+      "description": "A staple ingredient Akeem always keeps stocked; running low is judged against the current pantry declaration",
+      "context": "{\"@vocab\":\"https://schema.org/\",\"@type\":\"https://weos.io/vocab/meal-planning#Staple\",\"ingredient\":\"https://weos.io/vocab/meal-planning#ingredient\"}",
+      "schema": "{\"type\":\"object\",\"properties\":{\"ingredient\":{\"type\":\"string\",\"x-resource-type\":\"ingredient\",\"x-display-property\":\"name\"}},\"required\":[\"ingredient\"]}"
+    },
+    {
+      "name": "Purchase",
+      "slug": "purchase",
+      "description": "One confirmed grocery purchase: the store, when it happened (and how that time is known), the printed total, and the dedup identity of its receipt",
+      "context": "{\"@vocab\":\"https://schema.org/\",\"@type\":\"https://schema.org/Order\",\"rdfs:subClassOf\":\"agreement\",\"seller\":\"https://schema.org/seller\",\"store\":\"https://weos.io/vocab/meal-planning#store\",\"purchasedAt\":\"https://weos.io/vocab/meal-planning#purchasedAt\",\"timeSource\":\"https://weos.io/vocab/meal-planning#timeSource\",\"total\":\"https://weos.io/vocab/meal-planning#total\",\"contentHash\":\"https://weos.io/vocab/ingest#contentHash\"}",
+      "schema": "{\"type\":\"object\",\"properties\":{\"store\":{\"type\":\"string\"},\"seller\":{\"type\":\"string\",\"x-resource-type\":\"organization\",\"x-display-property\":\"name\"},\"purchasedAt\":{\"type\":\"string\"},\"timeSource\":{\"type\":\"string\",\"enum\":[\"receipt\",\"share\"]},\"total\":{\"type\":\"string\"},\"contentHash\":{\"type\":\"string\"}},\"required\":[\"store\",\"purchasedAt\",\"timeSource\"]}"
+    },
+    {
+      "name": "PurchaseLine",
+      "slug": "purchase-line",
+      "description": "One line item of a confirmed purchase: the item as printed, its prices, and the vocabulary node it names when known",
+      "context": "{\"@vocab\":\"https://schema.org/\",\"@type\":\"https://schema.org/OrderItem\",\"name\":\"https://schema.org/name\",\"purchase\":\"https://schema.org/isPartOf\",\"ingredient\":\"https://weos.io/vocab/meal-planning#ingredient\",\"quantity\":\"https://weos.io/vocab/meal-planning#quantity\",\"unitPrice\":\"https://weos.io/vocab/meal-planning#unitPrice\",\"lineTotal\":\"https://weos.io/vocab/meal-planning#lineTotal\"}",
+      "schema": "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},\"purchase\":{\"type\":\"string\",\"x-resource-type\":\"purchase\",\"x-display-property\":\"store\"},\"quantity\":{\"type\":\"number\"},\"unitPrice\":{\"type\":\"string\"},\"lineTotal\":{\"type\":\"string\"},\"ingredient\":{\"type\":\"string\",\"x-resource-type\":\"ingredient\",\"x-display-property\":\"name\"}},\"required\":[\"name\",\"purchase\"]}"
+    },
+    {
+      "name": "ItemKind",
+      "slug": "item-kind",
+      "description": "One item's declared perishability: perishable or non-perishable, at the purchase-line name grain",
+      "context": "{\"@vocab\":\"https://schema.org/\",\"@type\":\"https://schema.org/DefinedTerm\",\"name\":\"https://schema.org/name\",\"kind\":\"https://weos.io/vocab/meal-planning#perishability\"}",
+      "schema": "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},\"kind\":{\"type\":\"string\",\"enum\":[\"perishable\",\"non-perishable\"]}},\"required\":[\"name\",\"kind\"]}"
+    }
+  ]
+}

@@ -30,6 +30,9 @@ type UploadParams struct {
 	// this value as the upload ID to ensure consistent identification across
 	// primary and secondary replicas.
 	ID string
+	// AccountID is the account that owns the upload. Backends store the file
+	// under that account's folder and refuse an upload that names none.
+	AccountID string
 }
 
 // UploadResult contains the metadata returned after a successful file upload.
@@ -44,4 +47,12 @@ type UploadResult struct {
 // FileService defines the interface for uploading files to a storage backend.
 type FileService interface {
 	Upload(ctx context.Context, params UploadParams, reader io.Reader) (*UploadResult, error)
+
+	// DeleteAccountFolder removes every file stored under the account's
+	// folder, accounts/<accountID>/, as part of erasing the account. A folder
+	// that does not exist is not an error, so a re-run after a failure is
+	// safe. A backend that fans out to others reports every failure it met
+	// rather than the first, and never treats one as best-effort: a file left
+	// behind in any store is data that was promised gone.
+	DeleteAccountFolder(ctx context.Context, accountID string) error
 }

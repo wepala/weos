@@ -46,6 +46,8 @@ func WorkerModule() fx.Option {
 		fx.Provide(ProvideInProcessNotifier),
 		fx.Provide(ProvideCheckpointStore),
 		fx.Provide(ProvideEnsureCheckpoint),
+		fx.Provide(ProvideCheckpointPositions),
+		fx.Provide(ProvideRunningGroups),
 		fx.Provide(ProvideParkingLot),
 		fx.Provide(ProvideWorkerManager),
 		fx.Invoke(runWorkerManager),
@@ -89,6 +91,39 @@ func ProvideEnsureCheckpoint(db *gorm.DB) EnsureCheckpointFunc {
 			return fmt.Errorf("ensure checkpoint for %q at %d: %w", subscriber, position, err)
 		}
 		return nil
+	}
+}
+
+// ProvideCheckpointPositions reads every subscriber checkpoint row, for the
+// erasure drain. It reads the table rather than asking the Manager, because
+// a group another process runs — a separate worker on Postgres, an overlay's
+// subscriber — still projects the feed, and its checkpoint is the only sign
+// of it here. The row's updated_at comes along: it is how the drain tells a
+// row somebody is advancing from one nobody is.
+func ProvideCheckpointPositions(db *gorm.DB) CheckpointPositionsFunc {
+	return func(ctx context.Context) ([]SubscriberCheckpoint, error) {
+		var rows []subscriptions.GormCheckpointModel
+		if err := db.WithContext(ctx).Find(&rows).Error; err != nil {
+			return nil, fmt.Errorf("read subscriber checkpoints: %w", err)
+		}
+		out := make([]SubscriberCheckpoint, 0, len(rows))
+		for _, row := range rows {
+			out = append(out, SubscriberCheckpoint{Name: row.Subscriber, Position: row.Position, UpdatedAt: row.UpdatedAt})
+		}
+		return out, nil
+	}
+}
+
+// ProvideRunningGroups names, for the erasure drain, the groups this process
+// actually runs: the Manager's registered groups when RunInProcess is set,
+// and none otherwise — the Manager is constructed in every process so the
+// CLI can inspect checkpoints, but only the serve command starts it.
+func ProvideRunningGroups(m *Manager, cfg config.Config) RunningGroupsFunc {
+	return func() []string {
+		if !cfg.Worker.RunInProcess {
+			return nil
+		}
+		return m.Names()
 	}
 }
 

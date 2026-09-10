@@ -261,6 +261,23 @@ type WorkerConfig struct {
 	// LagLogInterval is how often each subscriber's checkpoint lag is logged.
 	// Zero disables lag logging. Default 30s.
 	LagLogInterval time.Duration
+	// ErasureDrainTimeout bounds how long an account erasure waits for every
+	// subscriber group's checkpoint to reach the head of the event log before
+	// it purges. A group that never catches up turns the deletion into a
+	// failure that keeps the account locked, rather than a purge a late
+	// projection undoes. Default 30s.
+	ErasureDrainTimeout time.Duration
+	// ErasureDrainStaleAfter is how long a checkpoint row that no group in
+	// this process runs may go unwritten before the erasure drain stops
+	// waiting on it. A group that was turned off, renamed or retired leaves
+	// its row where it stopped, and nothing else prunes it; without this
+	// every deletion on the instance would time out on it. Default 10m.
+	ErasureDrainStaleAfter time.Duration
+	// ErasureTimeout bounds a whole account erasure. The run is detached
+	// from the request that asked for it — a client that hangs up must not
+	// abort a deletion it asked for — so this is its only deadline. It has to
+	// cover a bucket walk of every file the account ever stored. Default 15m.
+	ErasureTimeout time.Duration
 }
 
 // IsPostgresDSN reports whether dsn targets PostgreSQL — a "host=" libpq DSN
@@ -484,13 +501,16 @@ func Default() Config {
 			MaxUploadBytes: 50 << 20, // 50 MB
 		},
 		Worker: WorkerConfig{
-			RunInProcess:    false,
-			BatchSize:       100,
-			PollInterval:    time.Second,
-			MaxRetries:      5,
-			RetryBackoff:    100 * time.Millisecond,
-			MaxRetryBackoff: 5 * time.Second,
-			LagLogInterval:  30 * time.Second,
+			RunInProcess:           false,
+			BatchSize:              100,
+			PollInterval:           time.Second,
+			MaxRetries:             5,
+			RetryBackoff:           100 * time.Millisecond,
+			MaxRetryBackoff:        5 * time.Second,
+			LagLogInterval:         30 * time.Second,
+			ErasureDrainTimeout:    30 * time.Second,
+			ErasureDrainStaleAfter: 10 * time.Minute,
+			ErasureTimeout:         15 * time.Minute,
 		},
 		Features: FeaturesConfig{
 			CacheMaxAge:   15 * time.Minute,
@@ -741,6 +761,21 @@ func (c *Config) loadWorkerFromEnvironment() {
 	if v := os.Getenv("WORKER_LAG_LOG_INTERVAL_SECONDS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 			c.Worker.LagLogInterval = time.Duration(n) * time.Second
+		}
+	}
+	if v := os.Getenv("ACCOUNT_ERASURE_DRAIN_TIMEOUT_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.Worker.ErasureDrainTimeout = time.Duration(n) * time.Second
+		}
+	}
+	if v := os.Getenv("ACCOUNT_ERASURE_DRAIN_STALE_AFTER_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.Worker.ErasureDrainStaleAfter = time.Duration(n) * time.Second
+		}
+	}
+	if v := os.Getenv("ACCOUNT_ERASURE_TIMEOUT_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.Worker.ErasureTimeout = time.Duration(n) * time.Second
 		}
 	}
 }

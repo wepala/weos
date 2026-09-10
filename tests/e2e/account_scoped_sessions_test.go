@@ -130,6 +130,7 @@ type accountScopedWorld struct {
 	behaviorSettings    repositories.BehaviorSettingsRepository
 	inviteService       *authapp.InviteService
 	inviteRepo          authrepos.InviteRepository
+	erasureLocks        repositories.AccountErasureLocks
 	logger              entities.Logger
 
 	registrationEnabled bool
@@ -146,6 +147,16 @@ type accountScopedWorld struct {
 	order []string
 
 	envBefore map[string]*string
+
+	// extraOptions and mountExtraRoutes let another suite boot this same
+	// instance with more of the application wired in, rather than copying the
+	// staging this file already does.
+	extraOptions     []fx.Option
+	mountExtraRoutes func(api *echo.Group, guards []echo.MiddlewareFunc)
+	// configure lets another suite adjust the config after the environment
+	// has been read and before the app is built — for what no environment
+	// variable sets, such as running the background workers in-process.
+	configure func(cfg *config.Config)
 }
 
 func initAccountScopedSessionScenario(sc *godog.ScenarioContext) {
@@ -282,8 +293,11 @@ func (w *accountScopedWorld) boot(registration bool) error {
 	cfg.LoadFromEnvironment()
 	cfg.DatabaseDSN = w.dsn
 	cfg.LogLevel = "error"
+	if w.configure != nil {
+		w.configure(&cfg)
+	}
 
-	app := fx.New(
+	options := []fx.Option{
 		fx.NopLogger,
 		application.Module(cfg, presets.NewDefaultRegistry()),
 		fx.Provide(weosoauth.ProvideJWTService),
@@ -291,8 +305,9 @@ func (w *accountScopedWorld) boot(registration bool) error {
 		fx.Populate(&w.sessionManager, &w.sessionStore, &w.authzChecker, &w.logger),
 		fx.Populate(&w.resourceService, &w.resourceTypeService, &w.jwtService),
 		fx.Populate(&w.inviteService, &w.inviteRepo),
-		fx.Populate(&w.behaviorSettings),
-	)
+		fx.Populate(&w.behaviorSettings, &w.erasureLocks),
+	}
+	app := fx.New(append(options, w.extraOptions...)...)
 	startCtx, cancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
 	defer cancel()
 	if err := app.Start(startCtx); err != nil {
@@ -327,21 +342,30 @@ func (w *accountScopedWorld) boot(registration bool) error {
 		SessionManager: w.sessionManager,
 		SecureCookies:  false,
 		Logger:         w.logger,
+		AccountRepo:    w.accountRepo,
+		ErasureLocks:   w.erasureLocks,
 	})
 	handlers.MountPasswordAuth(api, passwordHandlers, handlers.PasswordAuthRoutes{
 		SignIn:       true,
 		Registration: registration,
 	})
 
+	// The same order serve.go mounts: the erasure guard in front of
+	// RequireAuth, so an account part-way through a deletion is refused with
+	// the code that says so rather than as merely deactivated.
 	guards := []echo.MiddlewareFunc{
+		apimw.ErasureGuard(w.sessionManager, w.erasureLocks, w.logger),
 		echo.WrapMiddleware(authhttp.RequireAuth(w.sessionManager, w.authService)),
-		apimw.Impersonation(w.sessionStore, w.accountRepo, w.logger),
+		apimw.Impersonation(w.sessionStore, w.accountRepo, w.erasureLocks, w.logger),
 		apimw.AuthorizeResource(w.authzChecker, w.accountRepo, w.logger),
 	}
 	resourceHandler := handlers.NewResourceHandler(w.resourceService, w.resourceTypeService, w.logger)
 	api.POST("/:typeSlug", resourceHandler.Create, guards...)
 	api.GET("/:typeSlug", resourceHandler.List, guards...)
 	api.GET("/:typeSlug/:id", resourceHandler.Get, guards...)
+	if w.mountExtraRoutes != nil {
+		w.mountExtraRoutes(api, guards)
+	}
 
 	// Accepting an invitation carries its own authorization in the token, so
 	// serve.go mounts it outside the guarded group. With no OAuth provider

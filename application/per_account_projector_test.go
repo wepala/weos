@@ -36,7 +36,10 @@ func (f *fakeStores) ForAccount(_ context.Context, id string) (repositories.Know
 	return &fakeKGStore{active: true}, nil
 }
 func (f *fakeStores) Truncate(context.Context) error { return nil }
-func (f *fakeStores) Close() error                   { return nil }
+func (f *fakeStores) DropAccount(context.Context, string, []string) error {
+	return nil
+}
+func (f *fakeStores) Close() error { return nil }
 
 func envWithPayload(eventType, aggregateID string, payload any) domain.EventEnvelope[any] {
 	return domain.EventEnvelope[any]{AggregateID: aggregateID, EventType: eventType, Payload: payload}

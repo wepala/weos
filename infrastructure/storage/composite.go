@@ -17,6 +17,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -37,8 +38,11 @@ type compositeFileService struct {
 // and zero or more secondary backends. A single ID is pre-generated and
 // shared across all backends so replicas are correlated. The result from
 // the first secondary that succeeds is returned (providing an app-hosted
-// URL), falling back to the primary result. Upload data is spooled to a
-// temporary file to avoid holding the entire body in memory.
+// URL). When secondaries are configured and every one fails, the upload
+// fails: the primary's URL points straight at the bucket, where no account
+// check runs. With no secondaries the primary result is returned. Upload
+// data is spooled to a temporary file to avoid holding the entire body in
+// memory.
 func NewComposite(
 	primary services.FileService,
 	secondaries []services.FileService,
@@ -107,8 +111,6 @@ func (c *compositeFileService) Upload(
 		}
 	}
 
-	// If a secondary provided an app-hosted URL, prefer it; otherwise
-	// fall back to the primary result.
 	if returnResult != nil {
 		// Preserve the primary's size if the secondary didn't report one
 		// (e.g., cloud backends may not return size).
@@ -118,5 +120,32 @@ func (c *compositeFileService) Upload(
 		return returnResult, nil
 	}
 
+	if len(c.secondaries) > 0 {
+		// The primary copy stays in the bucket with nothing referring to it;
+		// the log line is the only record of where it is.
+		c.logger.Error(ctx, "every secondary upload failed; refusing the primary's direct URL",
+			"secondaries", len(c.secondaries), "uploadID", params.ID,
+			"accountID", params.AccountID, "primaryURL", primaryResult.URL)
+		return nil, fmt.Errorf("no secondary backend stored upload %s", params.ID)
+	}
+
 	return primaryResult, nil
+}
+
+// DeleteAccountFolder asks every backend to remove the folder and reports
+// every failure it met, joined. Unlike Upload, where a secondary that fails is
+// a replica that can be rebuilt, a folder a secondary keeps is the account's
+// data still on the instance — so no backend is best-effort here, and one
+// failure does not stop the others from being asked.
+func (c *compositeFileService) DeleteAccountFolder(ctx context.Context, accountID string) error {
+	var errs []error
+	if err := c.primary.DeleteAccountFolder(ctx, accountID); err != nil {
+		errs = append(errs, fmt.Errorf("primary: %w", err))
+	}
+	for i, sec := range c.secondaries {
+		if err := sec.DeleteAccountFolder(ctx, accountID); err != nil {
+			errs = append(errs, fmt.Errorf("secondary %d: %w", i, err))
+		}
+	}
+	return errors.Join(errs...)
 }

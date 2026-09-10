@@ -167,6 +167,23 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
   #    "A reprojection alone leaves the old class; a re-stamp moves it" is the
   #    scenario that pins both halves of that sequence.
   #
+  # 2. A PRESET MAY RESOLVE A REUSED weos.io HOUSE VOCABULARY, BUT ONLY ONE ITS
+  #    ROW NAMES. Story wm-kb6sg.1 moved mini-me's `purchase` type into
+  #    meal-planning, and its `contentHash` resolves to
+  #    `https://weos.io/vocab/ingest#contentHash` — the import pipeline's
+  #    namespace (`jsonld.IngestVocab`), which names no preset. That failed the
+  #    meal-planning row of "The house prefix of each minting preset resolves on
+  #    weos.io", which required every house IRI under `meal-planning#`. Akeem
+  #    settled it on 2026-09-10 (finding wm-8m547): the design stands, and
+  #    `contentHash` stays on `ingest#` so `purchase` stays byte-identical to the
+  #    type the live twin stores. The outline gained a `reuses` column instead of
+  #    the term moving. The allowance is explicit and per row: a house IRI under a
+  #    namespace the row does not name still fails — anything on weos.org, a
+  #    weos.io namespace no row names, or a prefix bound to the wrong namespace —
+  #    and a `reuses` cell that no installed type of the preset resolves fails
+  #    too, so the allowance cannot outlive the term that needs it. The point of
+  #    #520 is untouched: `ingest#` is on the domain WeOS owns.
+  #
   # ---------------------------------------------------------------------------
   # OPEN QUESTION — this still needs an answer before the story is called done.
   #
@@ -194,29 +211,32 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
     Then no installed resource type resolves any term, prefix or "@type" under "https://weos.org/"
     And no installed resource type resolves any term, prefix or "@type" under "http://weos.org/"
 
+  # A row's `reuses` cell names the one other weos.io house vocabulary that
+  # preset's types may resolve, or "none". Meal-planning names `ingest#` for
+  # `purchase.contentHash`, as Akeem decided on finding wm-8m547 — SETTLED 2.
   Scenario Outline: The house prefix of each minting preset resolves on weos.io
     Given a clean WeOS database
     When the operator installs the "<preset>" preset
     Then every installed type of "<preset>" that declares "<prefix>" resolves it to "<namespace>"
-    And every house IRI the installed types of "<preset>" resolve is under "<namespace>"
+    And every house IRI the installed types of "<preset>" resolve is under "<namespace>" or the reused "<reuses>"
 
     Examples:
-      | preset        | prefix | namespace                            |
-      | meal-planning | mp     | https://weos.io/vocab/meal-planning# |
-      | memory        | mem    | https://weos.io/vocab/memory#        |
-      | agents        | ag     | https://weos.io/vocab/agents#        |
-      | core          | core   | https://weos.io/vocab/core#          |
-      | notifications | notif  | https://weos.io/vocab/notifications# |
-      | tasks         | task   | https://weos.io/vocab/tasks#         |
-      | website       | web    | https://weos.io/vocab/website#       |
+      | preset        | prefix | namespace                            | reuses                        |
+      | meal-planning | mp     | https://weos.io/vocab/meal-planning# | https://weos.io/vocab/ingest# |
+      | memory        | mem    | https://weos.io/vocab/memory#        | none                          |
+      | agents        | ag     | https://weos.io/vocab/agents#        | none                          |
+      | core          | core   | https://weos.io/vocab/core#          | none                          |
+      | notifications | notif  | https://weos.io/vocab/notifications# | none                          |
+      | tasks         | task   | https://weos.io/vocab/tasks#         | none                          |
+      | website       | web    | https://weos.io/vocab/website#       | none                          |
 
   # `knowledge` is deliberately absent from the table above and adding a row for
   # it is a bug. #537 repaired its two properties with PUBLISHED Dublin Core
   # terms, so that preset mints no house vocabulary and has no prefix to
   # resolve. The second assertion — that every house IRI a preset resolves sits
-  # under THAT preset's namespace — is also why `web-page.slug` and
-  # `organization.slug` take two IRIs for one concept rather than sharing
-  # `core:slug`.
+  # under THAT preset's namespace, or under the one vocabulary its row names as
+  # reused — is also why `web-page.slug` and `organization.slug` take two IRIs
+  # for one concept rather than sharing `core:slug`.
   #
   # The classes. Six for meal-planning, two for memory, one for agents — the
   # `@type` IRIs the story counts, named individually so a missed one fails on

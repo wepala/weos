@@ -2,6 +2,7 @@ package local_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,8 @@ import (
 	"github.com/wepala/weos/v3/domain/services"
 	"github.com/wepala/weos/v3/infrastructure/storage/local"
 )
+
+const testAccount = "acct_1"
 
 type nopLogger struct{}
 
@@ -23,7 +26,7 @@ func TestUpload(t *testing.T) {
 	svc := local.New(dir, "/api/uploads/files", nopLogger{})
 
 	body := "hello world"
-	params := services.UploadParams{Filename: "test.txt", ContentType: "text/plain"}
+	params := services.UploadParams{Filename: "test.txt", ContentType: "text/plain", AccountID: testAccount}
 	result, err := svc.Upload(context.Background(), params, strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("Upload() error: %v", err)
@@ -38,21 +41,84 @@ func TestUpload(t *testing.T) {
 	if result.Size != int64(len(body)) {
 		t.Errorf("Size = %d, want %d", result.Size, len(body))
 	}
-	if !strings.HasPrefix(result.URL, "/api/uploads/files/") {
-		t.Errorf("URL = %q, want prefix /api/uploads/files/", result.URL)
+	if !strings.HasPrefix(result.URL, "/api/uploads/files/accounts/"+testAccount+"/uploads/") {
+		t.Errorf("URL = %q, want prefix /api/uploads/files/accounts/%s/uploads/", result.URL, testAccount)
 	}
 	if result.ID == "" {
 		t.Error("ID is empty")
 	}
 
-	// Verify file on disk
-	diskName := filepath.Base(result.URL)
-	data, err := os.ReadFile(filepath.Join(dir, diskName))
+	// Verify the file is on disk where its URL says.
+	stored := strings.TrimPrefix(result.URL, "/api/uploads/files/")
+	data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(stored)))
 	if err != nil {
 		t.Fatalf("ReadFile() error: %v", err)
 	}
 	if string(data) != body {
 		t.Errorf("file contents = %q, want %q", data, body)
+	}
+}
+
+func TestUpload_WritesUnderAccountFolder(t *testing.T) {
+	dir := t.TempDir()
+	svc := local.New(dir, "/api/uploads/files", nopLogger{})
+
+	params := services.UploadParams{
+		Filename:    "My Photo.jpg",
+		ContentType: "image/jpeg",
+		ID:          "fixed-id-123",
+		AccountID:   testAccount,
+	}
+	result, err := svc.Upload(context.Background(), params, strings.NewReader("jpeg-bytes"))
+	if err != nil {
+		t.Fatalf("Upload() error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "accounts", testAccount, "uploads", "fixed-id-123-My_Photo.jpg"))
+	if err != nil {
+		t.Fatalf("the file is not in the account folder: %v", err)
+	}
+	if string(data) != "jpeg-bytes" {
+		t.Errorf("file contents = %q, want %q", data, "jpeg-bytes")
+	}
+	if want := "/api/uploads/files/accounts/" + testAccount + "/uploads/fixed-id-123-My_Photo.jpg"; result.URL != want {
+		t.Errorf("URL = %q, want %q", result.URL, want)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "fixed-id-123-My_Photo.jpg")); !os.IsNotExist(err) {
+		t.Errorf("a flat copy was written beside the account folder (stat error %v)", err)
+	}
+}
+
+func TestUpload_RefusesUnsafeAccountID(t *testing.T) {
+	for _, accountID := range []string{"", ".", "..", "../acct_2", "acct_1/../acct_2", `acct\1`, "acct 1"} {
+		t.Run(fmt.Sprintf("%q", accountID), func(t *testing.T) {
+			parent := t.TempDir()
+			dir := filepath.Join(parent, "uploads")
+			svc := local.New(dir, "/api/uploads/files", nopLogger{})
+
+			params := services.UploadParams{Filename: "test.txt", ContentType: "text/plain", AccountID: accountID}
+			_, err := svc.Upload(context.Background(), params, strings.NewReader("data"))
+			if err == nil || !strings.Contains(err.Error(), "invalid account ID") {
+				t.Fatalf("Upload() error = %v, want an invalid account ID error", err)
+			}
+
+			var written []string
+			walkErr := filepath.WalkDir(parent, func(p string, d os.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if !d.IsDir() {
+					written = append(written, p)
+				}
+				return nil
+			})
+			if walkErr != nil {
+				t.Fatalf("WalkDir() error: %v", walkErr)
+			}
+			if len(written) != 0 {
+				t.Errorf("files written for a refused upload: %v", written)
+			}
+		})
 	}
 }
 
@@ -64,6 +130,7 @@ func TestUpload_UsesCallerSuppliedID(t *testing.T) {
 		Filename:    "test.txt",
 		ContentType: "text/plain",
 		ID:          "fixed-id-123",
+		AccountID:   testAccount,
 	}
 	result, err := svc.Upload(context.Background(), params, strings.NewReader("data"))
 	if err != nil {
@@ -81,7 +148,7 @@ func TestUpload_SanitizesFilename(t *testing.T) {
 	dir := t.TempDir()
 	svc := local.New(dir, "/api/uploads/files", nopLogger{})
 
-	params := services.UploadParams{Filename: "../../etc/passwd", ContentType: "text/plain"}
+	params := services.UploadParams{Filename: "../../etc/passwd", ContentType: "text/plain", AccountID: testAccount}
 	result, err := svc.Upload(context.Background(), params, strings.NewReader("x"))
 	if err != nil {
 		t.Fatalf("Upload() error: %v", err)
@@ -113,6 +180,7 @@ func TestUpload_RejectsPathTraversalID(t *testing.T) {
 				Filename:    "test.txt",
 				ContentType: "text/plain",
 				ID:          tt.id,
+				AccountID:   testAccount,
 			}
 			_, err := svc.Upload(context.Background(), params, strings.NewReader("data"))
 			if err == nil {
@@ -129,17 +197,76 @@ func TestUpload_CreatesDirectory(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "nested", "uploads")
 	svc := local.New(dir, "/api/uploads/files", nopLogger{})
 
-	params := services.UploadParams{Filename: "file.txt", ContentType: "text/plain"}
+	params := services.UploadParams{Filename: "file.txt", ContentType: "text/plain", AccountID: testAccount}
 	_, err := svc.Upload(context.Background(), params, strings.NewReader("data"))
 	if err != nil {
 		t.Fatalf("Upload() error: %v", err)
 	}
 
-	info, err := os.Stat(dir)
+	info, err := os.Stat(filepath.Join(dir, "accounts", testAccount, "uploads"))
 	if err != nil {
 		t.Fatalf("directory not created: %v", err)
 	}
 	if !info.IsDir() {
 		t.Error("expected directory")
+	}
+}
+
+func TestDeleteAccountFolder_RemovesOnlyThatAccount(t *testing.T) {
+	dir := t.TempDir()
+	svc := local.New(dir, "/api/uploads/files", nopLogger{})
+	ctx := context.Background()
+
+	for _, account := range []string{"acct_1", "acct_10", "acct_2"} {
+		params := services.UploadParams{Filename: "photo.jpg", ContentType: "image/jpeg", AccountID: account}
+		if _, err := svc.Upload(ctx, params, strings.NewReader(account)); err != nil {
+			t.Fatalf("Upload(%s) error: %v", account, err)
+		}
+	}
+	flat := filepath.Join(dir, "legacy-flat.jpg")
+	if err := os.WriteFile(flat, []byte("flat"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.DeleteAccountFolder(ctx, "acct_1"); err != nil {
+		t.Fatalf("DeleteAccountFolder() error: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, "accounts", "acct_1")); !os.IsNotExist(err) {
+		t.Errorf("acct_1's folder still exists (stat err %v)", err)
+	}
+	for _, survivor := range []string{"acct_10", "acct_2"} {
+		entries, err := os.ReadDir(filepath.Join(dir, "accounts", survivor, "uploads"))
+		if err != nil || len(entries) != 1 {
+			t.Errorf("%s's folder was touched: entries %v err %v", survivor, entries, err)
+		}
+	}
+	if _, err := os.Stat(flat); err != nil {
+		t.Errorf("the flat file from before account folders was removed: %v", err)
+	}
+}
+
+func TestDeleteAccountFolder_MissingFolderIsNotAnError(t *testing.T) {
+	svc := local.New(t.TempDir(), "/api/uploads/files", nopLogger{})
+	if err := svc.DeleteAccountFolder(context.Background(), "never-uploaded"); err != nil {
+		t.Fatalf("DeleteAccountFolder() on a missing folder: %v", err)
+	}
+}
+
+func TestDeleteAccountFolder_RefusesUnsafeAccount(t *testing.T) {
+	dir := t.TempDir()
+	svc := local.New(filepath.Join(dir, "uploads"), "/api/uploads/files", nopLogger{})
+	sibling := filepath.Join(dir, "keep")
+	if err := os.MkdirAll(sibling, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	for _, account := range []string{"", "..", "../keep", "acct/../../keep"} {
+		err := svc.DeleteAccountFolder(context.Background(), account)
+		if err == nil || !strings.Contains(err.Error(), "invalid account ID") {
+			t.Errorf("DeleteAccountFolder(%q) error = %v, want an invalid account ID error", account, err)
+		}
+	}
+	if _, err := os.Stat(sibling); err != nil {
+		t.Fatalf("a sibling directory was removed through an unsafe id: %v", err)
 	}
 }

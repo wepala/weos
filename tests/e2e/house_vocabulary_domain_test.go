@@ -108,7 +108,8 @@ func (w *vocabWorld) registerVocabSteps(sc *godog.ScenarioContext) {
 	sc.Step(`^no installed resource type resolves any term, prefix or "@type" under "([^"]*)"$`, w.noTypeResolvesUnder)
 	sc.Step(`^every installed type of "([^"]*)" that declares "([^"]*)" resolves it to "([^"]*)"$`,
 		w.everyTypeResolvesPrefix)
-	sc.Step(`^every house IRI the installed types of "([^"]*)" resolve is under "([^"]*)"$`, w.everyHouseIRIUnder)
+	sc.Step(`^every house IRI the installed types of "([^"]*)" resolve is under "([^"]*)" or the reused "([^"]*)"$`,
+		w.everyHouseIRIUnder)
 	sc.Step(`^every reference property of every installed type reverse-maps to its own name$`, w.everyReferenceReverseMaps)
 	sc.Step(`^no two properties of one installed type resolve to the same predicate IRI$`, w.noPredicateShared)
 	sc.Step(`^the boot reconcile reports the "([^"]*)" context term as held for "([^"]*)"$`, w.bootReportsContextTermHeld)
@@ -711,21 +712,45 @@ func isHouseIRI(iri string) bool {
 	return strings.Contains(iri, "weos.io") || strings.Contains(iri, "weos.org")
 }
 
-func (w *vocabWorld) everyHouseIRIUnder(preset, ns string) error {
+// noReusedVocabulary is the `reuses` cell of a preset that resolves house IRIs
+// under its own namespace only.
+const noReusedVocabulary = "none"
+
+// everyHouseIRIUnder allows exactly one reused house vocabulary per row
+// (finding wm-8m547). A named one must be another namespace on the weos.io
+// house domain, and one of the preset's types must actually resolve under it,
+// so a row cannot name weos.org or keep an allowance nothing needs any more.
+func (w *vocabWorld) everyHouseIRIUnder(preset, ns, reused string) error {
+	if reused != noReusedVocabulary &&
+		(!strings.HasPrefix(reused, newHouseDomain) || !strings.HasSuffix(reused, "#") || reused == ns) {
+		return fmt.Errorf("reused vocabulary %q is not another house namespace under %s ending in #", reused, newHouseDomain)
+	}
+	allowed := ns
+	if reused != noReusedVocabulary {
+		allowed += " or the reused " + reused
+	}
 	slugs, err := presetTypeSlugs(preset)
 	if err != nil {
 		return err
 	}
+	reusedResolved := false
 	for _, slug := range slugs {
 		rt, err := w.rts.GetBySlug(context.Background(), slug)
 		if err != nil {
 			return fmt.Errorf("failed to load the %q type: %w", slug, err)
 		}
 		for term, iri := range resolvedIRIs(rt.Context()) {
-			if isHouseIRI(iri) && !strings.HasPrefix(iri, ns) {
-				return fmt.Errorf("installed type %q resolves %q to %s, not under %s", slug, term, iri, ns)
+			switch {
+			case !isHouseIRI(iri), strings.HasPrefix(iri, ns):
+			case reused != noReusedVocabulary && strings.HasPrefix(iri, reused):
+				reusedResolved = true
+			default:
+				return fmt.Errorf("installed type %q resolves %q to %s, not under %s", slug, term, iri, allowed)
 			}
 		}
+	}
+	if reused != noReusedVocabulary && !reusedResolved {
+		return fmt.Errorf("no installed type of %q resolves anything under the reused %s", preset, reused)
 	}
 	return nil
 }
@@ -1042,14 +1067,17 @@ func (w *vocabWorld) createWithReferences(slug, name string, table *godog.Table)
 // --- what a resource says about itself ---
 
 // document returns a resource's stored JSON-LD document and its embedded
-// @context — what the knowledge graph store ingests verbatim.
+// @context — what the knowledge graph store ingests. The store cannot fetch a
+// remote context, so a bare context IRI is inlined as @vocab first, exactly as
+// the store does; read raw, a type whose context is only a @vocab would state
+// no literal at all.
 func (w *vocabWorld) document(id string) (map[string]any, json.RawMessage, error) {
 	res, err := w.rs.GetByID(context.Background(), id)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read %s: %w", id, err)
 	}
 	var doc map[string]any
-	if err := json.Unmarshal(res.Data(), &doc); err != nil {
+	if err := json.Unmarshal(jsonld.InlineVocabContext(res.Data()), &doc); err != nil {
 		return nil, nil, fmt.Errorf("the record of %s is not a JSON object: %w", id, err)
 	}
 	var embedded json.RawMessage

@@ -17,14 +17,18 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	apimw "github.com/wepala/weos/v3/api/middleware"
 	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
 
 	"github.com/akeemphilbert/pericarp/pkg/auth"
+	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
 	authhttp "github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/http"
+	"github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/session"
 	"github.com/gorilla/sessions"
 	"github.com/labstack/echo/v4"
 )
@@ -32,11 +36,15 @@ import (
 const impersonationMaxAge = 3600 // 1 hour
 
 type ImpersonationHandler struct {
-	store       sessions.Store
-	accountRepo authrepos.AccountRepository
-	agentRepo   authrepos.AgentRepository
-	credRepo    authrepos.CredentialRepository
-	logger      entities.Logger
+	store          sessions.Store
+	accountRepo    authrepos.AccountRepository
+	agentRepo      authrepos.AgentRepository
+	credRepo       authrepos.CredentialRepository
+	members        repositories.AccountMemberQuery
+	sessionManager session.SessionManager
+	authService    authapp.AuthenticationService
+	locks          repositories.AccountErasureLocks
+	logger         entities.Logger
 }
 
 type ImpersonationHandlerConfig struct {
@@ -44,16 +52,33 @@ type ImpersonationHandlerConfig struct {
 	AccountRepo authrepos.AccountRepository
 	AgentRepo   authrepos.AgentRepository
 	CredRepo    authrepos.CredentialRepository
-	Logger      entities.Logger
+	// Members lets the identity read report how many people share the
+	// account the caller acts in, so an app can say so before one of them
+	// deletes it. Optional: without it the count is omitted.
+	Members repositories.AccountMemberQuery
+	// SessionManager and AuthService let the identity read validate the
+	// session its cookie names before it answers from it, so a session that
+	// no longer serves — its account locked for deletion, or gone — is
+	// refused with the code every other route answers. ErasureLocks tells
+	// the lock from a suspension. Without them the read answers from the
+	// cookie alone, as it did before.
+	SessionManager session.SessionManager
+	AuthService    authapp.AuthenticationService
+	ErasureLocks   repositories.AccountErasureLocks
+	Logger         entities.Logger
 }
 
 func NewImpersonationHandler(cfg ImpersonationHandlerConfig) *ImpersonationHandler {
 	return &ImpersonationHandler{
-		store:       cfg.Store,
-		accountRepo: cfg.AccountRepo,
-		agentRepo:   cfg.AgentRepo,
-		credRepo:    cfg.CredRepo,
-		logger:      cfg.Logger,
+		store:          cfg.Store,
+		accountRepo:    cfg.AccountRepo,
+		agentRepo:      cfg.AgentRepo,
+		credRepo:       cfg.CredRepo,
+		members:        cfg.Members,
+		sessionManager: cfg.SessionManager,
+		authService:    cfg.AuthService,
+		locks:          cfg.ErasureLocks,
+		logger:         cfg.Logger,
 	}
 }
 
@@ -218,9 +243,20 @@ func (h *ImpersonationHandler) Status(c echo.Context) error {
 
 // Me wraps pericarp's AuthHandlers.Me to return impersonated user info when active,
 // and always includes the user's role.
+//
+// It is mounted outside the protected group, so no middleware has checked the
+// session before it runs. It validates the session itself before answering
+// anything from the cookie (wm-ccg4f): this is the route an app reads before
+// it offers the deletion, and a cookie for an account locked for deletion —
+// or a second device's cookie for an account already gone — must get the
+// refusal every other route gives, not a 200 that says nothing is wrong.
 func (h *ImpersonationHandler) Me(authHandlers *authhttp.AuthHandlers) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		ctx := c.Request().Context()
+		info, refused := h.validatedSession(c)
+		if refused {
+			return nil
+		}
 		sess, sessErr := h.store.Get(c.Request(), apimw.ImpersonationSessionName)
 		if sessErr != nil {
 			h.logger.Warn(ctx, "failed to read impersonation session in Me", "error", sessErr)
@@ -228,13 +264,17 @@ func (h *ImpersonationHandler) Me(authHandlers *authhttp.AuthHandlers) echo.Hand
 		impersonatedAgentID, ok := sess.Values[apimw.KeyImpersonatedAgentID].(string)
 		if !ok || impersonatedAgentID == "" {
 			// No impersonation — delegate to pericarp's Me, then look up role.
-			// Try to get agentID from the auth session cookie for role lookup.
+			// The validated session says who this is; the cookie's own values
+			// are the fallback when nothing validates sessions here.
 			authSess, authSessErr := h.store.Get(c.Request(), "weos-session")
 			if authSessErr != nil {
 				h.logger.Warn(ctx, "failed to read auth session in Me", "error", authSessErr)
 			}
 			agentID, _ := authSess.Values["agent_id"].(string)
 			accountID, _ := authSess.Values["account_id"].(string)
+			if info != nil {
+				agentID, accountID = info.AgentID, info.AccountID
+			}
 			if agentID == "" {
 				authHandlers.Me(c.Response(), c.Request())
 				return nil
@@ -244,12 +284,19 @@ func (h *ImpersonationHandler) Me(authHandlers *authhttp.AuthHandlers) echo.Hand
 			if accountID != "" {
 				role, _ = h.accountRepo.FindMemberRole(ctx, accountID, agentID)
 			}
-			return respond(c, http.StatusOK, map[string]any{
+			body := map[string]any{
 				"id":    agentID,
 				"name":  name,
 				"email": email,
 				"role":  role,
-			})
+			}
+			if accountID != "" {
+				body["account_id"] = accountID
+				if count, ok := h.memberCount(ctx, accountID); ok {
+					body["member_count"] = count
+				}
+			}
+			return respond(c, http.StatusOK, body)
 		}
 
 		realAgentID, _ := sess.Values[apimw.KeyRealAgentID].(string)
@@ -274,6 +321,67 @@ func (h *ImpersonationHandler) Me(authHandlers *authhttp.AuthHandlers) echo.Hand
 			},
 		})
 	}
+}
+
+// validatedSession checks the session the cookie names, the way the
+// protected group's middleware would. It reports refused=true after writing
+// the 401, with the code the other routes use: account_access_revoked,
+// account_erasure_pending, account_deactivated, or none. A request with no
+// cookie, or a handler wired without a session manager and auth service,
+// gets info=nil and is answered from the cookie as before.
+func (h *ImpersonationHandler) validatedSession(c echo.Context) (info *authapp.SessionInfo, refused bool) {
+	if h.sessionManager == nil || h.authService == nil {
+		return nil, false
+	}
+	ctx := c.Request().Context()
+	data, err := h.sessionManager.GetHTTPSession(c.Request())
+	if err != nil || data == nil || data.SessionID == "" {
+		return nil, false
+	}
+	info, err = h.authService.ValidateSession(ctx, data.SessionID)
+	if err == nil {
+		return info, false
+	}
+	code := ""
+	switch {
+	case errors.Is(err, authapp.ErrSessionAccountRevoked):
+		code = apimw.CodeAccountAccessRevoked
+	case errors.Is(err, authapp.ErrSessionAccountDeactivated):
+		code = apimw.CodeAccountDeactivated
+		if h.locks != nil {
+			locked, lockErr := h.locks.IsLocked(ctx, data.AccountID)
+			if lockErr != nil {
+				h.logger.Error(ctx, "could not read the erasure lock", "account_id", data.AccountID, "error", lockErr)
+				_ = respondError(c, http.StatusServiceUnavailable, "could not read the account's state")
+				return nil, true
+			}
+			if locked {
+				code = apimw.CodeAccountErasurePending
+			}
+		}
+	}
+	if code == "" {
+		_ = respondError(c, http.StatusUnauthorized, "not authenticated")
+	} else {
+		_ = respondErrorCode(c, http.StatusUnauthorized, "not authenticated", code)
+	}
+	return nil, true
+}
+
+// memberCount reports how many people share accountID, when a member query
+// is wired. A count that cannot be read is omitted rather than reported as
+// zero: an app that shows "1 person" to a person who is not alone has been
+// told something false.
+func (h *ImpersonationHandler) memberCount(ctx context.Context, accountID string) (int, bool) {
+	if h.members == nil {
+		return 0, false
+	}
+	count, err := h.members.CountMembers(ctx, accountID)
+	if err != nil {
+		h.logger.Warn(ctx, "could not count the account's members", "account_id", accountID, "error", err)
+		return 0, false
+	}
+	return count, true
 }
 
 func (h *ImpersonationHandler) resolveAgentInfo(ctx context.Context, agentID string) (string, string) {

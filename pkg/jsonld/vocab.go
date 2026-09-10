@@ -27,11 +27,14 @@ const HouseVocabBase = "https://weos.io/vocab/"
 // every prefix definition must.
 const (
 	MealPlanningVocab = HouseVocabBase + "meal-planning#"
-	MemoryVocab       = HouseVocabBase + "memory#"
-	AgentsVocab       = HouseVocabBase + "agents#"
+	// IngestVocab is the import pipeline's namespace. It names no preset.
+	IngestVocab = HouseVocabBase + "ingest#"
+	MemoryVocab = HouseVocabBase + "memory#"
+	AgentsVocab = HouseVocabBase + "agents#"
 
 	// Issue #537 retired the waived predicates in four more presets. Each
-	// namespace segment is the preset's own name, matching the three above.
+	// namespace segment is the preset's own name, as it is for meal-planning,
+	// memory and agents above.
 	//
 	// There is deliberately no KnowledgeVocab. Both of that preset's repairs
 	// are published Dublin Core terms, so it mints nothing — a fifth constant

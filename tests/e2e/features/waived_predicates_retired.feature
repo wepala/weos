@@ -533,17 +533,22 @@ Feature: Every preset property states a predicate its vocabulary defines, with n
   #    three minting presets that exist today. Four presets start minting in this
   #    story, so FOUR ROWS ARE ADDED THERE:
   #
-  #      | core          | core  | https://weos.io/vocab/core#          |
-  #      | notifications | notif | https://weos.io/vocab/notifications# |
-  #      | tasks         | task  | https://weos.io/vocab/tasks#         |
-  #      | website       | web   | https://weos.io/vocab/website#       |
+  #      | core          | core  | https://weos.io/vocab/core#          | none |
+  #      | notifications | notif | https://weos.io/vocab/notifications# | none |
+  #      | tasks         | task  | https://weos.io/vocab/tasks#         | none |
+  #      | website       | web   | https://weos.io/vocab/website#       | none |
+  #
+  #    The last column is `reuses`, which that outline gained later (commit
+  #    5cd7ec96, finding wm-8m547): the one other weos.io house vocabulary a
+  #    preset's types may resolve, or "none". None of these four reuses one.
   #
   #    `knowledge` gets NO row: it mints nothing (CONTRACT 4). Adding the rows
   #    there rather than copying the scenario here is what keeps that outline's
   #    second assertion — "every house IRI the installed types of <preset>
-  #    resolve is under <namespace>" — true of the new presets too. It is also
-  #    the reason CONTRACT 4 gives each preset its OWN namespace and OPEN
-  #    QUESTION 1 exists.
+  #    resolve is under <namespace> or the reused <reuses>" — true of the new
+  #    presets too; with `none` in the row it means under that preset's own
+  #    namespace only. It is also the reason CONTRACT 4 gives each preset its OWN
+  #    namespace and OPEN QUESTION 1 exists.
   #
   # ---------------------------------------------------------------------------
   # THE SHIM FOR AN EXISTING INSTALL. The upgrade scenarios need a database
@@ -597,14 +602,17 @@ Feature: Every preset property states a predicate its vocabulary defines, with n
   #    exactly as #535 declared `mp:ingredient` on two types for one relation.
   #    It is rejected here for two reasons and both are reversible: it makes the
   #    OPTIONAL `website` preset depend on `core`'s namespace to state its own
-  #    predicate, and it breaks the SHAPE of `house_vocabulary_domain.feature`'s
-  #    per-preset outline (9a), whose second assertion is that every house IRI a
-  #    preset resolves is under THAT preset's namespace — so taking the shared
-  #    term costs a step change there, not just an Examples row.
+  #    predicate, and it changes `house_vocabulary_domain.feature`'s per-preset
+  #    outline (9a), whose second assertion is that every house IRI a preset
+  #    resolves is under THAT preset's namespace or the one reused vocabulary its
+  #    row names. When this was written the step had no reuse allowance, so
+  #    taking the shared term cost a step change there. Since commit 5cd7ec96
+  #    (finding wm-8m547) it costs only the website row's `reuses` cell:
+  #    `https://weos.io/vocab/core#` in place of `none`.
   #    If Akeem prefers one predicate, one Examples row in this file changes,
-  #    that outline's website row needs its assertion relaxed, and `adopt-term`
-  #    plus `weos:termAliases` is the mechanism for unifying them later at
-  #    bounded cost either way.
+  #    that outline's website row names `https://weos.io/vocab/core#` as reused,
+  #    and `adopt-term` plus `weos:termAliases` is the mechanism for unifying
+  #    them later at bounded cost either way.
   #
   # 2. `notification.taskRef` — house term, or `schema:about`? Contract 2a mints
   #    it house because the value is an opaque string with no `x-resource-type`

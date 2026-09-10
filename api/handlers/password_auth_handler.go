@@ -16,15 +16,19 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
 	"time"
 
+	apimw "github.com/wepala/weos/v3/api/middleware"
 	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
 
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
 	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
+	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
 	"github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/session"
 	"github.com/labstack/echo/v4"
 )
@@ -45,6 +49,11 @@ type PasswordAuthHandlerConfig struct {
 	// cookies and auth never sticks.
 	SecureCookies bool
 	Logger        entities.Logger
+	// AccountRepo and ErasureLocks let a sign-in that resolved no active
+	// account look for one whose erasure is unfinished. Both optional: with
+	// either missing, such a sign-in stays unscoped, as it always was.
+	AccountRepo  authrepos.AccountRepository
+	ErasureLocks repositories.AccountErasureLocks
 }
 
 type PasswordAuthHandler struct {
@@ -133,6 +142,11 @@ type authSuccessResponse struct {
 	Account   *authAccountResponse `json:"account,omitempty"`
 	Token     string               `json:"token,omitempty"`
 	ExpiresAt time.Time            `json:"expires_at"`
+	// ErasurePending says the session was scoped to an account whose
+	// deletion began and did not finish. The session serves exactly one
+	// request, DELETE /api/account, and the app should offer that.
+	ErasurePending bool   `json:"erasure_pending,omitempty"`
+	Code           string `json:"code,omitempty"`
 }
 
 type authAgentResponse struct {
@@ -245,13 +259,31 @@ func (h *PasswordAuthHandler) completeAuth(
 		accountID = account.GetID()
 	}
 
+	// A sign-in that resolved no active account may still belong to an
+	// account whose erasure began and did not finish. Sign-in resolution
+	// passes over an inactive account, so the person would otherwise be
+	// stranded: locked out, with the operator's command line the only way to
+	// finish what they started. The session is scoped to that account for
+	// the one purpose of running the deletion again; every other route
+	// refuses it with the code that says why (wm-421nl).
+	erasurePending := false
+	if account == nil {
+		if locked := h.lockedAccountFor(ctx, agent.GetID()); locked != nil {
+			account = locked
+			accountID = locked.GetID()
+			erasurePending = true
+		}
+	}
+
 	// AccountAlreadyVerified is safe here and only here: the account came back
 	// from VerifyPassword or FindOrCreateAgent in this same request, so the
-	// membership is established and the account is active by construction.
-	// It also skips a re-read that can lose a race — a first-time signup
-	// writes the membership moments earlier, and a replica may not show it
-	// yet. Never pass this option for an account that arrived from a client;
-	// it disables the membership and deactivation checks.
+	// membership is established and the account is active by construction —
+	// or it is the erasure-locked account found just above, whose membership
+	// and role were read from the store in this same request and whose
+	// inactivity is the point. It also skips a re-read that can lose a race —
+	// a first-time signup writes the membership moments earlier, and a replica
+	// may not show it yet. Never pass this option for an account that arrived
+	// from a client; it disables the membership and deactivation checks.
 	authSession, err := h.cfg.AuthService.CreateSession(
 		ctx, agent.GetID(), accountID, credential.GetID(),
 		c.RealIP(), r.UserAgent(), h.cfg.SessionDuration,
@@ -288,8 +320,11 @@ func (h *PasswordAuthHandler) completeAuth(
 	// refuses exactly that shape with unscoped_session — so the token could
 	// only ever be useful on a path that does not make the same check, which
 	// is the hole rather than the feature.
+	//
+	// A locked account gets no token either: the bearer path refuses one for
+	// an inactive account, so it could serve nothing.
 	var tokenString string
-	if accountID != "" {
+	if accountID != "" && !erasurePending {
 		var issueErr error
 		tokenString, issueErr = h.cfg.AuthService.IssueIdentityToken(
 			ctx, agent, accountID, authapp.AccountAlreadyVerified(),
@@ -311,7 +346,7 @@ func (h *PasswordAuthHandler) completeAuth(
 		})
 	}
 
-	return respond(c, http.StatusOK, authSuccessResponse{
+	response := authSuccessResponse{
 		Agent: authAgentResponse{
 			ID:    agent.GetID(),
 			Name:  agent.Name(),
@@ -320,5 +355,19 @@ func (h *PasswordAuthHandler) completeAuth(
 		Account:   accountResp,
 		Token:     tokenString,
 		ExpiresAt: authSession.ExpiresAt(),
-	})
+	}
+	if erasurePending {
+		response.ErasurePending = true
+		response.Code = apimw.CodeAccountErasurePending
+	}
+	return respond(c, http.StatusOK, response)
+}
+
+// lockedAccountFor finds an account whose erasure is unfinished that the
+// agent may finish deleting, by the one rule the deletion route also applies
+// (apimw.LockedAccountFor). Scoping the sign-in's session to it is what lets
+// the answer say erasure_pending; the deletion route would admit the person
+// from an unscoped session just the same.
+func (h *PasswordAuthHandler) lockedAccountFor(ctx context.Context, agentID string) *authentities.Account {
+	return apimw.LockedAccountFor(ctx, agentID, h.cfg.AccountRepo, h.cfg.ErasureLocks, h.cfg.Logger)
 }

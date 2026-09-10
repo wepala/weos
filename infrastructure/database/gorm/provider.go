@@ -112,6 +112,7 @@ func ProvideGormDB(params struct {
 		&weosmodels.BehaviorSettings{},
 		&weosmodels.FeatureSetting{},
 		&weosmodels.FeatureGrant{},
+		&weosmodels.AccountErasure{},
 		&oauth.OAuthClient{},
 		&oauth.OAuthAuthorizationCode{},
 		&oauth.OAuthRefreshToken{},

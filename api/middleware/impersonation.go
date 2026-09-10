@@ -17,6 +17,7 @@ package middleware
 
 import (
 	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
 
 	"github.com/akeemphilbert/pericarp/pkg/auth"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
@@ -34,7 +35,19 @@ const (
 // Impersonation returns Echo middleware that checks for an active impersonation
 // session and, if present, replaces the auth.Identity in the request context
 // with the impersonated user's identity (including their account).
-func Impersonation(store sessions.Store, accountRepo authrepos.AccountRepository, logger entities.Logger) echo.MiddlewareFunc {
+//
+// The account it lands in is the person's first ACTIVE one, the way pericarp's
+// own sign-in resolves it. A person whose accounts are all inactive is not
+// impersonated into one of them: an account locked for deletion serves nothing
+// but the deletion, and a suspended one serves nothing at all, so the request
+// is refused with the code that says which (wm-iiasy). A person with no
+// account is impersonated with none, as before.
+func Impersonation(
+	store sessions.Store,
+	accountRepo authrepos.AccountRepository,
+	locks repositories.AccountErasureLocks,
+	logger entities.Logger,
+) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			sess, err := store.Get(c.Request(), ImpersonationSessionName)
@@ -60,11 +73,23 @@ func Impersonation(store sessions.Store, accountRepo authrepos.AccountRepository
 				return next(c)
 			}
 
-			// Resolve the impersonated user's account.
+			ctx := c.Request().Context()
 			activeAccountID := ""
-			accounts, err := accountRepo.FindByMember(c.Request().Context(), impersonatedAgentID)
-			if err == nil && len(accounts) > 0 {
-				activeAccountID = accounts[0].GetID()
+			accounts, err := accountRepo.FindByMember(ctx, impersonatedAgentID)
+			if err != nil {
+				logger.Warn(ctx, "impersonation: could not read the person's memberships", "agent_id", impersonatedAgentID, "error", err)
+			}
+			for _, account := range accounts {
+				if account != nil && account.Active() {
+					activeAccountID = account.GetID()
+					break
+				}
+			}
+			if activeAccountID == "" && len(accounts) > 0 {
+				switch code := unscopedCode(ctx, impersonatedAgentID, accountRepo, locks, logger); code {
+				case CodeAccountErasurePending, CodeAccountDeactivated:
+					return refuse(c, code)
+				}
 			}
 
 			impersonatedIdentity := &auth.Identity{
@@ -72,7 +97,7 @@ func Impersonation(store sessions.Store, accountRepo authrepos.AccountRepository
 				AccountIDs:      []string{activeAccountID},
 				ActiveAccountID: activeAccountID,
 			}
-			ctx := auth.ContextWithAgent(c.Request().Context(), impersonatedIdentity)
+			ctx = auth.ContextWithAgent(ctx, impersonatedIdentity)
 			c.SetRequest(c.Request().WithContext(ctx))
 
 			c.Response().Header().Set("X-Impersonating", impersonatedAgentID)

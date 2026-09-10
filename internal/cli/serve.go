@@ -140,6 +140,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 	var featureInvalidator repositories.FeatureCacheInvalidator
 	var featureAdmin *application.FeatureAdminService
 	var featureClient *openfeature.Client
+	var erasureService *application.AccountErasureService
+	var erasureLocks repositories.AccountErasureLocks
+	var memberQuery repositories.AccountMemberQuery
+	var resourceRepo repositories.ResourceRepository
 
 	registry := presets.NewDefaultRegistry()
 
@@ -177,6 +181,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		fx.Populate(&db),
 		fx.Populate(&presetHandlers),
 		fx.Populate(&notificationService),
+		fx.Populate(&erasureService, &erasureLocks, &memberQuery, &resourceRepo),
 	}
 	fxOpts = append(fxOpts, customFxOptions...)
 	app := fx.New(fxOpts...)
@@ -226,11 +231,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Logger:          logger,
 	})
 	impersonationHandler := handlers.NewImpersonationHandler(handlers.ImpersonationHandlerConfig{
-		Store:       sessionStore,
-		AccountRepo: accountRepo,
-		AgentRepo:   agentRepo,
-		CredRepo:    credentialRepo,
-		Logger:      logger,
+		Store:          sessionStore,
+		AccountRepo:    accountRepo,
+		AgentRepo:      agentRepo,
+		CredRepo:       credentialRepo,
+		Members:        memberQuery,
+		SessionManager: sessionManager,
+		AuthService:    authService,
+		ErasureLocks:   erasureLocks,
+		Logger:         logger,
 	})
 
 	// Wrapped so a provider this instance cannot begin a sign-in with returns
@@ -273,6 +282,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 		SessionManager: sessionManager,
 		SecureCookies:  secureCookies,
 		Logger:         logger,
+		AccountRepo:    accountRepo,
+		ErasureLocks:   erasureLocks,
 	})
 	handlers.MountPasswordAuth(api, passwordAuthHandlers, handlers.PasswordAuthRoutes{
 		SignIn:       appCfg.PasswordAuthEnabled,
@@ -379,12 +390,42 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// effectively open.
 	protected := api.Group("")
 	if appCfg.AuthEnabled() {
+		// The erasure guard goes first, around RequireAuth: an account whose
+		// deletion began and did not finish is refused everywhere with the
+		// code that says so, where RequireAuth alone would call it merely
+		// deactivated. The one route a locked account may still use is
+		// mounted on its own group below.
+		protected.Use(apimw.ErasureGuard(sessionManager, erasureLocks, logger))
 		protected.Use(echo.WrapMiddleware(authhttp.RequireAuth(sessionManager, authService)))
-		protected.Use(apimw.Impersonation(sessionStore, accountRepo, logger))
+		protected.Use(apimw.Impersonation(sessionStore, accountRepo, erasureLocks, logger))
 		protected.Use(apimw.AuthorizeResource(authzChecker, accountRepo, logger))
 	} else {
 		protected.Use(apimw.SoftAuth(credentialRepo, agentRepo, accountRepo, logger))
 	}
+
+	// The account routes (story wm-kb6sg.3). The export is an ordinary
+	// protected read. The deletion has its own group: its session auth admits
+	// an erasure-locked account for this one purpose, and it takes no
+	// Impersonation middleware because it refuses while one is active rather
+	// than act as the impersonated person.
+	accountHandler := handlers.NewAccountHandler(handlers.AccountHandlerConfig{
+		Erasure:        erasureService,
+		Accounts:       accountRepo,
+		Resources:      resourceRepo,
+		ResourceTypes:  resourceTypeService,
+		SessionManager: sessionManager,
+		Store:          sessionStore,
+		SecureCookies:  secureCookies,
+		Logger:         logger,
+	})
+	protected.GET("/account/export", accountHandler.Export)
+	accountGroup := api.Group("")
+	if appCfg.AuthEnabled() {
+		accountGroup.Use(apimw.SessionAuthForErasure(sessionManager, authService, accountRepo, erasureLocks, logger))
+	} else {
+		accountGroup.Use(apimw.SoftAuth(credentialRepo, agentRepo, accountRepo, logger))
+	}
+	accountGroup.DELETE("/account", accountHandler.Delete)
 
 	personHandler := handlers.NewPersonHandler(resourceService)
 	protected.POST("/persons", personHandler.Create)
@@ -526,7 +567,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	featuresGroup := api.Group("")
 	if appCfg.OAuthEnabled() {
 		featuresGroup.Use(echo.WrapMiddleware(apimw.OptionalAuth(sessionManager, authService)))
-		featuresGroup.Use(apimw.Impersonation(sessionStore, accountRepo, logger))
+		featuresGroup.Use(apimw.Impersonation(sessionStore, accountRepo, erasureLocks, logger))
 	} else {
 		featuresGroup.Use(apimw.SoftAuth(credentialRepo, agentRepo, accountRepo, logger))
 	}
@@ -540,33 +581,20 @@ func runServe(cmd *cobra.Command, args []string) error {
 	uploadHandler := handlers.NewUploadHandler(fileService, logger, appCfg.Storage.MaxUploadBytes)
 	protected.POST("/uploads", uploadHandler.Upload)
 
-	// Serve uploaded files with security headers to prevent stored XSS.
-	// Content-Disposition: attachment forces download instead of inline render;
-	// X-Content-Type-Options: nosniff prevents browser MIME-type guessing.
-	// Directory listings are blocked to avoid leaking filenames/IDs.
-	uploadFS := http.Dir(appCfg.Storage.LocalPath)
-	protected.GET("/uploads/files/*", echo.WrapHandler(
-		http.StripPrefix("/api/uploads/files/", http.FileServer(uploadFS)),
-	), func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			reqPath := c.Param("*")
-			if reqPath == "" || reqPath == "/" || strings.HasSuffix(reqPath, "/") {
-				return echo.ErrNotFound
-			}
-			c.Response().Header().Set("Content-Disposition", "attachment")
-			c.Response().Header().Set("X-Content-Type-Options", "nosniff")
-			c.Response().Header().Set("Content-Security-Policy", "default-src 'none'")
-			return next(c)
-		}
-	})
+	// The read route strips its mount path from the request path, so the
+	// registration and the handler take it from this one constant.
+	const uploadFilesPath = "/uploads/files/"
+	protected.GET(uploadFilesPath+"*",
+		handlers.ServeUploadedFiles("/api"+uploadFilesPath, appCfg.Storage.LocalPath, logger))
 
 	// MCP + in-app agent routes — registered before dynamic catch-all. Both
 	// share one auth stack (BearerOrSession under OAuth, SoftAuth in dev).
 	mcpGroup := api.Group("")
 	if appCfg.OAuthEnabled() {
 		sessionAuth := authhttp.RequireAuth(sessionManager, authService)
-		mcpGroup.Use(apimw.BearerOrSession(jwtService, sessionAuth, baseURL))
-		mcpGroup.Use(apimw.Impersonation(sessionStore, accountRepo, logger))
+		mcpGroup.Use(apimw.ErasureGuard(sessionManager, erasureLocks, logger, apimw.DeferToBearer()))
+		mcpGroup.Use(apimw.BearerOrSession(jwtService, sessionAuth, baseURL, accountRepo, erasureLocks))
+		mcpGroup.Use(apimw.Impersonation(sessionStore, accountRepo, erasureLocks, logger))
 	} else {
 		mcpGroup.Use(apimw.SoftAuth(credentialRepo, agentRepo, accountRepo, logger))
 	}
