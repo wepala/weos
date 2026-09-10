@@ -148,7 +148,13 @@ func TestAccountDelete_NotFoundWhenTheServiceFindsTheAccountGone(t *testing.T) {
 }
 
 func TestAccountDelete_RefusesEveryBodyThatDoesNotConfirm(t *testing.T) {
-	for _, body := range []string{`{"confirm":"delete"}`, `{"confirm":"DELETE "}`, `{"confirmation":"DELETE"}`, `{"confirm":""}`, `{}`, ``, `not json`} {
+	for _, body := range []string{
+		`{"confirm":"delete"}`, `{"confirm":"DELETE "}`, `{"confirmation":"DELETE"}`, `{"confirm":""}`, `{}`, ``, `not json`,
+		// wm-q7knw: the field name in another case, an extra field, and a
+		// second document after the first.
+		`{"Confirm":"DELETE"}`, `{"CONFIRM":"DELETE"}`, `{"confirm":"DELETE","extra":true}`, `{"confirm":"DELETE"} {}`,
+		`{"confirm":["DELETE"]}`, `"DELETE"`,
+	} {
 		t.Run(body, func(t *testing.T) {
 			f := newDeleteFixture(t)
 			rec := f.deleteAs("ops", "acct-harbor", body)
@@ -159,6 +165,55 @@ func TestAccountDelete_RefusesEveryBodyThatDoesNotConfirm(t *testing.T) {
 				t.Errorf("body %q reached the erasure service", body)
 			}
 		})
+	}
+}
+
+// wm-q7knw: the confirmation is JSON, and is refused under any other type.
+func TestAccountDelete_RefusesTheConfirmationUnderAnotherContentType(t *testing.T) {
+	for _, contentType := range []string{"text/plain", "application/x-www-form-urlencoded", ""} {
+		t.Run(contentType, func(t *testing.T) {
+			f := newDeleteFixture(t)
+			e := echo.New()
+			e.DELETE("/api/account", f.handler.Delete, func(next echo.HandlerFunc) echo.HandlerFunc {
+				return func(c echo.Context) error {
+					ctx := auth.ContextWithAgent(c.Request().Context(), &auth.Identity{
+						AgentID: "ops", AccountIDs: []string{"acct-harbor"}, ActiveAccountID: "acct-harbor",
+					})
+					c.SetRequest(c.Request().WithContext(ctx))
+					return next(c)
+				}
+			})
+			req := httptest.NewRequest(http.MethodDelete, "/api/account", strings.NewReader(`{"confirm":"DELETE"}`))
+			if contentType != "" {
+				req.Header.Set("Content-Type", contentType)
+			}
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("content type %q got %d %s, want 400", contentType, rec.Code, rec.Body.String())
+			}
+			if len(f.erasure.calls) != 0 {
+				t.Errorf("content type %q reached the erasure service", contentType)
+			}
+		})
+	}
+	f := newDeleteFixture(t)
+	e := echo.New()
+	e.DELETE("/api/account", f.handler.Delete, func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			ctx := auth.ContextWithAgent(c.Request().Context(), &auth.Identity{
+				AgentID: "ops", AccountIDs: []string{"acct-harbor"}, ActiveAccountID: "acct-harbor",
+			})
+			c.SetRequest(c.Request().WithContext(ctx))
+			return next(c)
+		}
+	})
+	req := httptest.NewRequest(http.MethodDelete, "/api/account", strings.NewReader(`{"confirm":"DELETE"}`))
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("application/json with a charset got %d %s, want 200", rec.Code, rec.Body.String())
 	}
 }
 

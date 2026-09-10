@@ -107,6 +107,38 @@ Feature: A person can delete their account from the app
       | {}                         |
       |                            |
 
+  # wm-q7knw. The field is matched by name and case, alone, as JSON: a
+  # decoder that matches names loosely and ignores extra fields would
+  # accept these, and the narrative above says anything else is 400.
+  Scenario Outline: A body that spells the field differently or carries more than it changes nothing
+    Given a WeOS instance where password sign-in is enabled and requests are authenticated by their session
+    And the meal-planning preset is installed
+    And the account "Harbor Legal", whose owner "ops@harborlegal.example" signs in with password "correct-horse-battery-staple"
+    And "ops@harborlegal.example" has a "recipe" named "Sunday Lasagna" in "Harbor Legal"
+    When "ops@harborlegal.example" asks to delete their account sending the body "<body>"
+    Then the request is refused as a bad request
+    And they make a request with the session they already held
+    And the request is served
+    And the recipe "Sunday Lasagna" is still there for "Harbor Legal"
+
+    Examples:
+      | body                             |
+      | {"Confirm":"DELETE"}             |
+      | {"CONFIRM":"DELETE"}             |
+      | {"confirm":"DELETE","extra":1}   |
+      | {"confirm":"DELETE"} {}          |
+
+  Scenario: The confirmation sent as plain text changes nothing
+    Given a WeOS instance where password sign-in is enabled and requests are authenticated by their session
+    And the meal-planning preset is installed
+    And the account "Harbor Legal", whose owner "ops@harborlegal.example" signs in with password "correct-horse-battery-staple"
+    And "ops@harborlegal.example" has a "recipe" named "Sunday Lasagna" in "Harbor Legal"
+    When "ops@harborlegal.example" asks to delete their account sending the confirmation as "text/plain"
+    Then the request is refused as a bad request
+    And they make a request with the session they already held
+    And the request is served
+    And the recipe "Sunday Lasagna" is still there for "Harbor Legal"
+
   Scenario: A request carrying no session cannot delete anything
     Given a WeOS instance where password sign-in is enabled and requests are authenticated by their session
     And the account "Harbor Legal", whose owner "ops@harborlegal.example" signs in with password "correct-horse-battery-staple"

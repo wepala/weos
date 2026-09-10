@@ -228,11 +228,15 @@ func (w *deletionWorld) nothingRemains(name string) error {
 // deleteWith sends DELETE /api/account with the cookie and body given, and
 // records the answer — and the cookies it set — on the person.
 func (w *deletionWorld) deleteWith(p *person, cookie, body string) error {
+	return w.deleteWithContentType(p, cookie, body, "application/json")
+}
+
+func (w *deletionWorld) deleteWithContentType(p *person, cookie, body, contentType string) error {
 	req, err := http.NewRequest(http.MethodDelete, w.server.URL+accountPath, strings.NewReader(body))
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", contentType)
 	if cookie != "" {
 		req.Header.Set("Cookie", cookie)
 	}
@@ -277,6 +281,18 @@ func (w *deletionWorld) asksToDeleteWithBody(email, body string) error {
 	}
 	w.actor = email
 	return w.deleteWith(p, p.cookie, body)
+}
+
+func (w *deletionWorld) asksToDeleteAs(email, contentType string) error {
+	p, err := w.personNamed(email)
+	if err != nil {
+		return err
+	}
+	if err := w.ensureSignedIn(p); err != nil {
+		return err
+	}
+	w.actor = email
+	return w.deleteWithContentType(p, p.cookie, `{"confirm":"DELETE"}`, contentType)
 }
 
 func (w *deletionWorld) anonymousDelete() error {

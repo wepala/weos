@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"mime"
 	"net/http"
 
 	apimw "github.com/wepala/weos/v3/api/middleware"
@@ -96,10 +97,6 @@ type AccountDeletedResponse struct {
 	MembersLost int `json:"members_lost"`
 }
 
-type deleteAccountRequest struct {
-	Confirm string `json:"confirm"`
-}
-
 // Delete erases the caller's active account. It requires the body
 // {"confirm":"DELETE"} exactly, an owner or admin of the account, and no
 // impersonation in progress. On success it signs the caller out: the session
@@ -115,9 +112,9 @@ func (h *AccountHandler) Delete(c echo.Context) error {
 		// person's account through their identity.
 		return respondError(c, http.StatusForbidden, "account deletion is not available while impersonating")
 	}
-	if !readsConfirmation(c.Request().Body) {
+	if !readsConfirmation(c.Request()) {
 		return respondError(c, http.StatusBadRequest,
-			`deleting the account requires the body {"confirm":"DELETE"}`)
+			`deleting the account requires the body {"confirm":"DELETE"} sent as application/json`)
 	}
 
 	account, err := h.cfg.Accounts.FindByID(ctx, identity.ActiveAccountID)
@@ -164,19 +161,40 @@ func (h *AccountHandler) Delete(c echo.Context) error {
 	})
 }
 
-// readsConfirmation reports whether the body is exactly the confirmation.
-// Anything else — a different field, a different case, a trailing space, no
-// body — is refused, and changes nothing.
-func readsConfirmation(body io.Reader) bool {
-	raw, err := io.ReadAll(body)
+// readsConfirmation reports whether the request is exactly the confirmation:
+// a JSON body with one field, named confirm in that spelling and case, whose
+// value is the word DELETE exactly, sent as application/json. Anything else —
+// a different field, a different case, an extra field, a trailing space, a
+// second document, another content type, no body — is refused, and changes
+// nothing. It is read this strictly because encoding/json's struct decoding
+// matches names case-insensitively and ignores fields it does not know, and
+// the handler's promise is the other way round (wm-q7knw).
+func readsConfirmation(r *http.Request) bool {
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != echo.MIMEApplicationJSON {
+		return false
+	}
+	raw, err := io.ReadAll(r.Body)
 	if err != nil || len(bytes.TrimSpace(raw)) == 0 {
 		return false
 	}
-	var req deleteAccountRequest
-	if err := json.Unmarshal(raw, &req); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	var fields map[string]json.RawMessage
+	if err := dec.Decode(&fields); err != nil || len(fields) != 1 {
 		return false
 	}
-	return req.Confirm == deleteConfirmation
+	if dec.More() {
+		return false
+	}
+	value, ok := fields["confirm"]
+	if !ok {
+		return false
+	}
+	var confirm string
+	if err := json.Unmarshal(value, &confirm); err != nil {
+		return false
+	}
+	return confirm == deleteConfirmation
 }
 
 // impersonating reports whether the request carries an active impersonation

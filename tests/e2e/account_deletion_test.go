@@ -241,6 +241,7 @@ func initAccountDeletionScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^"([^"]*)" deletes their account, confirming with "DELETE"$`, w.deletesAccount)
 	// The body carries quotes of its own, so it is matched loosely.
 	sc.Step(`^"([^"]*)" asks to delete their account sending the body "(.*)"$`, w.asksToDeleteWithBody)
+	sc.Step(`^"([^"]*)" asks to delete their account sending the confirmation as "([^"]*)"$`, w.asksToDeleteAs)
 	sc.Step(`^someone carrying no session asks to delete an account, confirming with "DELETE"$`, w.anonymousDelete)
 	sc.Step(`^they ask to delete the account they are acting in, confirming with "DELETE"$`, w.actorDeletes)
 	sc.Step(`^the owner of "([^"]*)" deletes it, confirming with "DELETE"$`, w.ownerDeletes)
