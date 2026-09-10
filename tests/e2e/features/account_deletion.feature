@@ -1,4 +1,4 @@
-@wip @story-wm-kb6sg-3
+@story-wm-kb6sg-3
 Feature: A person can delete their account from the app
   As an account holder
   I want to delete my account from inside the app
