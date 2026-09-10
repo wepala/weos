@@ -26,7 +26,6 @@ Feature: The food types live in core's meal-planning preset
   #    reference property still reverse-maps to its own name after the move" already
   #    sweep every meal-planning type, so they cover the ten moved types unchanged.
 
-  @wip
   Scenario Outline: A moved food type installs from meal-planning with the class mini-me gives it
     Given a clean WeOS database
     When the operator installs the "meal-planning" preset
@@ -45,7 +44,6 @@ Feature: The food types live in core's meal-planning preset
       | purchase-line     | https://schema.org/OrderItem                              |
       | item-kind         | https://schema.org/DefinedTerm                            |
 
-  @wip
   Scenario: The meal-planning preset offers all twenty-four food types and no other preset offers them
     When the operator lists the built-in presets
     Then the "meal-planning" preset offers exactly these types:
@@ -75,7 +73,6 @@ Feature: The food types live in core's meal-planning preset
       | item-kind             |
     And no other built-in preset offers any of those types
 
-  @wip
   Scenario: A restaurant is recorded on a core-only install that has no agent type
     Given a clean WeOS database
     And the operator installs the "meal-planning" preset
@@ -84,7 +81,6 @@ Feature: The food types live in core's meal-planning preset
     And the "restaurant" "Roti Palace" carries the RDF type "https://schema.org/Restaurant" in the stored document
     And the triple store holds "https://schema.org/servesCuisine" from the "restaurant" "Roti Palace" with the value "Trinidadian"
 
-  @wip
   Scenario Outline: A twin food type keeps its own slug and table while it shares a core class
     Given a clean WeOS database
     When the operator installs the "meal-planning" preset
@@ -98,7 +94,6 @@ Feature: The food types live in core's meal-planning preset
       | planned-meal      | scheduled-meal     | https://schema.org/Schedule                          | people      |
       | grocery-list-item | shopping-list-item | https://weos.io/vocab/meal-planning#ShoppingListItem | ingredient  |
 
-  @wip
   Scenario Outline: A moved type keeps the published schema.org property mini-me gives it
     Given a clean WeOS database
     When the operator installs the "meal-planning" preset
@@ -112,14 +107,12 @@ Feature: The food types live in core's meal-planning preset
       | restaurant | servesCuisine | https://schema.org/servesCuisine |
       | restaurant | telephone     | https://schema.org/telephone     |
 
-  @wip
   Scenario: A purchase keeps its receipt hash on the ingest vocabulary
     Given a clean WeOS database
     When the operator installs the "meal-planning" preset
     Then the "purchase" type resolves the property "contentHash" to "https://weos.io/vocab/ingest#contentHash"
     And the "purchase" type resolves nothing to "https://weos.io/vocab/meal-planning#contentHash"
 
-  @wip
   Scenario Outline: Upgrading a twin whose food types came from mini-me records no type change
     Given a WeOS database provisioned by the build whose "food" preset carries mini-me's food definitions at commit "fbf90ba6"
     And the operator installs the "meal-planning" preset
@@ -142,7 +135,6 @@ Feature: The food types live in core's meal-planning preset
       | purchase-line     |
       | item-kind         |
 
-  @wip
   Scenario: A restaurant written before the upgrade reads back unchanged after it
     Given a WeOS database provisioned by the build whose "food" preset carries mini-me's food definitions at commit "fbf90ba6"
     And the operator installs the "meal-planning" preset
