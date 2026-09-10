@@ -34,8 +34,11 @@ import (
 // preset. The world is #521's real-preset world. "The build whose food preset
 // carries mini-me's food definitions" is the default registry with those ten
 // slugs taken out of meal-planning and put back under their own preset, built
-// from the golden copy the unit test pins — so a golden that no longer matches
-// core fails here as an update on restart, not only in the unit test.
+// from the golden copy the unit test pins. The boot reconcile is additive, so a
+// restart here fails only when core adds a term or property the golden lacks,
+// or maps a term to another IRI. A term core drops, a re-ordered key, or a
+// changed name or description passes; the unit byte test catches everything
+// else.
 
 func TestFoodTypes(t *testing.T) {
 	runFeatureWith(t, "food-types", "features/food_types.feature", initFoodTypesScenario)

@@ -15,9 +15,11 @@ Feature: The food types live in core's meal-planning preset
   #    schema as JSON STRINGS, so no decoder can re-order a byte. The freeze is that
   #    commit: a change to mini-me's food_preset.go after it is not in core until the
   #    golden is re-taken at the mini-me bump. The upgrade scenarios below build the
-  #    old install FROM that file, so a stale or edited golden fails here, not only in
-  #    a unit test. The shim step refuses a golden that does not name fbf90ba6 or does
-  #    not hold exactly ten types.
+  #    old install FROM that file. The boot reconcile is additive, so they fail when
+  #    core adds a term or property the golden lacks, or maps a term to another IRI.
+  #    A term core drops, a re-ordered key, or a changed name or description passes
+  #    them; the unit byte test catches everything else. The shim step refuses a
+  #    golden that does not name fbf90ba6 or does not hold exactly ten types.
   #
   # 2. WHAT IS NOT IN THIS FILE, AND WHY. Registry bytes, hidden slugs and the P1
   #    comment on the three twin pairs have no e2e harness. The report on bead
