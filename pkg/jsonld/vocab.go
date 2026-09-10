@@ -27,6 +27,7 @@ const HouseVocabBase = "https://weos.io/vocab/"
 // every prefix definition must.
 const (
 	MealPlanningVocab = HouseVocabBase + "meal-planning#"
+	IngestVocab       = HouseVocabBase + "ingest#"
 	MemoryVocab       = HouseVocabBase + "memory#"
 	AgentsVocab       = HouseVocabBase + "agents#"
 

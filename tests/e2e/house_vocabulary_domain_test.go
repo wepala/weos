@@ -1042,14 +1042,17 @@ func (w *vocabWorld) createWithReferences(slug, name string, table *godog.Table)
 // --- what a resource says about itself ---
 
 // document returns a resource's stored JSON-LD document and its embedded
-// @context — what the knowledge graph store ingests verbatim.
+// @context — what the knowledge graph store ingests. The store cannot fetch a
+// remote context, so a bare context IRI is inlined as @vocab first, exactly as
+// the store does; read raw, a type whose context is only a @vocab would state
+// no literal at all.
 func (w *vocabWorld) document(id string) (map[string]any, json.RawMessage, error) {
 	res, err := w.rs.GetByID(context.Background(), id)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read %s: %w", id, err)
 	}
 	var doc map[string]any
-	if err := json.Unmarshal(res.Data(), &doc); err != nil {
+	if err := json.Unmarshal(jsonld.InlineVocabContext(res.Data()), &doc); err != nil {
 		return nil, nil, fmt.Errorf("the record of %s is not a JSON object: %w", id, err)
 	}
 	var embedded json.RawMessage

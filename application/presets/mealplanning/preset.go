@@ -43,11 +43,22 @@ func Register(registry *application.PresetRegistry) {
 			shoppingListType(),
 			shoppingListItemType(),
 			restrictedDietType(),
+			tasteProfileType(),
+			mealLogType(),
+			restaurantType(),
+			plannedMealType(),
+			groceryAmendmentType(),
+			groceryListItemType(),
+			stapleType(),
+			purchaseType(),
+			purchaseLineType(),
+			itemKindType(),
 		},
 		Sidebar: &application.PresetSidebarConfig{
 			HiddenSlugs: []string{
 				"how-to-step", "recipe-ingredient", "nutrition-information",
 				"meal-occurrence", "food-item", "shopping-list-item", "restricted-diet",
+				"grocery-list-item", "grocery-amendment", "purchase-line",
 			},
 			MenuGroups: map[string]string{
 				"scheduled-meal":     "meal-plan",
@@ -521,6 +532,241 @@ func restrictedDietType() application.PresetResourceType {
 }`),
 		Fixtures: restrictedDietFixtures(),
 	}
+}
+
+// -- food types ----------------------------------------------------------------
+//
+// A stored resource type is keyed by slug alone, and live twins already store
+// these ten under mini-me's definitions. Every context, schema, name and
+// description below must stay byte-identical to that stored copy, or the first
+// boot on this build records a type change for every twin. food_types_test.go
+// compares them with a golden copy of mini-me's output; change one only
+// together with that golden copy and the product that stores it.
+
+const (
+	schemaNS       = "https://schema.org/"
+	mealPlanningNS = jsonld.MealPlanningVocab
+	ingestNS       = jsonld.IngestVocab
+)
+
+func tasteProfileType() application.PresetResourceType {
+	return application.NewPresetType("TasteProfile", "taste-profile",
+		"A person's food preferences: cuisines and ingredients liked, disliked, dietary rules, never-eat rules, and per-context budget caps",
+		`{"@vocab":"`+schemaNS+`","@type":"`+mealPlanningNS+`TasteProfile",`+
+			`"name":"`+schemaNS+`name",`+
+			`"likes":"`+mealPlanningNS+`likes",`+
+			`"dislikes":"`+mealPlanningNS+`dislikes",`+
+			`"diet":"`+mealPlanningNS+`diet",`+
+			`"neverEat":"`+mealPlanningNS+`neverEat",`+
+			`"budgetCaps":"`+mealPlanningNS+`budgetCaps",`+
+			`"notes":"`+schemaNS+`description"}`,
+		`{"type":"object","properties":{`+
+			`"name":{"type":"string"},`+
+			`"likes":{"type":"array","items":{"type":"string"}},`+
+			`"dislikes":{"type":"array","items":{"type":"string"}},`+
+			`"diet":{"type":"array","items":{"type":"string"}},`+
+			`"neverEat":{"type":"array","items":{"type":"string"}},`+
+			`"budgetCaps":{"type":"array","items":{"type":"object","properties":{`+
+			`"context":{"type":"string"},`+
+			`"amount":{"type":"number","minimum":0},`+
+			`"currency":{"type":"string"}`+
+			`},"required":["context","amount"]}},`+
+			`"notes":{"type":"string"}`+
+			`},"required":["name"]}`,
+	)
+}
+
+// mealLogType is a twin of meal-occurrence: both carry mp:MealOccurrence, but
+// meal-log keeps its own slug and table for the order edge and rating that
+// meal-occurrence has no notion of. Merging the pair is P1 and needs a data
+// migration; do not fold either type into the other before then.
+//
+// status is not required because logs written before it existed have none, and
+// the boot reconcile tightens `required` on existing rows at once. orderId is
+// not named `order`, a SQL reserved word that breaks the projection table. Its
+// target type `order` is defined only by the private commerce preset, so a
+// core-only install has nothing for it to point at. scheduledMeal targets
+// planned-meal, the slug the twin writes, because x-resource-type drives the
+// display column.
+func mealLogType() application.PresetResourceType {
+	return application.NewPresetType("MealLog", "meal-log",
+		"One meal Akeem ate: when, what kind, and the recipe cooked or order placed",
+		`{"@vocab":"`+schemaNS+`","@type":"`+mealPlanningNS+`MealOccurrence",`+
+			`"date":"`+schemaNS+`startDate",`+
+			`"mealType":"`+mealPlanningNS+`mealType",`+
+			`"servings":"`+mealPlanningNS+`servings",`+
+			`"orderId":"`+schemaNS+`isBasedOn",`+
+			`"recipe":"`+mealPlanningNS+`recipe",`+
+			`"scheduledMeal":"`+mealPlanningNS+`occurrenceOf",`+
+			`"status":"`+mealPlanningNS+`status",`+
+			`"notes":"`+schemaNS+`description",`+
+			`"rating":"`+mealPlanningNS+`rating"}`,
+		`{"type":"object","properties":{`+
+			`"date":{"type":"string","format":"date"},`+
+			`"mealType":{"type":"string","enum":["breakfast","lunch","dinner","snack"]},`+
+			`"status":{"type":"string","enum":["planned","cooked","skipped"]},`+
+			`"recipe":{"type":"string","x-resource-type":"recipe","x-display-property":"name"},`+
+			`"orderId":{"type":"string","x-resource-type":"order","x-display-property":"orderNumber"},`+
+			`"scheduledMeal":{"type":"string","x-resource-type":"planned-meal","x-display-property":"mealType"},`+
+			`"servings":{"type":"integer","minimum":1},`+
+			`"notes":{"type":"string"},`+
+			`"rating":{"type":"integer","minimum":1,"maximum":5}`+
+			`},"required":["date","mealType"]}`,
+	)
+}
+
+// restaurantType subclasses `agent`, which only the private finance preset
+// defines, so a core-only install gets no parent edge. The parent stays a plain
+// string because it sits inside the byte-identical context.
+func restaurantType() application.PresetResourceType {
+	return application.NewPresetType("Restaurant", "restaurant",
+		"A restaurant Akeem orders from, standing as the providing agent on orders and invoices",
+		`{"@vocab":"`+schemaNS+`","@type":"Restaurant","rdfs:subClassOf":"agent"}`,
+		`{"type":"object","properties":{`+
+			`"name":{"type":"string"},`+
+			`"servesCuisine":{"type":"string"},`+
+			`"address":{"type":"string"},`+
+			`"telephone":{"type":"string"},`+
+			`"url":{"type":"string"}`+
+			`},"required":["name"]}`,
+	)
+}
+
+// plannedMealType is a twin of scheduled-meal: both carry schema:Schedule, but
+// planned-meal keeps its own slug and table. Merging the pair is P1 and needs a
+// data migration; do not fold either type into the other before then.
+func plannedMealType() application.PresetResourceType {
+	return application.NewPresetType("PlannedMeal", "planned-meal",
+		"A recipe planned for an upcoming meal, with an optional headcount that scales its grocery needs",
+		`{"@vocab":"`+schemaNS+`","@type":"`+schemaNS+`Schedule",`+
+			`"recipe":"`+mealPlanningNS+`recipe",`+
+			`"people":"`+mealPlanningNS+`people",`+
+			`"scaleFactor":"`+mealPlanningNS+`scaleFactor",`+
+			`"plannedFor":"`+mealPlanningNS+`plannedFor"}`,
+		`{"type":"object","properties":{`+
+			`"recipe":{"type":"string","x-resource-type":"recipe","x-display-property":"name"},`+
+			`"people":{"type":"integer","minimum":1},`+
+			`"scaleFactor":{"type":"number","minimum":0},`+
+			`"plannedFor":{"type":"string","format":"date"}`+
+			`},"required":["recipe"]}`,
+	)
+}
+
+// groceryAmendmentType maps kind to mp:amendmentKind rather than mp:kind, so it
+// never shares a predicate with item-kind's unrelated kind.
+func groceryAmendmentType() application.PresetResourceType {
+	return application.NewPresetType("GroceryAmendment", "grocery-amendment",
+		"A manual change to the grocery list: an add of an ingredient, or a check-off of one already on it",
+		`{"@vocab":"`+schemaNS+`","@type":"`+mealPlanningNS+`ShoppingListAmendment",`+
+			`"ingredient":"`+mealPlanningNS+`ingredient",`+
+			`"kind":"`+mealPlanningNS+`amendmentKind"}`,
+		`{"type":"object","properties":{`+
+			`"kind":{"type":"string","enum":["add","check-off"]},`+
+			`"ingredient":{"type":"string","x-resource-type":"ingredient","x-display-property":"name"}`+
+			`},"required":["kind","ingredient"]}`,
+	)
+}
+
+// groceryListItemType is a twin of shopping-list-item: both carry
+// mp:ShoppingListItem, and the properties they share use shopping-list-item's
+// predicates so the two answer one query. grocery-list-item keeps its own slug
+// and table. Merging the pair is P1 and needs a data migration; do not fold
+// either type into the other before then.
+func groceryListItemType() application.PresetResourceType {
+	return application.NewPresetType("GroceryListItem", "grocery-list-item",
+		"One materialized line on the grocery list: an ingredient to get, an optional combined quantity, and the per-recipe component needs behind it",
+		`{"@vocab":"`+schemaNS+`","@type":"`+mealPlanningNS+`ShoppingListItem",`+
+			`"ingredient":"`+mealPlanningNS+`ingredient",`+
+			`"quantity":"`+mealPlanningNS+`quantity",`+
+			`"unit":"`+mealPlanningNS+`unit",`+
+			`"manuallyAdded":"`+mealPlanningNS+`manuallyAdded",`+
+			`"stapleLow":"`+mealPlanningNS+`stapleLow",`+
+			`"components":"`+mealPlanningNS+`components"}`,
+		`{"type":"object","properties":{`+
+			`"ingredient":{"type":"string","x-resource-type":"ingredient","x-display-property":"name"},`+
+			`"quantity":{"type":"number"},`+
+			`"unit":{"type":"string"},`+
+			`"manuallyAdded":{"type":"boolean"},`+
+			`"stapleLow":{"type":"boolean"},`+
+			`"components":{"type":"array","items":{"type":"object","properties":{`+
+			`"quantity":{"type":"number"},`+
+			`"unit":{"type":"string"},`+
+			`"recipe":{"type":"string"}`+
+			`}}}`+
+			`},"required":["ingredient","manuallyAdded"]}`,
+	)
+}
+
+func stapleType() application.PresetResourceType {
+	return application.NewPresetType("Staple", "staple",
+		"A staple ingredient Akeem always keeps stocked; running low is judged against the current pantry declaration",
+		`{"@vocab":"`+schemaNS+`","@type":"`+mealPlanningNS+`Staple",`+
+			`"ingredient":"`+mealPlanningNS+`ingredient"}`,
+		`{"type":"object","properties":{`+
+			`"ingredient":{"type":"string","x-resource-type":"ingredient","x-display-property":"name"}`+
+			`},"required":["ingredient"]}`,
+	)
+}
+
+// purchaseType declares the parent the commerce preset declares for
+// schema:Order. The ontology projector clears a class subject before writing
+// it, so a different parent here would change the class hierarchy between
+// boots. `agreement` is defined only by the private presets, so a core-only
+// install gets no parent edge.
+func purchaseType() application.PresetResourceType {
+	return application.NewPresetType("Purchase", "purchase",
+		"One confirmed grocery purchase: the store, when it happened (and how that time is known), the printed total, and the dedup identity of its receipt",
+		`{"@vocab":"`+schemaNS+`","@type":"`+schemaNS+`Order",`+
+			`"rdfs:subClassOf":"agreement",`+
+			`"seller":"`+schemaNS+`seller",`+
+			`"store":"`+mealPlanningNS+`store",`+
+			`"purchasedAt":"`+mealPlanningNS+`purchasedAt",`+
+			`"timeSource":"`+mealPlanningNS+`timeSource",`+
+			`"total":"`+mealPlanningNS+`total",`+
+			`"contentHash":"`+ingestNS+`contentHash"}`,
+		`{"type":"object","properties":{`+
+			`"store":{"type":"string"},`+
+			`"seller":{"type":"string","x-resource-type":"organization","x-display-property":"name"},`+
+			`"purchasedAt":{"type":"string"},`+
+			`"timeSource":{"type":"string","enum":["receipt","share"]},`+
+			`"total":{"type":"string"},`+
+			`"contentHash":{"type":"string"}`+
+			`},"required":["store","purchasedAt","timeSource"]}`,
+	)
+}
+
+func purchaseLineType() application.PresetResourceType {
+	return application.NewPresetType("PurchaseLine", "purchase-line",
+		"One line item of a confirmed purchase: the item as printed, its prices, and the vocabulary node it names when known",
+		`{"@vocab":"`+schemaNS+`","@type":"`+schemaNS+`OrderItem",`+
+			`"name":"`+schemaNS+`name",`+
+			`"purchase":"`+schemaNS+`isPartOf",`+
+			`"ingredient":"`+mealPlanningNS+`ingredient",`+
+			`"quantity":"`+mealPlanningNS+`quantity",`+
+			`"unitPrice":"`+mealPlanningNS+`unitPrice",`+
+			`"lineTotal":"`+mealPlanningNS+`lineTotal"}`,
+		`{"type":"object","properties":{`+
+			`"name":{"type":"string"},`+
+			`"purchase":{"type":"string","x-resource-type":"purchase","x-display-property":"store"},`+
+			`"quantity":{"type":"number"},`+
+			`"unitPrice":{"type":"string"},`+
+			`"lineTotal":{"type":"string"},`+
+			`"ingredient":{"type":"string","x-resource-type":"ingredient","x-display-property":"name"}`+
+			`},"required":["name","purchase"]}`,
+	)
+}
+
+func itemKindType() application.PresetResourceType {
+	return application.NewPresetType("ItemKind", "item-kind",
+		"One item's declared perishability: perishable or non-perishable, at the purchase-line name grain",
+		`{"@vocab":"`+schemaNS+`","@type":"`+schemaNS+`DefinedTerm",`+
+			`"name":"`+schemaNS+`name",`+
+			`"kind":"`+mealPlanningNS+`perishability"}`,
+		`{"type":"object","properties":{`+
+			`"name":{"type":"string"},`+
+			`"kind":{"type":"string","enum":["perishable","non-perishable"]}`+
+			`},"required":["name","kind"]}`,
+	)
 }
 
 // -- fixtures ----------------------------------------------------------------
