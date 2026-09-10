@@ -111,7 +111,7 @@ const deleteBatchSize = 1000
 
 // deleteBatchWorkers is how many DeleteObjects calls are in flight at once.
 // A page of the listing is up to a thousand keys, one batch, so this only
-// matters across pages; it keeps a large account from serialising a batch
+// matters across pages; it keeps a large account from serializing a batch
 // per round trip.
 const deleteBatchWorkers = 4
 
@@ -135,7 +135,7 @@ func (s *s3FileService) DeleteAccountFolder(ctx context.Context, accountID strin
 	for pages.HasMorePages() {
 		page, err := pages.NextPage(ctx)
 		if err != nil {
-			// A failed batch has already cancelled ctx; report that rather
+			// A failed batch has already canceled ctx; report that rather
 			// than the listing it interrupted.
 			if waitErr := group.Wait(); waitErr != nil {
 				return waitErr

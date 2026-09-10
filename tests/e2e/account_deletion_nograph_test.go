@@ -24,4 +24,8 @@ import "github.com/cucumber/godog"
 // TestAccountDeletion leaves them out.
 const embeddedGraphBuilt = false
 
-func (w *deletionWorld) registerGraphSteps(*godog.ScenarioContext) {}
+func (w *deletionWorld) registerGraphSteps(*godog.ScenarioContext) {
+	// The field is written and read by the build-tagged steps only; without
+	// them nothing sets it, and it stays empty.
+	w.graphBase = ""
+}

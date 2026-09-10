@@ -407,10 +407,10 @@ func TestAccountErasure_ACancelledRequestDoesNotAbortTheRun(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // the client is already gone when the service starts
 	if _, err := h.service(time.Second).Erase(ctx, EraseAccountCommand{AccountID: "acct-harbor"}); err != nil {
-		t.Fatalf("Erase under a cancelled request context: %v", err)
+		t.Fatalf("Erase under a canceled request context: %v", err)
 	}
 	if !h.purger.purged {
-		t.Error("the purge did not run after the request's context was cancelled")
+		t.Error("the purge did not run after the request's context was canceled")
 	}
 }
 

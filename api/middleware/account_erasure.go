@@ -377,10 +377,6 @@ func refuse(c echo.Context, code string) error {
 	return c.JSON(http.StatusUnauthorized, body)
 }
 
-func refuseErasurePending(c echo.Context) error {
-	return refuse(c, CodeAccountErasurePending)
-}
-
 // accountState is what the bearer path learns about a token's account.
 type accountState int
 

@@ -122,7 +122,7 @@ func (s *gcsFileService) DeleteAccountFolder(ctx context.Context, accountID stri
 			break
 		}
 		if err != nil {
-			// A failed delete has already cancelled ctx; report that rather
+			// A failed delete has already canceled ctx; report that rather
 			// than the listing it interrupted.
 			if waitErr := group.Wait(); waitErr != nil {
 				return waitErr

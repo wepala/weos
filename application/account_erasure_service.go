@@ -241,7 +241,7 @@ func NewAccountErasureService(d AccountErasureDeps) *AccountErasureService {
 // The run is detached from the caller's context and given its own deadline.
 // A person who asked for the deletion and then hung up — a mobile client
 // whose timeout is shorter than a bucket walk — must not abort it: the lock
-// row is the state the deletion keeps, and a cancelled walk would leave it
+// row is the state the deletion keeps, and a canceled walk would leave it
 // locked with nothing removed (wm-mpj0l).
 func (s *AccountErasureService) Erase(ctx context.Context, cmd EraseAccountCommand) (*ErasureResult, error) {
 	if cmd.AccountID == "" {
