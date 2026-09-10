@@ -25,8 +25,12 @@ type PaginatedEnvelope struct {
 
 // ErrorEnvelope wraps an error API response. The "error" key is kept for
 // backward compatibility; the messages array provides the structured form.
+// Code, when set, is a stable machine-readable name for the failure, for the
+// cases a client must tell apart from the generic one — the same field the
+// auth middleware writes on its refusals.
 type ErrorEnvelope struct {
 	Error    string             `json:"error"`
+	Code     string             `json:"code,omitempty"`
 	Messages []entities.Message `json:"messages,omitempty"`
 }
 
@@ -64,6 +68,12 @@ func respondPaginated(
 func respondError(c echo.Context, status int, msg string) error {
 	msgs := entities.GetMessages(c.Request().Context())
 	return c.JSON(status, ErrorEnvelope{Error: msg, Messages: msgs})
+}
+
+// respondErrorCode sends an error carrying a stable code a client can act on.
+func respondErrorCode(c echo.Context, status int, msg, code string) error {
+	msgs := entities.GetMessages(c.Request().Context())
+	return c.JSON(status, ErrorEnvelope{Error: msg, Code: code, Messages: msgs})
 }
 
 // respondForbidden is a shorthand for 403 Forbidden responses.

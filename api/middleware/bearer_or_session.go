@@ -19,8 +19,11 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/wepala/weos/v3/domain/repositories"
+
 	"github.com/akeemphilbert/pericarp/pkg/auth"
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
+	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
 	"github.com/labstack/echo/v4"
 )
 
@@ -31,12 +34,22 @@ import (
 // an auth.Identity is injected into context. When no Bearer token is present,
 // the request is passed through the sessionAuth middleware (pericarp RequireAuth).
 //
+// A valid token is not the whole answer: the token's account is looked up,
+// the one lookup the session path always made. A token issued before its
+// account was erased would otherwise authenticate until it expired, and a
+// write through it would recreate rows — and a per-account graph directory —
+// under the deleted account's id. An account that is gone, or suspended, or
+// part-way through an erasure, refuses the token; the last two carry the
+// codes the session path answers with.
+//
 // Unauthenticated requests receive a 401 with WWW-Authenticate header per the
 // MCP Authorization spec, pointing to the Protected Resource Metadata endpoint.
 func BearerOrSession(
 	jwtService authapp.JWTService,
 	sessionAuth func(http.Handler) http.Handler,
 	baseURL string,
+	accounts authrepos.AccountRepository,
+	locks repositories.AccountErasureLocks,
 ) echo.MiddlewareFunc {
 	normalizedBaseURL := strings.TrimRight(baseURL, "/")
 	resourceMetadata := `resource_metadata="` + normalizedBaseURL +
@@ -58,6 +71,27 @@ func BearerOrSession(
 				c.Response().Header().Set("WWW-Authenticate", wwwAuthInvalidToken)
 				return c.JSON(http.StatusUnauthorized,
 					map[string]string{"error": "invalid_token"})
+			}
+
+			if claims.ActiveAccountID != "" {
+				state, err := stateOfAccount(c.Request().Context(), claims.ActiveAccountID, accounts, locks)
+				if err != nil {
+					// Fail closed: the account's state could not be read, so the
+					// token is not known to be good.
+					return c.JSON(http.StatusServiceUnavailable,
+						map[string]string{"error": "could not read the account's state"})
+				}
+				if state != accountActive {
+					c.Response().Header().Set("WWW-Authenticate", wwwAuthInvalidToken)
+					body := map[string]string{"error": "invalid_token"}
+					switch state {
+					case accountSuspended:
+						body["code"] = CodeAccountDeactivated
+					case accountErasurePending:
+						body["code"] = CodeAccountErasurePending
+					}
+					return c.JSON(http.StatusUnauthorized, body)
+				}
 			}
 
 			identity := &auth.Identity{

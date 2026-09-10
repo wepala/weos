@@ -21,6 +21,7 @@ import (
 
 	apimw "github.com/wepala/weos/v3/api/middleware"
 	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
 
 	"github.com/akeemphilbert/pericarp/pkg/auth"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
@@ -36,6 +37,7 @@ type ImpersonationHandler struct {
 	accountRepo authrepos.AccountRepository
 	agentRepo   authrepos.AgentRepository
 	credRepo    authrepos.CredentialRepository
+	members     repositories.AccountMemberQuery
 	logger      entities.Logger
 }
 
@@ -44,7 +46,11 @@ type ImpersonationHandlerConfig struct {
 	AccountRepo authrepos.AccountRepository
 	AgentRepo   authrepos.AgentRepository
 	CredRepo    authrepos.CredentialRepository
-	Logger      entities.Logger
+	// Members lets the identity read report how many people share the
+	// account the caller acts in, so an app can say so before one of them
+	// deletes it. Optional: without it the count is omitted.
+	Members repositories.AccountMemberQuery
+	Logger  entities.Logger
 }
 
 func NewImpersonationHandler(cfg ImpersonationHandlerConfig) *ImpersonationHandler {
@@ -53,6 +59,7 @@ func NewImpersonationHandler(cfg ImpersonationHandlerConfig) *ImpersonationHandl
 		accountRepo: cfg.AccountRepo,
 		agentRepo:   cfg.AgentRepo,
 		credRepo:    cfg.CredRepo,
+		members:     cfg.Members,
 		logger:      cfg.Logger,
 	}
 }
@@ -244,12 +251,19 @@ func (h *ImpersonationHandler) Me(authHandlers *authhttp.AuthHandlers) echo.Hand
 			if accountID != "" {
 				role, _ = h.accountRepo.FindMemberRole(ctx, accountID, agentID)
 			}
-			return respond(c, http.StatusOK, map[string]any{
+			body := map[string]any{
 				"id":    agentID,
 				"name":  name,
 				"email": email,
 				"role":  role,
-			})
+			}
+			if accountID != "" {
+				body["account_id"] = accountID
+				if count, ok := h.memberCount(ctx, accountID); ok {
+					body["member_count"] = count
+				}
+			}
+			return respond(c, http.StatusOK, body)
 		}
 
 		realAgentID, _ := sess.Values[apimw.KeyRealAgentID].(string)
@@ -274,6 +288,22 @@ func (h *ImpersonationHandler) Me(authHandlers *authhttp.AuthHandlers) echo.Hand
 			},
 		})
 	}
+}
+
+// memberCount reports how many people share accountID, when a member query
+// is wired. A count that cannot be read is omitted rather than reported as
+// zero: an app that shows "1 person" to a person who is not alone has been
+// told something false.
+func (h *ImpersonationHandler) memberCount(ctx context.Context, accountID string) (int, bool) {
+	if h.members == nil {
+		return 0, false
+	}
+	count, err := h.members.CountMembers(ctx, accountID)
+	if err != nil {
+		h.logger.Warn(ctx, "could not count the account's members", "account_id", accountID, "error", err)
+		return 0, false
+	}
+	return count, true
 }
 
 func (h *ImpersonationHandler) resolveAgentInfo(ctx context.Context, agentID string) (string, string) {

@@ -128,6 +128,17 @@ type oauthWorld struct {
 
 	mcpSessionID      string
 	mcpInitializedFor string
+	// lastMCPStatus is the HTTP status of the last MCP request, kept so a
+	// suite that expects a refusal can read it after mcpSend reported one.
+	lastMCPStatus int
+
+	// db and erasureLocks are populated for the suites that compose this
+	// world with account erasure, which reads the connector tables directly.
+	db           *gormlib.DB
+	erasureLocks repositories.AccountErasureLocks
+	// mountExtraRoutes lets another suite mount more of the application on
+	// this instance — the account routes — behind the auth serve.go gives them.
+	mountExtraRoutes func(api *echo.Group, cfg config.Config, sessionStore sessions.Store, jwtService authapp.JWTService)
 }
 
 func initOAuthAuthorizeScenario(sc *godog.ScenarioContext) {
@@ -252,7 +263,7 @@ func (w *oauthWorld) boot(opts bootOpts) error {
 		fx.Populate(&w.sessionManager, &sessionStore, &w.logger, &jwtService),
 		fx.Populate(&resourceTypeService, &w.resourceService),
 		fx.Populate(&kgService, &lexicalSearch, &episodicRecall),
-		fx.Populate(&db),
+		fx.Populate(&db, &w.erasureLocks),
 	)
 	startCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -260,6 +271,7 @@ func (w *oauthWorld) boot(opts bootOpts) error {
 		return fmt.Errorf("failed to start the instance: %w", err)
 	}
 	w.app = app
+	w.db = db
 
 	if _, err := resourceTypeService.InstallPreset(context.Background(), "tasks", true); err != nil {
 		return fmt.Errorf("failed to install the tasks preset: %w", err)
@@ -321,9 +333,12 @@ func (w *oauthWorld) boot(opts bootOpts) error {
 		mcpHandler := mcpserver.HandlerForServer(mcpSrv, slog.Default())
 		mcpGroup := api.Group("")
 		sessionAuth := authhttp.RequireAuth(w.sessionManager, w.authService)
-		mcpGroup.Use(apimw.BearerOrSession(jwtService, sessionAuth, baseURL))
+		mcpGroup.Use(apimw.BearerOrSession(jwtService, sessionAuth, baseURL, w.accountRepo, w.erasureLocks))
 		mcpGroup.Any("/mcp", echo.WrapHandler(mcpHandler))
 		mcpGroup.Any("/mcp/*", echo.WrapHandler(mcpHandler))
+	}
+	if w.mountExtraRoutes != nil {
+		w.mountExtraRoutes(api, cfg, sessionStore, jwtService)
 	}
 
 	w.server = httptest.NewServer(e)
@@ -783,6 +798,7 @@ func (w *oauthWorld) mcpSend(token string, payload map[string]any, wantReply boo
 	}
 	defer res.Body.Close()
 	raw, _ := io.ReadAll(res.Body)
+	w.lastMCPStatus = res.StatusCode
 	if id := res.Header.Get("Mcp-Session-Id"); id != "" {
 		w.mcpSessionID = id
 	}

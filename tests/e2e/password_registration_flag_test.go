@@ -18,6 +18,7 @@ import (
 	"github.com/wepala/weos/v3/application"
 	"github.com/wepala/weos/v3/application/presets"
 	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
 	"github.com/wepala/weos/v3/internal/config"
 	weosoauth "github.com/wepala/weos/v3/internal/oauth"
 
@@ -106,6 +107,7 @@ type passwordAuthWorld struct {
 	resourceService     application.ResourceService
 	resourceTypeService application.ResourceTypeService
 	jwtService          authapp.JWTService
+	erasureLocks        repositories.AccountErasureLocks
 	logger              entities.Logger
 
 	// signIn / registration / oauth are the shape the instance was last booted
@@ -244,7 +246,7 @@ func (w *passwordAuthWorld) boot(signIn bool, registration *bool) error {
 		fx.Provide(weosoauth.ProvideJWTService),
 		fx.Populate(&w.authService, &w.credRepo, &w.agentRepo, &w.accountRepo),
 		fx.Populate(&w.sessionManager, &w.sessionStore, &w.authzChecker, &w.logger),
-		fx.Populate(&w.resourceService, &w.resourceTypeService, &w.jwtService),
+		fx.Populate(&w.resourceService, &w.resourceTypeService, &w.jwtService, &w.erasureLocks),
 	)
 	startCtx, cancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
 	defer cancel()
@@ -335,7 +337,7 @@ func (w *passwordAuthWorld) boot(signIn bool, registration *bool) error {
 	catchAllOwner := api.Group("")
 	if cfg.OAuthEnabled() {
 		sessionAuth := authhttp.RequireAuth(w.sessionManager, w.authService)
-		catchAllOwner.Use(apimw.BearerOrSession(w.jwtService, sessionAuth, "http://acceptance.invalid"))
+		catchAllOwner.Use(apimw.BearerOrSession(w.jwtService, sessionAuth, "http://acceptance.invalid", w.accountRepo, w.erasureLocks))
 		catchAllOwner.Use(apimw.Impersonation(w.sessionStore, w.accountRepo, w.logger))
 	} else {
 		catchAllOwner.Use(apimw.SoftAuth(w.credRepo, w.agentRepo, w.accountRepo, w.logger))

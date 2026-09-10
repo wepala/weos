@@ -1,6 +1,6 @@
 # WeOS Core Constitution
 
-**Version:** 1.1.0 &nbsp;|&nbsp; **Ratified:** 2026-08-27 &nbsp;|&nbsp; **Last amended:** 2026-08-27
+**Version:** 1.2.0 &nbsp;|&nbsp; **Ratified:** 2026-08-27 &nbsp;|&nbsp; **Last amended:** 2026-09-10
 
 This document states the non-negotiable rules for `services/core`. Every
 contributor is bound by it — human or agent. Where an article conflicts with
@@ -25,6 +25,20 @@ system than the one that ran.
 **How this is enforced.** Review. Use `application.NewSimpleUnitOfWork(eventStore,
 dispatcher)`, then `uow.Track(entity)` and `uow.Commit(ctx)`. A repository write
 that does not pass through a unit of work is a violation.
+
+**The one exception: account erasure.** A person may delete their account from
+the app, and the app stores' policies and the law behind them require that the
+deletion remove their data — including the events that record it. That outranks
+immutability for exactly this case, and no other. The exception is confined to
+`repositories.AccountDataPurger`, implemented once in
+`infrastructure/database/gorm/account_purger.go`, and reached only through
+`application.AccountErasureService` — from `DELETE /api/account` and
+`weos account delete`. It deletes only the events of aggregates being deleted:
+the account, its resources, and the auth aggregates of members who belonged to
+nothing else. It is never reachable from a unit of work, an event handler, or a
+projection, and it is never a way to correct history. A second delete path for
+events anywhere else in the tree is a violation of this article, exception or no
+exception. See `docs/decisions/wehungry-food-types-uploads-and-account-erasure.md`.
 
 ---
 
@@ -287,3 +301,4 @@ review but has no automated gate. Remove the marker when a gate lands.
 |---|---|---|
 | 1.0.0 | 2026-08-27 | Ratified |
 | 1.1.0 | 2026-08-27 | Article VII expanded from six linters to ten. `gosec`, `gocritic`, `depguard`, and `forbidigo` added; `depguard` and `forbidigo` now machine-enforce Articles II and III. CI linter version pinned. |
+| 1.2.0 | 2026-09-10 | Article I expanded to name account erasure as its one exception: the `AccountDataPurger` may delete the event rows of an account being erased, and nothing else may delete an event. Story wm-kb6sg.3. |
