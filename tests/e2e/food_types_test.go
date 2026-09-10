@@ -39,8 +39,10 @@ import (
 // from the golden copy the unit test pins. The boot reconcile is additive, so a
 // restart here fails only when core adds a term or property the golden lacks,
 // or maps a term to another IRI. A term core drops, a re-ordered key, or a
-// changed name or description passes; the unit byte test catches everything
-// else.
+// changed name passes; the unit byte test catches that, and any other
+// difference in name, slug, @context or schema. Neither test compares
+// description, on purpose: core ships person-neutral descriptions (wm-4nc8w),
+// and the reconcile never compares descriptions.
 
 func TestFoodTypes(t *testing.T) {
 	runFeatureWith(t, "food-types", "features/food_types.feature", initFoodTypesScenario)
