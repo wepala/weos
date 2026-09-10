@@ -16,7 +16,9 @@
 package middleware
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -50,49 +52,161 @@ func ErasureLocked(ctx context.Context) bool {
 	return locked
 }
 
-// ErasureGuard refuses, before any other authentication runs, every request
-// whose session cookie names an account whose erasure has begun and not
-// finished. It answers 401 with the code that names the unfinished deletion.
+// ErasureGuardOption tunes ErasureGuard for the group it guards.
+type ErasureGuardOption func(*erasureGuardConfig)
+
+type erasureGuardConfig struct {
+	deferToBearer bool
+}
+
+// DeferToBearer leaves a request that carries a bearer token alone. It is for
+// a group that authenticates bearers: there BearerOrSession makes this check
+// on the token's account itself, and the cookie beside a bearer says nothing
+// about the account the token names.
+func DeferToBearer() ErasureGuardOption {
+	return func(c *erasureGuardConfig) { c.deferToBearer = true }
+}
+
+// ErasureGuard makes a refusal for an account whose erasure has begun and not
+// finished say so. pericarp's RequireAuth cannot tell the lock from a
+// suspension — both are an inactive account, and it answers
+// account_deactivated for either — and an app told account_deactivated
+// offers nothing, while told account_erasure_pending it offers "finish
+// deleting", the one thing a locked account may still do (on the deletion
+// route, which is not mounted behind this guard).
 //
-// It sits in front of pericarp's RequireAuth because RequireAuth cannot tell
-// the lock from a suspension: both are an inactive account, and it answers
-// account_deactivated for either. An app told account_deactivated offers
-// nothing; told account_erasure_pending it offers "finish deleting", which is
-// the one thing a locked account may still do — on the deletion route, which
-// is not mounted behind this guard.
+// It costs a healthy request nothing (wm-tsugz). It runs the chain below it
+// with the response held back only when that chain writes a 401, and then,
+// only when the refusal's code is account_deactivated, reads the cookie's
+// account and asks the lock repository whether the deletion is what made it
+// inactive; a locked account's refusal is rewritten with the erasure code
+// before it is sent. Every other response passes through untouched, streams
+// included. A lock that cannot be read answers 503: a request into an
+// account that may be half-deleted must not be let through on a guess.
 //
-// It decides from the cookie alone, before the session is validated. Refusing
-// is the fail-closed direction, and the cookie is signed, so a forged one
-// cannot pass the session manager in the first place. A request carrying a
-// bearer token is left to BearerOrSession, which makes the same check on the
-// token's account.
+// Because it judges RequireAuth's refusal rather than the request, a bearer
+// header beside the cookie changes nothing on a group that authenticates by
+// session (wm-6umqn); a group that authenticates bearers passes
+// DeferToBearer.
 func ErasureGuard(
 	sm session.SessionManager,
 	locks repositories.AccountErasureLocks,
 	logger entities.Logger,
+	opts ...ErasureGuardOption,
 ) echo.MiddlewareFunc {
+	cfg := erasureGuardConfig{}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			if extractBearer(c.Request()) != "" {
+			if cfg.deferToBearer && extractBearer(c.Request()) != "" {
 				return next(c)
 			}
-			data, err := sm.GetHTTPSession(c.Request())
-			if err != nil || data == nil || data.AccountID == "" {
-				return next(c)
+			res := c.Response()
+			real := res.Writer
+			held := &heldRefusal{ResponseWriter: real}
+			res.Writer = held
+			err := next(c)
+			res.Writer = real
+			if !held.holding {
+				return err
 			}
-			locked, err := locks.IsLocked(c.Request().Context(), data.AccountID)
-			if err != nil {
-				// Fail closed: a lock that cannot be read must not let a
-				// request into an account that may be half-deleted.
-				logger.Error(c.Request().Context(), "could not read the erasure lock", "account_id", data.AccountID, "error", err)
-				return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "could not read the account's state"})
+			body := held.body.Bytes()
+			if refusalCodeOf(body) == CodeAccountDeactivated {
+				if data, sessErr := sm.GetHTTPSession(c.Request()); sessErr == nil && data != nil && data.AccountID != "" {
+					ctx := c.Request().Context()
+					locked, lockErr := locks.IsLocked(ctx, data.AccountID)
+					if lockErr != nil {
+						logger.Error(ctx, "could not read the erasure lock", "account_id", data.AccountID, "error", lockErr)
+						real.Header().Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+						real.WriteHeader(http.StatusServiceUnavailable)
+						_, _ = real.Write([]byte(`{"error":"could not read the account's state"}`))
+						return err
+					}
+					if locked {
+						body = withRefusalCode(body, CodeAccountErasurePending)
+					}
+				}
 			}
-			if locked {
-				return refuseErasurePending(c)
-			}
-			return next(c)
+			real.WriteHeader(held.status)
+			_, _ = real.Write(body)
+			return err
 		}
 	}
+}
+
+// heldRefusal passes every response through as it is written, except a 401,
+// whose body it holds until the chain returns so the guard can read the code
+// in it. A streaming response is never a 401, so it is never held.
+type heldRefusal struct {
+	http.ResponseWriter
+	status  int
+	holding bool
+	body    bytes.Buffer
+}
+
+func (w *heldRefusal) WriteHeader(code int) {
+	if w.status != 0 {
+		return
+	}
+	w.status = code
+	if code == http.StatusUnauthorized {
+		w.holding = true
+		return
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *heldRefusal) Write(b []byte) (int, error) {
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	if w.holding {
+		return w.body.Write(b)
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+// Flush passes through for a streaming response; a held refusal is flushed
+// when the guard sends it.
+func (w *heldRefusal) Flush() {
+	if w.holding {
+		return
+	}
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Unwrap lets http.ResponseController reach the writer underneath.
+func (w *heldRefusal) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+// refusalCodeOf reads the code out of a refusal body, or "" for a body that
+// is not the shape RequireAuth writes.
+func refusalCodeOf(body []byte) string {
+	var refusal struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(body, &refusal); err != nil {
+		return ""
+	}
+	return refusal.Code
+}
+
+// withRefusalCode returns the body with its code replaced. A body that does
+// not parse is returned as it was.
+func withRefusalCode(body []byte, code string) []byte {
+	var refusal map[string]any
+	if err := json.Unmarshal(body, &refusal); err != nil || refusal == nil {
+		return body
+	}
+	refusal["code"] = code
+	out, err := json.Marshal(refusal)
+	if err != nil {
+		return body
+	}
+	return out
 }
 
 // SessionAuthForErasure authenticates the account deletion route. It makes

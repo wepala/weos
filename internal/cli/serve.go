@@ -390,10 +390,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// effectively open.
 	protected := api.Group("")
 	if appCfg.AuthEnabled() {
-		// The erasure guard goes first: an account whose deletion began and
-		// did not finish is refused everywhere with the code that says so,
-		// before RequireAuth can call it merely deactivated. The one route a
-		// locked account may still use is mounted on its own group below.
+		// The erasure guard goes first, around RequireAuth: an account whose
+		// deletion began and did not finish is refused everywhere with the
+		// code that says so, where RequireAuth alone would call it merely
+		// deactivated. The one route a locked account may still use is
+		// mounted on its own group below.
 		protected.Use(apimw.ErasureGuard(sessionManager, erasureLocks, logger))
 		protected.Use(echo.WrapMiddleware(authhttp.RequireAuth(sessionManager, authService)))
 		protected.Use(apimw.Impersonation(sessionStore, accountRepo, erasureLocks, logger))
@@ -591,7 +592,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	mcpGroup := api.Group("")
 	if appCfg.OAuthEnabled() {
 		sessionAuth := authhttp.RequireAuth(sessionManager, authService)
-		mcpGroup.Use(apimw.ErasureGuard(sessionManager, erasureLocks, logger))
+		mcpGroup.Use(apimw.ErasureGuard(sessionManager, erasureLocks, logger, apimw.DeferToBearer()))
 		mcpGroup.Use(apimw.BearerOrSession(jwtService, sessionAuth, baseURL, accountRepo, erasureLocks))
 		mcpGroup.Use(apimw.Impersonation(sessionStore, accountRepo, erasureLocks, logger))
 	} else {

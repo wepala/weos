@@ -121,29 +121,118 @@ func codeOf(t *testing.T, rec *httptest.ResponseRecorder) string {
 	return body.Code
 }
 
-func TestErasureGuard_RefusesALockedAccountWithItsCode(t *testing.T) {
-	sm := cookieSessions{data: &session.SessionData{SessionID: "s1", AgentID: "ops", AccountID: "acct-harbor"}}
-	locks := lockSet{"acct-harbor": true}
-	rec, _, _ := serve(ErasureGuard(sm, locks, nopLogger{}), true, nil)
-	if rec.Code != http.StatusUnauthorized || codeOf(t, rec) != CodeAccountErasurePending {
-		t.Fatalf("got %d %s, want 401 with code %s", rec.Code, rec.Body.String(), CodeAccountErasurePending)
+// countingLocks records how often the lock was read, so a test can say the
+// guard asked only when it had to.
+type countingLocks struct {
+	lockSet
+	reads int
+	err   error
+}
+
+func (l *countingLocks) IsLocked(ctx context.Context, id string) (bool, error) {
+	l.reads++
+	if l.err != nil {
+		return false, l.err
+	}
+	return l.lockSet.IsLocked(ctx, id)
+}
+
+// refusing stands in for RequireAuth: it writes the 401 pericarp writes, with
+// the code given, or serves when the code is empty.
+func refusing(code string) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			if code == "" {
+				return next(c)
+			}
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "not authenticated", "code": code})
+		}
 	}
 }
 
-func TestErasureGuard_PassesAnUnlockedAccountAndBearerRequests(t *testing.T) {
+// serveGuarded runs one request through the guard with a stand-in for
+// RequireAuth behind it.
+func serveGuarded(guard echo.MiddlewareFunc, auth echo.MiddlewareFunc, withCookie bool, headers map[string]string) *httptest.ResponseRecorder {
+	e := echo.New()
+	e.GET("/api/thing", func(c echo.Context) error {
+		return c.String(http.StatusOK, "served")
+	}, guard, auth)
+	req := httptest.NewRequest(http.MethodGet, "/api/thing", nil)
+	if withCookie {
+		req.AddCookie(&http.Cookie{Name: "weos-session", Value: "x"})
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestErasureGuard_RewritesADeactivatedRefusalForALockedAccount(t *testing.T) {
 	sm := cookieSessions{data: &session.SessionData{SessionID: "s1", AgentID: "ops", AccountID: "acct-harbor"}}
-	rec, _, _ := serve(ErasureGuard(sm, lockSet{}, nopLogger{}), true, nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("an unlocked account was refused: %d %s", rec.Code, rec.Body.String())
+	locks := &countingLocks{lockSet: lockSet{"acct-harbor": true}}
+	rec := serveGuarded(ErasureGuard(sm, locks, nopLogger{}), refusing(CodeAccountDeactivated), true, nil)
+	if rec.Code != http.StatusUnauthorized || codeOf(t, rec) != CodeAccountErasurePending {
+		t.Fatalf("got %d %s, want 401 with code %s", rec.Code, rec.Body.String(), CodeAccountErasurePending)
 	}
-	rec, _, _ = serve(ErasureGuard(sm, lockSet{"acct-harbor": true}, nopLogger{}), true,
+	if rec.Header().Get(echo.HeaderContentType) == "" {
+		t.Error("the rewritten refusal lost its content type")
+	}
+	// wm-6umqn: a bearer header beside the cookie changes nothing on a group
+	// that authenticates by session.
+	rec = serveGuarded(ErasureGuard(sm, locks, nopLogger{}), refusing(CodeAccountDeactivated), true,
+		map[string]string{"Authorization": "Bearer stale"})
+	if codeOf(t, rec) != CodeAccountErasurePending {
+		t.Fatalf("a bearer header beside the cookie got %s, want %s", rec.Body.String(), CodeAccountErasurePending)
+	}
+}
+
+func TestErasureGuard_LeavesEveryOtherAnswerAloneAndAsksNothing(t *testing.T) {
+	sm := cookieSessions{data: &session.SessionData{SessionID: "s1", AgentID: "ops", AccountID: "acct-harbor"}}
+	locks := &countingLocks{lockSet: lockSet{"acct-harbor": true}}
+
+	rec := serveGuarded(ErasureGuard(sm, locks, nopLogger{}), refusing(""), true, nil)
+	if rec.Code != http.StatusOK || rec.Body.String() != "served" {
+		t.Fatalf("a served request was changed: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = serveGuarded(ErasureGuard(sm, locks, nopLogger{}), refusing(CodeAccountAccessRevoked), true, nil)
+	if rec.Code != http.StatusUnauthorized || codeOf(t, rec) != CodeAccountAccessRevoked {
+		t.Fatalf("a revoked refusal was changed: %d %s", rec.Code, rec.Body.String())
+	}
+	if locks.reads != 0 {
+		t.Errorf("the lock was read %d time(s) for requests that were not refused as deactivated; want 0 (wm-tsugz)", locks.reads)
+	}
+
+	// A merely suspended account keeps its code.
+	unlocked := &countingLocks{lockSet: lockSet{}}
+	rec = serveGuarded(ErasureGuard(sm, unlocked, nopLogger{}), refusing(CodeAccountDeactivated), true, nil)
+	if codeOf(t, rec) != CodeAccountDeactivated {
+		t.Fatalf("a suspended account's refusal was rewritten: %s", rec.Body.String())
+	}
+	// No cookie: nothing to look up, the refusal stands.
+	rec = serveGuarded(ErasureGuard(sm, locks, nopLogger{}), refusing(CodeAccountDeactivated), false, nil)
+	if codeOf(t, rec) != CodeAccountDeactivated {
+		t.Fatalf("a refusal with no cookie was rewritten: %s", rec.Body.String())
+	}
+}
+
+func TestErasureGuard_DefersToTheBearerPathWhenTold(t *testing.T) {
+	sm := cookieSessions{data: &session.SessionData{SessionID: "s1", AgentID: "ops", AccountID: "acct-harbor"}}
+	locks := &countingLocks{lockSet: lockSet{"acct-harbor": true}}
+	rec := serveGuarded(ErasureGuard(sm, locks, nopLogger{}, DeferToBearer()), refusing(CodeAccountDeactivated), true,
 		map[string]string{"Authorization": "Bearer token"})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("a bearer request was judged by the cookie: %d %s", rec.Code, rec.Body.String())
+	if codeOf(t, rec) != CodeAccountDeactivated || locks.reads != 0 {
+		t.Fatalf("a bearer request on a bearer group was judged by the cookie: %s (lock reads %d)", rec.Body.String(), locks.reads)
 	}
-	rec, _, _ = serve(ErasureGuard(sm, lockSet{"acct-harbor": true}, nopLogger{}), false, nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("a request with no cookie was refused by the guard: %d", rec.Code)
+}
+
+func TestErasureGuard_FailsClosedWhenTheLockCannotBeRead(t *testing.T) {
+	sm := cookieSessions{data: &session.SessionData{SessionID: "s1", AgentID: "ops", AccountID: "acct-harbor"}}
+	locks := &countingLocks{lockSet: lockSet{}, err: errors.New("database away")}
+	rec := serveGuarded(ErasureGuard(sm, locks, nopLogger{}), refusing(CodeAccountDeactivated), true, nil)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("got %d %s, want 503 when the lock cannot be read", rec.Code, rec.Body.String())
 	}
 }
 
