@@ -153,6 +153,10 @@ type accountScopedWorld struct {
 	// staging this file already does.
 	extraOptions     []fx.Option
 	mountExtraRoutes func(api *echo.Group, guards []echo.MiddlewareFunc)
+	// configure lets another suite adjust the config after the environment
+	// has been read and before the app is built — for what no environment
+	// variable sets, such as running the background workers in-process.
+	configure func(cfg *config.Config)
 }
 
 func initAccountScopedSessionScenario(sc *godog.ScenarioContext) {
@@ -289,6 +293,9 @@ func (w *accountScopedWorld) boot(registration bool) error {
 	cfg.LoadFromEnvironment()
 	cfg.DatabaseDSN = w.dsn
 	cfg.LogLevel = "error"
+	if w.configure != nil {
+		w.configure(&cfg)
+	}
 
 	options := []fx.Option{
 		fx.NopLogger,

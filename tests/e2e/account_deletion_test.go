@@ -63,6 +63,11 @@ import (
 // the suite rather than passing quietly.
 func TestAccountDeletion(t *testing.T) {
 	tags := "~@wip && ~@requires-embedded-graph && ~@unit-pinned"
+	if embeddedGraphBuilt {
+		// Built with -tags oxigraph_embedded (make test-graph-embedded): the
+		// graph scenarios have their steps and run.
+		tags = "~@wip && ~@unit-pinned"
+	}
 	if v := os.Getenv("GODOG_TAGS"); v != "" {
 		tags = v
 	}
@@ -133,7 +138,11 @@ type deletionWorld struct {
 	erasure         *application.AccountErasureService
 	members         repositories.AccountMemberQuery
 	resourceRepo    repositories.ResourceRepository
+	graphs          repositories.KnowledgeGraphStores
 	files           *onceFailingFileService
+	// graphBase is the per-account graph directory of an instance booted
+	// with the embedded store; empty otherwise.
+	graphBase string
 
 	// owners maps an account name to the email of the person who owns it, so
 	// "the owner of X" and "X has a stored photo" know who acts.
@@ -191,6 +200,9 @@ func initAccountDeletionScenario(sc *godog.ScenarioContext) {
 		func() error { return w.bootDeletion(true) })
 	sc.Step(`^a demo instance where password sign-in is enabled and no Google provider is configured$`, w.bootDemo)
 	sc.Step(`^the meal-planning preset is installed$`, w.mealPlanningInstalled)
+	// The @requires-embedded-graph steps: defined under the oxigraph_embedded
+	// build tag, a no-op otherwise (account_deletion_graph_test.go).
+	w.registerGraphSteps(sc)
 
 	// --- accounts and people ---
 	sc.Step(`^the account "([^"]*)", whose owner "([^"]*)" signs in with password "([^"]*)"$`, w.accountOwnedBy)
@@ -359,7 +371,7 @@ func (w *deletionWorld) bootDeletion(registration bool) error {
 		}),
 		fx.Populate(&w.fileService, &w.permissionService),
 		fx.Populate(&w.db, &w.projMgr, &w.locks, &w.featureGrants, &w.featureSettings),
-		fx.Populate(&w.eventStore, &w.dispatcher, &w.erasure, &w.members, &w.resourceRepo),
+		fx.Populate(&w.eventStore, &w.dispatcher, &w.erasure, &w.members, &w.resourceRepo, &w.graphs),
 	}
 	w.mountExtraRoutes = w.mountDeletionRoutes
 	return w.boot(registration)
