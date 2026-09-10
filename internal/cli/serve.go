@@ -393,7 +393,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		// locked account may still use is mounted on its own group below.
 		protected.Use(apimw.ErasureGuard(sessionManager, erasureLocks, logger))
 		protected.Use(echo.WrapMiddleware(authhttp.RequireAuth(sessionManager, authService)))
-		protected.Use(apimw.Impersonation(sessionStore, accountRepo, logger))
+		protected.Use(apimw.Impersonation(sessionStore, accountRepo, erasureLocks, logger))
 		protected.Use(apimw.AuthorizeResource(authzChecker, accountRepo, logger))
 	} else {
 		protected.Use(apimw.SoftAuth(credentialRepo, agentRepo, accountRepo, logger))
@@ -563,7 +563,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	featuresGroup := api.Group("")
 	if appCfg.OAuthEnabled() {
 		featuresGroup.Use(echo.WrapMiddleware(apimw.OptionalAuth(sessionManager, authService)))
-		featuresGroup.Use(apimw.Impersonation(sessionStore, accountRepo, logger))
+		featuresGroup.Use(apimw.Impersonation(sessionStore, accountRepo, erasureLocks, logger))
 	} else {
 		featuresGroup.Use(apimw.SoftAuth(credentialRepo, agentRepo, accountRepo, logger))
 	}
@@ -590,7 +590,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		sessionAuth := authhttp.RequireAuth(sessionManager, authService)
 		mcpGroup.Use(apimw.ErasureGuard(sessionManager, erasureLocks, logger))
 		mcpGroup.Use(apimw.BearerOrSession(jwtService, sessionAuth, baseURL, accountRepo, erasureLocks))
-		mcpGroup.Use(apimw.Impersonation(sessionStore, accountRepo, logger))
+		mcpGroup.Use(apimw.Impersonation(sessionStore, accountRepo, erasureLocks, logger))
 	} else {
 		mcpGroup.Use(apimw.SoftAuth(credentialRepo, agentRepo, accountRepo, logger))
 	}

@@ -305,7 +305,7 @@ func (w *passwordAuthWorld) boot(signIn bool, registration *bool) error {
 	if cfg.AuthEnabled() {
 		guards = []echo.MiddlewareFunc{
 			echo.WrapMiddleware(authhttp.RequireAuth(w.sessionManager, w.authService)),
-			apimw.Impersonation(w.sessionStore, w.accountRepo, w.logger),
+			apimw.Impersonation(w.sessionStore, w.accountRepo, w.erasureLocks, w.logger),
 			apimw.AuthorizeResource(w.authzChecker, w.accountRepo, w.logger),
 		}
 	} else {
@@ -338,7 +338,7 @@ func (w *passwordAuthWorld) boot(signIn bool, registration *bool) error {
 	if cfg.OAuthEnabled() {
 		sessionAuth := authhttp.RequireAuth(w.sessionManager, w.authService)
 		catchAllOwner.Use(apimw.BearerOrSession(w.jwtService, sessionAuth, "http://acceptance.invalid", w.accountRepo, w.erasureLocks))
-		catchAllOwner.Use(apimw.Impersonation(w.sessionStore, w.accountRepo, w.logger))
+		catchAllOwner.Use(apimw.Impersonation(w.sessionStore, w.accountRepo, w.erasureLocks, w.logger))
 	} else {
 		catchAllOwner.Use(apimw.SoftAuth(w.credRepo, w.agentRepo, w.accountRepo, w.logger))
 	}

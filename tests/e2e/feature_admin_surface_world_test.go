@@ -95,6 +95,7 @@ type adminWorld struct {
 	sessionManager session.SessionManager
 	sessionStore   sessions.Store
 	authzChecker   *authcasbin.CasbinAuthorizationChecker
+	erasureLocks   repositories.AccountErasureLocks
 	logger         entities.Logger
 
 	declared    []entities.FeatureMeta
@@ -219,7 +220,7 @@ func (w *adminWorld) boot() error {
 		fx.Populate(&w.registry, &w.features, &w.admin, &w.resolver, &w.client),
 		fx.Populate(&w.resources, &w.rts, &w.logger),
 		fx.Populate(&w.authService, &w.accountRepo, &w.credRepo, &w.agentRepo),
-		fx.Populate(&w.sessionManager, &w.sessionStore, &w.authzChecker),
+		fx.Populate(&w.sessionManager, &w.sessionStore, &w.authzChecker, &w.erasureLocks),
 	)
 	startCtx, cancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
 	defer cancel()
@@ -261,7 +262,7 @@ func (w *adminWorld) mountAPI() error {
 	protected := api.Group("")
 	protected.Use(apimw.Messages())
 	protected.Use(echo.WrapMiddleware(authhttp.RequireAuth(w.sessionManager, w.authService)))
-	protected.Use(apimw.Impersonation(w.sessionStore, w.accountRepo, w.logger))
+	protected.Use(apimw.Impersonation(w.sessionStore, w.accountRepo, w.erasureLocks, w.logger))
 	protected.GET("/persons", personHandler.List)
 	protected.GET("/resource-types", rtHandler.List)
 	protected.PUT("/features/:key/instance", fh.SetInstance)
@@ -273,7 +274,7 @@ func (w *adminWorld) mountAPI() error {
 	featuresGroup := api.Group("")
 	featuresGroup.Use(apimw.Messages())
 	featuresGroup.Use(echo.WrapMiddleware(apimw.OptionalAuth(w.sessionManager, w.authService)))
-	featuresGroup.Use(apimw.Impersonation(w.sessionStore, w.accountRepo, w.logger))
+	featuresGroup.Use(apimw.Impersonation(w.sessionStore, w.accountRepo, w.erasureLocks, w.logger))
 	featuresGroup.GET("/features", fh.List)
 
 	// 3. mcpGroup — LAST, so it keeps ownership of unmatched /api paths.

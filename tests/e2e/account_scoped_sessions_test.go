@@ -349,7 +349,7 @@ func (w *accountScopedWorld) boot(registration bool) error {
 	guards := []echo.MiddlewareFunc{
 		apimw.ErasureGuard(w.sessionManager, w.erasureLocks, w.logger),
 		echo.WrapMiddleware(authhttp.RequireAuth(w.sessionManager, w.authService)),
-		apimw.Impersonation(w.sessionStore, w.accountRepo, w.logger),
+		apimw.Impersonation(w.sessionStore, w.accountRepo, w.erasureLocks, w.logger),
 		apimw.AuthorizeResource(w.authzChecker, w.accountRepo, w.logger),
 	}
 	resourceHandler := handlers.NewResourceHandler(w.resourceService, w.resourceTypeService, w.logger)

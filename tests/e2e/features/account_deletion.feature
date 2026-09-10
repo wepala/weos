@@ -434,6 +434,19 @@ Feature: A person can delete their account from the app
     Then the deletion is accepted
     And nothing of "Harbor Legal" remains in any store on the instance
 
+  # wm-iiasy. The lock holds against an instance admin too: impersonating a
+  # member of a locked account does not open it.
+  Scenario: An administrator impersonating a member of a locked account is refused
+    Given a WeOS instance where password sign-in is enabled and requests are authenticated by their session
+    And the account "Harbor Legal", whose owner "ops@harborlegal.example" signs in with password "correct-horse-battery-staple"
+    And "ops@harborlegal.example" is an instance admin
+    And the account "Cedar Realty", whose owner "counsel@harborlegal.example" signs in with password "trellis-anchor-mango-9"
+    And a deletion of "Cedar Realty" failed after the lock was taken, leaving the account locked
+    When "ops@harborlegal.example" impersonates "counsel@harborlegal.example"
+    And they list the projects they can see
+    Then the request is refused as not authenticated
+    And the refusal says the account's deletion is unfinished
+
   # wm-or9a5. WeHungry signs people in through Google and Apple, and a
   # provider sign-in resolves no active account for a locked one, so the
   # session it makes names no account. The deletion route admits the owner
