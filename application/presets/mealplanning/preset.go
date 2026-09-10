@@ -537,11 +537,14 @@ func restrictedDietType() application.PresetResourceType {
 // -- food types ----------------------------------------------------------------
 //
 // A stored resource type is keyed by slug alone, and live twins already store
-// these ten under mini-me's definitions. Every context, schema, name and
-// description below must stay byte-identical to that stored copy, or the first
-// boot on this build records a type change for every twin. food_types_test.go
-// compares them with a golden copy of mini-me's output; change one only
-// together with that golden copy and the product that stores it.
+// these ten under mini-me's definitions. The boot reconcile never compares a
+// name or description, and it merges a context or schema by parsed value: a
+// term or property this build adds records a type update on every twin, and a
+// term this build maps to another IRI is held, with a warning, on every boot.
+// food_types_test.go holds all ten frozen, byte for byte, against a golden copy
+// of mini-me's output until the mini-me bump re-takes that copy. Bytes are
+// stricter than the reconcile needs and are the simplest rule to keep; change
+// one only together with that golden copy and the product that stores it.
 
 const (
 	schemaNS       = "https://schema.org/"
