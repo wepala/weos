@@ -552,10 +552,12 @@ func restrictedDietType() application.PresetResourceType {
 // name or description, and it merges a context or schema by parsed value: a
 // term or property this build adds records a type update on every twin, and a
 // term this build maps to another IRI is held, with a warning, on every boot.
-// food_types_test.go holds all ten frozen, byte for byte, against a golden copy
-// of mini-me's output until the mini-me bump re-takes that copy. Bytes are
-// stricter than the reconcile needs and are the simplest rule to keep; change
-// one only together with that golden copy and the product that stores it.
+// food_types_test.go holds the name, slug, context and schema of all ten frozen,
+// byte for byte, against a golden copy of mini-me's output until the mini-me
+// bump re-takes that copy. Bytes are stricter than the reconcile needs and are
+// the simplest rule to keep; change one only together with that golden copy and
+// the product that stores it. Descriptions are core's own and are not frozen: a
+// preset ships to every install, so none may name one user (finding wm-4nc8w).
 
 const (
 	schemaNS       = "https://schema.org/"
@@ -615,7 +617,7 @@ func tasteProfileType() application.PresetResourceType {
 // display column.
 func mealLogType() application.PresetResourceType {
 	return application.NewPresetType("MealLog", "meal-log",
-		"One meal Akeem ate: when, what kind, and the recipe cooked or order placed",
+		"One meal someone ate: when, what kind, and the recipe cooked or order placed",
 		`{"@vocab":"`+schemaNS+`","@type":"`+mealPlanningNS+`MealOccurrence",`+
 			`"date":"`+schemaNS+`startDate",`+
 			`"mealType":"`+mealPlanningNS+`mealType",`+
@@ -645,7 +647,7 @@ func mealLogType() application.PresetResourceType {
 // string because it sits inside the byte-identical context.
 func restaurantType() application.PresetResourceType {
 	return application.NewPresetType("Restaurant", "restaurant",
-		"A restaurant Akeem orders from, standing as the providing agent on orders and invoices",
+		"A restaurant the account orders from, standing as the providing agent on orders and invoices",
 		`{"@vocab":"`+schemaNS+`","@type":"Restaurant","rdfs:subClassOf":"agent"}`,
 		`{"type":"object","properties":{`+
 			`"name":{"type":"string"},`+
@@ -724,7 +726,7 @@ func groceryListItemType() application.PresetResourceType {
 
 func stapleType() application.PresetResourceType {
 	return application.NewPresetType("Staple", "staple",
-		"A staple ingredient Akeem always keeps stocked; running low is judged against the current pantry declaration",
+		"A staple ingredient the household always keeps stocked; running low is judged against the current pantry declaration",
 		`{"@vocab":"`+schemaNS+`","@type":"`+mealPlanningNS+`Staple",`+
 			`"ingredient":"`+mealPlanningNS+`ingredient"}`,
 		`{"type":"object","properties":{`+

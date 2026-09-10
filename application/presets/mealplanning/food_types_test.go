@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"unicode"
 
 	"github.com/wepala/weos/v3/application"
 )
@@ -30,7 +31,9 @@ import (
 // private presets), so this file is the only byte check that a stored twin
 // type sees no change when its definition moves here. Re-take it from mini-me
 // before any change to cmd/mini-me/food_preset.go after that commit reaches
-// core; TestGoldenCopyNamesItsSource pins which commit it is.
+// core; TestGoldenCopyNamesItsSource pins which commit it is. The file keeps
+// mini-me's descriptions as that commit wrote them, because the e2e build of
+// the old install reads them; core's descriptions differ and are not compared.
 const goldenPath = "testdata/mini_me_food_types.golden.json"
 
 type goldenFoodTypes struct {
@@ -43,11 +46,10 @@ type goldenFoodTypes struct {
 	// Context and Schema are JSON strings, not objects, so no decoder can
 	// re-order a key and hide a byte difference.
 	Types []struct {
-		Name        string `json:"name"`
-		Slug        string `json:"slug"`
-		Description string `json:"description"`
-		Context     string `json:"context"`
-		Schema      string `json:"schema"`
+		Name    string `json:"name"`
+		Slug    string `json:"slug"`
+		Context string `json:"context"`
+		Schema  string `json:"schema"`
 	} `json:"types"`
 }
 
@@ -122,7 +124,6 @@ func TestMovedFoodTypesMatchMiniMeGolden(t *testing.T) {
 		for _, m := range []string{
 			byteMismatch(g.Slug, "name", g.Name, pt.Name),
 			byteMismatch(g.Slug, "slug", g.Slug, pt.Slug),
-			byteMismatch(g.Slug, "description", g.Description, pt.Description),
 			byteMismatch(g.Slug, "context", g.Context, string(pt.Context)),
 			byteMismatch(g.Slug, "schema", g.Schema, string(pt.Schema)),
 		} {
@@ -148,6 +149,53 @@ func TestGoldenComparisonIsByteExact(t *testing.T) {
 	}
 	if got := byteMismatch("restaurant", "context", a, a); got != "" {
 		t.Errorf("byteMismatch reported identical bytes as different: %s", got)
+	}
+}
+
+// notAPerson holds the capitalized words a type description may use that name a
+// place or a thing. Add a word here only when it names no person.
+var notAPerson = map[string]bool{"Home": true, "Beach": true, "House": true}
+
+var firstPerson = map[string]bool{"i": true, "me": true, "my": true, "mine": true}
+
+// namesAPerson returns the words of a type description that name a person: a
+// capitalized word after the first that notAPerson does not list, or a
+// first-person word. A preset ships to every install, so a description speaks
+// of whoever uses the type, never of one user (finding wm-4nc8w).
+func namesAPerson(description string) []string {
+	var names []string
+	words := strings.FieldsFunc(description, func(r rune) bool { return !unicode.IsLetter(r) })
+	for i, word := range words {
+		switch {
+		case firstPerson[strings.ToLower(word)]:
+			names = append(names, word)
+		case i > 0 && unicode.IsUpper([]rune(word)[0]) && !notAPerson[word]:
+			names = append(names, word)
+		}
+	}
+	return names
+}
+
+func TestNamesAPersonCatchesAPersonalDescription(t *testing.T) {
+	for description, want := range map[string]string{
+		"One meal Akeem ate: when, what kind, and the recipe cooked or order placed": "Akeem",
+		"A staple ingredient Akeem's household keeps stocked":                        "Akeem",
+		"A restaurant I order from":                                                  "I",
+		"A pantry for my food items":                                                 "my",
+		"A named storage context for food items (e.g. Home, Beach House)":            "",
+	} {
+		if got := strings.Join(namesAPerson(description), ","); got != want {
+			t.Errorf("namesAPerson(%q) = %q, want %q", description, got, want)
+		}
+	}
+}
+
+func TestMealPlanningTypeDescriptionsNameNoPerson(t *testing.T) {
+	for _, pt := range mealPlanningPreset(t).Types {
+		if names := namesAPerson(pt.Description); len(names) > 0 {
+			t.Errorf("%s: the description %q names a person (%s); describe whoever uses the type",
+				pt.Slug, pt.Description, strings.Join(names, ", "))
+		}
 	}
 }
 
