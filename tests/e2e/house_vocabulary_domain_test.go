@@ -725,6 +725,10 @@ func (w *vocabWorld) everyHouseIRIUnder(preset, ns, reused string) error {
 		(!strings.HasPrefix(reused, newHouseDomain) || !strings.HasSuffix(reused, "#") || reused == ns) {
 		return fmt.Errorf("reused vocabulary %q is not another house namespace under %s ending in #", reused, newHouseDomain)
 	}
+	allowed := ns
+	if reused != noReusedVocabulary {
+		allowed += " or the reused " + reused
+	}
 	slugs, err := presetTypeSlugs(preset)
 	if err != nil {
 		return err
@@ -741,8 +745,7 @@ func (w *vocabWorld) everyHouseIRIUnder(preset, ns, reused string) error {
 			case reused != noReusedVocabulary && strings.HasPrefix(iri, reused):
 				reusedResolved = true
 			default:
-				return fmt.Errorf("installed type %q resolves %q to %s, not under %s or the reused %s",
-					slug, term, iri, ns, reused)
+				return fmt.Errorf("installed type %q resolves %q to %s, not under %s", slug, term, iri, allowed)
 			}
 		}
 	}
