@@ -80,8 +80,11 @@ type uploadFoldersWorld struct {
 
 	// answers holds every answer in the order the scenario asked, so the
 	// comparison steps speak about the same requests the scenario made.
-	answers      []*capturedAnswer
-	servedWant   []byte
+	answers    []*capturedAnswer
+	servedWant []byte
+	// target is the stored photo the last read aimed at, whether or not the
+	// caller may have it, so a refusal can be checked for leaking its bytes.
+	target       []byte
 	recipeAnswer *capturedAnswer
 	photoAnswer  *capturedAnswer
 }
@@ -139,7 +142,7 @@ func initAccountUploadFoldersScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the request is refused as not authenticated$`, func() error { return w.lastStatusIs(http.StatusUnauthorized) })
 	sc.Step(`^nothing is stored$`, w.nothingStored)
 	sc.Step(`^the photo is served$`, w.photoServed)
-	sc.Step(`^the request is refused as not found$`, func() error { return w.lastStatusIs(http.StatusNotFound) })
+	sc.Step(`^the request is refused as not found$`, w.refusedAsNotFound)
 	sc.Step(`^both requests are answered with the same status and the same body$`, w.lastTwoIdentical)
 	sc.Step(`^the recipe "([^"]*)" is read$`, w.recipeWasRead)
 	sc.Step(`^the request for its photo is refused as not found$`, w.recipePhotoRefusedNotFound)
@@ -433,6 +436,7 @@ func (w *uploadFoldersWorld) requestsOthersPhoto(caller, owner string) error {
 		return err
 	}
 	w.servedWant = photo.body
+	w.target = photo.body
 	_, err = w.get(p.cookie, w.server.URL+photo.path)
 	return err
 }
@@ -538,6 +542,7 @@ func (w *uploadFoldersWorld) requestsEscapingPath(caller, escape string) error {
 		return fmt.Errorf("the client would send %q, which no longer carries the escape %q",
 			req.URL.RequestURI(), escape)
 	}
+	w.target = target.body
 	_, err = w.do(req, p.cookie)
 	return err
 }
@@ -572,6 +577,30 @@ func (w *uploadFoldersWorld) lastStatusIs(status int) error {
 	}
 	if answer.status != status {
 		return fmt.Errorf("expected %d, got %s", status, describe(answer))
+	}
+	return nil
+}
+
+// refusedAsNotFound checks that the refusal came from the file route and holds
+// nothing of the photo the request aimed at. A 404 from another handler, or a
+// 404 carrying the photo's bytes, is not the refusal the scenario means.
+func (w *uploadFoldersWorld) refusedAsNotFound() error {
+	if err := w.lastStatusIs(http.StatusNotFound); err != nil {
+		return err
+	}
+	answer, _ := w.lastAnswer()
+	if len(w.target) == 0 {
+		return fmt.Errorf("no request named a stored photo, so the refusal cannot be checked for its bytes")
+	}
+	if strings.Contains(answer.body, string(w.target)) {
+		return fmt.Errorf("the refusal carries the photo it refused: %s", describe(answer))
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(answer.body), &body); err != nil {
+		return fmt.Errorf("the refusal is not a JSON error envelope: %s", describe(answer))
+	}
+	if len(body) != 1 || body["error"] != "file not found" {
+		return fmt.Errorf(`expected the file route's refusal {"error":"file not found"}, got %s`, describe(answer))
 	}
 	return nil
 }
