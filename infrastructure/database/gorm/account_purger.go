@@ -190,7 +190,10 @@ type accountFacts struct {
 	members       []string
 	deletedAgents []string
 	credentials   []string // credential ids of the deleted agents
-	resourceURNs  []string
+	// invites is every invitation that goes: the account's own, and any from
+	// another account that names a deleted person by agent id or by email.
+	invites      []string
+	resourceURNs []string
 	// aggregates is every aggregate whose events go: the account, its
 	// resources, the aggregates that named it in a payload, and the auth
 	// aggregates of the deleted agents. Events are deleted by this set and
@@ -265,11 +268,38 @@ func (p *AccountPurger) gather(tx *gorm.DB, accountID string) (*accountFacts, er
 		}
 	}
 
-	var invites []string
-	if err := tx.Table("invites").Where("account_id = ?", accountID).Pluck("id", &invites).Error; err != nil {
+	// The account's own invitations, and — because an invitation into
+	// another account names the person by the skeleton agent it minted and
+	// by their email — any from another account that names a deleted person
+	// either way. Left behind, the first dangles and the second keeps the
+	// email after everything else is gone (wm-i2oni).
+	if err := tx.Table("invites").Where("account_id = ?", accountID).Pluck("id", &facts.invites).Error; err != nil {
 		return nil, fmt.Errorf("account erasure: list invites of %q: %w", accountID, err)
 	}
-	for _, id := range invites {
+	if len(facts.deletedAgents) > 0 {
+		byAgent, err := pluckByChunk(tx, "invites", "id", "invitee_agent_id", facts.deletedAgents)
+		if err != nil {
+			return nil, fmt.Errorf("account erasure: list invites naming deleted agents: %w", err)
+		}
+		facts.invites = append(facts.invites, byAgent...)
+		var emails []string
+		if err := forEachChunk(facts.deletedAgents, func(chunk []string) error {
+			var found []string
+			if err := tx.Table("credentials").Where("agent_id IN ? AND email <> ''", chunk).Distinct().Pluck("email", &found).Error; err != nil {
+				return err
+			}
+			emails = append(emails, found...)
+			return nil
+		}); err != nil {
+			return nil, fmt.Errorf("account erasure: list emails of deleted agents: %w", err)
+		}
+		byEmail, err := pluckByChunk(tx, "invites", "id", "email", emails)
+		if err != nil {
+			return nil, fmt.Errorf("account erasure: list invites naming deleted emails: %w", err)
+		}
+		facts.invites = append(facts.invites, byEmail...)
+	}
+	for _, id := range facts.invites {
 		aggregates[id] = true
 	}
 
@@ -452,14 +482,16 @@ func purgeAuthorization(tx *gorm.DB, facts *accountFacts, report *repositories.P
 	return nil
 }
 
-// purgeIdentity removes the account's invites, memberships and the sessions
-// of the members who go with it, then those members' credentials and agent
-// rows. A member who belongs to another account keeps their agent, their
+// purgeIdentity removes the invitations gathered above, the account's
+// memberships and the sessions of the members who go with it, then those
+// members' credentials and agent rows. A member who belongs to another account keeps their agent, their
 // credentials and their sessions: a session of theirs still scoped to this
 // account is refused from now on with the code that says the access was
 // taken away, which is what tells their app to sign them in again.
 func purgeIdentity(tx *gorm.DB, facts *accountFacts, _ *repositories.PurgeReport) error {
-	if err := tx.Table("invites").Where("account_id = ?", facts.accountID).Delete(map[string]any{}).Error; err != nil {
+	if err := forEachChunk(facts.invites, func(chunk []string) error {
+		return tx.Table("invites").Where("id IN ?", chunk).Delete(map[string]any{}).Error
+	}); err != nil {
 		return fmt.Errorf("account erasure: delete invites: %w", err)
 	}
 	if err := forEachChunk(facts.deletedAgents, func(chunk []string) error {

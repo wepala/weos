@@ -418,3 +418,41 @@ func TestAccountPurger_ReportsTheGroupingsItDeleted(t *testing.T) {
 		t.Errorf("counsel's grouping in acct-cedar: %d row(s), want 1 kept", n)
 	}
 }
+
+// wm-i2oni: an invitation from another account that names a deleted person
+// — by the skeleton agent it minted, or by their email — goes with them.
+func TestAccountPurger_TakesInvitesFromOtherAccountsThatNameADeletedPerson(t *testing.T) {
+	f := newPurgeFixture(t)
+	f.account("acct-harbor")
+	f.account("acct-cedar")
+	f.person("ops", "acct-harbor")   // belongs to nothing else: deleted
+	f.person("broker", "acct-cedar") // survives
+	invite := func(id, account, email, invitee string) {
+		f.must(f.db.Create(&authmodels.InviteModel{ID: id, AccountID: account, Email: email, RoleID: "member",
+			InviterAgentID: "broker", InviteeAgentID: invitee, Status: "pending", ExpiresAt: time.Now().Add(time.Hour)}).Error)
+		f.event("ev-"+id, id, "tx-"+id, "")
+	}
+	invite("inv-by-agent", "acct-cedar", "other@example", "ops")
+	invite("inv-by-email", "acct-cedar", "ops@example", "someone-else")
+	invite("inv-unrelated", "acct-cedar", "guest@example", "guest")
+	invite("inv-own", "acct-harbor", "friend@example", "friend")
+	purger := NewAccountPurgerForTest(f.db, f.pm, &testLogger{})
+
+	if _, err := purger.Purge(context.Background(), "acct-harbor"); err != nil {
+		t.Fatalf("Purge: %v", err)
+	}
+	for _, gone := range []string{"inv-by-agent", "inv-by-email", "inv-own"} {
+		if n := f.count("invites", "id = ?", gone); n != 0 {
+			t.Errorf("invite %s still exists", gone)
+		}
+		if n := f.count("events", "aggregate_id = ?", gone); n != 0 {
+			t.Errorf("the events of invite %s still exist", gone)
+		}
+	}
+	if n := f.count("invites", "id = ?", "inv-unrelated"); n != 1 {
+		t.Errorf("an invite naming nobody deleted was removed")
+	}
+	if n := f.count("events", "aggregate_id = ?", "inv-unrelated"); n != 1 {
+		t.Errorf("the events of an invite naming nobody deleted were removed")
+	}
+}
