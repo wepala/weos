@@ -33,7 +33,7 @@ Feature: Limiting trusted-issuer sign-in to the allowlist and offering the door 
 
   # --- An email the allowlist does not name ---
 
-  @wip @story-wm-63gg0.3
+  @story-wm-63gg0.3
   Scenario: An assertion for an email the allowlist does not name is refused without creating anybody
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the instance's allowlist names "dana.whitfield@harborlegal.example"
@@ -43,7 +43,7 @@ Feature: Limiting trusted-issuer sign-in to the allowlist and offering the door 
     And "marcus.okafor@harborlegal.example" holds no session on the instance
     And the store holds no person for "marcus.okafor@harborlegal.example"
 
-  @wip @story-wm-63gg0.3
+  @story-wm-63gg0.3
   Scenario Outline: An email that only resembles the allowlisted one is refused
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the instance's allowlist names "dana.whitfield@harborlegal.example"
@@ -59,7 +59,7 @@ Feature: Limiting trusted-issuer sign-in to the allowlist and offering the door 
 
   # --- The allowlist is checked before the instance decides whom an assertion names ---
 
-  @wip @story-wm-63gg0.3
+  @story-wm-63gg0.3
   Scenario: A person the instance already holds is refused rather than linked when the allowlist does not name them
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the account "Harbor Legal", whose owner "ops@harborlegal.example" signs in with password "correct-horse-battery-staple"
@@ -69,7 +69,7 @@ Feature: Limiting trusted-issuer sign-in to the allowlist and offering the door 
     And the refusal names the reason "allowlist"
     And no identity from "google" is linked to "ops@harborlegal.example"
 
-  @wip @story-wm-63gg0.3
+  @story-wm-63gg0.3
   Scenario: A person who signed in before is refused once the allowlist stops naming them
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And "dana.whitfield@harborlegal.example" signed in through the door from "google" with the subject "108234917650023841257" earlier
@@ -80,7 +80,7 @@ Feature: Limiting trusted-issuer sign-in to the allowlist and offering the door 
 
   # --- Who the allowlist admits ---
 
-  @wip @story-wm-63gg0.3
+  @story-wm-63gg0.3
   Scenario Outline: The allowlist admits an email written in different capitals
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the instance's allowlist names "<listed>"
@@ -93,7 +93,7 @@ Feature: Limiting trusted-issuer sign-in to the allowlist and offering the door 
       | dana.whitfield@harborlegal.example | Dana.Whitfield@HarborLegal.example |
       | Dana.Whitfield@HarborLegal.example | dana.whitfield@harborlegal.example |
 
-  @wip @story-wm-63gg0.3
+  @story-wm-63gg0.3
   Scenario: An instance with no allowlist admits anyone the door vouches for
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the instance has no allowlist
@@ -103,14 +103,14 @@ Feature: Limiting trusted-issuer sign-in to the allowlist and offering the door 
 
   # --- The way back to the door ---
 
-  @wip @story-wm-63gg0.3
+  @story-wm-63gg0.3
   Scenario: An instance that trusts an issuer offers the door as a sign-in provider
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     When someone who is not signed in asks the instance which sign-in providers it offers
     Then the instance offers the sign-in provider "issuer" with the sign-in address "https://money.weos.cloud/door/start"
     And that provider carries nothing but its name and its sign-in address
 
-  @wip @story-wm-63gg0.3
+  @story-wm-63gg0.3
   Scenario: The door is offered beside the sign-in providers the instance already had
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And Google sign-in is also configured on that instance
@@ -118,13 +118,13 @@ Feature: Limiting trusted-issuer sign-in to the allowlist and offering the door 
     Then the instance offers exactly the sign-in providers "google" and "issuer"
     And the "google" provider carries no sign-in address
 
-  @wip @story-wm-63gg0.3
+  @story-wm-63gg0.3
   Scenario: An instance with no trusted issuer offers no door to sign in through
     Given a WeOS instance with no trusted issuer configured
     When someone who is not signed in asks the instance which sign-in providers it offers
     Then the instance offers no sign-in provider named "issuer"
 
-  @wip @story-wm-63gg0.3
+  @story-wm-63gg0.3
   Scenario: An instance missing its trusted issuer's audience offers no door to sign in through
     Given a WeOS instance configured with a trusted issuer and its key list but no audience
     When someone who is not signed in asks the instance which sign-in providers it offers
