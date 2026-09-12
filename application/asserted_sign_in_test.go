@@ -17,6 +17,8 @@ import (
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
 	"github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
+	esdomain "github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
+	esinfra "github.com/akeemphilbert/pericarp/pkg/eventsourcing/infrastructure"
 )
 
 // memoryAuthStore stands in for pericarp's store and its FindOrCreateAgent.
@@ -31,6 +33,11 @@ type memoryAuthStore struct {
 	window   time.Duration
 
 	emailsErr error
+	// saveErr fails every credential save. beforeSave, when set, runs once
+	// inside the next save, with the store locked, before the save checks
+	// for a duplicate: another process writing first.
+	saveErr    error
+	beforeSave func()
 }
 
 func newMemoryAuthStore() *memoryAuthStore {
@@ -153,6 +160,13 @@ func (r storeCredentials) FindByProvider(_ context.Context, provider, sub string
 func (r storeCredentials) Save(_ context.Context, cred *entities.Credential) error {
 	r.s.mu.Lock()
 	defer r.s.mu.Unlock()
+	if r.s.saveErr != nil {
+		return r.s.saveErr
+	}
+	if hook := r.s.beforeSave; hook != nil {
+		r.s.beforeSave = nil
+		hook()
+	}
 	if existing := r.s.findByProvider(cred.Provider(), cred.ProviderUserID()); existing != nil && existing.GetID() != cred.GetID() {
 		return authrepos.ErrDuplicateCredential
 	}
@@ -281,10 +295,10 @@ func (q storeEmails) CredentialsByEmail(_ context.Context, email string) ([]repo
 	if q.s.emailsErr != nil {
 		return nil, q.s.emailsErr
 	}
-	normalized := strings.ToLower(strings.TrimSpace(email))
+	folded := repositories.FoldCredentialEmail(email)
 	var matches []repositories.CredentialEmailMatch
 	for _, c := range q.s.creds {
-		if strings.ToLower(strings.TrimSpace(c.Email())) == normalized {
+		if repositories.FoldCredentialEmail(c.Email()) == folded {
 			matches = append(matches, repositories.CredentialEmailMatch{
 				AgentID: c.AgentID(), Provider: c.Provider(), Active: c.Active(),
 			})
@@ -672,6 +686,139 @@ func TestAssertedSignInLogsAnAmbiguousOwnerWithEveryPersonHoldingTheEmail(t *tes
 	}
 	requireIdentityFields(t, lines[0], "apple", appleSub, "dana.whitfield@harborlegal.example", "agent-dana,agent-dana-2")
 	requireNoRawIdentity(t, logs, appleSub, googleSub, "dana.whitfield@harborlegal.example")
+}
+
+func TestAssertedSignInMatchesAnOwnersEmailFoldingOnlyASCIICapitals(t *testing.T) {
+	cases := map[string]struct {
+		stored, claimed string
+		linked          bool
+	}{
+		"ASCII capitals":                         {"dana.whitfield@harborlegal.example", "DANA.Whitfield@HarborLegal.example", true},
+		"the same accented capital":              {"ÉLISE.MARTIN@harborlegal.example", "Élise.martin@harborlegal.example", true},
+		"an accented capital and its lower case": {"élise.martin@harborlegal.example", "Élise.martin@harborlegal.example", false},
+		"the Kelvin sign for a k":                {"karl.berg@harborlegal.example", "Karl.berg@harborlegal.example", false},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := newMemoryAuthStore()
+			s.seedPerson(t, "agent-owner", "Owner", "google", googleSub, c.stored)
+
+			identity := AssertedIdentity{Provider: "apple", Subject: appleSub, Email: c.claimed, Name: "Owner"}
+			got, err := newTestAssertedSignIn(s, true).SignIn(context.Background(), identity)
+			if err != nil {
+				t.Fatalf("SignIn: %v", err)
+			}
+			if linked := !got.NewAccount && got.Agent.GetID() == "agent-owner"; linked != c.linked {
+				t.Fatalf("%q against a stored %q: linked = %v, want %v", c.claimed, c.stored, linked, c.linked)
+			}
+		})
+	}
+}
+
+// failingEventStore refuses every append.
+type failingEventStore struct{ *esinfra.MemoryStore }
+
+func (failingEventStore) Append(context.Context, string, int, ...esdomain.EventEnvelope[any]) error {
+	return errors.New("event store unavailable")
+}
+
+func TestAssertedSignInRecordsALinkedCredentialsCreationOnce(t *testing.T) {
+	s := newMemoryAuthStore()
+	s.seedPerson(t, "agent-dana", "Dana Whitfield", "google", googleSub, "dana.whitfield@harborlegal.example")
+	events := esinfra.NewMemoryStore()
+	svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) {
+		cfg.LinkByEmail = true
+		cfg.EventStore = events
+	})
+
+	got, err := svc.SignIn(context.Background(), dana("apple", appleSub))
+	if err != nil {
+		t.Fatalf("SignIn: %v", err)
+	}
+	if got.NewAccount || got.Agent.GetID() != "agent-dana" {
+		t.Fatalf("want a link to agent-dana: agent=%s new=%v", got.Agent.GetID(), got.NewAccount)
+	}
+	linked := s.credentialFor("apple", appleSub)
+	if linked == nil {
+		t.Fatalf("the linked credential was not saved")
+	}
+	if ids := events.GetAllAggregateIDs(); len(ids) != 1 || ids[0] != linked.GetID() {
+		t.Fatalf("recorded events for %v, want only the linked credential %s", ids, linked.GetID())
+	}
+	recorded, err := events.GetEvents(context.Background(), linked.GetID())
+	if err != nil || len(recorded) != 1 {
+		t.Fatalf("the linked credential has %d events (err %v), want its one creation", len(recorded), err)
+	}
+}
+
+func TestAssertedSignInThatLosesALinkRaceRecordsAndLogsNothing(t *testing.T) {
+	s := newMemoryAuthStore()
+	s.seedPerson(t, "agent-dana", "Dana Whitfield", "google", googleSub, "dana.whitfield@harborlegal.example")
+	// Another process links the same identity between this sign-in's look-up
+	// and its save, so the save meets the unique (provider, subject) index.
+	s.beforeSave = func() {
+		s.seedCredentialLocked(t, "agent-dana", "apple", appleSub, "dana.whitfield@harborlegal.example")
+	}
+	events := esinfra.NewMemoryStore()
+	logs := &signInLogs{}
+	svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) {
+		cfg.LinkByEmail = true
+		cfg.EventStore = events
+		cfg.Logger = logs
+	})
+
+	got, err := svc.SignIn(context.Background(), dana("apple", appleSub))
+	if err != nil {
+		t.Fatalf("SignIn: %v", err)
+	}
+	if got.NewAccount || got.Agent.GetID() != "agent-dana" || s.createCount() != 0 {
+		t.Fatalf("want the credential the winner stored: agent=%s new=%v creates=%d", got.Agent.GetID(), got.NewAccount, s.createCount())
+	}
+	if ids := events.GetAllAggregateIDs(); len(ids) != 0 {
+		t.Fatalf("a link that lost the race recorded events for %v", ids)
+	}
+	if logged := logs.text(); logged != "" {
+		t.Fatalf("a link this sign-in did not make was logged:\n%s", logged)
+	}
+}
+
+func TestAssertedSignInRecordsNoEventForALinkThatCannotBeSaved(t *testing.T) {
+	s := newMemoryAuthStore()
+	s.seedPerson(t, "agent-dana", "Dana Whitfield", "google", googleSub, "dana.whitfield@harborlegal.example")
+	s.saveErr = errors.New("database unavailable")
+	events := esinfra.NewMemoryStore()
+	svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) {
+		cfg.LinkByEmail = true
+		cfg.EventStore = events
+	})
+
+	_, err := svc.SignIn(context.Background(), dana("apple", appleSub))
+	if err == nil || errors.Is(err, ErrAmbiguousOwner) {
+		t.Fatalf("err = %v, want the save failure", err)
+	}
+	if ids := events.GetAllAggregateIDs(); len(ids) != 0 {
+		t.Fatalf("a link that was never saved recorded events for %v", ids)
+	}
+	if s.createCount() != 0 {
+		t.Fatalf("a failed link fell through to creating a person")
+	}
+}
+
+func TestAssertedSignInFailsWhenALinkedCredentialsCreationCannotBeRecorded(t *testing.T) {
+	s := newMemoryAuthStore()
+	s.seedPerson(t, "agent-dana", "Dana Whitfield", "google", googleSub, "dana.whitfield@harborlegal.example")
+	svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) {
+		cfg.LinkByEmail = true
+		cfg.EventStore = failingEventStore{esinfra.NewMemoryStore()}
+	})
+
+	_, err := svc.SignIn(context.Background(), dana("apple", appleSub))
+	if err == nil || errors.Is(err, ErrAmbiguousOwner) {
+		t.Fatalf("err = %v, want the event store failure", err)
+	}
+	if s.createCount() != 0 {
+		t.Fatalf("a failed link fell through to creating a person")
+	}
 }
 
 func TestAssertedSignInSurfacesAnEmailLookupFailure(t *testing.T) {

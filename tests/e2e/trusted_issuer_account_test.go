@@ -140,6 +140,10 @@ type taAnswer struct {
 	token                          string
 	expiresAt                      string
 	newAccount                     *bool
+
+	// provider and subject are the identity the assertion presented; set by
+	// present, empty on answers that did not come from it.
+	provider, subject string
 }
 
 func (a *taAnswer) succeeded() error {
@@ -481,8 +485,12 @@ func (w *taWorld) present(email, name, provider, sub string) error {
 	if err != nil {
 		return err
 	}
-	_, err = w.sendAssertion(token)
-	return err
+	answer, err := w.sendAssertion(token)
+	if err != nil {
+		return err
+	}
+	answer.provider, answer.subject = provider, sub
+	return nil
 }
 
 func (w *taWorld) presentTwoTogether(email, provider, sub string) error {
@@ -634,12 +642,12 @@ func (w *taWorld) storeHoldsOneAccount(email string) error {
 	return nil
 }
 
-// actingAccount reads the account the last sign-in's session acts in back from
-// the store, through the session cookie it set, rather than from the answer.
-func (w *taWorld) actingAccount() (string, error) {
+// actingSession reads the last sign-in's session back from the store, through
+// the session cookie it set, rather than from the answer.
+func (w *taWorld) actingSession() (*authapp.SessionInfo, error) {
 	last := w.last()
 	if err := last.succeeded(); err != nil {
-		return "", err
+		return nil, err
 	}
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
 	for _, c := range last.cookies {
@@ -647,11 +655,20 @@ func (w *taWorld) actingAccount() (string, error) {
 	}
 	data, err := w.sessionManager.GetHTTPSession(req)
 	if err != nil || data == nil {
-		return "", fmt.Errorf("the cookies the sign-in set carry no session: %v", err)
+		return nil, fmt.Errorf("the cookies the sign-in set carry no session: %v", err)
 	}
 	info, err := w.authService.ValidateSession(context.Background(), data.SessionID)
 	if err != nil || info == nil {
-		return "", fmt.Errorf("the sign-in's session does not validate: %v", err)
+		return nil, fmt.Errorf("the sign-in's session does not validate: %v", err)
+	}
+	return info, nil
+}
+
+// actingAccount is the account the last sign-in's session acts in.
+func (w *taWorld) actingAccount() (string, error) {
+	info, err := w.actingSession()
+	if err != nil {
+		return "", err
 	}
 	return info.AccountID, nil
 }
@@ -732,7 +749,7 @@ func (w *taWorld) answerCarriesFields(table *godog.Table) error {
 	if len(got) != len(want) {
 		return fmt.Errorf("the answer carries %v, want exactly the %d fields the table names", got, len(want))
 	}
-	actingIn, err := w.actingAccount()
+	session, err := w.actingSession()
 	if err != nil {
 		return err
 	}
@@ -740,14 +757,16 @@ func (w *taWorld) answerCarriesFields(table *godog.Table) error {
 		if _, ok := last.fields[field]; !ok {
 			return fmt.Errorf("the answer carries %v, and not %q", got, field)
 		}
-		if err := w.fieldHolds(last, field, holds, actingIn); err != nil {
+		if err := w.fieldHolds(last, field, holds, session); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (w *taWorld) fieldHolds(a *taAnswer, field, holds, actingIn string) error {
+// fieldHolds judges one field of an answer against what the store holds: the
+// session the sign-in made, and the credential for the identity it presented.
+func (w *taWorld) fieldHolds(a *taAnswer, field, holds string, session *authapp.SessionInfo) error {
 	switch field {
 	case "agent":
 		quoted := taQuoted.FindAllStringSubmatch(holds, -1)
@@ -758,12 +777,25 @@ func (w *taWorld) fieldHolds(a *taAnswer, field, holds, actingIn string) error {
 			return fmt.Errorf("agent = {id %q, name %q, email %q}, want an id, %q and %q",
 				a.agentID, a.agentName, a.agentEmail, quoted[0][1], quoted[1][1])
 		}
+		if a.agentID != session.AgentID {
+			return fmt.Errorf("the answer names the person %q, the session is for %q", a.agentID, session.AgentID)
+		}
+		if a.provider == "" {
+			return fmt.Errorf("the sign-in did not record which identity it presented")
+		}
+		cred, err := w.credRepo.FindByProvider(context.Background(), a.provider, a.subject)
+		if err != nil || cred == nil {
+			return fmt.Errorf("the store holds no credential for the identity the sign-in presented: %v", err)
+		}
+		if cred.AgentID() != a.agentID {
+			return fmt.Errorf("the answer names the person %q, the identity's credential belongs to %q", a.agentID, cred.AgentID())
+		}
 	case "account":
 		if a.accountID == "" || a.accountName == "" {
 			return fmt.Errorf("account = {id %q, name %q}, want both", a.accountID, a.accountName)
 		}
-		if a.accountID != actingIn {
-			return fmt.Errorf("the answer names account %q, the session acts in %q", a.accountID, actingIn)
+		if a.accountID != session.AccountID {
+			return fmt.Errorf("the answer names account %q, the session acts in %q", a.accountID, session.AccountID)
 		}
 	case "token":
 		if a.token == "" {
@@ -774,7 +806,13 @@ func (w *taWorld) fieldHolds(a *taAnswer, field, holds, actingIn string) error {
 		}
 	case "expires_at":
 		at, err := time.Parse(time.RFC3339Nano, a.expiresAt)
-		if err != nil || !at.After(time.Now()) {
+		if err != nil {
+			return fmt.Errorf("expires_at = %q, want a moment", a.expiresAt)
+		}
+		if !at.Equal(session.ExpiresAt) {
+			return fmt.Errorf("expires_at = %s, the session expires at %s", a.expiresAt, session.ExpiresAt.Format(time.RFC3339Nano))
+		}
+		if !at.After(time.Now()) {
 			return fmt.Errorf("expires_at = %q, want a moment still to come", a.expiresAt)
 		}
 	case "new_account":
@@ -833,6 +871,10 @@ func (w *taWorld) sameCookies() error {
 	}
 	if err := door.succeeded(); err != nil {
 		return fmt.Errorf("the sign-in through the door: %w", err)
+	}
+	if len(password.cookies) == 0 {
+		// Two sign-ins that set no cookie at all would compare equal below.
+		return fmt.Errorf("the password sign-in set no cookies, so there is nothing to hold the door's cookies to")
 	}
 	if len(password.cookies) != len(door.cookies) {
 		return fmt.Errorf("the password sign-in set %d cookies, the door's %d", len(password.cookies), len(door.cookies))

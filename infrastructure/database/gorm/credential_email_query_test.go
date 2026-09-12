@@ -28,6 +28,9 @@ func TestCredentialEmailQueryMatchesWithoutRegardToCase(t *testing.T) {
 		{"cred-marcus", "agent-marcus", "apple", "000917.3b6e", "marcus.okafor@harborlegal.example", true},
 		{"cred-marcus-off", "agent-marcus-old", "google", "117590246813570924368", "Marcus.Okafor@harborlegal.example", false},
 		{"cred-no-email", "agent-quiet", "apple", "000918.4c7f", "", true},
+		{"cred-elise", "agent-elise", "google", "108234917650023841999", "ÉLISE.MARTIN@harborlegal.example", true},
+		{"cred-karl", "agent-karl", "apple", "000919.5d8a", "karl.berg@harborlegal.example", true},
+		{"cred-pat", "agent-pat", "google", "108234917650023842000", "\tpat.lee@harborlegal.example", true},
 	}
 	for _, r := range rows {
 		if err := db.Exec(`INSERT INTO credentials (id, agent_id, provider, provider_user_id, email, active) VALUES (?, ?, ?, ?, ?, ?)`,
@@ -41,6 +44,8 @@ func TestCredentialEmailQueryMatchesWithoutRegardToCase(t *testing.T) {
 		{AgentID: "agent-dana", Provider: "google", Active: true},
 		{AgentID: "agent-dana", Provider: "password", Active: true},
 	}
+	elise := []repositories.CredentialEmailMatch{{AgentID: "agent-elise", Provider: "google", Active: true}}
+	karl := []repositories.CredentialEmailMatch{{AgentID: "agent-karl", Provider: "apple", Active: true}}
 	cases := map[string][]repositories.CredentialEmailMatch{
 		"dana.whitfield@harborlegal.example":   dana,
 		"  DANA.WHITFIELD@harborlegal.EXAMPLE": dana,
@@ -50,8 +55,16 @@ func TestCredentialEmailQueryMatchesWithoutRegardToCase(t *testing.T) {
 			{AgentID: "agent-marcus", Provider: "apple", Active: true},
 			{AgentID: "agent-marcus-old", Provider: "google", Active: false},
 		},
-		"nobody@harborlegal.example": {},
+		"nobody@harborlegal.example": nil,
 		"":                           nil,
+		// ASCII capitals fold; a non-ASCII capital is kept, in Go and in SQL.
+		"Élise.Martin@harborlegal.example": elise,
+		"élise.martin@harborlegal.example": nil,
+		// The Kelvin sign lower-cases to k under a Unicode fold; not here.
+		"KARL.BERG@harborlegal.example": karl,
+		"Karl.berg@harborlegal.example": nil,
+		// Only spaces are trimmed, so a stored tab is part of the address.
+		"pat.lee@harborlegal.example": nil,
 	}
 	for email, want := range cases {
 		got, err := q.CredentialsByEmail(ctx, email)

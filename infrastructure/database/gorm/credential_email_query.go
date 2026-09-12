@@ -18,7 +18,6 @@ package gorm
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/wepala/weos/v3/domain/repositories"
 
@@ -43,22 +42,29 @@ func ProvideCredentialEmailQuery(db *gorm.DB) repositories.CredentialEmailQuery 
 // identity the instance has never seen, so a scan is the honest trade against
 // adding an index to a table core does not own.
 func (q *CredentialEmailQuery) CredentialsByEmail(ctx context.Context, email string) ([]repositories.CredentialEmailMatch, error) {
-	normalized := strings.ToLower(strings.TrimSpace(email))
-	if normalized == "" {
+	folded := repositories.FoldCredentialEmail(email)
+	if folded == "" {
 		return nil, nil
 	}
 	var rows []struct {
 		AgentID  string
 		Provider string
+		Email    string
 		Active   bool
 	}
 	// Queried by table name rather than through a model: credentials is
 	// pericarp's projection, and core reads it without taking ownership of the
 	// struct that defines it.
+	//
+	// The WHERE clause only narrows the scan. LOWER(TRIM()) on both sides keeps
+	// every row that can match, whatever the database: any LOWER folds at least
+	// ASCII and folds equal characters equally. The rule itself is applied in
+	// Go below, because Postgres's LOWER folds per locale and would otherwise
+	// match addresses FoldCredentialEmail keeps apart.
 	err := q.db.WithContext(ctx).
 		Table("credentials").
-		Select("agent_id, provider, active").
-		Where("LOWER(TRIM(email)) = ?", normalized).
+		Select("agent_id, provider, email, active").
+		Where("LOWER(TRIM(email)) = LOWER(TRIM(?))", folded).
 		Order("agent_id, provider").
 		Scan(&rows).Error
 	if err != nil {
@@ -66,6 +72,9 @@ func (q *CredentialEmailQuery) CredentialsByEmail(ctx context.Context, email str
 	}
 	matches := make([]repositories.CredentialEmailMatch, 0, len(rows))
 	for _, r := range rows {
+		if repositories.FoldCredentialEmail(r.Email) != folded {
+			continue
+		}
 		matches = append(matches, repositories.CredentialEmailMatch{AgentID: r.AgentID, Provider: r.Provider, Active: r.Active})
 	}
 	return matches, nil

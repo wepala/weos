@@ -15,7 +15,28 @@
 
 package repositories
 
-import "context"
+import (
+	"context"
+	"strings"
+)
+
+// FoldCredentialEmail is the one rule owner binding compares emails under:
+// spaces trimmed from both ends, ASCII capitals lower-cased, and nothing else.
+//
+// It is ASCII-only on purpose, and every side of a comparison uses it wherever
+// that comparison runs. SQLite's LOWER and TRIM fold no further, and a Unicode
+// fold would let a different address match an owner's: U+212A KELVIN SIGN
+// lower-cases to "k". An address that differs from an owner's only in a
+// non-ASCII capital therefore does not match it.
+func FoldCredentialEmail(email string) string {
+	b := []byte(strings.Trim(email, " "))
+	for i, c := range b {
+		if 'A' <= c && c <= 'Z' {
+			b[i] = c + ('a' - 'A')
+		}
+	}
+	return string(b)
+}
 
 // CredentialEmailQuery reads pericarp's credentials projection for the one
 // question owner binding needs and pericarp's own CredentialRepository cannot
@@ -29,7 +50,8 @@ import "context"
 // table pericarp owns; nothing here writes.
 type CredentialEmailQuery interface {
 	// CredentialsByEmail returns every credential — of any kind, active or
-	// not — whose email equals email after both are trimmed and lower-cased.
+	// not — whose email equals email after both are folded by
+	// FoldCredentialEmail.
 	// Which of them may say who owns the email is the caller's decision, so
 	// none is left out here. An email nobody holds is an empty result, not an
 	// error; so is an empty email.

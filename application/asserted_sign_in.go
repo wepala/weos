@@ -145,13 +145,13 @@ func ProvideAssertedSignIn(params struct {
 	Logger      weosentities.Logger       `optional:"true"`
 }) *AssertedSignIn {
 	return NewAssertedSignIn(AssertedSignInConfig{
-		Auth:        params.Auth,
-		Credentials: params.Credentials,
-		Agents:      params.Agents,
-		Emails:      params.Emails,
-		EventStore:  params.EventStore,
-		Dispatcher:  params.Dispatcher,
-		Logger:      params.Logger,
+		Auth:                     params.Auth,
+		Credentials:              params.Credentials,
+		Agents:                   params.Agents,
+		Emails:                   params.Emails,
+		EventStore:               params.EventStore,
+		Dispatcher:               params.Dispatcher,
+		Logger:                   params.Logger,
 		LinkByEmail:              len(params.Config.OAuth.AllowedEmails) > 0,
 		PasswordRegistrationOpen: params.Config.PasswordRegistrationEnabled,
 	})
@@ -163,7 +163,9 @@ func (s *AssertedSignIn) SignIn(ctx context.Context, id AssertedIdentity) (Asser
 	// than one of each, so two sign-ins can never wait on each other in a
 	// circle.
 	defer s.identities.lock(id.Provider + "\x00" + id.Subject)()
-	email := strings.ToLower(strings.TrimSpace(id.Email))
+	// The same fold the credential query compares under, so the email lock
+	// serializes exactly the sign-ins that could reach one owner.
+	email := repositories.FoldCredentialEmail(id.Email)
 	if s.cfg.LinkByEmail && email != "" {
 		defer s.emails.lock(email)()
 	}
@@ -179,13 +181,18 @@ func (s *AssertedSignIn) SignIn(ctx context.Context, id AssertedIdentity) (Asser
 			return AssertedSignInResult{}, err
 		}
 		if owner != "" {
-			if err := s.link(ctx, owner, id); err != nil {
+			linked, err := s.link(ctx, owner, id)
+			if err != nil {
 				return AssertedSignInResult{}, err
 			}
-			// A link attaches a new way in to an existing person, so it is
-			// the one sign-in outcome an operator must be able to find later.
-			s.cfg.Logger.Info(ctx, "trusted issuer sign-in linked an identity the instance had not seen to the person holding its email",
-				identityFields(id, email, owner)...)
+			if linked {
+				// A link attaches a new way in to an existing person, so it is
+				// the one sign-in outcome an operator must be able to find later.
+				s.cfg.Logger.Info(ctx, "trusted issuer sign-in linked an identity the instance had not seen to the person holding its email",
+					identityFields(id, email, owner)...)
+			}
+			// Linked here or by the process that won the race: either way the
+			// identity now has a credential, and this sign-in created nobody.
 			known = true
 		}
 	}
@@ -351,34 +358,43 @@ func (s *AssertedSignIn) provesOwnership(m repositories.CredentialEmailMatch) bo
 	return m.Provider != entities.ProviderPassword || !s.cfg.PasswordRegistrationOpen
 }
 
-// link stores a credential for the identity against the owner, recording its
-// creation the way pericarp records a credential it makes.
-func (s *AssertedSignIn) link(ctx context.Context, ownerID string, id AssertedIdentity) error {
+// link stores a credential for the identity against the owner, records its
+// creation the way pericarp records a credential it makes, and reports whether
+// it linked.
+//
+// The row is saved before the event is committed, so the store's unique
+// (provider, provider_user_id) index settles a race with another process
+// before any event exists. A link that loses the race records nothing, and a
+// Credential.Created event is only ever committed for a row that was saved:
+// replaying the event store cannot bind the identity to a person the store
+// never did. If the event cannot be committed after the save, the sign-in
+// fails and the row is left without its event.
+func (s *AssertedSignIn) link(ctx context.Context, ownerID string, id AssertedIdentity) (bool, error) {
 	credential, err := new(entities.Credential).With(
 		ksuid.New().String(), ownerID, id.Provider, id.Subject, id.Email, id.Name,
 	)
 	if err != nil {
-		return fmt.Errorf("build the linked credential: %w", err)
+		return false, fmt.Errorf("build the linked credential: %w", err)
+	}
+	if err := s.cfg.Credentials.Save(ctx, credential); err != nil {
+		// Another process stored a credential for this identity between the
+		// look-up and here. The identity has a credential either way, and
+		// FindOrCreateAgent resolves whichever one the store holds.
+		if errors.Is(err, authrepos.ErrDuplicateCredential) {
+			return false, nil
+		}
+		return false, fmt.Errorf("save the linked credential: %w", err)
 	}
 	if s.cfg.EventStore != nil {
 		uow := esapp.NewSimpleUnitOfWork(s.cfg.EventStore, s.cfg.Dispatcher)
 		if err := uow.Track(credential); err != nil {
-			return fmt.Errorf("track the linked credential: %w", err)
+			return false, fmt.Errorf("track the linked credential: %w", err)
 		}
 		if err := uow.Commit(ctx); err != nil {
-			return fmt.Errorf("record the linked credential: %w", err)
+			return false, fmt.Errorf("record the linked credential: %w", err)
 		}
 	}
-	if err := s.cfg.Credentials.Save(ctx, credential); err != nil {
-		// Another process stored a credential for this identity between the
-		// look-up and here. The identity now has a credential either way, and
-		// FindOrCreateAgent resolves whichever one the store holds.
-		if errors.Is(err, authrepos.ErrDuplicateCredential) {
-			return nil
-		}
-		return fmt.Errorf("save the linked credential: %w", err)
-	}
-	return nil
+	return true, nil
 }
 
 // keyedMutex serializes work per key. An entry lives only while someone holds

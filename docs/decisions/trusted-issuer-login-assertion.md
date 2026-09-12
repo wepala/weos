@@ -7,7 +7,7 @@ nav_order: 2
 
 # ADR: Trusted-Issuer Login Assertion (`POST /auth/assert`)
 
-**Status:** Proposed (revised 2026-09-12 after design premortem; amended 2026-09-12 after the story `wm-63gg0.1` review: clock leeway, audience uniqueness, key-list throttle and backoff, `keys-unreachable`)
+**Status:** Proposed (revised 2026-09-12 after design premortem; amended 2026-09-12 after the story `wm-63gg0.1` review: clock leeway, audience uniqueness, key-list throttle and backoff, `keys-unreachable`; amended 2026-09-12 after the story `wm-63gg0.2` review: what owner binding never links to, how emails compare, the 409, what binding logs, a 2-second first backoff)
 **Date:** 2026-09-12
 **Ticket:** bead `wm-63gg0` (mirror: wepala/mini-me-weos#530)
 **Base:** `v3` (the integration branch the `v3.0.1-beta.*` tags are cut from; `main` is the old line)
@@ -137,9 +137,33 @@ an Apple "Hide My Email" login still passes an owner's allowlist.
 
 **Owner binding.** On success, resolve the agent by `(provider, sub)` as
 `FindOrCreateAgent` does. If none exists **and** `OAUTH_ALLOWED_EMAILS` is set (the
-fleet's single-user shape), an existing credential whose normalized email equals the
-claim's email is linked to the new `(provider, sub)` instead of a second agent being
-created. Otherwise create, as today.
+fleet's single-user shape), an existing credential whose email equals the claim's email
+is linked to the new `(provider, sub)` instead of a second agent being created. Any kind
+of credential can be linked to, password credentials included, within the two limits
+below. Otherwise create, as today; a person the assertion gives no name is named after
+the email's local part.
+
+- **How emails compare.** Both emails have spaces trimmed from each end and ASCII
+  capitals lower-cased, and nothing else is folded. The service and the database query
+  apply the same rule. So `Dana.Whitfield@HarborLegal.example` matches
+  `dana.whitfield@harborlegal.example`, but `É` does not match `é`, and U+212A KELVIN
+  SIGN does not match `k`: a Unicode fold would let a different address match an
+  owner's. An address that differs from the owner's only in a non-ASCII capital creates
+  a second person instead, and the warning under "What binding logs" reports it. The
+  allowlist keeps the OAuth callback's comparison, so such an address can pass the
+  allowlist and still not link.
+- **Two people holding the email.** When more than one active person holds a counted
+  credential for the email, the sign-in is answered **409** with the code
+  `ambiguous-owner`. Nothing is linked and nobody is created, because choosing one of
+  them would sign a person in to someone else's data.
+- **Races.** Sign-ins for one identity, and on an allowlisted instance sign-ins for one
+  email, are serialized in process, so two first sign-ins that arrive together leave one
+  person. The locks are per process. Replicas that share a database still race, and the
+  store's unique `(provider, provider_user_id)` index is what stops a second credential
+  there. A link saves the credential row first and records `Credential.Created` only
+  after the row is saved, so a link that loses that race records no event. If the event
+  store fails after the row is saved, the sign-in fails and the row is left without its
+  event.
 
 Two kinds of credential never say who owns an email. Binding neither links to them nor
 counts them toward `ambiguous-owner`:
@@ -164,7 +188,8 @@ rarely gains a second person on purpose, so that person is most likely an owner 
 binding missed. Every line names the `provider` and the `agent_ids` it is about (the
 warning adds `other_agent_ids`), with a `sub_hash` and an `email_hash`. It never carries
 the subject or the email. A hash is the first 16 hexadecimal characters of the value's
-SHA-256, and the email is trimmed and lower-cased before it is hashed. To find the lines
+SHA-256, and the email is folded as described under "How emails compare" before it is
+hashed. To find the lines
 for an address, compute
 `printf '%s' 'ops@harborlegal.example' | shasum -a 256 | cut -c1-16` and search for it.
 
