@@ -7,7 +7,7 @@ nav_order: 2
 
 # ADR: Trusted-Issuer Login Assertion (`POST /auth/assert`)
 
-**Status:** Proposed (revised 2026-09-12 after design premortem; amended 2026-09-12 after the story `wm-63gg0.1` review: clock leeway, audience uniqueness, key-list throttle and backoff, `keys-unreachable`; amended 2026-09-12 after the story `wm-63gg0.2` review: what owner binding never links to, how emails compare, the 409, what binding logs, a 2-second first backoff; amended 2026-09-12 after the PR 563 Copilot review: the route refuses to mount under core's public `SESSION_SECRET`)
+**Status:** Proposed (revised 2026-09-12 after design premortem; amended 2026-09-12 after the story `wm-63gg0.1` review: clock leeway, audience uniqueness, key-list throttle and backoff, `keys-unreachable`; amended 2026-09-12 after the story `wm-63gg0.2` review: what owner binding never links to, how emails compare, the 409, what binding logs, a 2-second first backoff; amended 2026-09-12 after the PR 563 Copilot review: the route refuses to mount under core's public `SESSION_SECRET`, and any trusted-issuer setting makes the API require a sign-in)
 **Date:** 2026-09-12
 **Ticket:** bead `wm-63gg0` (mirror: wepala/mini-me-weos#530)
 **Base:** `v3` (the integration branch the `v3.0.1-beta.*` tags are cut from; `main` is the old line)
@@ -242,6 +242,18 @@ the route and the provider entry. A partial set is reported first, because it st
 route whatever the secret is. An instance with no `TRUSTED_ISSUER*` setting logs nothing
 about the secret, so local development on the default is unchanged. The pool module sets
 one per instance (E2).
+
+**Sign-in required.** A trusted issuer is a real sign-in, so it takes the API out of
+development mode exactly as an OAuth provider or password sign-in does: the protected and
+account routes require a session, `/api/auth/me` answers for that session and not for the
+seeded dev user, and the feature listing, invite acceptance and MCP routes take the
+session and bearer checks they take under OAuth. Development mode answers every caller as
+the seeded dev user, so an instance whose only sign-in is the door and that fell back to
+it would give that account to anyone who reached it. The switch happens as soon as any
+one `TRUSTED_ISSUER*` setting is set, whether or not the route mounts: a partial set, an
+unusable key-list address or the public `SESSION_SECRET` leaves an instance that requires
+a sign-in and, with no OAuth provider or password sign-in configured, admits nobody. The
+boot line that names the problem says so. It never leaves the API open.
 
 ### Consequences
 

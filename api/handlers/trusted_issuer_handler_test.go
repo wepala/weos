@@ -702,6 +702,14 @@ func TestMountTrustedIssuerAssertion(t *testing.T) {
 					assert.Code, assert.Body.String(), never.Code, never.Body.String())
 			}
 
+			// Every line about a route that did not mount says the API still
+			// requires a sign-in, so "not mounted" is never read as "open".
+			for _, line := range append(logs.atLevel("warn"), logs.atLevel("error")...) {
+				if got, ok := field(line, "consequence"); !ok || got == "" {
+					t.Fatalf("boot line %q does not say what not mounting means:\n%s", line.msg, logs.text())
+				}
+			}
+
 			errs := logs.atLevel("error")
 			if c.wantSecretError {
 				if len(errs) != 1 || !strings.Contains(errs[0].msg, "SESSION_SECRET") {

@@ -195,7 +195,11 @@ type Config struct {
 	// The route also needs the instance's own SESSION_SECRET. With all three
 	// set but SESSION_SECRET left at core's public default, or empty, boot logs
 	// one error naming SESSION_SECRET, mounts nothing and offers no issuer
-	// provider: a session the route issued could be forged. See SessionSecret,
+	// provider: a session the route issued could be forged.
+	//
+	// Any one of the three settings makes the API require a sign-in (see
+	// AuthEnabled), mounted or not: a door that cannot be used locks the API
+	// rather than leaving it in dev mode. See SessionSecret,
 	// TrustedIssuerConfig and docs/decisions/trusted-issuer-login-assertion.md.
 	TrustedIssuer TrustedIssuerConfig
 
@@ -458,12 +462,19 @@ func (c *Config) UsesPublicSessionSecret() bool {
 }
 
 // AuthEnabled returns true when any real authentication mechanism is
-// configured (OAuth provider or password endpoints). Drives whether the
-// API is mounted with RequireAuth or the dev-mode SoftAuth fallback —
-// without this, a password-only deployment would mount login endpoints
-// on top of routes that were still effectively unauthenticated.
+// configured: an OAuth provider, password sign-in, or a trusted issuer. Drives
+// whether the API is mounted with RequireAuth or the dev-mode SoftAuth
+// fallback — without this, a deployment would mount login endpoints on top of
+// routes that were still effectively unauthenticated, and SoftAuth answers
+// every caller as the seeded dev user.
+//
+// A trusted issuer counts as soon as any one of its settings is set, whether
+// or not POST /api/auth/assert can be mounted. An operator who set one asked
+// for sign-in through a door; a door that is partly configured, or refused
+// for its key-list address or its SESSION_SECRET, must leave the API locked
+// with the reason logged at boot, never open.
 func (c *Config) AuthEnabled() bool {
-	return c.OAuthEnabled() || c.PasswordAuthEnabled
+	return c.OAuthEnabled() || c.PasswordAuthEnabled || !c.TrustedIssuer.Unset()
 }
 
 // DefaultOAuthProvider returns the provider name to use when the caller

@@ -232,6 +232,12 @@ func trustedIssuerMountable(cfg config.Config) bool {
 		!cfg.UsesPublicSessionSecret()
 }
 
+// unmountedIssuerConsequence is what every boot line about an unmounted
+// assertion route adds: any trusted-issuer setting makes the API require a
+// sign-in (config.Config.AuthEnabled), so an operator must not read "not
+// mounted" as "open".
+const unmountedIssuerConsequence = "the API still requires a sign-in; with no OAuth provider or password sign-in configured, nobody can sign in"
+
 // MountTrustedIssuerAssertion registers POST /auth/assert when, and only when,
 // all three trusted-issuer settings are present, the key-list address is one
 // the verifier may read, and SESSION_SECRET is the instance's own. It reports
@@ -265,12 +271,14 @@ func MountTrustedIssuerAssertion(
 	if missing := settings.MissingKeys(); len(missing) > 0 {
 		logger.Warn(ctx, "trusted-issuer login is partly configured; POST /api/auth/assert is not mounted",
 			"missing", strings.Join(missing, ", "),
-			"remedy", "set TRUSTED_ISSUER, TRUSTED_ISSUER_JWKS_URL and TRUSTED_ISSUER_AUDIENCE together, or none of them")
+			"remedy", "set TRUSTED_ISSUER, TRUSTED_ISSUER_JWKS_URL and TRUSTED_ISSUER_AUDIENCE together, or none of them",
+			"consequence", unmountedIssuerConsequence)
 		return false
 	}
 	if err := trustedissuer.CheckJWKSURL(settings.JWKSURL); err != nil {
 		logger.Warn(ctx, "TRUSTED_ISSUER_JWKS_URL cannot be used; POST /api/auth/assert is not mounted",
-			"error", err.Error())
+			"error", err.Error(),
+			"consequence", unmountedIssuerConsequence)
 		return false
 	}
 	if cfg.UsesPublicSessionSecret() {
@@ -278,7 +286,8 @@ func MountTrustedIssuerAssertion(
 		// the door's sign-ins, and mounting would hand out sessions anyone can
 		// forge and cookies without Secure.
 		logger.Error(ctx, "SESSION_SECRET is core's public default or empty, so a session this instance issued could be forged; POST /api/auth/assert is not mounted",
-			"remedy", "set SESSION_SECRET to a long random value that belongs to this instance alone")
+			"remedy", "set SESSION_SECRET to a long random value that belongs to this instance alone",
+			"consequence", unmountedIssuerConsequence)
 		return false
 	}
 	g.POST("/auth/assert", build().Assert)
