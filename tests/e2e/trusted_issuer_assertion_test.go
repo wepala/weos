@@ -25,6 +25,7 @@ import (
 	"github.com/wepala/weos/v3/application"
 	"github.com/wepala/weos/v3/application/presets"
 	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
 	"github.com/wepala/weos/v3/internal/config"
 	weosoauth "github.com/wepala/weos/v3/internal/oauth"
 
@@ -80,7 +81,7 @@ const (
 
 // tiContractReasons is every reason the contract lets a refusal name.
 var tiContractReasons = map[string]bool{
-	"signature": true, "kid-miss": true, "iss": true, "aud": true,
+	"signature": true, "kid-miss": true, "keys-unreachable": true, "iss": true, "aud": true,
 	"expired": true, "window": true, "jti-replay": true, "claims": true,
 }
 
@@ -405,6 +406,7 @@ type tiWorld struct {
 	agentRepo      authrepos.AgentRepository
 	accountRepo    authrepos.AccountRepository
 	sessionManager session.SessionManager
+	erasureLocks   repositories.AccountErasureLocks
 	appLogger      entities.Logger
 	signIn         *application.AssertedSignIn
 
@@ -471,7 +473,7 @@ func (w *tiWorld) boot() error {
 		// serve.go provides this beside the module; sign-in issues its token.
 		fx.Provide(weosoauth.ProvideJWTService),
 		fx.Populate(&w.authService, &w.credRepo, &w.agentRepo, &w.accountRepo),
-		fx.Populate(&w.sessionManager, &w.appLogger, &w.signIn),
+		fx.Populate(&w.sessionManager, &w.erasureLocks, &w.appLogger, &w.signIn),
 	)
 	startCtx, cancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
 	defer cancel()
@@ -485,11 +487,15 @@ func (w *tiWorld) boot() error {
 	api := e.Group("/api")
 	api.Use(apimw.Messages())
 
+	// The dependencies serve.go gives the handler, all of them, so an asserted
+	// sign-in completes here exactly as it completes in a running instance.
 	sessions := handlers.NewPasswordAuthHandler(handlers.PasswordAuthHandlerConfig{
 		AuthService:    w.authService,
 		SessionManager: w.sessionManager,
 		SecureCookies:  cfg.SessionSecret != "change-me-in-production",
 		Logger:         w.logs,
+		AccountRepo:    w.accountRepo,
+		ErasureLocks:   w.erasureLocks,
 	})
 	// The same call and the same constructor as serve.go. The clock is the one
 	// thing added: the scenarios move time without waiting for it.

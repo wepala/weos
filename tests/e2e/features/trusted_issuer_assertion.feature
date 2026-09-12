@@ -17,8 +17,8 @@ Feature: Verifying a login assertion from a trusted issuer
   Every refusal carries a machine-readable reason, and the scenarios assert the reason
   rather than the status the refusals share. The door has to tell a clock problem it
   should retry from a key problem it must fix by publishing, and a person cannot read
-  either off a bare 401. The reasons are signature, kid-miss, iss, aud, expired, window,
-  jti-replay and claims.
+  either off a bare 401. The reasons are signature, kid-miss, keys-unreachable, iss, aud,
+  expired, window, jti-replay and claims.
 
   Three numbers decide most of the refusals and are staged on both sides of their
   boundary, because a check written with the wrong comparison passes every scenario that
