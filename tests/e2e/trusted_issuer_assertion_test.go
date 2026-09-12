@@ -466,6 +466,9 @@ func (w *tiWorld) boot() error {
 	// pull the scenario onto a real database.
 	cfg.DatabaseDSN = filepath.Join(dir, "test.db")
 	cfg.LogLevel = "error"
+	// A fleet instance runs with its own SESSION_SECRET, and the assertion
+	// route is not mounted under core's public default.
+	cfg.SessionSecret = "trusted-issuer-e2e-instance-secret"
 
 	app := fx.New(
 		fx.NopLogger,
@@ -492,14 +495,14 @@ func (w *tiWorld) boot() error {
 	sessions := handlers.NewPasswordAuthHandler(handlers.PasswordAuthHandlerConfig{
 		AuthService:    w.authService,
 		SessionManager: w.sessionManager,
-		SecureCookies:  cfg.SessionSecret != "change-me-in-production",
+		SecureCookies:  cfg.SessionSecret != config.DefaultSessionSecret,
 		Logger:         w.logs,
 		AccountRepo:    w.accountRepo,
 		ErasureLocks:   w.erasureLocks,
 	})
 	// The same call and the same constructor as serve.go. The clock is the one
 	// thing added: the scenarios move time without waiting for it.
-	handlers.MountTrustedIssuerAssertion(context.Background(), api, cfg.TrustedIssuer, w.logs,
+	handlers.MountTrustedIssuerAssertion(context.Background(), api, cfg, w.logs,
 		func() *handlers.TrustedIssuerHandler {
 			h := handlers.NewTrustedIssuerAssertionHandler(cfg.TrustedIssuer, cfg.OAuth.AllowedEmails, handlers.TrustedIssuerAssertionDeps{
 				SignIn:   w.signIn,

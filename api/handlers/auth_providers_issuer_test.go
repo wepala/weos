@@ -18,15 +18,20 @@ const (
 	doorIssuer   = "https://money.weos.cloud"
 	doorKeyList  = "https://money.weos.cloud/door/jwks.json"
 	doorAudience = "a1b2c3d4"
+
+	// instanceSessionSecret is a SESSION_SECRET of the instance's own. A fleet
+	// instance must run with one: under core's public default the assertion
+	// route is not mounted and the door is not offered.
+	instanceSessionSecret = "a-session-secret-of-this-instance-alone"
 )
 
 // newIssuerBootServer mounts the discovery route the way serve.go does: over
-// the configured registry, with the trusted-issuer settings.
+// the configured registry, with the instance's configuration.
 func newIssuerBootServer(cfg *config.Config) *echo.Echo {
 	e := echo.New()
 	api := e.Group("/api")
 	handlers.MountAuthProviders(api, handlers.NewAuthProvidersHandler(
-		buildProviderRegistry(cfg), handlers.WithTrustedIssuer(cfg.TrustedIssuer)))
+		buildProviderRegistry(cfg), handlers.WithTrustedIssuer(*cfg)))
 	return e
 }
 
@@ -77,7 +82,7 @@ func TestAuthProviders_TrustedIssuerOffersTheDoor(t *testing.T) {
 	if handlers.TrustedIssuerProviderName != "issuer" {
 		t.Fatalf("TrustedIssuerProviderName = %q, want issuer", handlers.TrustedIssuerProviderName)
 	}
-	cfg := config.Config{TrustedIssuer: config.TrustedIssuerConfig{
+	cfg := config.Config{SessionSecret: instanceSessionSecret, TrustedIssuer: config.TrustedIssuerConfig{
 		Issuer: doorIssuer, JWKSURL: doorKeyList, Audience: doorAudience,
 	}}
 	rec := getProviders(newIssuerBootServer(&cfg))
@@ -101,7 +106,7 @@ func TestAuthProviders_TrustedIssuerTrailingSlashIsTrimmed(t *testing.T) {
 		"https://money.weos.cloud/door/":  "https://money.weos.cloud/door/door/start",
 		"https://money.weos.cloud:8443//": "https://money.weos.cloud:8443/door/start",
 	} {
-		cfg := config.Config{TrustedIssuer: config.TrustedIssuerConfig{
+		cfg := config.Config{SessionSecret: instanceSessionSecret, TrustedIssuer: config.TrustedIssuerConfig{
 			Issuer: issuer, JWKSURL: doorKeyList, Audience: doorAudience,
 		}}
 		rec := getProviders(newIssuerBootServer(&cfg))
@@ -118,6 +123,7 @@ func TestAuthProviders_TrustedIssuerTrailingSlashIsTrimmed(t *testing.T) {
 func TestAuthProviders_TrustedIssuerBesideOAuthProviders(t *testing.T) {
 	t.Parallel()
 	cfg := config.Config{
+		SessionSecret: instanceSessionSecret,
 		OAuth: config.OAuthConfig{
 			GoogleClientID:     "google-client-id",
 			GoogleClientSecret: "google-client-secret",
@@ -141,24 +147,32 @@ func TestAuthProviders_TrustedIssuerBesideOAuthProviders(t *testing.T) {
 // instance that cannot take the door's assertion has no door to offer.
 func TestAuthProviders_IssuerOfferedExactlyWhenTheAssertionRouteMounts(t *testing.T) {
 	t.Parallel()
-	cases := map[string]config.TrustedIssuerConfig{
-		"nothing configured": {},
-		"all three":          {Issuer: doorIssuer, JWKSURL: doorKeyList, Audience: doorAudience},
-		"no audience":        {Issuer: doorIssuer, JWKSURL: doorKeyList},
-		"no key list":        {Issuer: doorIssuer, Audience: doorAudience},
-		"no issuer":          {JWKSURL: doorKeyList, Audience: doorAudience},
-		"only the issuer":    {Issuer: doorIssuer},
-		"only the key list":  {JWKSURL: doorKeyList},
-		"only the audience":  {Audience: doorAudience},
-		"whitespace issuer":  {Issuer: "   ", JWKSURL: doorKeyList, Audience: doorAudience},
-		"key list over http": {Issuer: doorIssuer, JWKSURL: "http://money.weos.cloud/door/jwks.json", Audience: doorAudience},
-		"loopback key list":  {Issuer: doorIssuer, JWKSURL: "http://127.0.0.1:9000/jwks.json", Audience: doorAudience},
-		"not a key-list URL": {Issuer: doorIssuer, JWKSURL: "jwks.json", Audience: doorAudience},
+	all3 := config.TrustedIssuerConfig{Issuer: doorIssuer, JWKSURL: doorKeyList, Audience: doorAudience}
+	own := func(settings config.TrustedIssuerConfig) config.Config {
+		return config.Config{SessionSecret: instanceSessionSecret, TrustedIssuer: settings}
 	}
-	for name, settings := range cases {
+	cases := map[string]config.Config{
+		"nothing configured": own(config.TrustedIssuerConfig{}),
+		"all three":          own(all3),
+		"no audience":        own(config.TrustedIssuerConfig{Issuer: doorIssuer, JWKSURL: doorKeyList}),
+		"no key list":        own(config.TrustedIssuerConfig{Issuer: doorIssuer, Audience: doorAudience}),
+		"no issuer":          own(config.TrustedIssuerConfig{JWKSURL: doorKeyList, Audience: doorAudience}),
+		"only the issuer":    own(config.TrustedIssuerConfig{Issuer: doorIssuer}),
+		"only the key list":  own(config.TrustedIssuerConfig{JWKSURL: doorKeyList}),
+		"only the audience":  own(config.TrustedIssuerConfig{Audience: doorAudience}),
+		"whitespace issuer":  own(config.TrustedIssuerConfig{Issuer: "   ", JWKSURL: doorKeyList, Audience: doorAudience}),
+		"key list over http": own(config.TrustedIssuerConfig{Issuer: doorIssuer, JWKSURL: "http://money.weos.cloud/door/jwks.json", Audience: doorAudience}),
+		"loopback key list":  own(config.TrustedIssuerConfig{Issuer: doorIssuer, JWKSURL: "http://127.0.0.1:9000/jwks.json", Audience: doorAudience}),
+		"not a key-list URL": own(config.TrustedIssuerConfig{Issuer: doorIssuer, JWKSURL: "jwks.json", Audience: doorAudience}),
+		"all three, default session secret": {
+			SessionSecret: config.DefaultSessionSecret, TrustedIssuer: all3,
+		},
+		"all three, no session secret": {TrustedIssuer: all3},
+	}
+	for name, cfg := range cases {
 		t.Run(name, func(t *testing.T) {
 			mounted := handlers.MountTrustedIssuerAssertion(context.Background(), echo.New().Group("/api"),
-				settings, &assertionLogCapture{},
+				cfg, &assertionLogCapture{},
 				func() *handlers.TrustedIssuerHandler {
 					h, _ := newTrustedIssuerHandler(
 						&fakeAssertionVerifier{err: &trustedissuer.Refusal{Reason: trustedissuer.ReasonSignature}},
@@ -166,7 +180,6 @@ func TestAuthProviders_IssuerOfferedExactlyWhenTheAssertionRouteMounts(t *testin
 					return h
 				})
 
-			cfg := config.Config{TrustedIssuer: settings}
 			rec := getProviders(newIssuerBootServer(&cfg))
 			if rec.Code != http.StatusOK {
 				t.Fatalf("code = %d, want 200 (body %s)", rec.Code, rec.Body.String())
@@ -182,10 +195,19 @@ func TestAuthProviders_IssuerOfferedExactlyWhenTheAssertionRouteMounts(t *testin
 	}
 }
 
+// Under core's public session secret the door is not offered, however
+// completely the trusted issuer is configured.
+func TestAuthProviders_NoDoorUnderTheDefaultSessionSecret(t *testing.T) {
+	t.Parallel()
+	cfg := config.Default()
+	cfg.TrustedIssuer = config.TrustedIssuerConfig{Issuer: doorIssuer, JWKSURL: doorKeyList, Audience: doorAudience}
+	assertProviderNames(t, getProviders(newIssuerBootServer(&cfg)), []string{})
+}
+
 // With no trusted-issuer option at all the handler is what it was before.
 func TestAuthProviders_NoTrustedIssuerOption(t *testing.T) {
 	t.Parallel()
-	cfg := config.Config{TrustedIssuer: config.TrustedIssuerConfig{
+	cfg := config.Config{SessionSecret: instanceSessionSecret, TrustedIssuer: config.TrustedIssuerConfig{
 		Issuer: doorIssuer, JWKSURL: doorKeyList, Audience: doorAudience,
 	}}
 	rec := getProviders(newAuthBootServer(buildProviderRegistry(&cfg), true))

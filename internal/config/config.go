@@ -140,11 +140,11 @@ type Config struct {
 	// SessionSecret is the secret key for session cookies (SESSION_SECRET).
 	//
 	// A deployed instance must set its own. Core's default,
-	// "change-me-in-production", is public, so a session cookie signed with it
+	// DefaultSessionSecret, is public, so a session cookie signed with it
 	// can be forged; and serve turns the Secure flag off on the session and
 	// token cookies while the default is in use. A fleet instance behind a
-	// trusted issuer (see TrustedIssuer) is no exception: each instance runs
-	// with its own SESSION_SECRET.
+	// trusted issuer (see TrustedIssuer) is no exception: POST /api/auth/assert
+	// is not mounted while UsesPublicSessionSecret reports true.
 	SessionSecret string
 
 	// PasswordAuthEnabled toggles the email + password login endpoint.
@@ -192,9 +192,11 @@ type Config struct {
 	// applies to assertions as it applies to OAuth sign-in (see
 	// OAuthConfig.AllowedEmails).
 	//
-	// A fleet instance must also set its own SESSION_SECRET: see
-	// SessionSecret. See TrustedIssuerConfig and
-	// docs/decisions/trusted-issuer-login-assertion.md.
+	// The route also needs the instance's own SESSION_SECRET. With all three
+	// set but SESSION_SECRET left at core's public default, or empty, boot logs
+	// one error naming SESSION_SECRET, mounts nothing and offers no issuer
+	// provider: a session the route issued could be forged. See SessionSecret,
+	// TrustedIssuerConfig and docs/decisions/trusted-issuer-login-assertion.md.
 	TrustedIssuer TrustedIssuerConfig
 
 	// SMTP holds configuration for outbound email.
@@ -442,6 +444,19 @@ func (c OAuthConfig) AppleConfigured() bool {
 	return c.AppleClientID != "" && c.AppleTeamID != "" && c.AppleKeyID != "" && c.ApplePrivateKey != ""
 }
 
+// DefaultSessionSecret is the SESSION_SECRET Default sets. It is published in
+// this source, so anyone can sign a session cookie with it.
+const DefaultSessionSecret = "change-me-in-production"
+
+// UsesPublicSessionSecret reports whether session cookies are signed with a
+// key anyone can know: DefaultSessionSecret, or no key at all. Surrounding
+// spaces are ignored. POST /api/auth/assert, which issues a session on another
+// service's word, is not mounted while this is true.
+func (c *Config) UsesPublicSessionSecret() bool {
+	secret := strings.TrimSpace(c.SessionSecret)
+	return secret == "" || secret == DefaultSessionSecret
+}
+
 // AuthEnabled returns true when any real authentication mechanism is
 // configured (OAuth provider or password endpoints). Drives whether the
 // API is mounted with RequireAuth or the dev-mode SoftAuth fallback —
@@ -525,7 +540,7 @@ func Default() Config {
 			Port: 8080,
 			Host: "0.0.0.0",
 		},
-		SessionSecret: "change-me-in-production",
+		SessionSecret: DefaultSessionSecret,
 		LLM: LLMConfig{
 			GeminiModel: "gemini-2.5-flash",
 		},

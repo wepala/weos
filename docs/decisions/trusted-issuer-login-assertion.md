@@ -7,7 +7,7 @@ nav_order: 2
 
 # ADR: Trusted-Issuer Login Assertion (`POST /auth/assert`)
 
-**Status:** Proposed (revised 2026-09-12 after design premortem; amended 2026-09-12 after the story `wm-63gg0.1` review: clock leeway, audience uniqueness, key-list throttle and backoff, `keys-unreachable`; amended 2026-09-12 after the story `wm-63gg0.2` review: what owner binding never links to, how emails compare, the 409, what binding logs, a 2-second first backoff)
+**Status:** Proposed (revised 2026-09-12 after design premortem; amended 2026-09-12 after the story `wm-63gg0.1` review: clock leeway, audience uniqueness, key-list throttle and backoff, `keys-unreachable`; amended 2026-09-12 after the story `wm-63gg0.2` review: what owner binding never links to, how emails compare, the 409, what binding logs, a 2-second first backoff; amended 2026-09-12 after the PR 563 Copilot review: the route refuses to mount under core's public `SESSION_SECRET`)
 **Date:** 2026-09-12
 **Ticket:** bead `wm-63gg0` (mirror: wepala/mini-me-weos#530)
 **Base:** `v3` (the integration branch the `v3.0.1-beta.*` tags are cut from; `main` is the old line)
@@ -60,7 +60,8 @@ already fronts every session).
 ### Contract
 
 **Mounting.** `POST /auth/assert` exists only when all three of `TRUSTED_ISSUER`,
-`TRUSTED_ISSUER_JWKS_URL` and `TRUSTED_ISSUER_AUDIENCE` are configured, following the
+`TRUSTED_ISSUER_JWKS_URL` and `TRUSTED_ISSUER_AUDIENCE` are configured and
+`SESSION_SECRET` is the instance's own (see "Session secret" below), following the
 `MountPasswordAuth` precedent (mount-or-not; a missing route is a plain 404, never a
 mounted handler that refuses, so middleware ordering cannot turn it into a 401). When
 exactly one or two of the three are set, boot logs one warning naming the missing keys
@@ -230,9 +231,17 @@ nothing. In fleet mode the instance publishes `TRUSTED_ISSUER` as its provider e
 (`{"name":"issuer","login_url":"<TRUSTED_ISSUER>/door/start"}`) so the SPA's existing
 providers list sends the person back to the door, which re-asserts. Owned by story 3.
 
-**Session secret.** A fleet instance must run with a per-instance `SESSION_SECRET`;
-core's default value leaves cookies both forgeable and non-Secure (`serve.go` keys
-`SecureCookies` off that default). The pool module sets one per instance (E2).
+**Session secret.** A fleet instance must run with a per-instance `SESSION_SECRET`,
+and the route refuses to mount without one. Core's default value is public, so a
+session signed with it can be forged, and `serve.go` also sends cookies without
+`Secure` while that default is in use (it keys `SecureCookies` off it). When all three
+`TRUSTED_ISSUER*` settings are set but `SESSION_SECRET` is that default, or empty, boot
+logs one **error** naming `SESSION_SECRET`, mounts nothing and offers no `issuer`
+provider — the same mount-or-not shape as a partial set, on the same one condition for
+the route and the provider entry. A partial set is reported first, because it stops the
+route whatever the secret is. An instance with no `TRUSTED_ISSUER*` setting logs nothing
+about the secret, so local development on the default is unchanged. The pool module sets
+one per instance (E2).
 
 ### Consequences
 

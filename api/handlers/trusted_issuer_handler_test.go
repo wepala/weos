@@ -626,23 +626,38 @@ func TestMountTrustedIssuerAssertion(t *testing.T) {
 		url = "https://money.weos.cloud/door/jwks.json"
 		aud = "a1b2c3d4"
 	)
+	all3 := config.TrustedIssuerConfig{Issuer: iss, JWKSURL: url, Audience: aud}
 	cases := map[string]struct {
 		settings    config.TrustedIssuerConfig
 		wantMounted bool
 		wantWarning string // the missing keys the one warning names; "" for no warning
+		// secret is SESSION_SECRET; "" in the table means the instance's own.
+		secret string
+		// wantSecretError is true when boot must log one error naming
+		// SESSION_SECRET instead of mounting.
+		wantSecretError bool
 	}{
-		"nothing configured":  {config.TrustedIssuerConfig{}, false, ""},
-		"all three":           {config.TrustedIssuerConfig{Issuer: iss, JWKSURL: url, Audience: aud}, true, ""},
-		"no audience":         {config.TrustedIssuerConfig{Issuer: iss, JWKSURL: url}, false, "TRUSTED_ISSUER_AUDIENCE"},
-		"no key list":         {config.TrustedIssuerConfig{Issuer: iss, Audience: aud}, false, "TRUSTED_ISSUER_JWKS_URL"},
-		"no issuer":           {config.TrustedIssuerConfig{JWKSURL: url, Audience: aud}, false, "TRUSTED_ISSUER"},
-		"only the issuer":     {config.TrustedIssuerConfig{Issuer: iss}, false, "TRUSTED_ISSUER_JWKS_URL, TRUSTED_ISSUER_AUDIENCE"},
-		"only the key list":   {config.TrustedIssuerConfig{JWKSURL: url}, false, "TRUSTED_ISSUER, TRUSTED_ISSUER_AUDIENCE"},
-		"only the audience":   {config.TrustedIssuerConfig{Audience: aud}, false, "TRUSTED_ISSUER, TRUSTED_ISSUER_JWKS_URL"},
-		"key list over http":  {config.TrustedIssuerConfig{Issuer: iss, JWKSURL: "http://money.weos.cloud/door/jwks.json", Audience: aud}, false, "-"},
-		"loopback key list":   {config.TrustedIssuerConfig{Issuer: iss, JWKSURL: "http://127.0.0.1:9000/jwks.json", Audience: aud}, true, ""},
-		"not a key-list URL":  {config.TrustedIssuerConfig{Issuer: iss, JWKSURL: "jwks.json", Audience: aud}, false, "-"},
-		"whitespace audience": {config.TrustedIssuerConfig{Issuer: iss, JWKSURL: url, Audience: "  "}, false, "TRUSTED_ISSUER_AUDIENCE"},
+		"nothing configured":  {settings: config.TrustedIssuerConfig{}},
+		"all three":           {settings: all3, wantMounted: true},
+		"no audience":         {settings: config.TrustedIssuerConfig{Issuer: iss, JWKSURL: url}, wantWarning: "TRUSTED_ISSUER_AUDIENCE"},
+		"no key list":         {settings: config.TrustedIssuerConfig{Issuer: iss, Audience: aud}, wantWarning: "TRUSTED_ISSUER_JWKS_URL"},
+		"no issuer":           {settings: config.TrustedIssuerConfig{JWKSURL: url, Audience: aud}, wantWarning: "TRUSTED_ISSUER"},
+		"only the issuer":     {settings: config.TrustedIssuerConfig{Issuer: iss}, wantWarning: "TRUSTED_ISSUER_JWKS_URL, TRUSTED_ISSUER_AUDIENCE"},
+		"only the key list":   {settings: config.TrustedIssuerConfig{JWKSURL: url}, wantWarning: "TRUSTED_ISSUER, TRUSTED_ISSUER_AUDIENCE"},
+		"only the audience":   {settings: config.TrustedIssuerConfig{Audience: aud}, wantWarning: "TRUSTED_ISSUER, TRUSTED_ISSUER_JWKS_URL"},
+		"key list over http":  {settings: config.TrustedIssuerConfig{Issuer: iss, JWKSURL: "http://money.weos.cloud/door/jwks.json", Audience: aud}, wantWarning: "-"},
+		"loopback key list":   {settings: config.TrustedIssuerConfig{Issuer: iss, JWKSURL: "http://127.0.0.1:9000/jwks.json", Audience: aud}, wantMounted: true},
+		"not a key-list URL":  {settings: config.TrustedIssuerConfig{Issuer: iss, JWKSURL: "jwks.json", Audience: aud}, wantWarning: "-"},
+		"whitespace audience": {settings: config.TrustedIssuerConfig{Issuer: iss, JWKSURL: url, Audience: "  "}, wantWarning: "TRUSTED_ISSUER_AUDIENCE"},
+		// Core's default secret is public: a session the route issued under it
+		// could be forged, so the route fails closed and says why.
+		"all three, default session secret": {settings: all3, secret: config.DefaultSessionSecret, wantSecretError: true},
+		"all three, empty session secret":   {settings: all3, secret: " ", wantSecretError: true},
+		// A partial set is named first: it is what stops the route either way.
+		"no audience, default session secret": {settings: config.TrustedIssuerConfig{Issuer: iss, JWKSURL: url}, secret: config.DefaultSessionSecret, wantWarning: "TRUSTED_ISSUER_AUDIENCE"},
+		// Nothing configured stays silent whatever the secret: a local dev
+		// instance runs on the default.
+		"nothing configured, default session secret": {settings: config.TrustedIssuerConfig{}, secret: config.DefaultSessionSecret},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -650,7 +665,11 @@ func TestMountTrustedIssuerAssertion(t *testing.T) {
 			builds := 0
 			e := echo.New()
 			api := e.Group("/api")
-			mounted := handlers.MountTrustedIssuerAssertion(context.Background(), api, c.settings, logs,
+			cfg := config.Config{SessionSecret: instanceSessionSecret, TrustedIssuer: c.settings}
+			if c.secret != "" {
+				cfg.SessionSecret = c.secret
+			}
+			mounted := handlers.MountTrustedIssuerAssertion(context.Background(), api, cfg, logs,
 				func() *handlers.TrustedIssuerHandler {
 					builds++
 					h, _ := newTrustedIssuerHandler(
@@ -681,6 +700,15 @@ func TestMountTrustedIssuerAssertion(t *testing.T) {
 			} else if assert.Code != never.Code || assert.Body.String() != never.Body.String() {
 				t.Fatalf("unmounted route answered %d %q, a never-mounted path %d %q",
 					assert.Code, assert.Body.String(), never.Code, never.Body.String())
+			}
+
+			errs := logs.atLevel("error")
+			if c.wantSecretError {
+				if len(errs) != 1 || !strings.Contains(errs[0].msg, "SESSION_SECRET") {
+					t.Fatalf("expected one boot error naming SESSION_SECRET, got:\n%s", logs.text())
+				}
+			} else if len(errs) != 0 {
+				t.Fatalf("expected no boot error, got:\n%s", logs.text())
 			}
 
 			warns := logs.atLevel("warn")

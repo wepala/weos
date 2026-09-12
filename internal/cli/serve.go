@@ -274,13 +274,13 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// by definition. When the instance takes a trusted issuer's assertions it
 	// also offers the issuer, so an expired session can get back to the door.
 	handlers.MountAuthProviders(api, handlers.NewAuthProvidersHandler(providerRegistry,
-		handlers.WithTrustedIssuer(appCfg.TrustedIssuer)))
+		handlers.WithTrustedIssuer(appCfg)))
 	// Email + password account flow. Public routes — must reach the handler
 	// even when no session exists yet, so they sit outside the protected group.
 	// Mirror the SessionManager's dev-default Secure flag (Secure=false when
 	// SESSION_SECRET is unset) so the JWT cookie is accepted in plain-HTTP
 	// local dev and stays Secure in any real deployment.
-	secureCookies := appCfg.SessionSecret != "change-me-in-production"
+	secureCookies := appCfg.SessionSecret != config.DefaultSessionSecret
 	passwordAuthHandlers := handlers.NewPasswordAuthHandler(handlers.PasswordAuthHandlerConfig{
 		AuthService:    authService,
 		SessionManager: sessionManager,
@@ -315,9 +315,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// already verified the person. Public for the same reason as the password
 	// routes: the caller has no session yet. Mounted only when
 	// TRUSTED_ISSUER, TRUSTED_ISSUER_JWKS_URL and TRUSTED_ISSUER_AUDIENCE are
-	// all set; a partial set warns at boot and mounts nothing. See
-	// docs/decisions/trusted-issuer-login-assertion.md.
-	handlers.MountTrustedIssuerAssertion(context.Background(), api, appCfg.TrustedIssuer, logger,
+	// all set and SESSION_SECRET is not core's public default; a partial set
+	// warns at boot and mounts nothing, and the default secret logs an error
+	// and mounts nothing. See docs/decisions/trusted-issuer-login-assertion.md.
+	handlers.MountTrustedIssuerAssertion(context.Background(), api, appCfg, logger,
 		func() *handlers.TrustedIssuerHandler {
 			return handlers.NewTrustedIssuerAssertionHandler(appCfg.TrustedIssuer, appCfg.OAuth.AllowedEmails, handlers.TrustedIssuerAssertionDeps{
 				SignIn:   assertedSignIn,

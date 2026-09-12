@@ -6,6 +6,24 @@ import (
 	"time"
 )
 
+func TestUsesPublicSessionSecret(t *testing.T) {
+	for secret, want := range map[string]bool{
+		DefaultSessionSecret:              true,
+		"  " + DefaultSessionSecret + " ": true,
+		"":                                true,
+		"   ":                             true,
+		"a-secret-of-this-instance-alone": false,
+	} {
+		cfg := Config{SessionSecret: secret}
+		if got := cfg.UsesPublicSessionSecret(); got != want {
+			t.Errorf("UsesPublicSessionSecret() with SESSION_SECRET %q = %v, want %v", secret, got, want)
+		}
+	}
+	if cfg := Default(); !cfg.UsesPublicSessionSecret() {
+		t.Errorf("Default() must use the public session secret, got %q", cfg.SessionSecret)
+	}
+}
+
 func TestLoadFromEnvironment_SMTP(t *testing.T) {
 	t.Setenv("SMTP_HOST", "mail.example.com")
 	t.Setenv("SMTP_PORT", "2525")

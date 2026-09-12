@@ -288,6 +288,10 @@ func (w *taWorld) boot() error {
 	cfg.LoadFromEnvironment()
 	cfg.DatabaseDSN = w.dsn
 	cfg.LogLevel = "error"
+	// A fleet instance runs with its own SESSION_SECRET, and the assertion
+	// route is not mounted under core's public default. Pinned after reading
+	// the environment for the same reason as the database.
+	cfg.SessionSecret = "trusted-issuer-account-e2e-instance-secret"
 
 	app := fx.New(
 		fx.NopLogger,
@@ -310,7 +314,7 @@ func (w *taWorld) boot() error {
 	sessions := handlers.NewPasswordAuthHandler(handlers.PasswordAuthHandlerConfig{
 		AuthService:    w.authService,
 		SessionManager: w.sessionManager,
-		SecureCookies:  cfg.SessionSecret != "change-me-in-production",
+		SecureCookies:  cfg.SessionSecret != config.DefaultSessionSecret,
 		Logger:         w.logs,
 		AccountRepo:    w.accountRepo,
 		ErasureLocks:   w.erasureLocks,
@@ -319,7 +323,7 @@ func (w *taWorld) boot() error {
 		SignIn:       cfg.PasswordAuthEnabled,
 		Registration: cfg.PasswordRegistrationEnabled,
 	})
-	mounted := handlers.MountTrustedIssuerAssertion(context.Background(), api, cfg.TrustedIssuer, w.logs,
+	mounted := handlers.MountTrustedIssuerAssertion(context.Background(), api, cfg, w.logs,
 		func() *handlers.TrustedIssuerHandler {
 			return handlers.NewTrustedIssuerAssertionHandler(cfg.TrustedIssuer, cfg.OAuth.AllowedEmails, handlers.TrustedIssuerAssertionDeps{
 				SignIn:   w.signIn,
@@ -332,7 +336,7 @@ func (w *taWorld) boot() error {
 	}
 	// The sign-in screen's providers list, as serve.go mounts it.
 	handlers.MountAuthProviders(api, handlers.NewAuthProvidersHandler(w.registry,
-		handlers.WithTrustedIssuer(cfg.TrustedIssuer)))
+		handlers.WithTrustedIssuer(cfg)))
 	w.server = httptest.NewServer(e)
 	return nil
 }

@@ -43,15 +43,15 @@ type AuthProvidersOption func(*AuthProvidersHandler)
 // WithTrustedIssuer offers the trusted issuer as the provider "issuer" with
 // the login_url <TRUSTED_ISSUER>/door/start (a trailing slash on the issuer
 // trimmed) exactly when MountTrustedIssuerAssertion mounts POST
-// /api/auth/assert for settings: all three settings present and a key-list
-// address the verifier may read. An instance with no assertion path has no
-// door to offer.
-func WithTrustedIssuer(settings config.TrustedIssuerConfig) AuthProvidersOption {
+// /api/auth/assert for cfg: all three trusted-issuer settings present, a
+// key-list address the verifier may read, and a session secret of the
+// instance's own. An instance with no assertion path has no door to offer.
+func WithTrustedIssuer(cfg config.Config) AuthProvidersOption {
 	return func(h *AuthProvidersHandler) {
-		if !trustedIssuerMountable(settings) {
+		if !trustedIssuerMountable(cfg) {
 			return
 		}
-		h.issuerLoginURL = strings.TrimRight(strings.TrimSpace(settings.Issuer), "/") + trustedIssuerLoginPath
+		h.issuerLoginURL = strings.TrimRight(strings.TrimSpace(cfg.TrustedIssuer.Issuer), "/") + trustedIssuerLoginPath
 	}
 }
 

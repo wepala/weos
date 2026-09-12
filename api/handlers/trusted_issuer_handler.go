@@ -222,17 +222,20 @@ func (h *TrustedIssuerHandler) refuse(c echo.Context, err error) error {
 }
 
 // trustedIssuerMountable reports whether MountTrustedIssuerAssertion mounts
-// the route for settings: all three present, and a key-list address the
-// verifier may read. WithTrustedIssuer offers the door on exactly this, so the
-// providers list never offers a door the instance cannot take an assertion
-// from.
-func trustedIssuerMountable(settings config.TrustedIssuerConfig) bool {
-	return settings.Configured() && trustedissuer.CheckJWKSURL(settings.JWKSURL) == nil
+// the route for cfg: all three trusted-issuer settings present, a key-list
+// address the verifier may read, and a session secret of the instance's own.
+// WithTrustedIssuer offers the door on exactly this, so the providers list
+// never offers a door the instance cannot take an assertion from.
+func trustedIssuerMountable(cfg config.Config) bool {
+	return cfg.TrustedIssuer.Configured() &&
+		trustedissuer.CheckJWKSURL(cfg.TrustedIssuer.JWKSURL) == nil &&
+		!cfg.UsesPublicSessionSecret()
 }
 
 // MountTrustedIssuerAssertion registers POST /auth/assert when, and only when,
-// all three trusted-issuer settings are present and the key-list address is
-// one the verifier may read. It reports whether it mounted the route.
+// all three trusted-issuer settings are present, the key-list address is one
+// the verifier may read, and SESSION_SECRET is the instance's own. It reports
+// whether it mounted the route.
 //
 // An unmounted route is never registered, so the path answers exactly like one
 // the server has never had — the MountPasswordAuth precedent, and for the same
@@ -241,17 +244,21 @@ func trustedIssuerMountable(settings config.TrustedIssuerConfig) bool {
 // With none of the settings, nothing is logged: the instance is outside any
 // fleet. With one or two, or with an address the verifier refuses to read,
 // boot logs one warning saying what is wrong, because the operator asked for
-// something they are not getting. build runs only when the route is mounted.
+// something they are not getting. With all three and SESSION_SECRET at core's
+// public default, or empty, boot logs one error naming SESSION_SECRET: a
+// session signed with a key anyone knows can be forged, so the route fails
+// closed. build runs only when the route is mounted.
 //
 // serve.go and the acceptance tests both mount through here so there is one
 // copy of this decision rather than two that can drift apart.
 func MountTrustedIssuerAssertion(
 	ctx context.Context,
 	g *echo.Group,
-	settings config.TrustedIssuerConfig,
+	cfg config.Config,
 	logger entities.Logger,
 	build func() *TrustedIssuerHandler,
 ) bool {
+	settings := cfg.TrustedIssuer
 	if settings.Unset() {
 		return false
 	}
@@ -264,6 +271,14 @@ func MountTrustedIssuerAssertion(
 	if err := trustedissuer.CheckJWKSURL(settings.JWKSURL); err != nil {
 		logger.Warn(ctx, "TRUSTED_ISSUER_JWKS_URL cannot be used; POST /api/auth/assert is not mounted",
 			"error", err.Error())
+		return false
+	}
+	if cfg.UsesPublicSessionSecret() {
+		// An error, not a warning: every other setting says this instance takes
+		// the door's sign-ins, and mounting would hand out sessions anyone can
+		// forge and cookies without Secure.
+		logger.Error(ctx, "SESSION_SECRET is core's public default or empty, so a session this instance issued could be forged; POST /api/auth/assert is not mounted",
+			"remedy", "set SESSION_SECRET to a long random value that belongs to this instance alone")
 		return false
 	}
 	g.POST("/auth/assert", build().Assert)
