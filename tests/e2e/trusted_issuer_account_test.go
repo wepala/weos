@@ -132,6 +132,8 @@ type taAnswer struct {
 	body    string
 	cookies []*http.Cookie
 	fields  map[string]json.RawMessage
+	// code is a refusal's machine-readable reason; "" on any other answer.
+	code string
 
 	agentID, agentName, agentEmail string
 	accountID, accountName         string
@@ -165,6 +167,11 @@ func readTaAnswer(resp *http.Response) (*taAnswer, error) {
 		return nil, err
 	}
 	a := &taAnswer{status: resp.StatusCode, body: strings.TrimSpace(string(raw)), cookies: resp.Cookies()}
+	var refusal struct {
+		Code string `json:"code"`
+	}
+	_ = json.Unmarshal(raw, &refusal) // only a refusal carries a code; any other answer leaves it ""
+	a.code = refusal.Code
 	var envelope struct {
 		Data map[string]json.RawMessage `json:"data"`
 	}
@@ -203,6 +210,12 @@ type taWorld struct {
 	sessionManager session.SessionManager
 	erasureLocks   repositories.AccountErasureLocks
 	signIn         *application.AssertedSignIn
+	registry       authapp.OAuthProviderRegistry
+
+	// wantAssertRoute makes a start that does not mount the assertion route a
+	// failure. Only an instance whose trusted issuer is partly configured, or
+	// not at all, is meant to start without it.
+	wantAssertRoute bool
 
 	mu              sync.Mutex
 	signIns         []*taAnswer // answers to assertions, in order
@@ -223,13 +236,19 @@ func (w *taWorld) instanceTrusting(issuer, audience string) error {
 	w.setEnv(config.EnvTrustedIssuer, ptr(issuer))
 	w.setEnv(config.EnvTrustedIssuerJWKSURL, ptr(w.door.server.URL+"/door/jwks.json"))
 	w.setEnv(config.EnvTrustedIssuerAudience, ptr(audience))
-	// An ambient setting must not decide a scenario that does not name it.
+	w.clearAmbientSettings()
+	w.wantAssertRoute = true
+	return w.boot()
+}
+
+// clearAmbientSettings unsets every setting a scenario states when it means
+// it, so an ambient value cannot decide a scenario that does not name it.
+func (w *taWorld) clearAmbientSettings() {
 	w.setEnv("OAUTH_ALLOWED_EMAILS", nil)
 	w.setEnv("PASSWORD_AUTH_ENABLED", nil)
 	w.setEnv("PASSWORD_REGISTRATION_ENABLED", nil)
 	w.setEnv("GOOGLE_CLIENT_ID", nil)
 	w.setEnv("GOOGLE_CLIENT_SECRET", nil)
-	return w.boot()
 }
 
 // allowlist restarts the instance with the allowlist naming emails, or with no
@@ -271,7 +290,7 @@ func (w *taWorld) boot() error {
 		application.Module(cfg, presets.NewDefaultRegistry()),
 		fx.Provide(weosoauth.ProvideJWTService),
 		fx.Populate(&w.authService, &w.credRepo, &w.accountRepo),
-		fx.Populate(&w.sessionManager, &w.erasureLocks, &w.signIn),
+		fx.Populate(&w.sessionManager, &w.erasureLocks, &w.signIn, &w.registry),
 	)
 	startCtx, cancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
 	defer cancel()
@@ -304,9 +323,12 @@ func (w *taWorld) boot() error {
 				Logger:   w.logs,
 			})
 		})
-	if !mounted {
+	if !mounted && w.wantAssertRoute {
 		return fmt.Errorf("the instance did not mount the assertion route; its log:\n%s", w.logs.text())
 	}
+	// The sign-in screen's providers list, as serve.go mounts it.
+	handlers.MountAuthProviders(api, handlers.NewAuthProvidersHandler(w.registry,
+		handlers.WithTrustedIssuer(cfg.TrustedIssuer)))
 	w.server = httptest.NewServer(e)
 	return nil
 }
