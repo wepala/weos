@@ -1,0 +1,132 @@
+---
+title: "ADR: Trusted-Issuer Login Assertion"
+parent: Architecture Decision Records
+layout: default
+nav_order: 2
+---
+
+# ADR: Trusted-Issuer Login Assertion (`POST /auth/assert`)
+
+**Status:** Proposed (revised 2026-09-12 after design premortem)
+**Date:** 2026-09-12
+**Ticket:** bead `wm-63gg0` (mirror: wepala/mini-me-weos#530)
+**Base:** `v3` (the integration branch the `v3.0.1-beta.*` tags are cut from; `main` is the old line)
+
+## Context and Problem Statement
+
+The mini-me fleet is gaining a front door: one public host that signs people in with
+Google or Apple and reverse-proxies each person to their own private WeOS instance.
+The door — not the instance — completes the OAuth flow, because only the door can
+decide which instance a newly-verified person should reach. The instance still owns
+its accounts, sessions and data, so it needs a way to accept "this person is verified,
+log them in" from a service it trusts, without talking to Google or Apple itself.
+
+Core's auth today knows exactly two ways in: its own Google/Apple OAuth flow
+(`internal/oauth`, ending in pericarp's `FindOrCreateAgent`, which resolves identity by
+`(provider, sub)` only) and password auth (`/auth/register`, `/auth/password-login`,
+mounted only when `PASSWORD_AUTH_ENABLED` — the mount-or-not precedent in
+`MountPasswordAuth`). Neither fits: the OAuth flow requires the instance to be the OAuth
+client, and the password path would force the door to hold a secret per person.
+
+## Decision Drivers
+
+- The door must be able to log a person into an instance it fronts, first login included,
+  and again every time the instance session expires.
+- The instance must be able to refuse anything not signed by its one configured issuer.
+- No credential material stored per person anywhere new.
+- Key rotation must not require touching every instance, and must never lock the fleet out.
+- A single-user instance must never mint a second, empty account for its one owner.
+- Framework-shaped: any fleet product (WeHungry next) reuses it unchanged.
+
+## Considered Options
+
+1. **Signed login assertion verified against the issuer's JWKS** — a new
+   `POST /auth/assert` accepting a short-lived JWT from a configured trusted issuer.
+2. **Trusted proxy header** (`X-Forwarded-User`) — the instance trusts an identity
+   header set by the proxy.
+3. **Stored per-person secret** — the door registers each person with a random
+   password and replays it through `/auth/password-login`.
+4. **Full OIDC provider on the door** — the instance runs its existing OAuth flow
+   against the door as the IdP.
+
+## Decision Outcome
+
+Chosen option: **1 — signed login assertion**, because it is unforgeable off-path
+(unlike 2, where any misconfigured hop can inject the header), stores nothing per
+person (unlike 3 — rejected explicitly by the owner on 2026-09-12), and is a fraction
+of the surface of 4 while carrying the same guarantee for this topology (the door
+already fronts every session).
+
+### Contract
+
+**Mounting.** `POST /auth/assert` exists only when all three of `TRUSTED_ISSUER`,
+`TRUSTED_ISSUER_JWKS_URL` and `TRUSTED_ISSUER_AUDIENCE` are configured, following the
+`MountPasswordAuth` precedent (mount-or-not; a missing route is a plain 404, never a
+mounted handler that refuses, so middleware ordering cannot turn it into a 401). When
+exactly one or two of the three are set, boot logs one warning naming the missing keys
+and mounts nothing.
+
+**Request.** Body `{"assertion": "<JWT>"}`. The browser makes this request itself,
+through the proxy — the door never calls it server-side — so the instance's `Set-Cookie`
+lands in the browser exactly as it does for `/auth/password-login`.
+
+**Verification.** ES256 signature against the issuer's JWKS; `iss` equals
+`TRUSTED_ISSUER`; `aud` equals `TRUSTED_ISSUER_AUDIENCE` (the instance's fleet id);
+`exp` unexpired and `exp − iat ≤ 60s`, both with **30 seconds of leeway** for clock
+skew; single-use `jti` remembered for 5 minutes in an **in-memory** store (documented as
+reset on restart — acceptable because assertions expire in 60 s); required claims `sub`,
+`email`, `provider`, `email_verified == true`; optional `name`. `provider` must be one of
+core's registry keys (`google`, `apple`, …), verbatim. Every refusal is a 401 whose
+body and log line carry a machine-readable reason: `signature`, `kid-miss`, `iss`,
+`aud`, `expired`, `window`, `jti-replay`, `claims`, `allowlist`.
+
+**JWKS.** Cached 10 minutes. An unknown `kid` triggers one refetch; a refetch that
+still lacks the `kid` fails **only that request** and never overwrites or extends the
+cached set. The issuer is obliged to publish a new key before signing with it.
+
+**Allowlist.** `OAUTH_ALLOWED_EMAILS`, when set, is enforced as the OAuth callback
+enforces it; empty stays open. The `email` claim is the person's door-account email —
+the address the person signed up to the door with — never a provider relay address, so
+an Apple "Hide My Email" login still passes an owner's allowlist.
+
+**Owner binding.** On success, resolve the agent by `(provider, sub)` as
+`FindOrCreateAgent` does. If none exists **and** `OAUTH_ALLOWED_EMAILS` is set (the
+fleet's single-user shape), an existing credential whose normalized email equals the
+claim's email is linked to the new `(provider, sub)` instead of a second agent being
+created. Otherwise create, as today.
+
+**Response.** The `/auth/password-login` shape — `{agent, account, token, expires_at}`
+plus the JWT session cookie — with one added boolean, `new_account`, true when this call
+created the agent. (The OAuth callback signals the same fact as a `?new_account=1`
+redirect query; a JSON caller has no redirect, hence the field.)
+
+**Renewal.** When a session expires on an instance whose only sign-in is a trusted
+issuer, `/api/auth/providers` answers `[]` today and the SPA shows buttons that do
+nothing. In fleet mode the instance publishes `TRUSTED_ISSUER` as its provider entry
+(`{"name":"issuer","login_url":"<TRUSTED_ISSUER>/door/start"}`) so the SPA's existing
+providers list sends the person back to the door, which re-asserts. Owned by story 3.
+
+**Session secret.** A fleet instance must run with a per-instance `SESSION_SECRET`;
+core's default value leaves cookies both forgeable and non-Secure (`serve.go` keys
+`SecureCookies` off that default). The pool module sets one per instance (E2).
+
+### Consequences
+
+- Good: one door key rotation (a new key beside the old in the JWKS) covers the fleet,
+  and a bad rotation fails one login at a time, never a cache TTL of logins.
+- Good: an instance outside the fleet (no `TRUSTED_ISSUER*`) is byte-identical to today.
+- Good: an owner can use Google one day and Apple the next and stay one account.
+- Bad: the instance makes an outbound HTTPS call to the JWKS URL; a fleet instance
+  therefore needs egress to the door's host, or the key delivered by env instead —
+  the config keys deliberately leave room for `TRUSTED_ISSUER_JWKS` (inline key) later.
+- Bad: an instance started on demand must be healthy before the assertion is minted;
+  that is a door obligation (mint after `/api/health`, and mint a fresh assertion — a
+  new `jti` — on every retry), recorded on the door epic.
+
+## More Information
+
+Downstream consumer: the mini-me Money front door (bead `wm-eb4mv`), which signs
+assertions with a Secret Manager key and publishes `/door/jwks.json`. The pin bump that
+puts this endpoint on the fleet (story `wm-63gg0.4`) lands in `wepala/mini-me-weos` and
+waits on a published `v3` tag; the door must not send traffic to instances until that
+pin is deployed.
