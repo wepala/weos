@@ -46,8 +46,16 @@ const (
 	// JWT at all.
 	ReasonSignature Reason = "signature"
 	// ReasonKidMiss: the assertion names a key the issuer's key list does not
-	// hold, even after one refetch.
+	// hold. The list was read for the key and lacks it, or answered with no
+	// usable key, or was read for another unknown key less than
+	// KeyMissRefetchInterval ago. The door fixes it by publishing the key.
 	ReasonKidMiss Reason = "kid-miss"
+	// ReasonKeysUnreachable: no cached key answers for the assertion, and the
+	// issuer's key list could not be read — unreachable, answering other than
+	// 200, undecodable, or redirecting — now or less than
+	// KeyMissRefetchInterval ago, or the request ended while it waited for a
+	// read. Publishing a key does not fix it; reaching the list does.
+	ReasonKeysUnreachable Reason = "keys-unreachable"
 	// ReasonIssuer: iss is not exactly the trusted issuer.
 	ReasonIssuer Reason = "iss"
 	// ReasonAudience: aud is not exactly this instance's audience.
@@ -130,11 +138,14 @@ type Config struct {
 
 	// KeyMissRefetchInterval is the shortest time between two key-list reads
 	// caused by an unknown kid, instance-wide. Inside it, an assertion naming
-	// a key the fresh cached list lacks is refused as kid-miss with no read.
-	// Optional; zero or less means KeyMissRefetchInterval.
+	// a key neither the fresh cached list nor the last miss read holds is
+	// refused as kid-miss with no read. It is also how long reads back off
+	// after one fails or holds no usable key. Optional; zero or less means
+	// KeyMissRefetchInterval.
 	KeyMissRefetchInterval time.Duration
 
-	// HTTPClient reads the key list. Optional.
+	// HTTPClient reads the key list. Optional. The verifier reads through a
+	// copy that follows no redirect, whatever this client's CheckRedirect.
 	HTTPClient *http.Client
 	// Now is the instance's clock. Optional; time.Now.
 	Now func() time.Time
@@ -164,10 +175,13 @@ func NewVerifier(cfg Config) *Verifier {
 	if now == nil {
 		now = time.Now
 	}
-	client := cfg.HTTPClient
-	if client == nil {
-		client = &http.Client{Timeout: keyListFetchTimeout}
+	client := &http.Client{Timeout: keyListFetchTimeout}
+	if cfg.HTTPClient != nil {
+		supplied := *cfg.HTTPClient
+		client = &supplied
 	}
+	// A copy, so the caller's client keeps its own redirect policy.
+	client.CheckRedirect = refuseRedirect
 	logger := cfg.Logger
 	if logger == nil {
 		logger = nopLogger{}
@@ -194,6 +208,7 @@ func NewVerifier(cfg Config) *Verifier {
 		keys: &keyList{
 			url: cfg.JWKSURL, client: client, now: now, logger: logger,
 			missInterval: missInterval,
+			fetchSlot:    make(chan struct{}, 1),
 		},
 		spent: newReplayMemory(),
 	}
@@ -215,9 +230,9 @@ func (v *Verifier) Verify(ctx context.Context, assertion string) (Identity, erro
 		return v.keys.key(ctx, kid)
 	})
 	if err != nil {
-		var miss *keyMiss
-		if errors.As(err, &miss) {
-			return refuse(ReasonKidMiss, miss.Error())
+		var keys *keyRefusal
+		if errors.As(err, &keys) {
+			return refuse(keys.reason, keys.why)
 		}
 		return refuse(ReasonSignature, signatureDetail(err))
 	}

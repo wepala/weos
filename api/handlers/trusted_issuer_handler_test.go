@@ -219,7 +219,7 @@ func TestAssertRefusesWithTheReasonTheVerifierGave(t *testing.T) {
 	reasons := []trustedissuer.Reason{
 		trustedissuer.ReasonSignature, trustedissuer.ReasonKidMiss, trustedissuer.ReasonIssuer,
 		trustedissuer.ReasonAudience, trustedissuer.ReasonExpired, trustedissuer.ReasonWindow,
-		trustedissuer.ReasonReplay, trustedissuer.ReasonClaims,
+		trustedissuer.ReasonReplay, trustedissuer.ReasonClaims, trustedissuer.ReasonKeysUnreachable,
 	}
 	for _, reason := range reasons {
 		t.Run(string(reason), func(t *testing.T) {

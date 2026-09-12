@@ -38,13 +38,25 @@ const (
 	keyListMaxBytes     = 1 << 20
 )
 
-var errNoKeyID = errors.New("the assertion names no signing key")
+var (
+	errNoKeyID          = errors.New("the assertion names no signing key")
+	errKeyListRedirects = errors.New("the key list address answered with a redirect, and redirects are not followed")
+)
 
-// keyMiss is the key lookup's refusal: the key list does not hold the key the
-// assertion names.
-type keyMiss struct{ why string }
+// refuseRedirect is the key-list client's CheckRedirect. CheckJWKSURL holds the
+// configured address to https; a redirect could send the read anywhere, plain
+// http included, so none is followed.
+func refuseRedirect(*http.Request, []*http.Request) error { return errKeyListRedirects }
 
-func (m *keyMiss) Error() string { return m.why }
+// keyRefusal is the key lookup's refusal: no key the verifier holds or can
+// read answers for the assertion. why is fixed wording and never carries the
+// kid, which the caller chooses.
+type keyRefusal struct {
+	reason Reason
+	why    string
+}
+
+func (r *keyRefusal) Error() string { return r.why }
 
 // keyList is the issuer's published keys, cached.
 //
@@ -52,15 +64,29 @@ func (m *keyMiss) Error() string { return m.why }
 //
 //   - A complete read is used for KeyListTTL without another read.
 //   - An assertion naming a key the cached list lacks triggers one read.
-//   - Reads caused that way are limited to one per missInterval, for the whole
-//     instance. Inside the interval, a key the fresh cached list lacks is
+//   - One read runs at a time, and every decision that could lead to a read —
+//     the miss limit and the backoff below included — is made holding the
+//     fetch slot. A request that needs a read while one is running waits for
+//     it and then sees what it found, so a burst of assertions naming a newly
+//     published key costs the issuer one read and is accepted whole. A
+//     request that is waiting leaves when its own request ends.
+//   - Reads caused by a key the fresh cached list lacks are limited to one per
+//     missInterval, for the whole instance. Inside the interval such a key is
 //     refused as a kid miss with no read, so a stream of assertions naming
 //     invented keys cannot keep the instance reading the issuer's list. The
-//     first unknown key after the interval is read for as before, and the
-//     issuer publishes a key before it signs with one, so a rotation is
-//     accepted on its first assertion unless another unknown key caused a
-//     read in the interval before it. The limit applies only to a fresh list:
-//     an empty or aged list is read as usual.
+//     limit applies only to a fresh list: an empty or aged list is read as
+//     usual, unless a read is backing off.
+//   - The last complete read a miss caused is kept beside the cache. A key it
+//     holds is accepted while the cache is fresh, so a read an invented kid
+//     caused, which already holds the key the issuer has just rotated to, is
+//     not thrown away. It never replaces or extends the cached keys, and the
+//     next read that replaces them discards it.
+//   - A read that fails — unreachable, answering other than 200, undecodable,
+//     redirecting — or that holds no usable key starts a backoff of
+//     missInterval in which no read is made. A cached key, fresh or aged,
+//     still answers; anything else is refused with no read: keys-unreachable
+//     after a read that failed, kid-miss after a read that held no usable key.
+//     The failure is logged by the read, so once per backoff.
 //   - A read that comes back short — failing, empty, or without the key that
 //     was asked for — fails only the request that caused it. It never
 //     replaces the cached keys and never restarts their clock. Replacing them
@@ -76,39 +102,77 @@ type keyList struct {
 	now    func() time.Time
 	logger entities.Logger
 	// missInterval is the shortest time between two reads caused by a key the
-	// fresh cached list lacks.
+	// fresh cached list lacks, and how long reads back off after one fails.
 	missInterval time.Duration
+
+	// fetchSlot holds a token while a request is deciding whether to read, or
+	// reading. A channel rather than a mutex, so a waiter can leave when its
+	// request ends.
+	fetchSlot chan struct{}
 
 	mu     sync.RWMutex
 	keys   map[string]*ecdsa.PublicKey
 	readAt time.Time
+	// missKeys is the last complete read a miss caused that did not replace
+	// the cache. Cleared whenever the cache is replaced.
+	missKeys map[string]*ecdsa.PublicKey
 	// missReadAt is when a key the fresh cached list lacked last caused a read.
 	missReadAt time.Time
-
-	// fetchMu lets one read run at a time, so a burst of assertions naming a
-	// new key costs the issuer one read rather than one each.
-	fetchMu sync.Mutex
+	// failedReadAt is when a read last failed or held no usable key;
+	// failedUnreachable says which. Cleared by a read that succeeds.
+	failedReadAt      time.Time
+	failedUnreachable bool
 }
 
-// cached reports what the cached list says about kid without a read. throttled
-// is true when the list is fresh, lacks kid, and a miss already caused a read
-// less than missInterval ago.
-func (l *keyList) cached(kid string) (key *ecdsa.PublicKey, fresh, throttled bool) {
+// keyView is what the cache says about one kid at one moment, without a read.
+type keyView struct {
+	// key is the kid's key from the cached list or, failing that, from the
+	// last miss read.
+	key *ecdsa.PublicKey
+	// fresh: the cached list is younger than KeyListTTL.
+	fresh bool
+	// throttled: a miss caused a read less than missInterval ago.
+	throttled bool
+	// backingOff: a read failed or held no usable key less than missInterval
+	// ago; unreachable says it failed.
+	backingOff  bool
+	unreachable bool
+}
+
+func (l *keyList) look(kid string) keyView {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	now := l.now()
-	fresh = l.keys != nil && now.Sub(l.readAt) < KeyListTTL
-	key = l.keys[kid]
-	throttled = fresh && key == nil &&
-		!l.missReadAt.IsZero() && now.Sub(l.missReadAt) < l.missInterval
-	return key, fresh, throttled
+	v := keyView{
+		fresh:       l.keys != nil && now.Sub(l.readAt) < KeyListTTL,
+		key:         l.keys[kid],
+		throttled:   !l.missReadAt.IsZero() && now.Sub(l.missReadAt) < l.missInterval,
+		backingOff:  !l.failedReadAt.IsZero() && now.Sub(l.failedReadAt) < l.missInterval,
+		unreachable: l.failedUnreachable,
+	}
+	if v.key == nil {
+		v.key = l.missKeys[kid]
+	}
+	return v
 }
 
+// store replaces the cached keys with a complete read.
 func (l *keyList) store(keys map[string]*ecdsa.PublicKey) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.keys = keys
 	l.readAt = l.now()
+	l.missKeys = nil
+	l.failedReadAt = time.Time{}
+}
+
+// storeMissRead keeps a complete read a miss caused beside the cached keys,
+// which it leaves as they are.
+func (l *keyList) storeMissRead(keys map[string]*ecdsa.PublicKey) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.missKeys = keys
+	l.failedReadAt = time.Time{}
 }
 
 // markMissRead starts the interval in which no other miss causes a read. It is
@@ -119,9 +183,28 @@ func (l *keyList) markMissRead() {
 	l.missReadAt = l.now()
 }
 
+// markFailedRead starts the backoff in which no read is made.
+func (l *keyList) markFailedRead(unreachable bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.failedReadAt = l.now()
+	l.failedUnreachable = unreachable
+}
+
 func (l *keyList) throttledMiss() error {
-	return &keyMiss{why: fmt.Sprintf(
+	return &keyRefusal{reason: ReasonKidMiss, why: fmt.Sprintf(
 		"the issuer's key list does not hold the key the assertion names, and it was read for an unknown key less than %s ago",
+		l.missInterval)}
+}
+
+func (l *keyList) backoffRefusal(unreachable bool) error {
+	if unreachable {
+		return &keyRefusal{reason: ReasonKeysUnreachable, why: fmt.Sprintf(
+			"the issuer's key list could not be read less than %s ago, and it is not read again before then",
+			l.missInterval)}
+	}
+	return &keyRefusal{reason: ReasonKidMiss, why: fmt.Sprintf(
+		"the issuer's key list held no usable key when it was read less than %s ago, and it is not read again before then",
 		l.missInterval)}
 }
 
@@ -147,51 +230,75 @@ func logKID(kid string) string {
 }
 
 func (l *keyList) key(ctx context.Context, kid string) (*ecdsa.PublicKey, error) {
-	// A throttled refusal is not logged here: the caller logs every refusal,
-	// and a second line per invented kid would let the caller fill the log.
-	if key, fresh, throttled := l.cached(kid); key != nil && fresh {
-		return key, nil
-	} else if throttled {
+	if v := l.look(kid); v.key != nil && v.fresh {
+		return v.key, nil
+	}
+
+	select {
+	case l.fetchSlot <- struct{}{}:
+	case <-ctx.Done():
+		return nil, &keyRefusal{reason: ReasonKeysUnreachable,
+			why: "the request ended while it waited for the issuer's key list to be read"}
+	}
+	defer func() { <-l.fetchSlot }()
+
+	// Decided again holding the slot: a read that finished while this request
+	// waited may have found the key, started the miss interval, or failed.
+	// Refusals made here are not logged: the caller logs every refusal, and a
+	// second line per request would let the caller fill the log.
+	v := l.look(kid)
+	switch {
+	case v.key != nil && v.fresh:
+		return v.key, nil
+	case v.backingOff:
+		if v.key != nil {
+			// An aged key stays in use: an issuer that cannot be read has not
+			// retired it.
+			return v.key, nil
+		}
+		return nil, l.backoffRefusal(v.unreachable)
+	case v.fresh && v.throttled:
 		return nil, l.throttledMiss()
 	}
-	l.fetchMu.Lock()
-	defer l.fetchMu.Unlock()
-	// Another request may have completed a read while this one waited.
-	cachedKey, fresh, throttled := l.cached(kid)
-	if cachedKey != nil && fresh {
-		return cachedKey, nil
-	}
-	if throttled {
-		return nil, l.throttledMiss()
-	}
-	if fresh {
+	if v.fresh {
 		// The list is fresh and lacks kid, so this read is a miss's.
 		l.markMissRead()
 	}
 
-	fetched, err := l.fetch(ctx)
+	// Requests queued behind this read act on what it finds, so it runs to its
+	// own timeout even when this request ends first: a client that went away
+	// is not an issuer that cannot be reached.
+	fetched, err := l.fetch(context.WithoutCancel(ctx))
+	unreachable := err != nil
 	if err == nil && len(fetched) == 0 {
 		err = errors.New("the key list holds no usable key")
 	}
 	if err != nil {
-		if cachedKey != nil {
+		l.markFailedRead(unreachable)
+		if v.key != nil {
 			l.logger.Warn(ctx, "trusted issuer key list could not be refreshed; the cached keys stay in use",
-				"kid", logKID(kid), "kid_length", len(kid), "error", err.Error())
-			return cachedKey, nil
+				"kid", logKID(kid), "kid_length", len(kid), "error", err.Error(), "retry_after", l.missInterval.String())
+			return v.key, nil
 		}
 		l.logger.Warn(ctx, "trusted issuer key list came back short; the cached keys are unchanged",
-			"kid", logKID(kid), "kid_length", len(kid), "error", err.Error())
-		return nil, &keyMiss{why: "the issuer's key list could not be read to find the key the assertion names"}
+			"kid", logKID(kid), "kid_length", len(kid), "error", err.Error(), "retry_after", l.missInterval.String())
+		if unreachable {
+			return nil, &keyRefusal{reason: ReasonKeysUnreachable,
+				why: "the issuer's key list could not be read to find the key the assertion names"}
+		}
+		return nil, &keyRefusal{reason: ReasonKidMiss, why: "the issuer's key list holds no usable key"}
 	}
 
 	key, published := fetched[kid]
-	if published || !fresh {
+	if published || !v.fresh {
 		l.store(fetched)
+	} else {
+		l.storeMissRead(fetched)
 	}
 	if !published {
 		l.logger.Warn(ctx, "trusted issuer key list does not publish the assertion's key",
 			"kid", logKID(kid), "kid_length", len(kid))
-		return nil, &keyMiss{why: "the issuer does not publish the key the assertion names"}
+		return nil, &keyRefusal{reason: ReasonKidMiss, why: "the issuer does not publish the key the assertion names"}
 	}
 	return key, nil
 }
@@ -272,7 +379,8 @@ func (k jsonWebKey) publicKey() (*ecdsa.PublicKey, error) {
 
 // CheckJWKSURL reports whether a key-list address is one the verifier may
 // read: https, or plain http to a loopback host, where there is no network
-// for anyone to tamper with the keys on.
+// for anyone to tamper with the keys on. The verifier never follows a
+// redirect from it, so the address checked is the address read.
 func CheckJWKSURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" || u.Hostname() == "" {

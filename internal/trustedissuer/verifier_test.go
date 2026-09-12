@@ -85,6 +85,35 @@ type testDoor struct {
 	mode      doorMode
 	fetches   atomic.Int32
 	server    *httptest.Server
+	// hold, while set, makes every read wait until it is closed; started,
+	// while set, receives once for each read that begins.
+	hold    chan struct{}
+	started chan struct{}
+}
+
+// holdReads makes every key-list read wait until release is called. The
+// returned channel receives once for each read that begins.
+func (d *testDoor) holdReads(t *testing.T) (started <-chan struct{}, release func()) {
+	t.Helper()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	hold := make(chan struct{})
+	d.hold, d.started = hold, make(chan struct{}, 64)
+	var once sync.Once
+	release = func() { once.Do(func() { close(hold) }) }
+	// Registered after the server's Close, so it runs first: Close waits for
+	// a held read to finish.
+	t.Cleanup(release)
+	return d.started, release
+}
+
+func waitFor(t *testing.T, ch <-chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for %s", what)
+	}
 }
 
 func newDoor(t *testing.T) *testDoor {
@@ -127,6 +156,15 @@ func (d *testDoor) setMode(m doorMode) {
 
 func (d *testDoor) serveKeyList(w http.ResponseWriter, _ *http.Request) {
 	d.fetches.Add(1)
+	d.mu.Lock()
+	hold, started := d.hold, d.started
+	d.mu.Unlock()
+	if started != nil {
+		started <- struct{}{}
+	}
+	if hold != nil {
+		<-hold
+	}
 	d.mu.Lock()
 	mode := d.mode
 	var entries []map[string]string
@@ -627,20 +665,25 @@ func TestANewlyPublishedKeyIsAcceptedAfterOneRefetch(t *testing.T) {
 }
 
 func TestAShortRefetchNeverReplacesTheCachedKeys(t *testing.T) {
-	shortFetches := map[string]func(d *testDoor){
-		"empty key list":            func(d *testDoor) { d.setMode(doorPublishesNothing) },
-		"failing key list":          func(d *testDoor) { d.setMode(doorFails) },
-		"unreachable key list":      func(d *testDoor) { d.setMode(doorUnreachable) },
-		"key list lacking that kid": func(d *testDoor) { d.publish("door-2026-12") },
+	// A read that answered is a key miss; a read that could not complete says
+	// so with its own reason, because publishing a key would not fix it.
+	shortFetches := map[string]struct {
+		shorten func(d *testDoor)
+		want    trustedissuer.Reason
+	}{
+		"empty key list":            {func(d *testDoor) { d.setMode(doorPublishesNothing) }, trustedissuer.ReasonKidMiss},
+		"failing key list":          {func(d *testDoor) { d.setMode(doorFails) }, trustedissuer.ReasonKeysUnreachable},
+		"unreachable key list":      {func(d *testDoor) { d.setMode(doorUnreachable) }, trustedissuer.ReasonKeysUnreachable},
+		"key list lacking that kid": {func(d *testDoor) { d.publish("door-2026-12") }, trustedissuer.ReasonKidMiss},
 	}
-	for name, shorten := range shortFetches {
+	for name, c := range shortFetches {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
 			f.prime(t)
-			shorten(f.door)
+			c.shorten(f.door)
 
 			_, err := f.verify(f.door.sign("door-2026-11", f.good(t)))
-			requireReason(t, err, trustedissuer.ReasonKidMiss)
+			requireReason(t, err, c.want)
 			if got := f.door.fetches.Load(); got != 1 {
 				t.Fatalf("expected one refetch for the unknown kid, got %d", got)
 			}
@@ -921,6 +964,282 @@ func TestConcurrentVerificationIsRaceFree(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+// --- one read at a time, and what waits for it ---
+
+func TestABurstOfAssertionsWithANewlyRotatedKeyWaitsForTheOneRead(t *testing.T) {
+	f := newFixture(t)
+	f.prime(t)
+	f.door.publish(currentKey, "door-2026-10")
+	started, release := f.door.holdReads(t)
+
+	const burst = 10
+	tokens := make([]string, burst)
+	for i := range tokens {
+		tokens[i] = f.door.sign("door-2026-10", f.good(t))
+	}
+	errs := make(chan error, burst)
+	go func() { _, err := f.verify(tokens[0]); errs <- err }()
+	waitFor(t, started, "the first assertion's key-list read")
+
+	// The rest arrive while the door holds that read.
+	for _, token := range tokens[1:] {
+		go func() { _, err := f.verify(token); errs <- err }()
+	}
+	time.Sleep(50 * time.Millisecond)
+	release()
+
+	for range burst {
+		requireAccepted(t, <-errs)
+	}
+	if got := f.door.fetches.Load(); got != 1 {
+		t.Fatalf("expected the burst to cost the issuer one read, got %d", got)
+	}
+}
+
+func TestARotatedKeyTheLastMissReadHeldIsAcceptedInsideTheInterval(t *testing.T) {
+	f := newFixture(t)
+	f.prime(t)
+	f.door.publish(currentKey, "door-2026-10")
+
+	// An invented kid causes the read, and that read already holds the key
+	// the issuer has just rotated to.
+	_, err := f.verify(f.door.sign("invented-01", f.good(t)))
+	requireReason(t, err, trustedissuer.ReasonKidMiss)
+	f.clock.Advance(5 * time.Second)
+	_, err = f.verify(f.door.sign("door-2026-10", f.good(t)))
+	requireAccepted(t, err)
+	if got := f.door.fetches.Load(); got != 1 {
+		t.Fatalf("expected the rotated key to be found in the miss read with no second read, got %d reads", got)
+	}
+
+	// An invented kid every interval does not hold the rotation back.
+	for i := range 3 {
+		f.clock.Advance(trustedissuer.KeyMissRefetchInterval)
+		_, err = f.verify(f.door.sign(fmt.Sprintf("invented-%02d", i+2), f.good(t)))
+		requireReason(t, err, trustedissuer.ReasonKidMiss)
+		f.clock.Advance(time.Second)
+		_, err = f.verify(f.door.sign("door-2026-10", f.good(t)))
+		requireAccepted(t, err)
+	}
+	_, err = f.verify(f.door.sign(currentKey, f.good(t)))
+	requireAccepted(t, err)
+}
+
+func TestTheTTLRefreshDropsAKeyOnlyTheMissReadHeld(t *testing.T) {
+	f := newFixture(t)
+	f.prime(t) // t=0
+	f.door.publish(currentKey, "door-2026-10")
+	_, err := f.verify(f.door.sign("invented-01", f.good(t)))
+	requireReason(t, err, trustedissuer.ReasonKidMiss)
+
+	// The issuer retires the key before the cache ages out; the refresh is
+	// the newer read and replaces both.
+	f.clock.Advance(trustedissuer.KeyListTTL)
+	f.door.publish(currentKey)
+	_, err = f.verify(f.door.sign("door-2026-10", f.good(t)))
+	requireReason(t, err, trustedissuer.ReasonKidMiss)
+	_, err = f.verify(f.door.sign(currentKey, f.good(t)))
+	requireAccepted(t, err)
+	if got := f.door.fetches.Load(); got != 2 {
+		t.Fatalf("expected the miss read and the refresh (2 reads), got %d", got)
+	}
+}
+
+// --- a key list that cannot be read ---
+
+func TestAnUnreachableKeyListIsReadOnceInsideTheBackoff(t *testing.T) {
+	if trustedissuer.ReasonKeysUnreachable != "keys-unreachable" {
+		t.Fatalf("ReasonKeysUnreachable = %q", trustedissuer.ReasonKeysUnreachable)
+	}
+	invented := func(i int) string { return fmt.Sprintf("invented-%02d", i) }
+	cases := map[string]struct {
+		prime bool
+		kid   func(i int) string
+	}{
+		"nothing cached, a published key": {false, func(int) string { return currentKey }},
+		"nothing cached, invented keys":   {false, invented},
+		"cached list, invented keys":      {true, invented},
+	}
+	for name, c := range cases {
+		for _, concurrent := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s, concurrent %v", name, concurrent), func(t *testing.T) {
+				f := newFixture(t)
+				if c.prime {
+					f.prime(t)
+				}
+				f.door.setMode(doorUnreachable)
+				f.logs.reset()
+
+				tokens := make([]string, 10)
+				for i := range tokens {
+					tokens[i] = f.door.sign(c.kid(i), f.good(t))
+				}
+				errs := make([]error, len(tokens))
+				if concurrent {
+					var wg sync.WaitGroup
+					for i, token := range tokens {
+						wg.Add(1)
+						go func() {
+							defer wg.Done()
+							_, errs[i] = f.verify(token)
+						}()
+					}
+					wg.Wait()
+				} else {
+					for i, token := range tokens {
+						_, errs[i] = f.verify(token)
+					}
+				}
+				for _, err := range errs {
+					requireReason(t, err, trustedissuer.ReasonKeysUnreachable)
+				}
+				if got := f.door.fetches.Load(); got != 1 {
+					t.Fatalf("expected 10 requests inside the backoff to cause one read, got %d", got)
+				}
+				if got := len(f.logs.all()); got != 1 {
+					t.Fatalf("expected the failed read to be logged once, got %d lines:\n%s", got, f.logs.text())
+				}
+
+				f.clock.Advance(trustedissuer.KeyMissRefetchInterval)
+				_, err := f.verify(f.door.sign(c.kid(99), f.good(t)))
+				requireReason(t, err, trustedissuer.ReasonKeysUnreachable)
+				if got := f.door.fetches.Load(); got != 2 {
+					t.Fatalf("expected one more read once the backoff has passed, got %d reads", got)
+				}
+			})
+		}
+	}
+}
+
+func TestAKeyListWithNoUsableKeyIsAKeyMissAndBacksOff(t *testing.T) {
+	f := newFixture(t)
+	f.door.setMode(doorPublishesNothing)
+	for range 5 {
+		_, err := f.verify(f.door.sign(currentKey, f.good(t)))
+		requireReason(t, err, trustedissuer.ReasonKidMiss)
+	}
+	if got := f.door.fetches.Load(); got != 1 {
+		t.Fatalf("expected one read inside the backoff, got %d", got)
+	}
+}
+
+func TestAnAgedCachedKeyAnswersInsideTheBackoffWithOneRead(t *testing.T) {
+	for name, mode := range map[string]doorMode{
+		"unreachable": doorUnreachable,
+		"failing":     doorFails,
+		"empty":       doorPublishesNothing,
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			f.prime(t)
+			f.clock.Advance(trustedissuer.KeyListTTL + time.Second)
+			f.door.setMode(mode)
+			for range 10 {
+				_, err := f.verify(f.door.sign(currentKey, f.good(t)))
+				requireAccepted(t, err)
+			}
+			if got := f.door.fetches.Load(); got != 1 {
+				t.Fatalf("expected 10 sign-ins with the aged key to cause one read, got %d", got)
+			}
+
+			// Once the issuer answers again, the next read after the backoff
+			// refreshes the list, and the fresh list needs no read.
+			f.door.publish(currentKey)
+			f.clock.Advance(trustedissuer.KeyMissRefetchInterval)
+			_, err := f.verify(f.door.sign(currentKey, f.good(t)))
+			requireAccepted(t, err)
+			f.clock.Advance(time.Minute)
+			_, err = f.verify(f.door.sign(currentKey, f.good(t)))
+			requireAccepted(t, err)
+			if got := f.door.fetches.Load(); got != 2 {
+				t.Fatalf("expected one refresh after the backoff, got %d reads", got)
+			}
+		})
+	}
+}
+
+func TestARequestWaitingForAKeyListReadLeavesWhenItEnds(t *testing.T) {
+	f := newFixture(t)
+	started, release := f.door.holdReads(t)
+
+	firstToken := f.door.sign(currentKey, f.good(t))
+	first := make(chan error, 1)
+	go func() { _, err := f.verify(firstToken); first <- err }()
+	waitFor(t, started, "the first assertion's key-list read")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	token := f.door.sign(currentKey, f.good(t))
+	waiting := make(chan error, 1)
+	go func() { _, err := f.verifier.Verify(ctx, token); waiting <- err }()
+	select {
+	case err := <-waiting:
+		requireReason(t, err, trustedissuer.ReasonKeysUnreachable)
+	case <-time.After(2 * time.Second):
+		t.Fatal("a request whose context ended was still waiting for the key-list read")
+	}
+
+	release()
+	requireAccepted(t, <-first)
+	if got := f.door.fetches.Load(); got != 1 {
+		t.Fatalf("expected the request that left to cause no read, got %d reads", got)
+	}
+}
+
+func TestARequestThatEndsDuringItsOwnReadDoesNotFailTheRead(t *testing.T) {
+	f := newFixture(t)
+	started, release := f.door.holdReads(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	token := f.door.sign(currentKey, f.good(t))
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = f.verifier.Verify(ctx, token) // its client has gone; only the read matters
+	}()
+	waitFor(t, started, "the key-list read")
+	cancel()
+	release()
+	<-done
+
+	_, err := f.verify(f.door.sign(currentKey, f.good(t)))
+	requireAccepted(t, err)
+	if got := f.door.fetches.Load(); got != 1 {
+		t.Fatalf("expected the read to complete for the next request, got %d reads", got)
+	}
+}
+
+func TestTheKeyListIsNeverReadThroughARedirect(t *testing.T) {
+	for name, client := range map[string]func() *http.Client{
+		"the verifier's own client":    func() *http.Client { return nil },
+		"a client the caller supplies": oneConnectionPerRead,
+	} {
+		t.Run(name, func(t *testing.T) {
+			var target atomic.Value
+			var redirects atomic.Int32
+			redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				redirects.Add(1)
+				http.Redirect(w, r, target.Load().(string), http.StatusFound)
+			}))
+			t.Cleanup(redirector.Close)
+			f := newFixtureWith(t, func(cfg *trustedissuer.Config) {
+				target.Store(cfg.JWKSURL)
+				cfg.JWKSURL = redirector.URL + "/door/jwks.json"
+				cfg.HTTPClient = client()
+			})
+
+			_, err := f.verify(f.door.sign(currentKey, f.good(t)))
+			requireReason(t, err, trustedissuer.ReasonKeysUnreachable)
+			if got := redirects.Load(); got != 1 {
+				t.Fatalf("expected one read of the configured address, got %d", got)
+			}
+			if got := f.door.fetches.Load(); got != 0 {
+				t.Fatalf("the redirect was followed to the key list (%d reads)", got)
+			}
+		})
+	}
 }
 
 // --- what the verifier writes down ---
