@@ -320,6 +320,12 @@ configured sign-in, signs someone in"), and the warning or error for one that di
 mount. `TRUSTED_ISSUER_LINK_PASSWORD_OWNERS` is not one of the three settings and locks
 nothing.
 
+A door-only instance also runs the authorization server that gives MCP connectors their
+bearer tokens, and it honors `JWT_SIGNING_KEY` as an OAuth or password instance does. Set
+`JWT_SIGNING_KEY` to a PEM-encoded RSA key that belongs to the instance. Without it, the
+instance signs with a new key at every start, so every restart or idle-stop wake makes
+every connector authorize again.
+
 ### Consequences
 
 - Good: one door key rotation (a new key beside the old in the JWKS) covers the fleet,

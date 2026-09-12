@@ -71,10 +71,16 @@ type OAuthConfig struct {
 	AppleKeyID      string
 	ApplePrivateKey string
 
-	FrontendURL         string
-	BaseURL             string // Public URL for OAuth metadata/endpoints (e.g. https://example.com)
-	JWTSigningKey       string // PEM-encoded RSA private key, or "auto" to generate ephemeral key
-	DynamicRegistration bool   // Enable OAuth Dynamic Client Registration (RFC 7591)
+	FrontendURL string
+	BaseURL     string // Public URL for OAuth metadata/endpoints (e.g. https://example.com)
+	// JWTSigningKey (JWT_SIGNING_KEY) signs the authorization server's access
+	// tokens, the bearer tokens MCP connectors present: a PEM-encoded RSA
+	// private key, or "auto" to generate an ephemeral key. It is honored
+	// whenever the instance has any sign-in (AuthEnabled: an OAuth provider,
+	// password sign-in or a trusted issuer), so tokens survive a restart only
+	// when it is set; with no sign-in it is ignored.
+	JWTSigningKey       string
+	DynamicRegistration bool // Enable OAuth Dynamic Client Registration (RFC 7591)
 
 	// AllowedEmails, when non-empty, restricts OAuth login to identities whose
 	// verified email is in this list (case-insensitive). The /oauth/callback
