@@ -17,6 +17,10 @@ package handlers_test
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,6 +38,7 @@ import (
 
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
 	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
+	gojwt "github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 )
 
@@ -450,6 +455,82 @@ func TestAssertAnswersAConflictWhenMoreThanOnePersonHoldsTheEmail(t *testing.T) 
 		t.Fatalf("log line reason = %v, want %q", got, handlers.CodeAmbiguousOwner)
 	}
 	requireNoAssertionLogged(t, logs)
+}
+
+// --- the constructor serve.go builds the route with ---
+
+func TestNewTrustedIssuerAssertionHandlerVerifiesAgainstTheSettings(t *testing.T) {
+	const kid = "door-2026-09"
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := key.PublicKey.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	jwks := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"keys": []map[string]string{{
+			"kty": "EC", "crv": "P-256", "alg": "ES256", "use": "sig", "kid": kid,
+			"x": base64.RawURLEncoding.EncodeToString(raw[1:33]),
+			"y": base64.RawURLEncoding.EncodeToString(raw[33:65]),
+		}}})
+	}))
+	t.Cleanup(jwks.Close)
+	settings := config.TrustedIssuerConfig{
+		Issuer: "https://money.weos.cloud", JWKSURL: jwks.URL + "/door/jwks.json", Audience: "a1b2c3d4",
+	}
+	// Far from the real clock: an assertion that is good only by this one
+	// proves the constructor hands deps.Now to the verifier.
+	now := time.Unix(1_789_000_000, 0)
+
+	cases := map[string]struct {
+		mutate     func(c gojwt.MapClaims)
+		wantStatus int
+		wantCode   string
+	}{
+		"an assertion the settings trust":       {func(gojwt.MapClaims) {}, http.StatusOK, ""},
+		"another issuer":                        {func(c gojwt.MapClaims) { c["iss"] = "https://door.cedarrealty.example" }, http.StatusUnauthorized, "iss"},
+		"another audience":                      {func(c gojwt.MapClaims) { c["aud"] = "9f8e7d6c" }, http.StatusUnauthorized, "aud"},
+		"another provider in core's registry":   {func(c gojwt.MapClaims) { c["provider"] = "apple" }, http.StatusOK, ""},
+		"a provider outside core's registry":    {func(c gojwt.MapClaims) { c["provider"] = "okta" }, http.StatusUnauthorized, "claims"},
+		"good by the real clock, not the given": {func(c gojwt.MapClaims) { c["iat"], c["exp"] = time.Now().Unix(), time.Now().Add(45*time.Second).Unix() }, http.StatusUnauthorized, "window"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			claims := gojwt.MapClaims{
+				"iss": settings.Issuer, "aud": settings.Audience, "sub": "108234567890",
+				"email": "ops@harborlegal.example", "email_verified": true, "provider": "google",
+				"iat": now.Unix(), "exp": now.Add(45 * time.Second).Unix(), "jti": "jti-" + name,
+			}
+			c.mutate(claims)
+			tok := gojwt.NewWithClaims(gojwt.SigningMethodES256, claims)
+			tok.Header["kid"] = kid
+			assertion, err := tok.SignedString(key)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			auth := signedInAuthService(t)
+			logs := &assertionLogCapture{}
+			h := handlers.NewTrustedIssuerAssertionHandler(settings, handlers.TrustedIssuerAssertionDeps{
+				SignIn: auth,
+				Sessions: handlers.NewPasswordAuthHandler(handlers.PasswordAuthHandlerConfig{
+					AuthService: auth, SessionManager: &fakeSessionManager{}, Logger: logs,
+				}),
+				Logger: logs,
+				Now:    func() time.Time { return now },
+			})
+			if _, ok := h.Verifier().(*trustedissuer.Verifier); !ok {
+				t.Fatalf("Verifier() = %T, want the trusted-issuer verifier", h.Verifier())
+			}
+
+			rec := postAssertion(t, h, assertionBody(assertion))
+			if rec.Code != c.wantStatus || readAssertAnswer(t, rec).Code != c.wantCode {
+				t.Fatalf("answered %d %s, want %d with code %q", rec.Code, rec.Body.String(), c.wantStatus, c.wantCode)
+			}
+		})
+	}
 }
 
 // --- the request body ---

@@ -20,6 +20,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/wepala/weos/v3/application"
 	"github.com/wepala/weos/v3/domain/entities"
@@ -67,6 +68,44 @@ type TrustedIssuerHandler struct {
 func NewTrustedIssuerHandler(cfg TrustedIssuerHandlerConfig) *TrustedIssuerHandler {
 	return &TrustedIssuerHandler{cfg: cfg}
 }
+
+// TrustedIssuerAssertionDeps is what the assertion route takes from the
+// running application; its settings come from config.TrustedIssuerConfig.
+type TrustedIssuerAssertionDeps struct {
+	SignIn AssertedSignInService
+	// Sessions is the password-auth handler serve.go already mounts, so an
+	// asserted sign-in completes exactly as a password sign-in does.
+	Sessions *PasswordAuthHandler
+	Logger   entities.Logger
+	// Now is the verifier's clock. Optional; time.Now. The acceptance tests
+	// set it so a scenario can move time without waiting for it.
+	Now func() time.Time
+}
+
+// NewTrustedIssuerAssertionHandler builds the handler POST /auth/assert serves:
+// a verifier for the configured issuer, key list and audience that accepts
+// core's OAuth registry keys as providers, wired to deps.
+//
+// serve.go and the acceptance tests both build the route through here, so the
+// wiring the tests exercise is the wiring that ships.
+func NewTrustedIssuerAssertionHandler(settings config.TrustedIssuerConfig, deps TrustedIssuerAssertionDeps) *TrustedIssuerHandler {
+	return NewTrustedIssuerHandler(TrustedIssuerHandlerConfig{
+		Verifier: trustedissuer.NewVerifier(trustedissuer.Config{
+			Issuer:    settings.Issuer,
+			JWKSURL:   settings.JWKSURL,
+			Audience:  settings.Audience,
+			Providers: application.OAuthProviderKeys(),
+			Now:       deps.Now,
+			Logger:    deps.Logger,
+		}),
+		SignIn:   deps.SignIn,
+		Sessions: deps.Sessions,
+		Logger:   deps.Logger,
+	})
+}
+
+// Verifier is the verifier the handler checks assertions with.
+func (h *TrustedIssuerHandler) Verifier() AssertionVerifier { return h.cfg.Verifier }
 
 type assertRequest struct {
 	Assertion string `json:"assertion"`

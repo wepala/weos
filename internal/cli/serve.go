@@ -41,7 +41,6 @@ import (
 	"github.com/wepala/weos/v3/internal/config"
 	mcpserver "github.com/wepala/weos/v3/internal/mcp"
 	weosoauth "github.com/wepala/weos/v3/internal/oauth"
-	"github.com/wepala/weos/v3/internal/trustedissuer"
 	"github.com/wepala/weos/v3/web"
 
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
@@ -318,14 +317,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// docs/decisions/trusted-issuer-login-assertion.md.
 	handlers.MountTrustedIssuerAssertion(context.Background(), api, appCfg.TrustedIssuer, logger,
 		func() *handlers.TrustedIssuerHandler {
-			return handlers.NewTrustedIssuerHandler(handlers.TrustedIssuerHandlerConfig{
-				Verifier: trustedissuer.NewVerifier(trustedissuer.Config{
-					Issuer:    appCfg.TrustedIssuer.Issuer,
-					JWKSURL:   appCfg.TrustedIssuer.JWKSURL,
-					Audience:  appCfg.TrustedIssuer.Audience,
-					Providers: application.OAuthProviderKeys(),
-					Logger:    logger,
-				}),
+			return handlers.NewTrustedIssuerAssertionHandler(appCfg.TrustedIssuer, handlers.TrustedIssuerAssertionDeps{
 				SignIn:   assertedSignIn,
 				Sessions: passwordAuthHandlers,
 				Logger:   logger,

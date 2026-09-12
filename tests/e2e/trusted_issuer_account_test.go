@@ -24,7 +24,6 @@ import (
 	"github.com/wepala/weos/v3/domain/repositories"
 	"github.com/wepala/weos/v3/internal/config"
 	weosoauth "github.com/wepala/weos/v3/internal/oauth"
-	"github.com/wepala/weos/v3/internal/trustedissuer"
 
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
 	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
@@ -299,14 +298,7 @@ func (w *taWorld) boot() error {
 	})
 	mounted := handlers.MountTrustedIssuerAssertion(context.Background(), api, cfg.TrustedIssuer, w.logs,
 		func() *handlers.TrustedIssuerHandler {
-			return handlers.NewTrustedIssuerHandler(handlers.TrustedIssuerHandlerConfig{
-				Verifier: trustedissuer.NewVerifier(trustedissuer.Config{
-					Issuer:    cfg.TrustedIssuer.Issuer,
-					JWKSURL:   cfg.TrustedIssuer.JWKSURL,
-					Audience:  cfg.TrustedIssuer.Audience,
-					Providers: application.OAuthProviderKeys(),
-					Logger:    w.logs,
-				}),
+			return handlers.NewTrustedIssuerAssertionHandler(cfg.TrustedIssuer, handlers.TrustedIssuerAssertionDeps{
 				SignIn:   w.signIn,
 				Sessions: sessions,
 				Logger:   w.logs,

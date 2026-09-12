@@ -27,7 +27,6 @@ import (
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/internal/config"
 	weosoauth "github.com/wepala/weos/v3/internal/oauth"
-	"github.com/wepala/weos/v3/internal/trustedissuer"
 
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
@@ -45,10 +44,11 @@ import (
 //
 // The scenarios drive real HTTP against the real application, mounted through
 // handlers.MountTrustedIssuerAssertion — the call serve.go makes — with the
-// verifier built from the same settings serve.go reads. Two things are the
-// test's own: the door, an httptest server that publishes a key list and
-// counts how often it is read; and the instance's clock, which the verifier
-// reads through Config.Now so "a minute later" takes no minute. Everything
+// handler built by handlers.NewTrustedIssuerAssertionHandler, the constructor
+// serve.go calls. Two things are the test's own: the door, an httptest server
+// that publishes a key list and counts how often it is read; and the
+// instance's clock, which the verifier reads through the constructor's Now so
+// "a minute later" takes no minute. Everything
 // the instance writes through its logger is captured, so the scenarios can
 // read the log.
 func TestTrustedIssuerAssertion(t *testing.T) {
@@ -398,7 +398,7 @@ type tiWorld struct {
 	tmpDir   string
 	app      *fx.App
 	server   *httptest.Server
-	verifier *trustedissuer.Verifier
+	verifier handlers.AssertionVerifier
 
 	authService    authapp.AuthenticationService
 	credRepo       authrepos.CredentialRepository
@@ -491,24 +491,18 @@ func (w *tiWorld) boot() error {
 		SecureCookies:  cfg.SessionSecret != "change-me-in-production",
 		Logger:         w.logs,
 	})
-	// The same call and the same verifier settings as serve.go. The clock is
-	// the one thing added: the scenarios move time without waiting for it.
+	// The same call and the same constructor as serve.go. The clock is the one
+	// thing added: the scenarios move time without waiting for it.
 	handlers.MountTrustedIssuerAssertion(context.Background(), api, cfg.TrustedIssuer, w.logs,
 		func() *handlers.TrustedIssuerHandler {
-			w.verifier = trustedissuer.NewVerifier(trustedissuer.Config{
-				Issuer:    cfg.TrustedIssuer.Issuer,
-				JWKSURL:   cfg.TrustedIssuer.JWKSURL,
-				Audience:  cfg.TrustedIssuer.Audience,
-				Providers: application.OAuthProviderKeys(),
-				Now:       w.clock.Now,
-				Logger:    w.logs,
-			})
-			return handlers.NewTrustedIssuerHandler(handlers.TrustedIssuerHandlerConfig{
-				Verifier: w.verifier,
+			h := handlers.NewTrustedIssuerAssertionHandler(cfg.TrustedIssuer, handlers.TrustedIssuerAssertionDeps{
 				SignIn:   w.signIn,
 				Sessions: sessions,
 				Logger:   w.logs,
+				Now:      w.clock.Now,
 			})
+			w.verifier = h.Verifier()
+			return h
 		})
 
 	// What an unmatched /api path meets on an instance with no OAuth
