@@ -33,9 +33,11 @@ Feature: Verifying a login assertion from a trusted issuer
   key without waiting out the cache. The refetch is the dangerous part: a fetch that
   comes back short — empty, failing, or simply without the key that was asked for — must
   fail that one request and leave the cached keys exactly as they were. Overwriting them
-  would turn one bad rotation into ten minutes of a locked-out fleet, so two scenarios
-  below present a good assertion after a failed refetch specifically to prove the cached
-  keys survived it.
+  would turn one bad rotation into ten minutes of a locked-out fleet, so one scenario
+  below presents a good assertion after a refetch that came back empty, specifically to
+  prove the cached keys survived it. Another presents a good assertion signed with a
+  cached key while the key list cannot be reached, to prove that a cached key keeps
+  working when the issuer does not answer.
 
   The assertion is a bearer credential for sixty seconds, so it is never written to a
   log. A refusal logs its reason; it does not log the token that caused it.
