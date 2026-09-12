@@ -225,6 +225,18 @@ func (l *captureLogger) Info(_ context.Context, msg string, f ...any)  { l.add("
 func (l *captureLogger) Warn(_ context.Context, msg string, f ...any)  { l.add("warn", msg, f) }
 func (l *captureLogger) Error(_ context.Context, msg string, f ...any) { l.add("error", msg, f) }
 
+func (l *captureLogger) reset() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.lines = nil
+}
+
+func (l *captureLogger) all() []logLine {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]logLine(nil), l.lines...)
+}
+
 func (l *captureLogger) text() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -931,6 +943,95 @@ func TestTheVerifierNeverLogsAnAssertion(t *testing.T) {
 		for _, part := range strings.Split(token, ".") {
 			if part != "" && strings.Contains(logged, part) {
 				t.Fatalf("the log carries part of an assertion:\n%s", logged)
+			}
+		}
+	}
+}
+
+// hugeKeyID is a kid of 1 MiB whose every 17-character run is unique to it, so
+// a log that carries any part of it past a 16-character prefix is caught.
+func hugeKeyID() string {
+	var b strings.Builder
+	for b.Len() < 1<<20 {
+		fmt.Fprintf(&b, "kid-%08d.", b.Len())
+	}
+	return b.String()
+}
+
+func TestACallerChosenKeyIDNeverReachesARefusalAndReachesTheLogOnlyAsAShortPrefix(t *testing.T) {
+	huge := hugeKeyID()
+	paths := map[string]func(t *testing.T, f *fixture){
+		"read for and not published": func(*testing.T, *fixture) {},
+		"inside the miss interval": func(t *testing.T, f *fixture) {
+			_, _ = f.verify(f.door.sign("invented-01", f.good(t)))
+		},
+		"key list unreachable": func(_ *testing.T, f *fixture) { f.door.setMode(doorUnreachable) },
+		"key list empty":       func(_ *testing.T, f *fixture) { f.door.setMode(doorPublishesNothing) },
+		"cache aged and key list unreachable": func(_ *testing.T, f *fixture) {
+			f.clock.Advance(trustedissuer.KeyListTTL + time.Second)
+			f.door.setMode(doorUnreachable)
+		},
+	}
+	for name, stage := range paths {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			f.prime(t)
+			stage(t, f)
+			f.logs.reset()
+
+			token := f.door.sign(huge, f.good(t))
+			_, err := f.verify(token)
+			var refusal *trustedissuer.Refusal
+			if !errors.As(err, &refusal) {
+				t.Fatalf("expected a refusal, got %v", err)
+			}
+			if strings.Contains(refusal.Detail, huge[:4]) || len(refusal.Detail) > 256 {
+				t.Fatalf("the refusal's detail carries the caller's kid (%d bytes): %.200q", len(refusal.Detail), refusal.Detail)
+			}
+
+			logged := f.logs.text()
+			if len(logged) > 2048 {
+				t.Fatalf("a 1 MiB kid produced %d bytes of log", len(logged))
+			}
+			if strings.Contains(logged, huge[:17]) {
+				t.Fatalf("the log carries the kid past a 16-character prefix:\n%.400s", logged)
+			}
+			header := strings.Split(token, ".")[0]
+			if strings.Contains(logged, header[:64]) {
+				t.Fatalf("the log carries the assertion's base64 header:\n%.400s", logged)
+			}
+		})
+	}
+}
+
+func TestALoggedKeyIDIsPrintableASCIIOfAtMostSixteenCharacters(t *testing.T) {
+	f := newFixture(t)
+	f.prime(t)
+	f.logs.reset()
+	kid := "door\n2026\x1b[31m-10é-rotated-and-long"
+	_, err := f.verify(f.door.sign(kid, f.good(t)))
+	requireReason(t, err, trustedissuer.ReasonKidMiss)
+
+	logged := f.logs.all()
+	if len(logged) == 0 {
+		t.Fatal("expected the miss read to be logged")
+	}
+	for _, line := range logged {
+		for i := 0; i+1 < len(line.fields); i += 2 {
+			if line.fields[i] != "kid" {
+				continue
+			}
+			value, _ := line.fields[i+1].(string)
+			if len(value) > 16 {
+				t.Fatalf("logged kid is %d characters, want at most 16: %q", len(value), value)
+			}
+			for _, r := range value {
+				if r < 0x20 || r > 0x7e {
+					t.Fatalf("logged kid carries a character that is not printable ASCII: %q", value)
+				}
+			}
+			if !strings.HasPrefix(value, "door?2026?[31m-1") {
+				t.Fatalf("logged kid = %q, want the sanitized prefix of the kid", value)
 			}
 		}
 	}

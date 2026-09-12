@@ -452,6 +452,61 @@ func TestAssertAnswersAConflictWhenMoreThanOnePersonHoldsTheEmail(t *testing.T) 
 	requireNoAssertionLogged(t, logs)
 }
 
+// --- the request body ---
+
+// bodyOfLength is an assertion request of exactly n bytes.
+func bodyOfLength(n int) string {
+	const open, closing = `{"assertion":"`, `"}`
+	return open + strings.Repeat("A", n-len(open)-len(closing)) + closing
+}
+
+func TestAssertAnswersAnOversizedBodyWithoutReadingAnAssertion(t *testing.T) {
+	for name, undeclared := range map[string]bool{
+		"length declared":     false,
+		"length not declared": true,
+	} {
+		t.Run(name, func(t *testing.T) {
+			verifier := &fakeAssertionVerifier{err: &trustedissuer.Refusal{Reason: trustedissuer.ReasonSignature}}
+			logs := &assertionLogCapture{}
+			h, _ := newTrustedIssuerHandler(verifier, &assertAuthService{}, logs)
+
+			req := newJSONRequest(http.MethodPost, "/api/auth/assert", bodyOfLength(1<<20))
+			if undeclared {
+				req.ContentLength = -1
+			}
+			rec := httptest.NewRecorder()
+			if err := h.Assert(echo.New().NewContext(req, rec)); err != nil {
+				t.Fatalf("Assert returned an error instead of answering: %v", err)
+			}
+			if rec.Code != http.StatusRequestEntityTooLarge {
+				t.Fatalf("a 1 MiB body answered %d, want 413: %s", rec.Code, rec.Body.String())
+			}
+			if len(verifier.got) != 0 {
+				t.Fatal("an oversized body reached the verifier")
+			}
+			if logged := logs.text(); len(logged) > 1024 || strings.Contains(logged, strings.Repeat("A", 17)) {
+				t.Fatalf("an oversized body produced %d bytes of log carrying its content", len(logged))
+			}
+		})
+	}
+}
+
+func TestAssertReadsABodyUpToTheLimit(t *testing.T) {
+	if handlers.AssertBodyLimit != 16<<10 {
+		t.Fatalf("AssertBodyLimit = %d, want 16 KiB", handlers.AssertBodyLimit)
+	}
+	for n, want := range map[int]int{
+		handlers.AssertBodyLimit:     http.StatusUnauthorized,
+		handlers.AssertBodyLimit + 1: http.StatusRequestEntityTooLarge,
+	} {
+		verifier := &fakeAssertionVerifier{err: &trustedissuer.Refusal{Reason: trustedissuer.ReasonSignature}}
+		h, _ := newTrustedIssuerHandler(verifier, &assertAuthService{}, &assertionLogCapture{})
+		if rec := postAssertion(t, h, bodyOfLength(n)); rec.Code != want {
+			t.Fatalf("a %d-byte body answered %d, want %d", n, rec.Code, want)
+		}
+	}
+}
+
 // --- mount or not ---
 
 func TestMountTrustedIssuerAssertion(t *testing.T) {

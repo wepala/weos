@@ -72,14 +72,31 @@ type assertRequest struct {
 	Assertion string `json:"assertion"`
 }
 
+// AssertBodyLimit is the largest request body POST /auth/assert reads, 16 KiB.
+// A login assertion is about a kilobyte; the route is public, so a larger body
+// is answered 413 before any of it is parsed.
+const AssertBodyLimit = 16 << 10
+
 // Assert verifies the assertion and signs its person in. Every assertion it
 // does not accept is answered 401 with the refusal's reason as the answer's
 // code, and logged by that reason. The assertion itself is never logged: for
 // the minute it is valid it is a bearer credential.
+//
+// A body larger than AssertBodyLimit is not an assertion refusal: it is
+// answered 413, with no reason, and the verifier never sees it.
 func (h *TrustedIssuerHandler) Assert(c echo.Context) error {
 	ctx := c.Request().Context()
+	httpReq := c.Request()
+	if httpReq.ContentLength > AssertBodyLimit {
+		return h.tooLarge(c)
+	}
+	httpReq.Body = http.MaxBytesReader(c.Response(), httpReq.Body, AssertBodyLimit)
 	var req assertRequest
 	if err := c.Bind(&req); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			return h.tooLarge(c)
+		}
 		// A body that does not bind carries no assertion. It is refused like
 		// any assertion that cannot be trusted, with a reason, rather than
 		// answered as a malformed request.
@@ -125,6 +142,14 @@ func (h *TrustedIssuerHandler) Assert(c echo.Context) error {
 type assertSuccessResponse struct {
 	authSuccessResponse
 	NewAccount bool `json:"new_account"`
+}
+
+// tooLarge answers a body over AssertBodyLimit. The log line carries the limit
+// and nothing of the body.
+func (h *TrustedIssuerHandler) tooLarge(c echo.Context) error {
+	h.cfg.Logger.Warn(c.Request().Context(), "trusted issuer login assertion request body is too large; it was not read",
+		"limit_bytes", AssertBodyLimit)
+	return respondError(c, http.StatusRequestEntityTooLarge, "the request body is larger than a login assertion can be")
 }
 
 func (h *TrustedIssuerHandler) refuse(c echo.Context, err error) error {

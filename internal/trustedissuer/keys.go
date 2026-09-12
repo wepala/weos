@@ -119,10 +119,31 @@ func (l *keyList) markMissRead() {
 	l.missReadAt = l.now()
 }
 
-func (l *keyList) throttledMiss(kid string) error {
+func (l *keyList) throttledMiss() error {
 	return &keyMiss{why: fmt.Sprintf(
-		"the issuer's key list does not hold key %q, and it was read for an unknown key less than %s ago",
-		kid, l.missInterval)}
+		"the issuer's key list does not hold the key the assertion names, and it was read for an unknown key less than %s ago",
+		l.missInterval)}
+}
+
+// logKIDMax is the most of a kid a log line carries.
+const logKIDMax = 16
+
+// logKID is the part of a kid a log line may carry. The kid comes from the
+// assertion's header, whose content and length the caller chooses, so it never
+// reaches a refusal's detail and reaches a log line only as its first
+// logKIDMax bytes, each outside printable ASCII replaced with '?'. Every
+// published kid an operator needs to recognize fits in that.
+func logKID(kid string) string {
+	if len(kid) > logKIDMax {
+		kid = kid[:logKIDMax]
+	}
+	b := []byte(kid)
+	for i, c := range b {
+		if c < 0x20 || c > 0x7e {
+			b[i] = '?'
+		}
+	}
+	return string(b)
 }
 
 func (l *keyList) key(ctx context.Context, kid string) (*ecdsa.PublicKey, error) {
@@ -131,7 +152,7 @@ func (l *keyList) key(ctx context.Context, kid string) (*ecdsa.PublicKey, error)
 	if key, fresh, throttled := l.cached(kid); key != nil && fresh {
 		return key, nil
 	} else if throttled {
-		return nil, l.throttledMiss(kid)
+		return nil, l.throttledMiss()
 	}
 	l.fetchMu.Lock()
 	defer l.fetchMu.Unlock()
@@ -141,7 +162,7 @@ func (l *keyList) key(ctx context.Context, kid string) (*ecdsa.PublicKey, error)
 		return cachedKey, nil
 	}
 	if throttled {
-		return nil, l.throttledMiss(kid)
+		return nil, l.throttledMiss()
 	}
 	if fresh {
 		// The list is fresh and lacks kid, so this read is a miss's.
@@ -155,12 +176,12 @@ func (l *keyList) key(ctx context.Context, kid string) (*ecdsa.PublicKey, error)
 	if err != nil {
 		if cachedKey != nil {
 			l.logger.Warn(ctx, "trusted issuer key list could not be refreshed; the cached keys stay in use",
-				"kid", kid, "error", err.Error())
+				"kid", logKID(kid), "kid_length", len(kid), "error", err.Error())
 			return cachedKey, nil
 		}
 		l.logger.Warn(ctx, "trusted issuer key list came back short; the cached keys are unchanged",
-			"kid", kid, "error", err.Error())
-		return nil, &keyMiss{why: fmt.Sprintf("the issuer's key list could not be read to find key %q", kid)}
+			"kid", logKID(kid), "kid_length", len(kid), "error", err.Error())
+		return nil, &keyMiss{why: "the issuer's key list could not be read to find the key the assertion names"}
 	}
 
 	key, published := fetched[kid]
@@ -168,8 +189,9 @@ func (l *keyList) key(ctx context.Context, kid string) (*ecdsa.PublicKey, error)
 		l.store(fetched)
 	}
 	if !published {
-		l.logger.Warn(ctx, "trusted issuer key list does not publish the assertion's key", "kid", kid)
-		return nil, &keyMiss{why: fmt.Sprintf("the issuer does not publish key %q", kid)}
+		l.logger.Warn(ctx, "trusted issuer key list does not publish the assertion's key",
+			"kid", logKID(kid), "kid_length", len(kid))
+		return nil, &keyMiss{why: "the issuer does not publish the key the assertion names"}
 	}
 	return key, nil
 }
