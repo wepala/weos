@@ -52,6 +52,15 @@ func (m *keyMiss) Error() string { return m.why }
 //
 //   - A complete read is used for KeyListTTL without another read.
 //   - An assertion naming a key the cached list lacks triggers one read.
+//   - Reads caused that way are limited to one per missInterval, for the whole
+//     instance. Inside the interval, a key the fresh cached list lacks is
+//     refused as a kid miss with no read, so a stream of assertions naming
+//     invented keys cannot keep the instance reading the issuer's list. The
+//     first unknown key after the interval is read for as before, and the
+//     issuer publishes a key before it signs with one, so a rotation is
+//     accepted on its first assertion unless another unknown key caused a
+//     read in the interval before it. The limit applies only to a fresh list:
+//     an empty or aged list is read as usual.
 //   - A read that comes back short — failing, empty, or without the key that
 //     was asked for — fails only the request that caused it. It never
 //     replaces the cached keys and never restarts their clock. Replacing them
@@ -66,21 +75,33 @@ type keyList struct {
 	client *http.Client
 	now    func() time.Time
 	logger entities.Logger
+	// missInterval is the shortest time between two reads caused by a key the
+	// fresh cached list lacks.
+	missInterval time.Duration
 
 	mu     sync.RWMutex
 	keys   map[string]*ecdsa.PublicKey
 	readAt time.Time
+	// missReadAt is when a key the fresh cached list lacked last caused a read.
+	missReadAt time.Time
 
 	// fetchMu lets one read run at a time, so a burst of assertions naming a
 	// new key costs the issuer one read rather than one each.
 	fetchMu sync.Mutex
 }
 
-func (l *keyList) cached(kid string) (key *ecdsa.PublicKey, fresh bool) {
+// cached reports what the cached list says about kid without a read. throttled
+// is true when the list is fresh, lacks kid, and a miss already caused a read
+// less than missInterval ago.
+func (l *keyList) cached(kid string) (key *ecdsa.PublicKey, fresh, throttled bool) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	fresh = l.keys != nil && l.now().Sub(l.readAt) < KeyListTTL
-	return l.keys[kid], fresh
+	now := l.now()
+	fresh = l.keys != nil && now.Sub(l.readAt) < KeyListTTL
+	key = l.keys[kid]
+	throttled = fresh && key == nil &&
+		!l.missReadAt.IsZero() && now.Sub(l.missReadAt) < l.missInterval
+	return key, fresh, throttled
 }
 
 func (l *keyList) store(keys map[string]*ecdsa.PublicKey) {
@@ -90,16 +111,41 @@ func (l *keyList) store(keys map[string]*ecdsa.PublicKey) {
 	l.readAt = l.now()
 }
 
+// markMissRead starts the interval in which no other miss causes a read. It is
+// set before the read, so a read that fails still counts.
+func (l *keyList) markMissRead() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.missReadAt = l.now()
+}
+
+func (l *keyList) throttledMiss(kid string) error {
+	return &keyMiss{why: fmt.Sprintf(
+		"the issuer's key list does not hold key %q, and it was read for an unknown key less than %s ago",
+		kid, l.missInterval)}
+}
+
 func (l *keyList) key(ctx context.Context, kid string) (*ecdsa.PublicKey, error) {
-	if key, fresh := l.cached(kid); key != nil && fresh {
+	// A throttled refusal is not logged here: the caller logs every refusal,
+	// and a second line per invented kid would let the caller fill the log.
+	if key, fresh, throttled := l.cached(kid); key != nil && fresh {
 		return key, nil
+	} else if throttled {
+		return nil, l.throttledMiss(kid)
 	}
 	l.fetchMu.Lock()
 	defer l.fetchMu.Unlock()
 	// Another request may have completed a read while this one waited.
-	cachedKey, fresh := l.cached(kid)
+	cachedKey, fresh, throttled := l.cached(kid)
 	if cachedKey != nil && fresh {
 		return cachedKey, nil
+	}
+	if throttled {
+		return nil, l.throttledMiss(kid)
+	}
+	if fresh {
+		// The list is fresh and lacks kid, so this read is a miss's.
+		l.markMissRead()
 	}
 
 	fetched, err := l.fetch(ctx)

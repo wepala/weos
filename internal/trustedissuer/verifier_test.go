@@ -253,11 +253,18 @@ func oneConnectionPerRead() *http.Client {
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
+	return newFixtureWith(t, nil)
+}
+
+// newFixtureWith builds the fixture, letting a test change the verifier's
+// settings before the verifier is built.
+func newFixtureWith(t *testing.T, configure func(*trustedissuer.Config)) *fixture {
+	t.Helper()
 	door := newDoor(t)
 	door.publish(currentKey)
 	clock := newClock()
 	logs := &captureLogger{}
-	v := trustedissuer.NewVerifier(trustedissuer.Config{
+	cfg := trustedissuer.Config{
 		Issuer:     testIssuer,
 		JWKSURL:    door.server.URL + "/door/jwks.json",
 		Audience:   testAudience,
@@ -265,7 +272,11 @@ func newFixture(t *testing.T) *fixture {
 		HTTPClient: oneConnectionPerRead(),
 		Now:        clock.Now,
 		Logger:     logs,
-	})
+	}
+	if configure != nil {
+		configure(&cfg)
+	}
+	v := trustedissuer.NewVerifier(cfg)
 	return &fixture{door: door, clock: clock, logs: logs, verifier: v}
 }
 
@@ -683,6 +694,163 @@ func TestARefreshedKeyListRetiresAKeyTheIssuerDropped(t *testing.T) {
 	requireAccepted(t, err)
 	if got := f.door.fetches.Load(); got != 1 {
 		t.Fatalf("expected the complete refresh to be cached, got %d reads", got)
+	}
+}
+
+// --- reads caused by unknown key ids are limited ---
+
+func TestInventedKeyIDsInsideTheMissIntervalCauseOneRead(t *testing.T) {
+	t.Run("one after another", func(t *testing.T) {
+		f := newFixture(t)
+		f.prime(t)
+		for i := range 20 {
+			_, err := f.verify(f.door.sign(fmt.Sprintf("invented-%02d", i), f.good(t)))
+			requireReason(t, err, trustedissuer.ReasonKidMiss)
+			f.clock.Advance(time.Second) // 20 assertions across 20 seconds
+		}
+		if got := f.door.fetches.Load(); got != 1 {
+			t.Fatalf("expected one key-list read for 20 invented kids inside %s, got %d",
+				trustedissuer.KeyMissRefetchInterval, got)
+		}
+		// The cached key still answers, with no read.
+		_, err := f.verify(f.door.sign(currentKey, f.good(t)))
+		requireAccepted(t, err)
+		if got := f.door.fetches.Load(); got != 1 {
+			t.Fatalf("expected the cached key to answer without a read, got %d reads", got)
+		}
+	})
+
+	t.Run("all at once", func(t *testing.T) {
+		f := newFixture(t)
+		f.prime(t)
+		tokens := make([]string, 16)
+		for i := range tokens {
+			tokens[i] = f.door.sign(fmt.Sprintf("invented-%02d", i), f.good(t))
+		}
+		var wg sync.WaitGroup
+		for _, token := range tokens {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, err := f.verify(token)
+				var refusal *trustedissuer.Refusal
+				if !errors.As(err, &refusal) || refusal.Reason != trustedissuer.ReasonKidMiss {
+					t.Errorf("expected a kid-miss refusal, got %v", err)
+				}
+			}()
+		}
+		wg.Wait()
+		if got := f.door.fetches.Load(); got != 1 {
+			t.Fatalf("expected one key-list read for 16 concurrent invented kids, got %d", got)
+		}
+	})
+}
+
+func TestAKeyPublishedAfterTheMissIntervalIsAcceptedOnItsFirstAssertion(t *testing.T) {
+	for name, c := range map[string]struct {
+		configured time.Duration // 0 leaves the default
+		interval   time.Duration
+	}{
+		"default interval":   {interval: trustedissuer.KeyMissRefetchInterval},
+		"shortened interval": {configured: 5 * time.Second, interval: 5 * time.Second},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixtureWith(t, func(cfg *trustedissuer.Config) { cfg.KeyMissRefetchInterval = c.configured })
+			f.prime(t)
+
+			_, err := f.verify(f.door.sign("invented-01", f.good(t)))
+			requireReason(t, err, trustedissuer.ReasonKidMiss)
+			if got := f.door.fetches.Load(); got != 1 {
+				t.Fatalf("expected the first unknown kid to cause one read, got %d", got)
+			}
+
+			// Just inside the interval, an unknown kid causes no read.
+			f.clock.Advance(c.interval - time.Second)
+			_, err = f.verify(f.door.sign("invented-02", f.good(t)))
+			requireReason(t, err, trustedissuer.ReasonKidMiss)
+			if got := f.door.fetches.Load(); got != 1 {
+				t.Fatalf("expected no read inside the interval, got %d reads", got)
+			}
+
+			// Once the interval has passed, the issuer rotates: it publishes
+			// the new key, then signs with it.
+			f.clock.Advance(time.Second)
+			f.door.publish(currentKey, "door-2026-10")
+			_, err = f.verify(f.door.sign("door-2026-10", f.good(t)))
+			requireAccepted(t, err)
+			if got := f.door.fetches.Load(); got != 2 {
+				t.Fatalf("expected the rotated key to cause one read, got %d reads", got)
+			}
+		})
+	}
+}
+
+func TestAMissReadLackingTheKeyLeavesTheCacheUntouched(t *testing.T) {
+	f := newFixture(t)
+	f.prime(t) // the only complete read the cache holds, at t=0
+	f.door.publish("door-2026-12")
+
+	missUntouched := func(step string, wantReads int32) {
+		t.Helper()
+		_, err := f.verify(f.door.sign("door-2026-11", f.good(t)))
+		requireReason(t, err, trustedissuer.ReasonKidMiss)
+		if got := f.door.fetches.Load(); got != wantReads {
+			t.Fatalf("%s: expected %d reads after the unknown kid, got %d", step, wantReads, got)
+		}
+		_, err = f.verify(f.door.sign(currentKey, f.good(t)))
+		requireAccepted(t, err)
+		if got := f.door.fetches.Load(); got != wantReads {
+			t.Fatalf("%s: expected the cached key to answer without a read, got %d reads", step, got)
+		}
+	}
+
+	f.clock.Advance(time.Minute)
+	missUntouched("first miss", 1)
+	f.clock.Advance(10 * time.Second)
+	missUntouched("throttled miss", 1)
+	f.clock.Advance(trustedissuer.KeyMissRefetchInterval)
+	missUntouched("miss after the interval", 2)
+
+	// Ten minutes after the prime, not after either miss read: had a short
+	// read reset the clock, the cache would answer with no read.
+	f.clock.Advance(trustedissuer.KeyListTTL - time.Minute - 10*time.Second - trustedissuer.KeyMissRefetchInterval)
+	f.door.publish(currentKey)
+	_, err := f.verify(f.door.sign(currentKey, f.good(t)))
+	requireAccepted(t, err)
+	if got := f.door.fetches.Load(); got != 3 {
+		t.Fatalf("expected the aged cache to be read again (3 reads), got %d", got)
+	}
+}
+
+func TestTheKeyListTTLRefreshIgnoresTheMissThrottle(t *testing.T) {
+	for name, kid := range map[string]string{
+		"an assertion signed with a cached key":          currentKey,
+		"an assertion signed with a newly published key": "door-2026-10",
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			f.prime(t) // t=0
+
+			f.clock.Advance(trustedissuer.KeyListTTL - 15*time.Second) // 9m45s
+			_, err := f.verify(f.door.sign("invented-01", f.good(t)))
+			requireReason(t, err, trustedissuer.ReasonKidMiss)
+			f.clock.Advance(5 * time.Second)
+			_, err = f.verify(f.door.sign("invented-02", f.good(t)))
+			requireReason(t, err, trustedissuer.ReasonKidMiss)
+			if got := f.door.fetches.Load(); got != 1 {
+				t.Fatalf("expected the throttle to hold before the TTL, got %d reads", got)
+			}
+
+			// 10m05s: the cache has aged out while the throttle is still
+			// holding (20 s since the miss read).
+			f.clock.Advance(15 * time.Second)
+			f.door.publish(currentKey, "door-2026-10")
+			_, err = f.verify(f.door.sign(kid, f.good(t)))
+			requireAccepted(t, err)
+			if got := f.door.fetches.Load(); got != 2 {
+				t.Fatalf("expected the aged list to be refreshed, got %d reads", got)
+			}
+		})
 	}
 }
 

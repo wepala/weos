@@ -69,6 +69,10 @@ const (
 	// KeyListTTL is how long a complete read of the issuer's key list is used
 	// before it is read again.
 	KeyListTTL = 10 * time.Minute
+	// KeyMissRefetchInterval is the default for Config.KeyMissRefetchInterval:
+	// the shortest time between two reads of the key list caused by
+	// assertions naming a key the fresh cached list lacks.
+	KeyMissRefetchInterval = 30 * time.Second
 	// ReplayMemory is how long a presented jti is remembered. It outlives any
 	// assertion that could still be valid: MaxLifetime plus the allowance on
 	// both ends is two minutes.
@@ -124,6 +128,12 @@ type Config struct {
 	// OAuth registry keys.
 	Providers []string
 
+	// KeyMissRefetchInterval is the shortest time between two key-list reads
+	// caused by an unknown kid, instance-wide. Inside it, an assertion naming
+	// a key the fresh cached list lacks is refused as kid-miss with no read.
+	// Optional; zero or less means KeyMissRefetchInterval.
+	KeyMissRefetchInterval time.Duration
+
 	// HTTPClient reads the key list. Optional.
 	HTTPClient *http.Client
 	// Now is the instance's clock. Optional; time.Now.
@@ -162,6 +172,10 @@ func NewVerifier(cfg Config) *Verifier {
 	if logger == nil {
 		logger = nopLogger{}
 	}
+	missInterval := cfg.KeyMissRefetchInterval
+	if missInterval <= 0 {
+		missInterval = KeyMissRefetchInterval
+	}
 	providers := make(map[string]struct{}, len(cfg.Providers))
 	for _, p := range cfg.Providers {
 		providers[p] = struct{}{}
@@ -177,7 +191,10 @@ func NewVerifier(cfg Config) *Verifier {
 			gojwt.WithValidMethods([]string{gojwt.SigningMethodES256.Alg()}),
 			gojwt.WithoutClaimsValidation(),
 		),
-		keys:  &keyList{url: cfg.JWKSURL, client: client, now: now, logger: logger},
+		keys: &keyList{
+			url: cfg.JWKSURL, client: client, now: now, logger: logger,
+			missInterval: missInterval,
+		},
 		spent: newReplayMemory(),
 	}
 }
