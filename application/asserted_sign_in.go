@@ -81,6 +81,15 @@ type AssertedSignInConfig struct {
 	// instance has named its owners, so an email there says who a person is;
 	// an open instance lets anyone in, so an email there proves nothing.
 	LinkByEmail bool
+	// PasswordRegistrationOpen is set exactly when anyone may register a
+	// password account on the instance (PASSWORD_REGISTRATION_ENABLED).
+	// Registration verifies neither the email nor the allowlist, so a password
+	// credential's email is then whatever its registrant typed. Owner binding
+	// neither links to such a credential nor counts it: otherwise whoever
+	// registered the owner's email before the owner's first door sign-in would
+	// be handed the owner's identity and keep the password. Credentials from a
+	// provider that verified the email are unaffected.
+	PasswordRegistrationOpen bool
 }
 
 // AssertedSignIn decides whom a trusted issuer's accepted assertion signs in.
@@ -107,7 +116,9 @@ func NewAssertedSignIn(cfg AssertedSignInConfig) *AssertedSignIn {
 }
 
 // ProvideAssertedSignIn builds the AssertedSignIn the application wires, with
-// owner binding on exactly when the instance has an identity allowlist.
+// owner binding on exactly when the instance has an identity allowlist, and
+// password credentials left out of it exactly when password registration is
+// open.
 func ProvideAssertedSignIn(params struct {
 	fx.In
 	Config      config.Config
@@ -125,7 +136,8 @@ func ProvideAssertedSignIn(params struct {
 		Emails:      params.Emails,
 		EventStore:  params.EventStore,
 		Dispatcher:  params.Dispatcher,
-		LinkByEmail: len(params.Config.OAuth.AllowedEmails) > 0,
+		LinkByEmail:              len(params.Config.OAuth.AllowedEmails) > 0,
+		PasswordRegistrationOpen: params.Config.PasswordRegistrationEnabled,
 	})
 }
 
@@ -182,21 +194,27 @@ func (s *AssertedSignIn) SignIn(ctx context.Context, id AssertedIdentity) (Asser
 }
 
 // ownerOf returns the one person holding a credential for email, "" when
-// nobody does, or ErrAmbiguousOwner when more than one person does. A
-// credential whose person no longer exists names nobody.
+// nobody does, or ErrAmbiguousOwner when more than one person does. Only a
+// credential that provesOwnership counts, and only for a person who still
+// exists and is active: a person who is gone or turned off owns nothing.
 func (s *AssertedSignIn) ownerOf(ctx context.Context, email string) (string, error) {
-	agentIDs, err := s.cfg.Emails.AgentIDsByEmail(ctx, email)
+	matches, err := s.cfg.Emails.CredentialsByEmail(ctx, email)
 	if err != nil {
 		return "", fmt.Errorf("look up the owner of the asserted email: %w", err)
 	}
 	var owners []string
-	for _, agentID := range agentIDs {
-		agent, err := s.cfg.Agents.FindByID(ctx, agentID)
+	seen := map[string]bool{}
+	for _, m := range matches {
+		if seen[m.AgentID] || !s.provesOwnership(m) {
+			continue
+		}
+		seen[m.AgentID] = true
+		agent, err := s.cfg.Agents.FindByID(ctx, m.AgentID)
 		if err != nil {
 			return "", fmt.Errorf("read a person holding the asserted email: %w", err)
 		}
-		if agent != nil {
-			owners = append(owners, agentID)
+		if agent != nil && agent.Active() {
+			owners = append(owners, m.AgentID)
 		}
 	}
 	switch len(owners) {
@@ -207,6 +225,17 @@ func (s *AssertedSignIn) ownerOf(ctx context.Context, email string) (string, err
 	default:
 		return "", fmt.Errorf("%w (%d people)", ErrAmbiguousOwner, len(owners))
 	}
+}
+
+// provesOwnership reports whether a credential holding the asserted email may
+// say who owns it. An inactive credential may not: a sign-in method someone
+// turned off must not come back through the door. Nor may a password
+// credential while anyone may register one (see PasswordRegistrationOpen).
+func (s *AssertedSignIn) provesOwnership(m repositories.CredentialEmailMatch) bool {
+	if !m.Active {
+		return false
+	}
+	return m.Provider != entities.ProviderPassword || !s.cfg.PasswordRegistrationOpen
 }
 
 // link stores a credential for the identity against the owner, recording its

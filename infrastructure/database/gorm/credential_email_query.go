@@ -36,28 +36,37 @@ func ProvideCredentialEmailQuery(db *gorm.DB) repositories.CredentialEmailQuery 
 	return &CredentialEmailQuery{db: db}
 }
 
-// AgentIDsByEmail implements repositories.CredentialEmailQuery.
+// CredentialsByEmail implements repositories.CredentialEmailQuery.
 //
 // LOWER(TRIM(email)) cannot use pericarp's email index. The table holds a
 // handful of rows per person and is read here once per first sign-in of an
 // identity the instance has never seen, so a scan is the honest trade against
 // adding an index to a table core does not own.
-func (q *CredentialEmailQuery) AgentIDsByEmail(ctx context.Context, email string) ([]string, error) {
+func (q *CredentialEmailQuery) CredentialsByEmail(ctx context.Context, email string) ([]repositories.CredentialEmailMatch, error) {
 	normalized := strings.ToLower(strings.TrimSpace(email))
 	if normalized == "" {
 		return nil, nil
 	}
-	var agentIDs []string
+	var rows []struct {
+		AgentID  string
+		Provider string
+		Active   bool
+	}
 	// Queried by table name rather than through a model: credentials is
 	// pericarp's projection, and core reads it without taking ownership of the
 	// struct that defines it.
 	err := q.db.WithContext(ctx).
 		Table("credentials").
+		Select("agent_id, provider, active").
 		Where("LOWER(TRIM(email)) = ?", normalized).
-		Distinct().
-		Pluck("agent_id", &agentIDs).Error
+		Order("agent_id, provider").
+		Scan(&rows).Error
 	if err != nil {
-		return nil, fmt.Errorf("failed to find the people holding a credential for an email: %w", err)
+		return nil, fmt.Errorf("failed to find the credentials holding an email: %w", err)
 	}
-	return agentIDs, nil
+	matches := make([]repositories.CredentialEmailMatch, 0, len(rows))
+	for _, r := range rows {
+		matches = append(matches, repositories.CredentialEmailMatch{AgentID: r.AgentID, Provider: r.Provider, Active: r.Active})
+	}
+	return matches, nil
 }

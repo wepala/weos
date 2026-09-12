@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wepala/weos/v3/domain/repositories"
+
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
 	"github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
@@ -168,32 +170,77 @@ func (r storeAgents) FindByID(_ context.Context, id string) (*entities.Agent, er
 
 type storeEmails struct{ s *memoryAuthStore }
 
-func (q storeEmails) AgentIDsByEmail(_ context.Context, email string) ([]string, error) {
+func (q storeEmails) CredentialsByEmail(_ context.Context, email string) ([]repositories.CredentialEmailMatch, error) {
 	q.s.mu.Lock()
 	defer q.s.mu.Unlock()
 	if q.s.emailsErr != nil {
 		return nil, q.s.emailsErr
 	}
 	normalized := strings.ToLower(strings.TrimSpace(email))
-	seen := map[string]bool{}
-	var ids []string
+	var matches []repositories.CredentialEmailMatch
 	for _, c := range q.s.creds {
-		if strings.ToLower(strings.TrimSpace(c.Email())) == normalized && !seen[c.AgentID()] {
-			seen[c.AgentID()] = true
-			ids = append(ids, c.AgentID())
+		if strings.ToLower(strings.TrimSpace(c.Email())) == normalized {
+			matches = append(matches, repositories.CredentialEmailMatch{
+				AgentID: c.AgentID(), Provider: c.Provider(), Active: c.Active(),
+			})
 		}
 	}
-	return ids, nil
+	return matches, nil
+}
+
+// deactivateCredential turns off the credential for (provider, sub), as an
+// operator turning off one sign-in method would.
+func (s *memoryAuthStore) deactivateCredential(t *testing.T, provider, sub string) {
+	t.Helper()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cred := s.findByProvider(provider, sub)
+	if cred == nil {
+		t.Fatalf("no credential for %s %s to deactivate", provider, sub)
+	}
+	if err := cred.Deactivate(); err != nil {
+		t.Fatalf("deactivate credential: %v", err)
+	}
+}
+
+// deactivateAgent turns the person off.
+func (s *memoryAuthStore) deactivateAgent(t *testing.T, agentID string) {
+	t.Helper()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	agent := s.agents[agentID]
+	if agent == nil {
+		t.Fatalf("no agent %s to deactivate", agentID)
+	}
+	if err := agent.Deactivate(); err != nil {
+		t.Fatalf("deactivate agent: %v", err)
+	}
 }
 
 func newTestAssertedSignIn(s *memoryAuthStore, linkByEmail bool) *AssertedSignIn {
-	return NewAssertedSignIn(AssertedSignInConfig{
+	return newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) { cfg.LinkByEmail = linkByEmail })
+}
+
+// newTestAssertedSignInWith builds the service over the store, letting a test
+// change the configuration first.
+func newTestAssertedSignInWith(s *memoryAuthStore, configure func(*AssertedSignInConfig)) *AssertedSignIn {
+	cfg := AssertedSignInConfig{
 		Auth:        storeAuth{s: s},
 		Credentials: storeCredentials{s: s},
 		Agents:      storeAgents{s: s},
 		Emails:      storeEmails{s: s},
-		LinkByEmail: linkByEmail,
-	})
+	}
+	configure(&cfg)
+	return NewAssertedSignIn(cfg)
+}
+
+// allowlisted configures an allowlisted instance, with password registration
+// open or not.
+func allowlisted(registrationOpen bool) func(*AssertedSignInConfig) {
+	return func(cfg *AssertedSignInConfig) {
+		cfg.LinkByEmail = true
+		cfg.PasswordRegistrationOpen = registrationOpen
+	}
 }
 
 func dana(provider, sub string) AssertedIdentity {
@@ -330,6 +377,95 @@ func TestAssertedSignInPassesOverACredentialWhosePersonIsGone(t *testing.T) {
 	}
 	if !got.NewAccount || s.createCount() != 1 {
 		t.Fatalf("a credential with no person behind it was linked: new=%v creates=%d", got.NewAccount, s.createCount())
+	}
+}
+
+// The capture: registration is open on an allowlisted instance, and someone
+// registers the owner's email with a password before the owner's first sign-in
+// through the door.
+func TestAssertedSignInNeverHandsAnOwnersIdentityToAPasswordAccountAnyoneCouldRegister(t *testing.T) {
+	s := newMemoryAuthStore()
+	s.seedPerson(t, "agent-registrant", "ops", "password", "ops@harborlegal.example", "ops@harborlegal.example")
+
+	owner := AssertedIdentity{Provider: "google", Subject: "117590246813570924368", Email: "ops@harborlegal.example", Name: "Harbor Ops"}
+	got, err := newTestAssertedSignInWith(s, allowlisted(true)).SignIn(context.Background(), owner)
+	if err != nil {
+		t.Fatalf("SignIn: %v", err)
+	}
+	if got.Agent.GetID() == "agent-registrant" {
+		t.Fatalf("the owner's door sign-in reached the self-registered password account")
+	}
+	if !got.NewAccount || s.createCount() != 1 {
+		t.Fatalf("want a new person: new=%v creates=%d", got.NewAccount, s.createCount())
+	}
+	if linked := s.credentialFor("google", "117590246813570924368"); linked == nil || linked.AgentID() == "agent-registrant" {
+		t.Fatalf("the owner's identity is stored against %v, want the new person", linked)
+	}
+}
+
+func TestAssertedSignInLinksAPasswordOwnerWhenOnlyTheOperatorCanRegister(t *testing.T) {
+	s := newMemoryAuthStore()
+	s.seedPerson(t, "agent-ops", "ops", "password", "ops@harborlegal.example", "ops@harborlegal.example")
+
+	owner := AssertedIdentity{Provider: "google", Subject: "117590246813570924368", Email: "ops@harborlegal.example", Name: "Harbor Ops"}
+	got, err := newTestAssertedSignInWith(s, allowlisted(false)).SignIn(context.Background(), owner)
+	if err != nil {
+		t.Fatalf("SignIn: %v", err)
+	}
+	if got.NewAccount || got.Agent.GetID() != "agent-ops" || s.createCount() != 0 {
+		t.Fatalf("want a link to agent-ops: agent=%s new=%v creates=%d", got.Agent.GetID(), got.NewAccount, s.createCount())
+	}
+}
+
+func TestAssertedSignInStillLinksAProviderCredentialWhilePasswordRegistrationIsOpen(t *testing.T) {
+	s := newMemoryAuthStore()
+	s.seedPerson(t, "agent-dana", "Dana Whitfield", "google", googleSub, "dana.whitfield@harborlegal.example")
+	// A registrant holding the same email is not counted, so it neither
+	// captures the owner nor makes the owner ambiguous.
+	s.seedPerson(t, "agent-registrant", "dana", "password", "dana.whitfield@harborlegal.example", "dana.whitfield@harborlegal.example")
+
+	got, err := newTestAssertedSignInWith(s, allowlisted(true)).SignIn(context.Background(), dana("apple", appleSub))
+	if err != nil {
+		t.Fatalf("SignIn: %v", err)
+	}
+	if got.NewAccount || got.Agent.GetID() != "agent-dana" {
+		t.Fatalf("want a link to agent-dana: agent=%s new=%v", got.Agent.GetID(), got.NewAccount)
+	}
+}
+
+func TestAssertedSignInPassesOverWhatWasTurnedOff(t *testing.T) {
+	turnOff := map[string]func(t *testing.T, s *memoryAuthStore){
+		"an inactive credential": func(t *testing.T, s *memoryAuthStore) { s.deactivateCredential(t, "google", googleSub) },
+		"an inactive person":     func(t *testing.T, s *memoryAuthStore) { s.deactivateAgent(t, "agent-dana-old") },
+	}
+	for name, off := range turnOff {
+		t.Run(name+" is not linked", func(t *testing.T) {
+			s := newMemoryAuthStore()
+			s.seedPerson(t, "agent-dana-old", "Dana Whitfield", "google", googleSub, "dana.whitfield@harborlegal.example")
+			off(t, s)
+
+			got, err := newTestAssertedSignIn(s, true).SignIn(context.Background(), dana("apple", appleSub))
+			if err != nil {
+				t.Fatalf("SignIn: %v", err)
+			}
+			if got.Agent.GetID() == "agent-dana-old" || !got.NewAccount {
+				t.Fatalf("what was turned off was linked back: agent=%s new=%v", got.Agent.GetID(), got.NewAccount)
+			}
+		})
+		t.Run(name+" does not make the owner ambiguous", func(t *testing.T) {
+			s := newMemoryAuthStore()
+			s.seedPerson(t, "agent-dana-old", "Dana Whitfield", "google", googleSub, "dana.whitfield@harborlegal.example")
+			s.seedPerson(t, "agent-dana", "Dana Whitfield", "password", "dana.whitfield@harborlegal.example", "dana.whitfield@harborlegal.example")
+			off(t, s)
+
+			got, err := newTestAssertedSignIn(s, true).SignIn(context.Background(), dana("apple", appleSub))
+			if err != nil {
+				t.Fatalf("SignIn: %v", err)
+			}
+			if got.NewAccount || got.Agent.GetID() != "agent-dana" {
+				t.Fatalf("want a link to the one active owner: agent=%s new=%v", got.Agent.GetID(), got.NewAccount)
+			}
+		})
 	}
 }
 

@@ -141,6 +141,21 @@ fleet's single-user shape), an existing credential whose normalized email equals
 claim's email is linked to the new `(provider, sub)` instead of a second agent being
 created. Otherwise create, as today.
 
+Two kinds of credential never say who owns an email. Binding neither links to them nor
+counts them toward `ambiguous-owner`:
+
+- **A password credential while `PASSWORD_REGISTRATION_ENABLED` is on.** Open
+  registration checks neither the email nor the allowlist, so a password credential's
+  email is whatever its registrant typed. If binding linked to one, a person who
+  registers the owner's email before the owner's first door sign-in would receive the
+  owner's identity, and would keep the password. With registration off, only the
+  operator makes password accounts, and a password credential links like any other.
+  Credentials from a provider that verified the email (`google`, `apple`, `netsuite`)
+  link in both cases.
+- **An inactive credential, or any credential of an inactive person** (pericarp's
+  `Active` flag). A sign-in method or a person that someone turned off must not come
+  back through the door.
+
 **Response.** The `/auth/password-login` shape — `{agent, account, token, expires_at}`
 plus the JWT session cookie — with one added boolean, `new_account`, true when this call
 created the agent. (The OAuth callback signals the same fact as a `?new_account=1`
