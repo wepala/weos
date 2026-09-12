@@ -80,6 +80,11 @@ type OAuthConfig struct {
 	// verified email is in this list (case-insensitive). The /oauth/callback
 	// rejects anyone else before an account is created; empty (the default)
 	// allows any authenticated user. Set via OAUTH_ALLOWED_EMAILS (comma-separated).
+	//
+	// The same list, compared the same way, governs a trusted issuer's login
+	// assertions (POST /api/auth/assert, see Config.TrustedIssuer): an
+	// assertion whose email is not on it is refused 401 with the reason
+	// allowlist, and nobody is created, signed in or linked.
 	AllowedEmails []string
 
 	// DefaultProvider is the provider used by /api/auth/login when the
@@ -132,7 +137,14 @@ type Config struct {
 	// Server holds configuration for the HTTP server.
 	Server ServerConfig
 
-	// SessionSecret is the secret key for session cookies.
+	// SessionSecret is the secret key for session cookies (SESSION_SECRET).
+	//
+	// A deployed instance must set its own. Core's default,
+	// "change-me-in-production", is public, so a session cookie signed with it
+	// can be forged; and serve turns the Secure flag off on the session and
+	// token cookies while the default is in use. A fleet instance behind a
+	// trusted issuer (see TrustedIssuer) is no exception: each instance runs
+	// with its own SESSION_SECRET.
 	SessionSecret string
 
 	// PasswordAuthEnabled toggles the email + password login endpoint.
@@ -160,8 +172,29 @@ type Config struct {
 	// OAuth holds configuration for OAuth authentication.
 	OAuth OAuthConfig
 
-	// TrustedIssuer names the one service whose signed login assertions this
-	// instance accepts at POST /api/auth/assert. See TrustedIssuerConfig.
+	// TrustedIssuer names the one service — a fleet's front door — whose
+	// signed login assertions this instance accepts at POST /api/auth/assert.
+	// Three keys configure it, and all three are needed:
+	//
+	//   - TRUSTED_ISSUER: the exact iss an assertion carries, and the door's
+	//     host. GET /api/auth/providers offers it as the provider "issuer"
+	//     with the login_url <TRUSTED_ISSUER>/door/start (a trailing slash on
+	//     the issuer is trimmed), so a person whose session expired is sent
+	//     back to the door.
+	//   - TRUSTED_ISSUER_JWKS_URL: where the issuer publishes its signing keys;
+	//     https, or http to a loopback host.
+	//   - TRUSTED_ISSUER_AUDIENCE: the exact aud an assertion carries — this
+	//     one instance's own id, never shared with another instance.
+	//
+	// With none set, the instance has no assertion route and offers no issuer
+	// provider. With one or two set, boot logs one warning naming the missing
+	// keys, mounts nothing and offers no issuer provider. OAUTH_ALLOWED_EMAILS
+	// applies to assertions as it applies to OAuth sign-in (see
+	// OAuthConfig.AllowedEmails).
+	//
+	// A fleet instance must also set its own SESSION_SECRET: see
+	// SessionSecret. See TrustedIssuerConfig and
+	// docs/decisions/trusted-issuer-login-assertion.md.
 	TrustedIssuer TrustedIssuerConfig
 
 	// SMTP holds configuration for outbound email.
