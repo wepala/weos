@@ -71,6 +71,20 @@ and mounts nothing.
 through the proxy — the door never calls it server-side — so the instance's `Set-Cookie`
 lands in the browser exactly as it does for `/auth/password-login`.
 
+- **A request from another site is refused before the assertion is read.** An assertion
+  signs in whoever posts it. A page on another site that holds a valid assertion for this
+  audience could otherwise post it from a victim's browser and sign that browser in as
+  someone else (login CSRF). A browser marks what it sends, so:
+  - when the request carries `Sec-Fetch-Site`, it must be `same-origin`;
+  - when it carries `Origin`, that must be exactly one origin, and it must be the trusted
+    issuer's origin (the door serves the instance on its own origin) or the instance's
+    public origin (`BASE_URL`, or the address serve derives when it is unset).
+
+  Otherwise the answer is **403** with the code `cross-site`. The body is not read, so the
+  assertion's `jti` is not spent, and the warning names the reason and at most the
+  request's normalized origin. A request with neither header comes from a client that is
+  not a browser, which no other site can drive, and is not affected.
+
 **Verification.** ES256 signature against the issuer's JWKS; `iss` equals
 `TRUSTED_ISSUER`, where trailing slashes on either side do not count; `aud` is exactly one
 value and equals `TRUSTED_ISSUER_AUDIENCE`.
@@ -105,8 +119,9 @@ body and log line carry a machine-readable reason: `signature`, `kid-miss`,
 `keys-unreachable`, `iss`, `aud`, `expired`, `window`, `jti-replay`, `claims`,
 `allowlist`. An accepted assertion can still be refused when owner binding cannot tell
 whose identity it is: that answer is **409**, not 401, with the code `ambiguous-owner` or
-`unproven-owner` (see "Owner binding"). A refusal's body and log line never carry the
-assertion. The `kid` in its
+`unproven-owner` (see "Owner binding"). A request from another site is refused before its
+assertion is read: that answer is **403** with the code `cross-site` (see "Request"). A
+refusal's body and log line never carry the assertion. The `kid` in its
 header is chosen by the caller, so it never reaches a refusal's text and reaches a log
 line only as its first 16 characters, in printable ASCII. A request body over 16 KiB is
 answered 413 before any of it is read; that is not a refusal and carries no reason.

@@ -18,7 +18,9 @@ package handlers
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -53,6 +55,12 @@ const CodeAmbiguousOwner = application.ReasonAmbiguousOwner
 // proves who owns it, so the sign-in can neither link nor create.
 const CodeUnprovenOwner = application.ReasonUnprovenOwner
 
+// CodeCrossSite is the code of the refusal answered, 403, when a browser
+// posts to POST /auth/assert from another site: its Sec-Fetch-Site is not
+// same-origin, or its Origin is neither the instance's public origin nor the
+// trusted issuer's. The body is not read, so the assertion's jti is not spent.
+const CodeCrossSite = "cross-site"
+
 // TrustedIssuerHandlerConfig wires the login-assertion endpoint.
 type TrustedIssuerHandlerConfig struct {
 	Verifier AssertionVerifier
@@ -62,17 +70,29 @@ type TrustedIssuerHandlerConfig struct {
 	// indistinguishable to everything downstream.
 	Sessions *PasswordAuthHandler
 	Logger   entities.Logger
+	// AllowedOrigins are the addresses whose origins (scheme and host, with a
+	// port other than the scheme's default) a browser may post an assertion
+	// from. A request that carries an Origin header outside them is refused as
+	// cross-site; with none, only a request with no Origin header passes.
+	AllowedOrigins []string
 }
 
 // TrustedIssuerHandler answers POST /auth/assert: a person the fleet's front
 // door has already verified signs in with the door's signed statement.
 type TrustedIssuerHandler struct {
-	cfg TrustedIssuerHandlerConfig
+	cfg     TrustedIssuerHandlerConfig
+	origins map[string]struct{}
 }
 
 // NewTrustedIssuerHandler builds the handler.
 func NewTrustedIssuerHandler(cfg TrustedIssuerHandlerConfig) *TrustedIssuerHandler {
-	return &TrustedIssuerHandler{cfg: cfg}
+	origins := make(map[string]struct{}, len(cfg.AllowedOrigins))
+	for _, address := range cfg.AllowedOrigins {
+		if origin := originOf(address); origin != "" {
+			origins[origin] = struct{}{}
+		}
+	}
+	return &TrustedIssuerHandler{cfg: cfg, origins: origins}
 }
 
 // TrustedIssuerAssertionDeps is what the assertion route takes from the
@@ -83,6 +103,11 @@ type TrustedIssuerAssertionDeps struct {
 	// asserted sign-in completes exactly as a password sign-in does.
 	Sessions *PasswordAuthHandler
 	Logger   entities.Logger
+	// PublicBaseURL is the instance's own public address: BASE_URL, or the
+	// address serve derives when it is unset. A browser on the instance's own
+	// origin may post an assertion, beside one on the trusted issuer's origin.
+	// Optional; without it only the trusted issuer's origin is allowed.
+	PublicBaseURL string
 	// Now is the verifier's clock. Optional; time.Now. The acceptance tests
 	// set it so a scenario can move time without waiting for it.
 	Now func() time.Time
@@ -91,7 +116,9 @@ type TrustedIssuerAssertionDeps struct {
 // NewTrustedIssuerAssertionHandler builds the handler POST /auth/assert serves:
 // a verifier for the configured issuer, key list and audience that accepts
 // core's OAuth registry keys as providers and enforces allowedEmails — the
-// instance's OAUTH_ALLOWED_EMAILS, empty for none — wired to deps.
+// instance's OAUTH_ALLOWED_EMAILS, empty for none — wired to deps. A browser
+// may post to it from the trusted issuer's origin, where the door serves the
+// instance, or from deps.PublicBaseURL's.
 //
 // The allowlist is a parameter rather than a field of deps so that no caller
 // can build the route and forget it: a forgotten allowlist would admit
@@ -114,9 +141,10 @@ func NewTrustedIssuerAssertionHandler(
 			Now:           deps.Now,
 			Logger:        deps.Logger,
 		}),
-		SignIn:   deps.SignIn,
-		Sessions: deps.Sessions,
-		Logger:   deps.Logger,
+		SignIn:         deps.SignIn,
+		Sessions:       deps.Sessions,
+		Logger:         deps.Logger,
+		AllowedOrigins: []string{settings.IssuerID(), deps.PublicBaseURL},
 	})
 }
 
@@ -137,11 +165,18 @@ const AssertBodyLimit = 16 << 10
 // code, and logged by that reason. The assertion itself is never logged: for
 // the minute it is valid it is a bearer credential.
 //
-// A body larger than AssertBodyLimit is not an assertion refusal: it is
-// answered 413, with no reason, and the verifier never sees it.
+// A request from another site is refused first, 403 cross-site, before the
+// body is read (see crossSite). A body larger than AssertBodyLimit is not an
+// assertion refusal: it is answered 413, with no reason, and the verifier
+// never sees it.
 func (h *TrustedIssuerHandler) Assert(c echo.Context) error {
 	ctx := c.Request().Context()
 	httpReq := c.Request()
+	if why := h.crossSite(httpReq); why != "" {
+		h.cfg.Logger.Warn(ctx, "trusted issuer login assertion refused before it was read: the request came from another site",
+			"reason", CodeCrossSite, "detail", why)
+		return respondErrorCode(c, http.StatusForbidden, "login assertion refused: "+CodeCrossSite, CodeCrossSite)
+	}
 	if httpReq.ContentLength > AssertBodyLimit {
 		return h.tooLarge(c)
 	}
@@ -191,6 +226,67 @@ func (h *TrustedIssuerHandler) Assert(c echo.Context) error {
 		func(answer authSuccessResponse) any {
 			return assertSuccessResponse{authSuccessResponse: answer, NewAccount: result.NewAccount}
 		})
+}
+
+// crossSite says why a request came from another site, or "" when it did not.
+//
+// An assertion signs in whoever posts it, so a page on another site that holds
+// a valid assertion for this audience could post it from a victim's browser
+// and sign that browser in as someone else (login CSRF). A browser marks what
+// it sends: Sec-Fetch-Site on every request, and Origin on every POST. The
+// door serves the instance on the door's own origin, so the browser posts the
+// assertion same-origin. A request with neither header is not a browser
+// another site can drive, and passes.
+//
+// The detail is a fixed phrase plus, at most, the normalized origin: no other
+// header text reaches the log.
+func (h *TrustedIssuerHandler) crossSite(r *http.Request) string {
+	if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" {
+		switch site {
+		case "cross-site", "same-site", "none":
+			return "the browser marks the request " + site + ", not same-origin"
+		default:
+			return "the request's Sec-Fetch-Site is not same-origin"
+		}
+	}
+	values := r.Header.Values("Origin")
+	if len(values) == 0 {
+		return ""
+	}
+	if len(values) > 1 {
+		return "the request carries more than one Origin"
+	}
+	origin := originOf(values[0])
+	if origin == "" {
+		return "the request's Origin is not an http or https origin"
+	}
+	if _, ok := h.origins[origin]; !ok {
+		return "the request's Origin " + origin + " is neither this instance's nor the trusted issuer's"
+	}
+	return ""
+}
+
+// originOf is the origin of an address or of an Origin header's value — the
+// lower-case scheme and host, with the scheme's default port dropped — or ""
+// when it has none. "null", the Origin an opaque or sandboxed page sends, has
+// none.
+func originOf(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" || u.Hostname() == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		return ""
+	}
+	host := strings.ToLower(u.Hostname())
+	port := u.Port()
+	if (u.Scheme == "https" && port == "443") || (u.Scheme == "http" && port == "80") {
+		port = ""
+	}
+	switch {
+	case port != "":
+		host = net.JoinHostPort(host, port)
+	case strings.Contains(host, ":"):
+		host = "[" + host + "]"
+	}
+	return u.Scheme + "://" + host
 }
 
 // assertSuccessResponse is password sign-in's answer plus new_account. The

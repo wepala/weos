@@ -326,30 +326,8 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 			"remedy", "set PASSWORD_AUTH_ENABLED=true as well")
 	}
 
-	// Login asserted by a trusted issuer — a fleet's front door that has
-	// already verified the person. Public for the same reason as the password
-	// routes: the caller has no session yet. Mounted only when
-	// TRUSTED_ISSUER, TRUSTED_ISSUER_JWKS_URL and TRUSTED_ISSUER_AUDIENCE are
-	// all set and SESSION_SECRET is not core's public default; a partial set
-	// warns at boot and mounts nothing, and the default secret logs an error
-	// and mounts nothing. See docs/decisions/trusted-issuer-login-assertion.md.
-	handlers.MountTrustedIssuerAssertion(context.Background(), api, appCfg, logger,
-		func() *handlers.TrustedIssuerHandler {
-			return handlers.NewTrustedIssuerAssertionHandler(appCfg.TrustedIssuer, appCfg.OAuth.AllowedEmails, handlers.TrustedIssuerAssertionDeps{
-				SignIn:   assertedSignIn,
-				Sessions: passwordAuthHandlers,
-				Logger:   logger,
-			})
-		})
-
-	// Logout must clear BOTH the gorilla session (pericarp Logout) AND the
-	// JWT cookie issued by the password and OAuth flows. Routing through
-	// the password handler so a single endpoint is correct for both flows.
-	api.POST("/auth/logout", func(c echo.Context) error {
-		return passwordAuthHandlers.Logout(c, authHandlers.Logout)
-	})
-
-	// Derive a public base URL for OAuth metadata, JWT issuer, and bearer auth.
+	// Derive a public base URL for OAuth metadata, JWT issuer, and bearer auth,
+	// and for the origin a browser may post a login assertion from.
 	baseURL := strings.TrimRight(appCfg.OAuth.BaseURL, "/")
 	if baseURL == "" {
 		host := appCfg.Server.Host
@@ -361,6 +339,32 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 		hostPort := net.JoinHostPort(host, strconv.Itoa(appCfg.Server.Port))
 		baseURL = "http://" + hostPort
 	}
+
+	// Login asserted by a trusted issuer — a fleet's front door that has
+	// already verified the person. Public for the same reason as the password
+	// routes: the caller has no session yet. Mounted only when
+	// TRUSTED_ISSUER, TRUSTED_ISSUER_JWKS_URL and TRUSTED_ISSUER_AUDIENCE are
+	// all set and SESSION_SECRET is not core's public default; a partial set
+	// warns at boot and mounts nothing, and the default secret logs an error
+	// and mounts nothing. A browser may post to it only from the trusted
+	// issuer's origin or this instance's (baseURL). See
+	// docs/decisions/trusted-issuer-login-assertion.md.
+	handlers.MountTrustedIssuerAssertion(context.Background(), api, appCfg, logger,
+		func() *handlers.TrustedIssuerHandler {
+			return handlers.NewTrustedIssuerAssertionHandler(appCfg.TrustedIssuer, appCfg.OAuth.AllowedEmails, handlers.TrustedIssuerAssertionDeps{
+				SignIn:        assertedSignIn,
+				Sessions:      passwordAuthHandlers,
+				Logger:        logger,
+				PublicBaseURL: baseURL,
+			})
+		})
+
+	// Logout must clear BOTH the gorilla session (pericarp Logout) AND the
+	// JWT cookie issued by the password and OAuth flows. Routing through
+	// the password handler so a single endpoint is correct for both flows.
+	api.POST("/auth/logout", func(c echo.Context) error {
+		return passwordAuthHandlers.Logout(c, authHandlers.Logout)
+	})
 
 	// OAuth 2.1 endpoints for MCP remote auth (unprotected — they handle their own auth).
 	// Registered via e.Pre() so they run before the SPA static middleware,
