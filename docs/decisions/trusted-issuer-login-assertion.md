@@ -156,6 +156,44 @@ counts them toward `ambiguous-owner`:
   `Active` flag). A sign-in method or a person that someone turned off must not come
   back through the door.
 
+**What binding logs.** Each link, each person that a sign-in creates, and each
+`ambiguous-owner` refusal writes one structured log line. A link is logged at info and
+a refusal at error. A created person is logged at info, or at warn when the instance has
+an allowlist and another active person already exists: an instance with named owners
+rarely gains a second person on purpose, so that person is most likely an owner whom
+binding missed. Every line names the `provider` and the `agent_ids` it is about (the
+warning adds `other_agent_ids`), with a `sub_hash` and an `email_hash`. It never carries
+the subject or the email. A hash is the first 16 hexadecimal characters of the value's
+SHA-256, and the email is trimmed and lower-cased before it is hashed. To find the lines
+for an address, compute
+`printf '%s' 'ops@harborlegal.example' | shasum -a 256 | cut -c1-16` and search for it.
+
+**Where binding goes wrong.**
+
+- *A recycled email links to the person who held it before.* A credential keeps the
+  email it was created with, and a returning sign-in does not update it. Suppose an
+  organization gives a departed person's address to someone new, and the allowlist still
+  names it. The new holder's first door sign-in, with an identity the instance has never
+  seen, is then linked to the previous holder and reaches that person's data. The link's
+  log line names the person and the new identity. Before an address goes to someone
+  else, remove it from the allowlist or turn off the person who held it.
+- *An email that no credential holds creates a second person.* Binding compares the email
+  the door sends with the emails that credentials here already hold, so the door must
+  send the door-account email. Nothing matches, and a second, empty person is created,
+  when the door account itself was made with an Apple "Hide My Email" relay address, when
+  the person's Google email has changed since their credential was written, or when the
+  operator made the account under a different address. The warning above is the signal.
+  An allowlist entry that lets such a person in must equal the email on the owner's
+  existing credential.
+
+**Clearing `ambiguous-owner`.** The refusal's error line lists in `agent_ids` every
+active person who holds the email. Decide which of them is the owner. Then turn off every
+other one: the person, or each of that person's credentials that holds the email
+(pericarp's `Agent.Deactivate` and `Credential.Deactivate`, which record
+`Agent.Deactivated` and `Credential.Deactivated`). Inactive people and credentials are
+not counted, so the next sign-in links to the one person left. Core has no command for
+this yet; bead `wm-2bx2g` adds one.
+
 **Response.** The `/auth/password-login` shape — `{agent, account, token, expires_at}`
 plus the JWT session cookie — with one added boolean, `new_account`, true when this call
 created the agent. (The OAuth callback signals the same fact as a `?new_account=1`

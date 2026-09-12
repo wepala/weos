@@ -17,11 +17,15 @@ package application
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
+	weosentities "github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
 	"github.com/wepala/weos/v3/internal/config"
 
@@ -38,6 +42,10 @@ import (
 // an email that more than one person holds. Picking one of them would sign a
 // person in to someone else's data, so nothing is linked and nothing is made.
 var ErrAmbiguousOwner = errors.New("more than one person holds a credential for the asserted email")
+
+// ReasonAmbiguousOwner is the machine-readable reason an ErrAmbiguousOwner
+// refusal is logged and answered under.
+const ReasonAmbiguousOwner = "ambiguous-owner"
 
 // AssertedIdentity is the person a trusted issuer's accepted assertion names.
 type AssertedIdentity struct {
@@ -90,6 +98,9 @@ type AssertedSignInConfig struct {
 	// be handed the owner's identity and keep the password. Credentials from a
 	// provider that verified the email are unaffected.
 	PasswordRegistrationOpen bool
+	// Logger receives one line for each link, each person a sign-in creates
+	// and each ambiguous-owner refusal. Optional; without it nothing is logged.
+	Logger weosentities.Logger
 }
 
 // AssertedSignIn decides whom a trusted issuer's accepted assertion signs in.
@@ -112,6 +123,9 @@ type AssertedSignIn struct {
 
 // NewAssertedSignIn builds an AssertedSignIn.
 func NewAssertedSignIn(cfg AssertedSignInConfig) *AssertedSignIn {
+	if cfg.Logger == nil {
+		cfg.Logger = discardSignInLogs{}
+	}
 	return &AssertedSignIn{cfg: cfg}
 }
 
@@ -128,6 +142,7 @@ func ProvideAssertedSignIn(params struct {
 	Emails      repositories.CredentialEmailQuery
 	EventStore  esdomain.EventStore       `optional:"true"`
 	Dispatcher  *esdomain.EventDispatcher `optional:"true"`
+	Logger      weosentities.Logger       `optional:"true"`
 }) *AssertedSignIn {
 	return NewAssertedSignIn(AssertedSignInConfig{
 		Auth:        params.Auth,
@@ -136,6 +151,7 @@ func ProvideAssertedSignIn(params struct {
 		Emails:      params.Emails,
 		EventStore:  params.EventStore,
 		Dispatcher:  params.Dispatcher,
+		Logger:      params.Logger,
 		LinkByEmail:              len(params.Config.OAuth.AllowedEmails) > 0,
 		PasswordRegistrationOpen: params.Config.PasswordRegistrationEnabled,
 	})
@@ -158,7 +174,7 @@ func (s *AssertedSignIn) SignIn(ctx context.Context, id AssertedIdentity) (Asser
 	}
 	known := existing != nil
 	if !known && s.cfg.LinkByEmail {
-		owner, err := s.ownerOf(ctx, email)
+		owner, err := s.ownerOf(ctx, id, email)
 		if err != nil {
 			return AssertedSignInResult{}, err
 		}
@@ -166,6 +182,10 @@ func (s *AssertedSignIn) SignIn(ctx context.Context, id AssertedIdentity) (Asser
 			if err := s.link(ctx, owner, id); err != nil {
 				return AssertedSignInResult{}, err
 			}
+			// A link attaches a new way in to an existing person, so it is
+			// the one sign-in outcome an operator must be able to find later.
+			s.cfg.Logger.Info(ctx, "trusted issuer sign-in linked an identity the instance had not seen to the person holding its email",
+				identityFields(id, email, owner)...)
 			known = true
 		}
 	}
@@ -183,6 +203,9 @@ func (s *AssertedSignIn) SignIn(ctx context.Context, id AssertedIdentity) (Asser
 	if err != nil {
 		return AssertedSignInResult{}, fmt.Errorf("find or create the agent: %w", err)
 	}
+	if !known {
+		s.logCreated(ctx, id, email, agent.GetID())
+	}
 	return AssertedSignInResult{
 		Agent:      agent,
 		Credential: credential,
@@ -197,7 +220,7 @@ func (s *AssertedSignIn) SignIn(ctx context.Context, id AssertedIdentity) (Asser
 // nobody does, or ErrAmbiguousOwner when more than one person does. Only a
 // credential that provesOwnership counts, and only for a person who still
 // exists and is active: a person who is gone or turned off owns nothing.
-func (s *AssertedSignIn) ownerOf(ctx context.Context, email string) (string, error) {
+func (s *AssertedSignIn) ownerOf(ctx context.Context, id AssertedIdentity, email string) (string, error) {
 	matches, err := s.cfg.Emails.CredentialsByEmail(ctx, email)
 	if err != nil {
 		return "", fmt.Errorf("look up the owner of the asserted email: %w", err)
@@ -223,9 +246,99 @@ func (s *AssertedSignIn) ownerOf(ctx context.Context, email string) (string, err
 	case 1:
 		return owners[0], nil
 	default:
+		// Only an operator can say which of these people owns the identity,
+		// so the line names every one of them.
+		sort.Strings(owners)
+		s.cfg.Logger.Error(ctx, "trusted issuer sign-in refused: more than one person holds the asserted email, so nothing was linked or created",
+			append([]any{"reason", ReasonAmbiguousOwner}, identityFields(id, email, owners...)...)...)
 		return "", fmt.Errorf("%w (%d people)", ErrAmbiguousOwner, len(owners))
 	}
 }
+
+// logCreated writes the one line for a person a sign-in created. On an
+// allowlisted instance that already has another active person it is a
+// warning: an instance with named owners rarely gains a second person on
+// purpose, and the likelier story is an owner whose email the door sent
+// matches no credential here.
+func (s *AssertedSignIn) logCreated(ctx context.Context, id AssertedIdentity, email, agentID string) {
+	fields := identityFields(id, email, agentID)
+	if !s.cfg.LinkByEmail {
+		s.cfg.Logger.Info(ctx, "trusted issuer sign-in created a person", fields...)
+		return
+	}
+	others, err := s.otherPeople(ctx, agentID)
+	switch {
+	case err != nil:
+		s.cfg.Logger.Warn(ctx, "trusted issuer sign-in created a person on an allowlisted instance and could not tell whether another person already exists",
+			append(fields, "error", err.Error())...)
+	case len(others) > 0:
+		s.cfg.Logger.Warn(ctx, "trusted issuer sign-in created a person on an allowlisted instance that already has one; if this is the owner, the email the door sent matches no credential here",
+			append(fields, "other_agent_ids", strings.Join(others, ","))...)
+	default:
+		s.cfg.Logger.Info(ctx, "trusted issuer sign-in created a person", fields...)
+	}
+}
+
+// otherPeopleShown is the most other people a created-person warning names.
+const otherPeopleShown = 5
+
+// otherPeople returns up to otherPeopleShown active people other than except.
+func (s *AssertedSignIn) otherPeople(ctx context.Context, except string) ([]string, error) {
+	var others []string
+	cursor := ""
+	for {
+		page, err := s.cfg.Agents.FindAll(ctx, cursor, 100)
+		if err != nil {
+			return nil, fmt.Errorf("list the people on the instance: %w", err)
+		}
+		if page == nil {
+			return others, nil
+		}
+		for _, agent := range page.Data {
+			if agent == nil || agent.GetID() == except || !agent.Active() || agent.AgentType() != entities.AgentTypePerson {
+				continue
+			}
+			others = append(others, agent.GetID())
+			if len(others) == otherPeopleShown {
+				return others, nil
+			}
+		}
+		if !page.HasMore || page.Cursor == "" || page.Cursor == cursor {
+			return others, nil
+		}
+		cursor = page.Cursor
+	}
+}
+
+// identityFields are the fields every owner-binding log line carries: the
+// provider, the people the line is about, and hashes of the subject and the
+// normalized email. Never the subject or the email themselves: a log line
+// outlives the sign-in, and the pair names a person.
+func identityFields(id AssertedIdentity, email string, agentIDs ...string) []any {
+	return []any{
+		"provider", id.Provider,
+		"sub_hash", logHash(id.Subject),
+		"email_hash", logHash(email),
+		"agent_ids", strings.Join(agentIDs, ","),
+	}
+}
+
+// logHash is the first 16 hexadecimal characters of value's SHA-256. An
+// operator who suspects an address computes the same and searches for it:
+//
+//	printf '%s' "$value" | shasum -a 256 | cut -c1-16
+func logHash(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:8])
+}
+
+// discardSignInLogs is the logger an AssertedSignIn built without one uses.
+type discardSignInLogs struct{}
+
+func (discardSignInLogs) Debug(context.Context, string, ...any) {}
+func (discardSignInLogs) Info(context.Context, string, ...any)  {}
+func (discardSignInLogs) Warn(context.Context, string, ...any)  {}
+func (discardSignInLogs) Error(context.Context, string, ...any) {}
 
 // provesOwnership reports whether a credential holding the asserted email may
 // say who owns it. An inactive credential may not: a sign-in method someone

@@ -476,14 +476,11 @@ func TestAssertAnswersAConflictWhenMoreThanOnePersonHoldsTheEmail(t *testing.T) 
 	if sm.createCalls != 0 || len(rec.Header().Values("Set-Cookie")) != 0 {
 		t.Fatalf("an ambiguous owner was signed in")
 	}
-	errs := logs.atLevel("error")
-	if len(errs) != 1 {
-		t.Fatalf("expected the conflict to be logged once, got:\n%s", logs.text())
+	// The sign-in service logs the refusal, naming the people it found; the
+	// handler adds no second line for the same refusal.
+	if logged := logs.text(); logged != "" {
+		t.Fatalf("the handler logged the conflict a second time:\n%s", logged)
 	}
-	if got, _ := field(errs[0], "reason"); got != handlers.CodeAmbiguousOwner {
-		t.Fatalf("log line reason = %v, want %q", got, handlers.CodeAmbiguousOwner)
-	}
-	requireNoAssertionLogged(t, logs)
 }
 
 // --- the constructor serve.go builds the route with ---

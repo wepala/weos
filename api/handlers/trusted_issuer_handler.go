@@ -46,7 +46,7 @@ type AssertedSignInService interface {
 // CodeAmbiguousOwner is the code of the conflict answered when an accepted
 // assertion's email is held by more than one person on an allowlisted
 // instance, so it cannot say whose identity it is.
-const CodeAmbiguousOwner = "ambiguous-owner"
+const CodeAmbiguousOwner = application.ReasonAmbiguousOwner
 
 // TrustedIssuerHandlerConfig wires the login-assertion endpoint.
 type TrustedIssuerHandlerConfig struct {
@@ -168,10 +168,9 @@ func (h *TrustedIssuerHandler) Assert(c echo.Context) error {
 	})
 	if err != nil {
 		if errors.Is(err, application.ErrAmbiguousOwner) {
-			// Only an operator can say which of the people holding the email
-			// owns this identity, so the log line is what they act on.
-			h.cfg.Logger.Error(ctx, "trusted issuer sign-in: more than one person holds the asserted email; nothing was linked or created",
-				"reason", CodeAmbiguousOwner, "provider", identity.Provider, "error", err.Error())
+			// The sign-in service has logged the refusal with every person
+			// holding the email, which is what an operator acts on. A second
+			// line here would count one refusal twice.
 			return respondErrorCode(c, http.StatusConflict,
 				"more than one account holds this email, so the sign-in cannot tell whose it is", CodeAmbiguousOwner)
 		}

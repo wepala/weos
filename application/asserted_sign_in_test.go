@@ -2,8 +2,11 @@ package application
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -166,6 +169,108 @@ func (r storeAgents) FindByID(_ context.Context, id string) (*entities.Agent, er
 	r.s.mu.Lock()
 	defer r.s.mu.Unlock()
 	return r.s.agents[id], nil
+}
+
+// FindAll answers every person in one page, ordered by id.
+func (r storeAgents) FindAll(_ context.Context, _ string, _ int) (*authrepos.PaginatedResponse[*entities.Agent], error) {
+	r.s.mu.Lock()
+	defer r.s.mu.Unlock()
+	ids := make([]string, 0, len(r.s.agents))
+	for id := range r.s.agents {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	page := &authrepos.PaginatedResponse[*entities.Agent]{}
+	for _, id := range ids {
+		page.Data = append(page.Data, r.s.agents[id])
+	}
+	return page, nil
+}
+
+// --- a logger that remembers every line ---
+
+type signInLogLine struct {
+	level, msg string
+	fields     []any
+}
+
+func (l signInLogLine) field(key string) any {
+	for i := 0; i+1 < len(l.fields); i += 2 {
+		if k, ok := l.fields[i].(string); ok && k == key {
+			return l.fields[i+1]
+		}
+	}
+	return nil
+}
+
+type signInLogs struct {
+	mu    sync.Mutex
+	lines []signInLogLine
+}
+
+func (l *signInLogs) add(level, msg string, fields []any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.lines = append(l.lines, signInLogLine{level: level, msg: msg, fields: fields})
+}
+
+func (l *signInLogs) Debug(_ context.Context, m string, f ...any) { l.add("debug", m, f) }
+func (l *signInLogs) Info(_ context.Context, m string, f ...any)  { l.add("info", m, f) }
+func (l *signInLogs) Warn(_ context.Context, m string, f ...any)  { l.add("warn", m, f) }
+func (l *signInLogs) Error(_ context.Context, m string, f ...any) { l.add("error", m, f) }
+
+func (l *signInLogs) all() []signInLogLine {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]signInLogLine(nil), l.lines...)
+}
+
+func (l *signInLogs) reset() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.lines = nil
+}
+
+func (l *signInLogs) text() string {
+	var b strings.Builder
+	for _, line := range l.all() {
+		fmt.Fprintf(&b, "%s %s %v\n", line.level, line.msg, line.fields)
+	}
+	return b.String()
+}
+
+// sha256Prefix is the operator's recipe for finding a person's lines:
+// printf '%s' "$value" | shasum -a 256 | cut -c1-16
+func sha256Prefix(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])[:16]
+}
+
+func requireIdentityFields(t *testing.T, line signInLogLine, provider, sub, normalizedEmail, agentIDs string) {
+	t.Helper()
+	want := map[string]string{
+		"provider":   provider,
+		"sub_hash":   sha256Prefix(sub),
+		"email_hash": sha256Prefix(normalizedEmail),
+		"agent_ids":  agentIDs,
+	}
+	for key, value := range want {
+		if got := line.field(key); got != value {
+			t.Fatalf("log line %q has %s = %v, want %q (fields %v)", line.msg, key, got, value, line.fields)
+		}
+	}
+}
+
+// requireNoRawIdentity fails when any line carries one of the values, in any
+// capitals.
+func requireNoRawIdentity(t *testing.T, logs *signInLogs, values ...string) {
+	t.Helper()
+	logged := strings.ToLower(logs.text())
+	for _, v := range values {
+		if strings.Contains(logged, strings.ToLower(v)) {
+			t.Fatalf("the log carries %q:\n%s", v, logs.text())
+		}
+	}
 }
 
 type storeEmails struct{ s *memoryAuthStore }
@@ -467,6 +572,106 @@ func TestAssertedSignInPassesOverWhatWasTurnedOff(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAssertedSignInLogsEachLinkOnceWithHashesAndTheOwner(t *testing.T) {
+	s := newMemoryAuthStore()
+	s.seedPerson(t, "agent-ops", "ops", "password", "ops@harborlegal.example", "ops@harborlegal.example")
+	logs := &signInLogs{}
+	svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) {
+		cfg.LinkByEmail = true
+		cfg.Logger = logs
+	})
+
+	identity := AssertedIdentity{Provider: "apple", Subject: appleSub, Email: " Ops@HarborLegal.example", Name: "Harbor Ops"}
+	if _, err := svc.SignIn(context.Background(), identity); err != nil {
+		t.Fatalf("SignIn: %v", err)
+	}
+	lines := logs.all()
+	if len(lines) != 1 || lines[0].level != "info" {
+		t.Fatalf("expected one info line for the link, got:\n%s", logs.text())
+	}
+	requireIdentityFields(t, lines[0], "apple", appleSub, "ops@harborlegal.example", "agent-ops")
+	requireNoRawIdentity(t, logs, appleSub, "ops@harborlegal.example")
+
+	// Signing in again reaches the person by subject: nothing new to log.
+	logs.reset()
+	if _, err := svc.SignIn(context.Background(), identity); err != nil {
+		t.Fatalf("second SignIn: %v", err)
+	}
+	if got := logs.text(); got != "" {
+		t.Fatalf("a returning sign-in logged:\n%s", got)
+	}
+}
+
+func TestAssertedSignInLogsEachPersonItCreates(t *testing.T) {
+	marcus := func(t *testing.T, s *memoryAuthStore) {
+		s.seedPerson(t, "agent-marcus", "Marcus Okafor", "apple", "000917.3b6e", "marcus.okafor@harborlegal.example")
+	}
+	cases := map[string]struct {
+		allowlist bool
+		stage     func(t *testing.T, s *memoryAuthStore)
+		level     string
+		others    any
+	}{
+		"no allowlist, another person already here": {false, marcus, "info", nil},
+		"allowlisted, nobody else here":             {true, func(*testing.T, *memoryAuthStore) {}, "info", nil},
+		"allowlisted, only a person turned off": {true, func(t *testing.T, s *memoryAuthStore) {
+			marcus(t, s)
+			s.deactivateAgent(t, "agent-marcus")
+		}, "info", nil},
+		"allowlisted, another person already here": {true, marcus, "warn", "agent-marcus"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := newMemoryAuthStore()
+			c.stage(t, s)
+			logs := &signInLogs{}
+			svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) {
+				cfg.LinkByEmail = c.allowlist
+				cfg.Logger = logs
+			})
+
+			got, err := svc.SignIn(context.Background(), dana("google", googleSub))
+			if err != nil || !got.NewAccount {
+				t.Fatalf("SignIn: new=%v err=%v", got.NewAccount, err)
+			}
+			lines := logs.all()
+			if len(lines) != 1 || lines[0].level != c.level {
+				t.Fatalf("expected one %s line for the created person, got:\n%s", c.level, logs.text())
+			}
+			requireIdentityFields(t, lines[0], "google", googleSub, "dana.whitfield@harborlegal.example", got.Agent.GetID())
+			if others := lines[0].field("other_agent_ids"); others != c.others {
+				t.Fatalf("other_agent_ids = %v, want %v", others, c.others)
+			}
+			requireNoRawIdentity(t, logs, googleSub, "dana.whitfield@harborlegal.example")
+		})
+	}
+}
+
+func TestAssertedSignInLogsAnAmbiguousOwnerWithEveryPersonHoldingTheEmail(t *testing.T) {
+	s := newMemoryAuthStore()
+	s.seedPerson(t, "agent-dana-2", "Dana W", "google", googleSub, "Dana.Whitfield@harborlegal.example")
+	s.seedPerson(t, "agent-dana", "Dana Whitfield", "password", "dana.whitfield@harborlegal.example", "dana.whitfield@harborlegal.example")
+	logs := &signInLogs{}
+	svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) {
+		cfg.LinkByEmail = true
+		cfg.Logger = logs
+	})
+
+	_, err := svc.SignIn(context.Background(), dana("apple", appleSub))
+	if !errors.Is(err, ErrAmbiguousOwner) {
+		t.Fatalf("err = %v, want ErrAmbiguousOwner", err)
+	}
+	lines := logs.all()
+	if len(lines) != 1 || lines[0].level != "error" {
+		t.Fatalf("expected one error line for the refusal, got:\n%s", logs.text())
+	}
+	if reason := lines[0].field("reason"); reason != ReasonAmbiguousOwner {
+		t.Fatalf("reason = %v, want %q", reason, ReasonAmbiguousOwner)
+	}
+	requireIdentityFields(t, lines[0], "apple", appleSub, "dana.whitfield@harborlegal.example", "agent-dana,agent-dana-2")
+	requireNoRawIdentity(t, logs, appleSub, googleSub, "dana.whitfield@harborlegal.example")
 }
 
 func TestAssertedSignInSurfacesAnEmailLookupFailure(t *testing.T) {
