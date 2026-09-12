@@ -172,8 +172,11 @@ the email's local part.
   SIGN does not match `k`: a Unicode fold would let a different address match an
   owner's. An address that differs from the owner's only in a non-ASCII capital creates
   a second person instead, and the warning under "What binding logs" reports it. The
-  allowlist keeps the OAuth callback's comparison, so such an address can pass the
-  allowlist and still not link.
+  allowlist compares an assertion's email under the same rule, on both its entries and
+  the email, so an address that differs from an entry only in a non-ASCII capital is
+  refused as `allowlist` rather than admitted and then kept apart from its owner.
+  `OAUTH_ALLOWED_EMAILS` entries are still lower-cased when they are read, as the OAuth
+  callback needs, so write an entry the way the door sends the email.
 - **Two people holding the email.** When more than one active person holds a credential
   for the email that proves ownership, the sign-in is answered **409** with the code
   `ambiguous-owner`. Nothing is linked and nobody is created, because choosing one of
@@ -189,9 +192,16 @@ the email's local part.
   person. The locks are per process. Replicas that share a database still race, and the
   store's unique `(provider, provider_user_id)` index is what stops a second credential
   there. A link saves the credential row first and records `Credential.Created` only
-  after the row is saved, so a link that loses that race records no event. If the event
-  store fails after the row is saved, the sign-in fails and the row is left without its
-  event.
+  after the row is saved, so a link that loses that race records no event.
+- **A link whose event cannot be recorded is taken back.** The row and its event are not
+  written in one transaction: pericarp's UnitOfWork carries events only, and its event
+  store joins an outer transaction only from inside a subscription batch. So when the
+  event store fails after the row is saved, the sign-in fails and the row is deleted,
+  and one error line names `owner_agent_id` and `credential_id`. A row left without its
+  event would work until a projection rebuild silently dropped the link. If the row
+  cannot be deleted either, a second error line, starting `repair:`, names both ids:
+  delete that row from `credentials`, then let the person sign in again. The person's
+  next sign-in links again.
 
 **Which credentials prove ownership.** The list is explicit: a credential proves who owns
 its email only when all three of these are true.

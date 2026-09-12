@@ -108,6 +108,10 @@ type AssertedSignInConfig struct {
 	// pericarp: with no store, the credential is saved to its projection only.
 	EventStore esdomain.EventStore
 	Dispatcher *esdomain.EventDispatcher
+	// CredentialRows takes back the row of a linked credential whose creation
+	// event could not be committed (see link). Optional; without it such a row
+	// is left behind, and a repair line names it.
+	CredentialRows repositories.CredentialRowDeleter
 	// LinkByEmail turns owner binding on. It is set exactly when the instance
 	// has an identity allowlist (OAUTH_ALLOWED_EMAILS): an allowlisted
 	// instance has named its owners, so an email there says who a person is;
@@ -122,9 +126,9 @@ type AssertedSignInConfig struct {
 	// password accounts they made themselves. Credentials from google and
 	// apple prove an owner either way.
 	PasswordOwnersProven bool
-	// Logger receives one line for each link, each person a sign-in creates
-	// and each ambiguous-owner or unproven-owner refusal. Optional; without it
-	// nothing is logged.
+	// Logger receives one line for each link, each person a sign-in creates,
+	// each ambiguous-owner or unproven-owner refusal, and each link that could
+	// not be recorded. Optional; without it nothing is logged.
 	Logger weosentities.Logger
 }
 
@@ -160,14 +164,15 @@ func NewAssertedSignIn(cfg AssertedSignInConfig) *AssertedSignIn {
 // with TRUSTED_ISSUER_LINK_PASSWORD_OWNERS.
 func ProvideAssertedSignIn(params struct {
 	fx.In
-	Config      config.Config
-	Auth        authapp.AuthenticationService
-	Credentials authrepos.CredentialRepository
-	Agents      authrepos.AgentRepository
-	Emails      repositories.CredentialEmailQuery
-	EventStore  esdomain.EventStore       `optional:"true"`
-	Dispatcher  *esdomain.EventDispatcher `optional:"true"`
-	Logger      weosentities.Logger       `optional:"true"`
+	Config         config.Config
+	Auth           authapp.AuthenticationService
+	Credentials    authrepos.CredentialRepository
+	Agents         authrepos.AgentRepository
+	Emails         repositories.CredentialEmailQuery
+	EventStore     esdomain.EventStore               `optional:"true"`
+	Dispatcher     *esdomain.EventDispatcher         `optional:"true"`
+	CredentialRows repositories.CredentialRowDeleter `optional:"true"`
+	Logger         weosentities.Logger               `optional:"true"`
 }) *AssertedSignIn {
 	return NewAssertedSignIn(AssertedSignInConfig{
 		Auth:                 params.Auth,
@@ -176,6 +181,7 @@ func ProvideAssertedSignIn(params struct {
 		Emails:               params.Emails,
 		EventStore:           params.EventStore,
 		Dispatcher:           params.Dispatcher,
+		CredentialRows:       params.CredentialRows,
 		Logger:               params.Logger,
 		LinkByEmail:          len(params.Config.OAuth.AllowedEmails) > 0,
 		PasswordOwnersProven: params.Config.TrustedIssuer.LinkPasswordOwners,
@@ -421,8 +427,14 @@ func (s *AssertedSignIn) provesOwnership(m repositories.CredentialEmailMatch) bo
 // before any event exists. A link that loses the race records nothing, and a
 // Credential.Created event is only ever committed for a row that was saved:
 // replaying the event store cannot bind the identity to a person the store
-// never did. If the event cannot be committed after the save, the sign-in
-// fails and the row is left without its event.
+// never did.
+//
+// The row and its event cannot be written in one transaction from here:
+// pericarp's UnitOfWork carries events only, and its event store joins an
+// outer transaction only from inside a subscription batch. So when the event
+// cannot be committed after the save, link takes the row back (takeBackLink)
+// and the sign-in fails, rather than leaving a link that works until a
+// projection rebuild drops it. The person's next sign-in links again.
 func (s *AssertedSignIn) link(ctx context.Context, ownerID string, id AssertedIdentity) (bool, error) {
 	credential, err := new(entities.Credential).With(
 		ksuid.New().String(), ownerID, id.Provider, id.Subject, id.Email, id.Name,
@@ -441,14 +453,44 @@ func (s *AssertedSignIn) link(ctx context.Context, ownerID string, id AssertedId
 	}
 	if s.cfg.EventStore != nil {
 		uow := esapp.NewSimpleUnitOfWork(s.cfg.EventStore, s.cfg.Dispatcher)
-		if err := uow.Track(credential); err != nil {
-			return false, fmt.Errorf("track the linked credential: %w", err)
+		err := uow.Track(credential)
+		if err == nil {
+			err = uow.Commit(ctx)
 		}
-		if err := uow.Commit(ctx); err != nil {
+		if err != nil {
+			s.takeBackLink(ctx, ownerID, id, credential.GetID(), err)
 			return false, fmt.Errorf("record the linked credential: %w", err)
 		}
 	}
 	return true, nil
+}
+
+// takeBackLink deletes the row of a linked credential whose creation event
+// could not be committed, and writes the ERROR line that names the owner and
+// the credential. When the row cannot be deleted, or nothing is configured to
+// delete it, a second ERROR line tells an operator which row to repair.
+func (s *AssertedSignIn) takeBackLink(ctx context.Context, ownerID string, id AssertedIdentity, credentialID string, cause error) {
+	fields := append(identityFields(id, repositories.FoldCredentialEmail(id.Email), ownerID),
+		"owner_agent_id", ownerID,
+		"credential_id", credentialID,
+		"error", cause.Error())
+	deleteErr := errors.New("no credential row deleter is configured")
+	if s.cfg.CredentialRows != nil {
+		// Not the request's own context: a request that ended is a common
+		// reason the commit failed, and the row must go all the same.
+		deleteErr = s.cfg.CredentialRows.DeleteCredentialRow(context.WithoutCancel(ctx), credentialID)
+	}
+	if deleteErr == nil {
+		s.cfg.Logger.Error(ctx, "trusted issuer sign-in could not record a linked credential's creation, so it deleted the credential's row; nothing was linked",
+			append(fields, "row_deleted", true)...)
+		return
+	}
+	s.cfg.Logger.Error(ctx, "trusted issuer sign-in could not record a linked credential's creation, and could not delete the credential's row",
+		append(fields, "row_deleted", false)...)
+	s.cfg.Logger.Error(ctx, "repair: a linked credential's row has no Credential.Created event; delete that row from credentials, then let the person sign in through the door again",
+		"owner_agent_id", ownerID,
+		"credential_id", credentialID,
+		"delete_error", deleteErr.Error())
 }
 
 // keyedMutex serializes work per key. An entry lives only while someone holds

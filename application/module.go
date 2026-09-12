@@ -98,6 +98,7 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		// Trusted-issuer sign-in (story wm-63gg0.2): whom an accepted login
 		// assertion signs in, with owner binding on an allowlisted instance.
 		fx.Provide(gorm.ProvideCredentialEmailQuery),
+		fx.Provide(gorm.ProvideCredentialRowDeleter),
 		fx.Provide(ProvideAssertedSignIn),
 		fx.Provide(auth.ProvideInviteTokenService),
 		fx.Provide(func(

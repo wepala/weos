@@ -196,14 +196,15 @@ func TestProvideAssertedSignInTakesPasswordOwnersFromTheOptInAlone(t *testing.T)
 
 			svc := ProvideAssertedSignIn(struct {
 				fx.In
-				Config      config.Config
-				Auth        authapp.AuthenticationService
-				Credentials authrepos.CredentialRepository
-				Agents      authrepos.AgentRepository
-				Emails      repositories.CredentialEmailQuery
-				EventStore  esdomain.EventStore       `optional:"true"`
-				Dispatcher  *esdomain.EventDispatcher `optional:"true"`
-				Logger      weosentities.Logger       `optional:"true"`
+				Config         config.Config
+				Auth           authapp.AuthenticationService
+				Credentials    authrepos.CredentialRepository
+				Agents         authrepos.AgentRepository
+				Emails         repositories.CredentialEmailQuery
+				EventStore     esdomain.EventStore               `optional:"true"`
+				Dispatcher     *esdomain.EventDispatcher         `optional:"true"`
+				CredentialRows repositories.CredentialRowDeleter `optional:"true"`
+				Logger         weosentities.Logger               `optional:"true"`
 			}{
 				Config: cfg, Auth: storeAuth{s: s}, Credentials: storeCredentials{s: s},
 				Agents: storeAgents{s: s}, Emails: storeEmails{s: s},

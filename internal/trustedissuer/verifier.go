@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
 
 	gojwt "github.com/golang-jwt/jwt/v5"
 )
@@ -158,9 +159,11 @@ type Config struct {
 	// AllowedEmails is the instance's identity allowlist
 	// (OAUTH_ALLOWED_EMAILS). When it has any entry, an assertion whose email
 	// it does not name is refused as allowlist, after every other check and
-	// after the jti is spent. The comparison is the OAuth callback's: both
-	// sides trimmed and lowercased, then an exact match. Empty admits every
-	// email, as the callback does.
+	// after the jti is spent. Both the entries and the email are folded with
+	// owner binding's rule (repositories.FoldCredentialEmail: spaces trimmed,
+	// ASCII capitals lower-cased, nothing else), then matched exactly, so an
+	// address the allowlist admits is one binding can match. Empty admits
+	// every email, as the callback does.
 	AllowedEmails []string
 
 	// KeyMissRefetchInterval is the shortest time between two key-list reads
@@ -376,10 +379,15 @@ func (v *Verifier) admits(email string) bool {
 	return ok
 }
 
-// normalizeEmail is the OAuth callback's normalization: trimmed and
-// lowercased, nothing else.
+// normalizeEmail is owner binding's fold, repositories.FoldCredentialEmail:
+// spaces trimmed from both ends and ASCII capitals lower-cased, nothing else.
+// The allowlist folds both its entries and the assertion's email with it, so
+// an address the allowlist admits is exactly one owner binding can match. An
+// address that differs from an entry only in a non-ASCII capital, such as
+// U+212A KELVIN SIGN for a k, is refused rather than admitted and then kept
+// apart from its owner.
 func normalizeEmail(email string) string {
-	return strings.ToLower(strings.TrimSpace(email))
+	return repositories.FoldCredentialEmail(email)
 }
 
 // textClaim reads a string claim. A missing claim, one of another type, and
