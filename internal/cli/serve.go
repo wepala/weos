@@ -41,6 +41,7 @@ import (
 	"github.com/wepala/weos/v3/internal/config"
 	mcpserver "github.com/wepala/weos/v3/internal/mcp"
 	weosoauth "github.com/wepala/weos/v3/internal/oauth"
+	"github.com/wepala/weos/v3/internal/trustedissuer"
 	"github.com/wepala/weos/v3/web"
 
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
@@ -306,6 +307,28 @@ func runServe(cmd *cobra.Command, args []string) error {
 			"PASSWORD_REGISTRATION_ENABLED is set but PASSWORD_AUTH_ENABLED is not; registration stays unmounted",
 			"remedy", "set PASSWORD_AUTH_ENABLED=true as well")
 	}
+
+	// Login asserted by a trusted issuer — a fleet's front door that has
+	// already verified the person. Public for the same reason as the password
+	// routes: the caller has no session yet. Mounted only when
+	// TRUSTED_ISSUER, TRUSTED_ISSUER_JWKS_URL and TRUSTED_ISSUER_AUDIENCE are
+	// all set; a partial set warns at boot and mounts nothing. See
+	// docs/decisions/trusted-issuer-login-assertion.md.
+	handlers.MountTrustedIssuerAssertion(context.Background(), api, appCfg.TrustedIssuer, logger,
+		func() *handlers.TrustedIssuerHandler {
+			return handlers.NewTrustedIssuerHandler(handlers.TrustedIssuerHandlerConfig{
+				Verifier: trustedissuer.NewVerifier(trustedissuer.Config{
+					Issuer:    appCfg.TrustedIssuer.Issuer,
+					JWKSURL:   appCfg.TrustedIssuer.JWKSURL,
+					Audience:  appCfg.TrustedIssuer.Audience,
+					Providers: application.OAuthProviderKeys(),
+					Logger:    logger,
+				}),
+				AuthService: authService,
+				Sessions:    passwordAuthHandlers,
+				Logger:      logger,
+			})
+		})
 
 	// Logout must clear BOTH the gorilla session (pericarp Logout) AND the
 	// JWT cookie issued by the password and OAuth flows. Routing through

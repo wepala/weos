@@ -160,6 +160,10 @@ type Config struct {
 	// OAuth holds configuration for OAuth authentication.
 	OAuth OAuthConfig
 
+	// TrustedIssuer names the one service whose signed login assertions this
+	// instance accepts at POST /api/auth/assert. See TrustedIssuerConfig.
+	TrustedIssuer TrustedIssuerConfig
+
 	// SMTP holds configuration for outbound email.
 	SMTP SMTPConfig
 
@@ -640,6 +644,16 @@ func (c *Config) LoadFromEnvironment() {
 
 	if provider := os.Getenv("OAUTH_DEFAULT_PROVIDER"); provider != "" {
 		c.OAuth.DefaultProvider = provider
+	}
+
+	if issuer := strings.TrimSpace(os.Getenv(EnvTrustedIssuer)); issuer != "" {
+		c.TrustedIssuer.Issuer = issuer
+	}
+	if jwksURL := strings.TrimSpace(os.Getenv(EnvTrustedIssuerJWKSURL)); jwksURL != "" {
+		c.TrustedIssuer.JWKSURL = jwksURL
+	}
+	if audience := strings.TrimSpace(os.Getenv(EnvTrustedIssuerAudience)); audience != "" {
+		c.TrustedIssuer.Audience = audience
 	}
 
 	if smtpHost := os.Getenv("SMTP_HOST"); smtpHost != "" {
