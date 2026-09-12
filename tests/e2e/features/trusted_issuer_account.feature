@@ -32,7 +32,7 @@ Feature: Signing a person in to their own account from a trusted issuer's assert
 
   # --- A person is found by the identity their provider gave them ---
 
-  @wip @story-wm-63gg0.2
+  @story-wm-63gg0.2
   Scenario: A first sign-in through the door creates the person and their account
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the instance's allowlist names "dana.whitfield@harborlegal.example"
@@ -42,7 +42,7 @@ Feature: Signing a person in to their own account from a trusted issuer's assert
     And the store holds exactly one account for "dana.whitfield@harborlegal.example"
     And the account their requests act in is the one the sign-in reported
 
-  @wip @story-wm-63gg0.2
+  @story-wm-63gg0.2
   Scenario: Signing in again with the same identity reaches the person made the first time
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And "dana.whitfield@harborlegal.example" signed in through the door from "google" with the subject "108234917650023841257" earlier
@@ -52,7 +52,7 @@ Feature: Signing a person in to their own account from a trusted issuer's assert
     And the person the sign-in names is the one "dana.whitfield@harborlegal.example" signed in as earlier
     And the store holds exactly one account for "dana.whitfield@harborlegal.example"
 
-  @wip @story-wm-63gg0.2
+  @story-wm-63gg0.2
   Scenario: A returning identity reaches its person even after their email changes
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the instance's allowlist names "dana.whitfield@harborlegal.example" and "dana.whitfield@cedarrealty.example"
@@ -61,7 +61,7 @@ Feature: Signing a person in to their own account from a trusted issuer's assert
     Then the sign-in reports that it created no new account
     And the person the sign-in names is the one "dana.whitfield@harborlegal.example" signed in as earlier
 
-  @wip @story-wm-63gg0.2
+  @story-wm-63gg0.2
   Scenario: Two first sign-ins for one identity arriving together leave a single person
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the instance's allowlist names "dana.whitfield@harborlegal.example"
@@ -72,7 +72,7 @@ Feature: Signing a person in to their own account from a trusted issuer's assert
 
   # --- An allowlisted instance links its owner's new identity instead of minting a second person ---
 
-  @wip @story-wm-63gg0.2
+  @story-wm-63gg0.2
   Scenario: An owner who signed in with Google and then with Apple remains one person
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the instance's allowlist names "dana.whitfield@harborlegal.example"
@@ -83,7 +83,7 @@ Feature: Signing a person in to their own account from a trusted issuer's assert
     And the person the sign-in names is the one "dana.whitfield@harborlegal.example" signed in as earlier
     And the store holds exactly one account for "dana.whitfield@harborlegal.example"
 
-  @wip @story-wm-63gg0.2
+  @story-wm-63gg0.2
   Scenario: An owner the operator created with a password is reached by their first sign-in through the door
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the account "Harbor Legal", whose owner "ops@harborlegal.example" signs in with password "correct-horse-battery-staple"
@@ -93,7 +93,7 @@ Feature: Signing a person in to their own account from a trusted issuer's assert
     And the sign-in reports that it created no new account
     And the account their requests act in is "Harbor Legal"
 
-  @wip @story-wm-63gg0.2
+  @story-wm-63gg0.2
   Scenario: An owner is recognized when the door writes their email in different capitals
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the instance's allowlist names "dana.whitfield@harborlegal.example"
@@ -102,7 +102,7 @@ Feature: Signing a person in to their own account from a trusted issuer's assert
     Then the sign-in reports that it created no new account
     And the person the sign-in names is the one "dana.whitfield@harborlegal.example" signed in as earlier
 
-  @wip @story-wm-63gg0.2
+  @story-wm-63gg0.2
   Scenario Outline: Both of an owner's identities stay with the owner after the allowlist is cleared
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the instance's allowlist names "dana.whitfield@harborlegal.example"
@@ -120,7 +120,7 @@ Feature: Signing a person in to their own account from a trusted issuer's assert
 
   # --- Where no link is made ---
 
-  @wip @story-wm-63gg0.2
+  @story-wm-63gg0.2
   Scenario: Two people with different emails are never linked to one another
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the instance's allowlist names "dana.whitfield@harborlegal.example" and "marcus.okafor@harborlegal.example"
@@ -130,7 +130,7 @@ Feature: Signing a person in to their own account from a trusted issuer's assert
     And the sign-in reports that it created a new account
     And the person the sign-in names is not the one "dana.whitfield@harborlegal.example" signed in as earlier
 
-  @wip @story-wm-63gg0.2
+  @story-wm-63gg0.2
   Scenario: An instance with no allowlist links nothing and creates a second person
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the instance has no allowlist
@@ -142,7 +142,7 @@ Feature: Signing a person in to their own account from a trusted issuer's assert
 
   # --- The answer the browser is left holding ---
 
-  @wip @story-wm-63gg0.2
+  @story-wm-63gg0.2
   Scenario: The answer has a password sign-in's fields plus whether the sign-in created the person
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the instance's allowlist names "dana.whitfield@harborlegal.example"
@@ -157,7 +157,7 @@ Feature: Signing a person in to their own account from a trusted issuer's assert
       | new_account | true                                                                                    |
     And the token cookie it sets holds the token the answer carries
 
-  @wip @story-wm-63gg0.2
+  @story-wm-63gg0.2
   Scenario: A sign-in through the door sets the same cookies a password sign-in sets
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And password sign-in is also enabled on that instance
@@ -167,7 +167,7 @@ Feature: Signing a person in to their own account from a trusted issuer's assert
     And the door presents an assertion for "ops@harborlegal.example" from "google" with the subject "117590246813570924368"
     Then the two sign-ins set the same cookies, each with the same path, lifetime and protections
 
-  @wip @story-wm-63gg0.2
+  @story-wm-63gg0.2
   Scenario: A person the door gives no name is named after their email
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the instance's allowlist names "marcus.okafor@harborlegal.example"
@@ -175,7 +175,7 @@ Feature: Signing a person in to their own account from a trusted issuer's assert
     Then the sign-in succeeds
     And the answer names the person "marcus.okafor"
 
-  @wip @story-wm-63gg0.2
+  @story-wm-63gg0.2
   Scenario: A returning person with no account left to act in is handed no token
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And "dana.whitfield@harborlegal.example" signed in through the door from "google" with the subject "108234917650023841257" earlier
