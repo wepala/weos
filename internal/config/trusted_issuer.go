@@ -37,8 +37,11 @@ type TrustedIssuerConfig struct {
 	// JWKSURL is where the issuer publishes its signing keys
 	// (TRUSTED_ISSUER_JWKS_URL). It must be https, or http to a loopback host.
 	JWKSURL string
-	// Audience is this instance's fleet id, the exact aud value an assertion
-	// must carry (TRUSTED_ISSUER_AUDIENCE).
+	// Audience is the exact aud value an assertion must carry
+	// (TRUSTED_ISSUER_AUDIENCE): this one instance's own id, unique to it and
+	// never shared with another instance. Instances that share an audience all
+	// accept the same assertion, and jti memory cannot stop that because it is
+	// per instance.
 	Audience string
 }
 

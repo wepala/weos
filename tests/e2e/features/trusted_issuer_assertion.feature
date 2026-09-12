@@ -29,8 +29,10 @@ Feature: Verifying a login assertion from a trusted issuer
   remembered for five minutes, which outlives any assertion that could still be valid.
 
   The issuer's key list is cached for ten minutes so that a sign-in does not depend on a
-  fetch, and an unknown key triggers exactly one refetch so that the door can rotate a
-  key without waiting out the cache. The refetch is the dangerous part: a fetch that
+  fetch, and an unknown key triggers a refetch so that the door can rotate a key without
+  waiting out the cache. Those refetches are limited to one every thirty seconds for the
+  whole instance, so a stream of invented keys cannot keep the instance reading the key
+  list. The refetch is the dangerous part: a fetch that
   comes back short — empty, failing, or simply without the key that was asked for — must
   fail that one request and leave the cached keys exactly as they were. Overwriting them
   would turn one bad rotation into ten minutes of a locked-out fleet, so one scenario

@@ -7,7 +7,7 @@ nav_order: 2
 
 # ADR: Trusted-Issuer Login Assertion (`POST /auth/assert`)
 
-**Status:** Proposed (revised 2026-09-12 after design premortem)
+**Status:** Proposed (revised 2026-09-12 after design premortem; amended 2026-09-12 after the story `wm-63gg0.1` review: clock leeway, audience uniqueness, key-list throttle and backoff, `keys-unreachable`)
 **Date:** 2026-09-12
 **Ticket:** bead `wm-63gg0` (mirror: wepala/mini-me-weos#530)
 **Base:** `v3` (the integration branch the `v3.0.1-beta.*` tags are cut from; `main` is the old line)
@@ -71,18 +71,57 @@ through the proxy — the door never calls it server-side — so the instance's 
 lands in the browser exactly as it does for `/auth/password-login`.
 
 **Verification.** ES256 signature against the issuer's JWKS; `iss` equals
-`TRUSTED_ISSUER`; `aud` equals `TRUSTED_ISSUER_AUDIENCE` (the instance's fleet id);
-`exp` unexpired and `exp − iat ≤ 60s`, both with **30 seconds of leeway** for clock
-skew; single-use `jti` remembered for 5 minutes in an **in-memory** store (documented as
+`TRUSTED_ISSUER`; `aud` is exactly one value and equals `TRUSTED_ISSUER_AUDIENCE`.
+
+- **The audience is this instance's own id.** `TRUSTED_ISSUER_AUDIENCE` is unique to one
+  instance and is never shared with another. Instances that share an audience all accept
+  the same assertion, and `jti` memory cannot stop that, because it is per instance.
+- **Clock leeway applies to `exp` and to a future `iat`.** An assertion is refused as
+  `expired` when `exp` is more than **30 seconds** in the past. It is refused as `window`
+  when `iat` is more than 30 seconds in the future.
+- **The 60-second lifetime is strict.** `exp − iat ≤ 60s`, with **no** leeway: both values
+  come from the issuer's one clock, so skew does not apply to their difference. The issuer
+  mints assertions that live at most 60 seconds. One minted to live 61 seconds is refused
+  as `window`.
+
+Single-use `jti` remembered for 5 minutes in an **in-memory** store (documented as
 reset on restart — acceptable because assertions expire in 60 s); required claims `sub`,
 `email`, `provider`, `email_verified == true`; optional `name`. `provider` must be one of
 core's registry keys (`google`, `apple`, …), verbatim. Every refusal is a 401 whose
-body and log line carry a machine-readable reason: `signature`, `kid-miss`, `iss`,
-`aud`, `expired`, `window`, `jti-replay`, `claims`, `allowlist`.
+body and log line carry a machine-readable reason: `signature`, `kid-miss`,
+`keys-unreachable`, `iss`, `aud`, `expired`, `window`, `jti-replay`, `claims`,
+`allowlist`. A refusal's body and log line never carry the assertion. The `kid` in its
+header is chosen by the caller, so it never reaches a refusal's text and reaches a log
+line only as its first 16 characters, in printable ASCII. A request body over 16 KiB is
+answered 413 before any of it is read; that is not a refusal and carries no reason.
 
-**JWKS.** Cached 10 minutes. An unknown `kid` triggers one refetch; a refetch that
+**JWKS.** Cached 10 minutes. An unknown `kid` triggers a refetch; a refetch that
 still lacks the `kid` fails **only that request** and never overwrites or extends the
 cached set. The issuer is obliged to publish a new key before signing with it.
+
+- **One miss read per 30 seconds.** Refetches caused by an unknown `kid` are limited to
+  one per 30 seconds for the whole instance. Inside that interval, a `kid` that neither
+  the cached set nor the last successful miss read holds is refused as `kid-miss` with no
+  read. The 10-minute refresh ignores this limit.
+- **One read at a time.** A request that needs a key while a read is running waits for
+  that read and acts on what it found, so a burst of sign-ins with a newly published key
+  costs one read and is accepted whole. A waiting request leaves when its own request
+  ends. A read runs to its own 5-second timeout even when the request that started it
+  ends, so a client that went away is never recorded as an unreachable key list.
+- **The last successful miss read is kept.** A complete refetch caused by an unknown `kid`
+  is kept beside the cached set, and a `kid` it holds is accepted until the cached set is
+  next replaced. It never overwrites or extends the cached set. Without it, a refetch
+  caused by an invented `kid`, which already holds a newly rotated key, would leave that
+  rotation refused for 30 seconds, and an invented `kid` every 30 seconds would keep it
+  refused until the cache aged out.
+- **A failed read backs off.** A read that cannot complete — the key list is unreachable,
+  answers other than 200, cannot be decoded, or redirects (redirects are never followed) —
+  or that holds no usable key starts a **30-second backoff** in which no read is made.
+  Cached keys, fresh or aged, stay in use with no time limit. Anything else is refused
+  with no read: `keys-unreachable` when the read could not complete, `kid-miss` when the
+  key list answered with no usable key. The failure is logged once per backoff.
+  `keys-unreachable` tells the door that publishing a key will not help; reaching the key
+  list will.
 
 **Allowlist.** `OAUTH_ALLOWED_EMAILS`, when set, is enforced as the OAuth callback
 enforces it; empty stays open. The `email` claim is the person's door-account email —
