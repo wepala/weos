@@ -406,6 +406,7 @@ type tiWorld struct {
 	accountRepo    authrepos.AccountRepository
 	sessionManager session.SessionManager
 	appLogger      entities.Logger
+	signIn         *application.AssertedSignIn
 
 	issuer, audience string
 	signingKey       string
@@ -470,7 +471,7 @@ func (w *tiWorld) boot() error {
 		// serve.go provides this beside the module; sign-in issues its token.
 		fx.Provide(weosoauth.ProvideJWTService),
 		fx.Populate(&w.authService, &w.credRepo, &w.agentRepo, &w.accountRepo),
-		fx.Populate(&w.sessionManager, &w.appLogger),
+		fx.Populate(&w.sessionManager, &w.appLogger, &w.signIn),
 	)
 	startCtx, cancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
 	defer cancel()
@@ -503,10 +504,10 @@ func (w *tiWorld) boot() error {
 				Logger:    w.logs,
 			})
 			return handlers.NewTrustedIssuerHandler(handlers.TrustedIssuerHandlerConfig{
-				Verifier:    w.verifier,
-				AuthService: w.authService,
-				Sessions:    sessions,
-				Logger:      w.logs,
+				Verifier: w.verifier,
+				SignIn:   w.signIn,
+				Sessions: sessions,
+				Logger:   w.logs,
 			})
 		})
 

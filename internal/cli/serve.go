@@ -119,6 +119,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	var resourcePermService application.ResourcePermissionService
 	var fileService application.FileService
 	var authService authapp.AuthenticationService
+	var assertedSignIn *application.AssertedSignIn
 	var providerRegistry authapp.OAuthProviderRegistry
 	var sessionManager session.SessionManager
 	var credentialRepo authrepos.CredentialRepository
@@ -165,6 +166,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		fx.Populate(&resourcePermService),
 		fx.Populate(&fileService),
 		fx.Populate(&authService),
+		fx.Populate(&assertedSignIn),
 		fx.Populate(&providerRegistry),
 		fx.Populate(&sessionManager),
 		fx.Populate(&credentialRepo),
@@ -324,9 +326,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 					Providers: application.OAuthProviderKeys(),
 					Logger:    logger,
 				}),
-				AuthService: authService,
-				Sessions:    passwordAuthHandlers,
-				Logger:      logger,
+				SignIn:   assertedSignIn,
+				Sessions: passwordAuthHandlers,
+				Logger:   logger,
 			})
 		})
 

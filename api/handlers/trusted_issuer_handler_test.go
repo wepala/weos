@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/wepala/weos/v3/api/handlers"
+	"github.com/wepala/weos/v3/application"
 	"github.com/wepala/weos/v3/internal/config"
 	"github.com/wepala/weos/v3/internal/trustedissuer"
 
@@ -62,6 +63,9 @@ type assertAuthService struct {
 	findErr error
 	session *authentities.AuthSession
 
+	// newAccount is what the sign-in reports about whether it made the person.
+	newAccount bool
+
 	findCalls   int
 	gotUserInfo authapp.UserInfo
 }
@@ -72,6 +76,20 @@ func (f *assertAuthService) FindOrCreateAgent(_ context.Context, info authapp.Us
 	f.findCalls++
 	f.gotUserInfo = info
 	return f.agent, f.cred, f.account, f.findErr
+}
+
+// SignIn stands in for application.AssertedSignIn, which the handler tests do
+// not exercise: it records what the handler asked for in FindOrCreateAgent's
+// terms and answers with the canned person.
+func (f *assertAuthService) SignIn(ctx context.Context, id application.AssertedIdentity) (
+	application.AssertedSignInResult, error,
+) {
+	agent, cred, account, err := f.FindOrCreateAgent(ctx, authapp.UserInfo{
+		ProviderUserID: id.Subject, Email: id.Email, DisplayName: id.Name, Provider: id.Provider,
+	})
+	return application.AssertedSignInResult{
+		Agent: agent, Credential: cred, Account: account, NewAccount: f.newAccount,
+	}, err
 }
 
 func (f *assertAuthService) CreateSession(
@@ -149,7 +167,7 @@ func requireNoAssertionLogged(t *testing.T, logs *assertionLogCapture) {
 }
 
 func newTrustedIssuerHandler(
-	verifier handlers.AssertionVerifier, auth authapp.AuthenticationService, logs *assertionLogCapture,
+	verifier handlers.AssertionVerifier, auth *assertAuthService, logs *assertionLogCapture,
 ) (*handlers.TrustedIssuerHandler, *fakeSessionManager) {
 	sm := &fakeSessionManager{}
 	sessions := handlers.NewPasswordAuthHandler(handlers.PasswordAuthHandlerConfig{
@@ -158,10 +176,10 @@ func newTrustedIssuerHandler(
 		Logger:         logs,
 	})
 	return handlers.NewTrustedIssuerHandler(handlers.TrustedIssuerHandlerConfig{
-		Verifier:    verifier,
-		AuthService: auth,
-		Sessions:    sessions,
-		Logger:      logs,
+		Verifier: verifier,
+		SignIn:   auth,
+		Sessions: sessions,
+		Logger:   logs,
 	}), sm
 }
 
@@ -363,6 +381,73 @@ func TestAssertAnswersAFailureWhenTheAccountCannotBeResolved(t *testing.T) {
 	}
 	if len(logs.atLevel("error")) != 1 {
 		t.Fatalf("expected the failure to be logged once, got:\n%s", logs.text())
+	}
+	requireNoAssertionLogged(t, logs)
+}
+
+func TestAssertAnswersPasswordSignInFieldsPlusWhetherItCreatedThePerson(t *testing.T) {
+	for _, created := range []bool{true, false} {
+		t.Run(fmt.Sprintf("created %v", created), func(t *testing.T) {
+			auth := signedInAuthService(t)
+			auth.newAccount = created
+			h, _ := newTrustedIssuerHandler(&fakeAssertionVerifier{identity: acceptedIdentity()}, auth, &assertionLogCapture{})
+
+			rec := postAssertion(t, h, assertionBody(presentedAssertion))
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d (%s)", rec.Code, rec.Body.String())
+			}
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(readAssertAnswer(t, rec).Data, &fields); err != nil {
+				t.Fatalf("answer data is not an object: %s", rec.Body.String())
+			}
+			want := []string{"agent", "account", "token", "expires_at", "new_account"}
+			if len(fields) != len(want) {
+				t.Fatalf("answer fields = %v, want exactly %v", keysOf(fields), want)
+			}
+			for _, key := range want {
+				if _, ok := fields[key]; !ok {
+					t.Fatalf("answer fields = %v, want exactly %v", keysOf(fields), want)
+				}
+			}
+			var newAccount bool
+			if err := json.Unmarshal(fields["new_account"], &newAccount); err != nil || newAccount != created {
+				t.Fatalf("new_account = %s, want %v", fields["new_account"], created)
+			}
+		})
+	}
+}
+
+func keysOf(m map[string]json.RawMessage) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+func TestAssertAnswersAConflictWhenMoreThanOnePersonHoldsTheEmail(t *testing.T) {
+	logs := &assertionLogCapture{}
+	auth := &assertAuthService{findErr: fmt.Errorf("%w (2 people)", application.ErrAmbiguousOwner)}
+	h, sm := newTrustedIssuerHandler(&fakeAssertionVerifier{identity: acceptedIdentity()}, auth, logs)
+
+	rec := postAssertion(t, h, assertionBody(presentedAssertion))
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 (%s)", rec.Code, rec.Body.String())
+	}
+	if code := readAssertAnswer(t, rec).Code; code != handlers.CodeAmbiguousOwner {
+		t.Fatalf("answer code = %q, want %q", code, handlers.CodeAmbiguousOwner)
+	}
+	if sm.createCalls != 0 || len(rec.Header().Values("Set-Cookie")) != 0 {
+		t.Fatalf("an ambiguous owner was signed in")
+	}
+	errs := logs.atLevel("error")
+	if len(errs) != 1 {
+		t.Fatalf("expected the conflict to be logged once, got:\n%s", logs.text())
+	}
+	if got, _ := field(errs[0], "reason"); got != handlers.CodeAmbiguousOwner {
+		t.Fatalf("log line reason = %v, want %q", got, handlers.CodeAmbiguousOwner)
 	}
 	requireNoAssertionLogged(t, logs)
 }

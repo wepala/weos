@@ -21,11 +21,11 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/wepala/weos/v3/application"
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/internal/config"
 	"github.com/wepala/weos/v3/internal/trustedissuer"
 
-	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
 	"github.com/labstack/echo/v4"
 )
 
@@ -35,10 +35,21 @@ type AssertionVerifier interface {
 	Verify(ctx context.Context, assertion string) (trustedissuer.Identity, error)
 }
 
+// AssertedSignInService decides whom an accepted assertion signs in.
+// *application.AssertedSignIn is the implementation.
+type AssertedSignInService interface {
+	SignIn(ctx context.Context, id application.AssertedIdentity) (application.AssertedSignInResult, error)
+}
+
+// CodeAmbiguousOwner is the code of the conflict answered when an accepted
+// assertion's email is held by more than one person on an allowlisted
+// instance, so it cannot say whose identity it is.
+const CodeAmbiguousOwner = "ambiguous-owner"
+
 // TrustedIssuerHandlerConfig wires the login-assertion endpoint.
 type TrustedIssuerHandlerConfig struct {
-	Verifier    AssertionVerifier
-	AuthService authapp.AuthenticationService
+	Verifier AssertionVerifier
+	SignIn   AssertedSignInService
 	// Sessions completes an accepted sign-in exactly as password login
 	// completes one — the same session, cookie and answer — so the two are
 	// indistinguishable to everything downstream.
@@ -80,18 +91,40 @@ func (h *TrustedIssuerHandler) Assert(c echo.Context) error {
 		return h.refuse(c, err)
 	}
 
-	agent, credential, account, err := h.cfg.AuthService.FindOrCreateAgent(ctx, authapp.UserInfo{
-		ProviderUserID: identity.Subject,
-		Email:          identity.Email,
-		DisplayName:    DefaultDisplayName(identity.Email, identity.Name),
-		Provider:       identity.Provider,
+	result, err := h.cfg.SignIn.SignIn(ctx, application.AssertedIdentity{
+		Provider: identity.Provider,
+		Subject:  identity.Subject,
+		Email:    identity.Email,
+		// The password registration fallback, so a person the door gives no
+		// name is named the same way whichever door they came in by.
+		Name: DefaultDisplayName(identity.Email, identity.Name),
 	})
 	if err != nil {
+		if errors.Is(err, application.ErrAmbiguousOwner) {
+			// Only an operator can say which of the people holding the email
+			// owns this identity, so the log line is what they act on.
+			h.cfg.Logger.Error(ctx, "trusted issuer sign-in: more than one person holds the asserted email; nothing was linked or created",
+				"reason", CodeAmbiguousOwner, "provider", identity.Provider, "error", err.Error())
+			return respondErrorCode(c, http.StatusConflict,
+				"more than one account holds this email, so the sign-in cannot tell whose it is", CodeAmbiguousOwner)
+		}
 		h.cfg.Logger.Error(ctx, "trusted issuer sign-in: could not find or create the agent",
 			"provider", identity.Provider, "error", err)
 		return respondError(c, http.StatusInternalServerError, "failed to sign in")
 	}
-	return h.cfg.Sessions.completeAuth(c, agent, credential, account, identity.Email)
+	return h.cfg.Sessions.completeAuthAs(c, result.Agent, result.Credential, result.Account, identity.Email,
+		func(answer authSuccessResponse) any {
+			return assertSuccessResponse{authSuccessResponse: answer, NewAccount: result.NewAccount}
+		})
+}
+
+// assertSuccessResponse is password sign-in's answer plus new_account. The
+// OAuth callback reports the same fact as ?new_account=1 on its redirect; a
+// JSON answer has no redirect to carry it. It is always present, false
+// included, so a reader never has to tell "false" from "not said".
+type assertSuccessResponse struct {
+	authSuccessResponse
+	NewAccount bool `json:"new_account"`
 }
 
 func (h *TrustedIssuerHandler) refuse(c echo.Context, err error) error {
