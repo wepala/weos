@@ -317,7 +317,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// docs/decisions/trusted-issuer-login-assertion.md.
 	handlers.MountTrustedIssuerAssertion(context.Background(), api, appCfg.TrustedIssuer, logger,
 		func() *handlers.TrustedIssuerHandler {
-			return handlers.NewTrustedIssuerAssertionHandler(appCfg.TrustedIssuer, handlers.TrustedIssuerAssertionDeps{
+			return handlers.NewTrustedIssuerAssertionHandler(appCfg.TrustedIssuer, appCfg.OAuth.AllowedEmails, handlers.TrustedIssuerAssertionDeps{
 				SignIn:   assertedSignIn,
 				Sessions: passwordAuthHandlers,
 				Logger:   logger,

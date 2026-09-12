@@ -495,6 +495,8 @@ func TestNewTrustedIssuerAssertionHandlerVerifiesAgainstTheSettings(t *testing.T
 		"another provider in core's registry":   {func(c gojwt.MapClaims) { c["provider"] = "apple" }, http.StatusOK, ""},
 		"a provider outside core's registry":    {func(c gojwt.MapClaims) { c["provider"] = "okta" }, http.StatusUnauthorized, "claims"},
 		"good by the real clock, not the given": {func(c gojwt.MapClaims) { c["iat"], c["exp"] = time.Now().Unix(), time.Now().Add(45*time.Second).Unix() }, http.StatusUnauthorized, "window"},
+		"an email the allowlist does not name":  {func(c gojwt.MapClaims) { c["email"] = "marcus.okafor@harborlegal.example" }, http.StatusUnauthorized, "allowlist"},
+		"the listed email in other capitals":    {func(c gojwt.MapClaims) { c["email"] = "Ops@HarborLegal.example" }, http.StatusOK, ""},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -513,7 +515,9 @@ func TestNewTrustedIssuerAssertionHandlerVerifiesAgainstTheSettings(t *testing.T
 
 			auth := signedInAuthService(t)
 			logs := &assertionLogCapture{}
-			h := handlers.NewTrustedIssuerAssertionHandler(settings, handlers.TrustedIssuerAssertionDeps{
+			// An allowlist naming the good claims' email proves the constructor
+			// hands the allowlist to the verifier.
+			h := handlers.NewTrustedIssuerAssertionHandler(settings, []string{"ops@harborlegal.example"}, handlers.TrustedIssuerAssertionDeps{
 				SignIn: auth,
 				Sessions: handlers.NewPasswordAuthHandler(handlers.PasswordAuthHandlerConfig{
 					AuthService: auth, SessionManager: &fakeSessionManager{}, Logger: logs,

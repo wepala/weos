@@ -495,7 +495,7 @@ func (w *tiWorld) boot() error {
 	// thing added: the scenarios move time without waiting for it.
 	handlers.MountTrustedIssuerAssertion(context.Background(), api, cfg.TrustedIssuer, w.logs,
 		func() *handlers.TrustedIssuerHandler {
-			h := handlers.NewTrustedIssuerAssertionHandler(cfg.TrustedIssuer, handlers.TrustedIssuerAssertionDeps{
+			h := handlers.NewTrustedIssuerAssertionHandler(cfg.TrustedIssuer, cfg.OAuth.AllowedEmails, handlers.TrustedIssuerAssertionDeps{
 				SignIn:   w.signIn,
 				Sessions: sessions,
 				Logger:   w.logs,

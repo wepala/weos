@@ -84,19 +84,29 @@ type TrustedIssuerAssertionDeps struct {
 
 // NewTrustedIssuerAssertionHandler builds the handler POST /auth/assert serves:
 // a verifier for the configured issuer, key list and audience that accepts
-// core's OAuth registry keys as providers, wired to deps.
+// core's OAuth registry keys as providers and enforces allowedEmails — the
+// instance's OAUTH_ALLOWED_EMAILS, empty for none — wired to deps.
+//
+// The allowlist is a parameter rather than a field of deps so that no caller
+// can build the route and forget it: a forgotten allowlist would admit
+// everyone the door vouches for.
 //
 // serve.go and the acceptance tests both build the route through here, so the
 // wiring the tests exercise is the wiring that ships.
-func NewTrustedIssuerAssertionHandler(settings config.TrustedIssuerConfig, deps TrustedIssuerAssertionDeps) *TrustedIssuerHandler {
+func NewTrustedIssuerAssertionHandler(
+	settings config.TrustedIssuerConfig,
+	allowedEmails []string,
+	deps TrustedIssuerAssertionDeps,
+) *TrustedIssuerHandler {
 	return NewTrustedIssuerHandler(TrustedIssuerHandlerConfig{
 		Verifier: trustedissuer.NewVerifier(trustedissuer.Config{
-			Issuer:    settings.Issuer,
-			JWKSURL:   settings.JWKSURL,
-			Audience:  settings.Audience,
-			Providers: application.OAuthProviderKeys(),
-			Now:       deps.Now,
-			Logger:    deps.Logger,
+			Issuer:        settings.Issuer,
+			JWKSURL:       settings.JWKSURL,
+			Audience:      settings.Audience,
+			Providers:     application.OAuthProviderKeys(),
+			AllowedEmails: allowedEmails,
+			Now:           deps.Now,
+			Logger:        deps.Logger,
 		}),
 		SignIn:   deps.SignIn,
 		Sessions: deps.Sessions,

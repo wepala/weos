@@ -71,6 +71,10 @@ const (
 	// ReasonClaims: a required claim is missing or unacceptable — jti, sub,
 	// email, provider (a registry key, verbatim), email_verified == true.
 	ReasonClaims Reason = "claims"
+	// ReasonAllowlist: the instance has an identity allowlist
+	// (OAUTH_ALLOWED_EMAILS) and it does not name the assertion's email. It is
+	// the last check, so the assertion's jti is already spent.
+	ReasonAllowlist Reason = "allowlist"
 )
 
 const (
@@ -135,6 +139,13 @@ type Config struct {
 	// Providers are the provider claim values accepted, verbatim — core's
 	// OAuth registry keys.
 	Providers []string
+	// AllowedEmails is the instance's identity allowlist
+	// (OAUTH_ALLOWED_EMAILS). When it has any entry, an assertion whose email
+	// it does not name is refused as allowlist, after every other check and
+	// after the jti is spent. The comparison is the OAuth callback's: both
+	// sides trimmed and lowercased, then an exact match. Empty admits every
+	// email, as the callback does.
+	AllowedEmails []string
 
 	// KeyMissRefetchInterval is the shortest time between two key-list reads
 	// caused by an unknown kid, instance-wide. Inside it, an assertion naming
@@ -163,10 +174,12 @@ type Verifier struct {
 	issuer    string
 	audience  string
 	providers map[string]struct{}
-	now       func() time.Time
-	parser    *gojwt.Parser
-	keys      *keyList
-	spent     *replayMemory
+	// allowed is the normalized allowlist; nil when the instance has none.
+	allowed map[string]struct{}
+	now     func() time.Time
+	parser  *gojwt.Parser
+	keys    *keyList
+	spent   *replayMemory
 }
 
 // NewVerifier builds a Verifier. It reads nothing until the first assertion.
@@ -194,10 +207,18 @@ func NewVerifier(cfg Config) *Verifier {
 	for _, p := range cfg.Providers {
 		providers[p] = struct{}{}
 	}
+	var allowed map[string]struct{}
+	if len(cfg.AllowedEmails) > 0 {
+		allowed = make(map[string]struct{}, len(cfg.AllowedEmails))
+		for _, e := range cfg.AllowedEmails {
+			allowed[normalizeEmail(e)] = struct{}{}
+		}
+	}
 	return &Verifier{
 		issuer:    cfg.Issuer,
 		audience:  cfg.Audience,
 		providers: providers,
+		allowed:   allowed,
 		now:       now,
 		// Claims are checked below, one by one, so each refusal names the
 		// check that failed; the parser only establishes the signature.
@@ -302,10 +323,17 @@ func (v *Verifier) checkClaims(c gojwt.MapClaims) (Identity, error) {
 		return refuse(ReasonClaims, "the assertion does not mark the email address verified")
 	}
 
-	// Spent last, so an assertion refused for anything else does not burn the
-	// jti a corrected retry would carry.
+	// Spent after every check except the allowlist, so an assertion refused
+	// for a flaw the door can correct does not burn the jti a corrected retry
+	// would carry.
 	if !v.spent.remember(jti, now) {
 		return refuse(ReasonReplay, "the assertion was already presented")
+	}
+	// After the jti is spent, so an assertion the allowlist refuses cannot be
+	// presented again once the allowlist names its person. The detail stays a
+	// fixed phrase: the email does not reach the log.
+	if !v.admits(email) {
+		return refuse(ReasonAllowlist, "the assertion's email is not on this instance's allowlist")
 	}
 	return Identity{
 		Subject:  subject,
@@ -314,6 +342,22 @@ func (v *Verifier) checkClaims(c gojwt.MapClaims) (Identity, error) {
 		Name:     textClaim(c, "name"),
 		JTI:      jti,
 	}, nil
+}
+
+// admits reports whether the allowlist lets email in. An instance with no
+// allowlist admits everyone.
+func (v *Verifier) admits(email string) bool {
+	if v.allowed == nil {
+		return true
+	}
+	_, ok := v.allowed[normalizeEmail(email)]
+	return ok
+}
+
+// normalizeEmail is the OAuth callback's normalization: trimmed and
+// lowercased, nothing else.
+func normalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
 }
 
 // textClaim reads a string claim. A missing claim, one of another type, and

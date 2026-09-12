@@ -298,7 +298,7 @@ func (w *taWorld) boot() error {
 	})
 	mounted := handlers.MountTrustedIssuerAssertion(context.Background(), api, cfg.TrustedIssuer, w.logs,
 		func() *handlers.TrustedIssuerHandler {
-			return handlers.NewTrustedIssuerAssertionHandler(cfg.TrustedIssuer, handlers.TrustedIssuerAssertionDeps{
+			return handlers.NewTrustedIssuerAssertionHandler(cfg.TrustedIssuer, cfg.OAuth.AllowedEmails, handlers.TrustedIssuerAssertionDeps{
 				SignIn:   w.signIn,
 				Sessions: sessions,
 				Logger:   w.logs,
