@@ -232,7 +232,8 @@ func NewVerifier(cfg Config) *Verifier {
 		}
 	}
 	return &Verifier{
-		issuer:    cfg.Issuer,
+		// Without trailing slashes, as checkClaims compares iss.
+		issuer:    strings.TrimRight(strings.TrimSpace(cfg.Issuer), "/"),
 		audience:  cfg.Audience,
 		providers: providers,
 		allowed:   allowed,
@@ -296,7 +297,10 @@ func signatureDetail(err error) string {
 func (v *Verifier) checkClaims(c gojwt.MapClaims) (Identity, error) {
 	now := v.now()
 
-	if iss, err := c.GetIssuer(); err != nil || iss != v.issuer {
+	// A trailing slash does not change the address an issuer names, so an iss
+	// that differs from the trusted issuer only by trailing slashes is the
+	// trusted issuer. v.issuer is stored without them.
+	if iss, err := c.GetIssuer(); err != nil || v.issuer == "" || strings.TrimRight(iss, "/") != v.issuer {
 		return refuse(ReasonIssuer, "the assertion was not issued by the trusted issuer")
 	}
 	// Exactly one audience: an assertion addressed to several instances could

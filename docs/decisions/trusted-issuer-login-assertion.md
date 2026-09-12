@@ -72,7 +72,19 @@ through the proxy — the door never calls it server-side — so the instance's 
 lands in the browser exactly as it does for `/auth/password-login`.
 
 **Verification.** ES256 signature against the issuer's JWKS; `iss` equals
-`TRUSTED_ISSUER`; `aud` is exactly one value and equals `TRUSTED_ISSUER_AUDIENCE`.
+`TRUSTED_ISSUER`, where trailing slashes on either side do not count; `aud` is exactly one
+value and equals `TRUSTED_ISSUER_AUDIENCE`.
+
+- **One issuer value.** Boot trims spaces and trailing slashes from `TRUSTED_ISSUER` once,
+  when it reads the setting. That one value is what `iss` is compared with and the base of
+  the door's sign-in address (see "Renewal"). A trailing slash does not change the address,
+  so `https://door.example/` and `https://door.example` are the same issuer, whichever side
+  writes the slash.
+- **An issuer the route can use.** `TRUSTED_ISSUER` must be an absolute `https` URL (plain
+  `http` only to a loopback host, as for the key list), with a host, and with no query,
+  fragment or user information. Otherwise boot logs one warning, mounts nothing and offers
+  no `issuer` provider, the same mount-or-not shape as a partial set. The warning does not
+  repeat the value.
 
 - **The audience is this instance's own id.** `TRUSTED_ISSUER_AUDIENCE` is unique to one
   instance and is never shared with another. Instances that share an audience all accept
@@ -297,6 +309,16 @@ one `TRUSTED_ISSUER*` setting is set, whether or not the route mounts: a partial
 unusable key-list address or the public `SESSION_SECRET` leaves an instance that requires
 a sign-in and, with no OAuth provider or password sign-in configured, admits nobody. The
 boot line that names the problem says so. It never leaves the API open.
+
+**Rolling out.** Add the three `TRUSTED_ISSUER*` settings to an instance only when the
+door is already serving that instance. The first setting locks every API route behind a
+sign-in, whether or not the route mounts, and an instance whose only sign-in is the door
+answers 401 everywhere until an assertion from the door signs someone in. Every boot line
+about a trusted issuer says so in its `consequence` field: the info line for a mounted
+route ("the API is locked … until an assertion from the trusted issuer, or another
+configured sign-in, signs someone in"), and the warning or error for one that did not
+mount. `TRUSTED_ISSUER_LINK_PASSWORD_OWNERS` is not one of the three settings and locks
+nothing.
 
 ### Consequences
 

@@ -285,6 +285,11 @@ func TestServe_UnusableTrustedIssuerLocksTheAPI(t *testing.T) {
 			cfg.TrustedIssuer = door.settings()
 			cfg.TrustedIssuer.Audience = ""
 		},
+		"with an issuer that is not https": func(cfg *config.Config) {
+			cfg.SessionSecret = bootOwnSecret
+			cfg.TrustedIssuer = door.settings()
+			cfg.TrustedIssuer.Issuer = "http://door.example"
+		},
 	}
 	for name, configure := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -3,7 +3,6 @@ package handlers
 import (
 	"net/http"
 	"sort"
-	"strings"
 
 	"github.com/wepala/weos/v3/internal/config"
 
@@ -41,17 +40,21 @@ type AuthProvidersHandler struct {
 type AuthProvidersOption func(*AuthProvidersHandler)
 
 // WithTrustedIssuer offers the trusted issuer as the provider "issuer" with
-// the login_url <TRUSTED_ISSUER>/door/start (a trailing slash on the issuer
-// trimmed) exactly when MountTrustedIssuerAssertion mounts POST
-// /api/auth/assert for cfg: all three trusted-issuer settings present, a
-// key-list address the verifier may read, and a session secret of the
-// instance's own. An instance with no assertion path has no door to offer.
+// the login_url <TRUSTED_ISSUER>/door/start exactly when
+// MountTrustedIssuerAssertion mounts POST /api/auth/assert for cfg: all three
+// trusted-issuer settings present, an issuer address the sign-in address can
+// be built from, a key-list address the verifier may read, and a session
+// secret of the instance's own. An instance with no assertion path has no door
+// to offer.
+//
+// The address is built from config.TrustedIssuerConfig.IssuerID, the same
+// value, trailing slashes trimmed, that the verifier compares iss with.
 func WithTrustedIssuer(cfg config.Config) AuthProvidersOption {
 	return func(h *AuthProvidersHandler) {
 		if !trustedIssuerMountable(cfg) {
 			return
 		}
-		h.issuerLoginURL = strings.TrimRight(strings.TrimSpace(cfg.TrustedIssuer.Issuer), "/") + trustedIssuerLoginPath
+		h.issuerLoginURL = cfg.TrustedIssuer.IssuerID() + trustedIssuerLoginPath
 	}
 }
 

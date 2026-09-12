@@ -481,9 +481,9 @@ func TestVerifyRefusesWithTheReasonWhy(t *testing.T) {
 		}, trustedissuer.ReasonKidMiss},
 
 		// iss
-		"another issuer":   {withClaims(func(_ time.Time, c claims) { c["iss"] = "https://door.cedarrealty.example" }), trustedissuer.ReasonIssuer},
-		"issuer left out":  {withClaims(func(_ time.Time, c claims) { delete(c, "iss") }), trustedissuer.ReasonIssuer},
-		"issuer not exact": {withClaims(func(_ time.Time, c claims) { c["iss"] = testIssuer + "/" }), trustedissuer.ReasonIssuer},
+		"another issuer":           {withClaims(func(_ time.Time, c claims) { c["iss"] = "https://door.cedarrealty.example" }), trustedissuer.ReasonIssuer},
+		"issuer left out":          {withClaims(func(_ time.Time, c claims) { delete(c, "iss") }), trustedissuer.ReasonIssuer},
+		"issuer with a path added": {withClaims(func(_ time.Time, c claims) { c["iss"] = testIssuer + "/fleet" }), trustedissuer.ReasonIssuer},
 
 		// aud
 		"another audience":    {withClaims(func(_ time.Time, c claims) { c["aud"] = "9f8e7d6c" }), trustedissuer.ReasonAudience},

@@ -87,3 +87,17 @@ func (c TrustedIssuerConfig) Configured() bool { return len(c.MissingKeys()) == 
 // Unset reports whether none of the three settings is present — an instance
 // outside any fleet.
 func (c TrustedIssuerConfig) Unset() bool { return len(c.MissingKeys()) == 3 }
+
+// IssuerID is the one form of TRUSTED_ISSUER the instance uses: the iss an
+// assertion is compared with, and the base of the door's sign-in address.
+// LoadFromEnvironment stores the setting in this form; a value built by hand
+// is put in it here, so both readers agree whichever way the value arrived.
+func (c TrustedIssuerConfig) IssuerID() string { return NormalizeTrustedIssuer(c.Issuer) }
+
+// NormalizeTrustedIssuer trims surrounding spaces and every trailing slash
+// from a TRUSTED_ISSUER value. A trailing slash does not change the address an
+// issuer names, and an operator pasting the door's address may or may not
+// write one.
+func NormalizeTrustedIssuer(raw string) string {
+	return strings.TrimRight(strings.TrimSpace(raw), "/")
+}

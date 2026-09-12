@@ -106,7 +106,7 @@ func NewTrustedIssuerAssertionHandler(
 ) *TrustedIssuerHandler {
 	return NewTrustedIssuerHandler(TrustedIssuerHandlerConfig{
 		Verifier: trustedissuer.NewVerifier(trustedissuer.Config{
-			Issuer:        settings.Issuer,
+			Issuer:        settings.IssuerID(),
 			JWKSURL:       settings.JWKSURL,
 			Audience:      settings.Audience,
 			Providers:     application.OAuthProviderKeys(),
@@ -231,25 +231,33 @@ func (h *TrustedIssuerHandler) refuse(c echo.Context, err error) error {
 }
 
 // trustedIssuerMountable reports whether MountTrustedIssuerAssertion mounts
-// the route for cfg: all three trusted-issuer settings present, a key-list
-// address the verifier may read, and a session secret of the instance's own.
+// the route for cfg: all three trusted-issuer settings present, an issuer
+// address the door's sign-in address can be built from, a key-list address
+// the verifier may read, and a session secret of the instance's own.
 // WithTrustedIssuer offers the door on exactly this, so the providers list
 // never offers a door the instance cannot take an assertion from.
 func trustedIssuerMountable(cfg config.Config) bool {
 	return cfg.TrustedIssuer.Configured() &&
+		trustedissuer.CheckIssuerURL(cfg.TrustedIssuer.IssuerID()) == nil &&
 		trustedissuer.CheckJWKSURL(cfg.TrustedIssuer.JWKSURL) == nil &&
 		!cfg.UsesPublicSessionSecret()
 }
 
 // unmountedIssuerConsequence is what every boot line about an unmounted
-// assertion route adds: any trusted-issuer setting makes the API require a
+// assertion route adds. Any trusted-issuer setting makes the API require a
 // sign-in (config.Config.AuthEnabled), so an operator must not read "not
-// mounted" as "open".
-const unmountedIssuerConsequence = "the API still requires a sign-in; with no OAuth provider or password sign-in configured, nobody can sign in"
+// mounted" as "open", nor wonder why every page answers 401.
+const unmountedIssuerConsequence = "the API is locked: every API route requires a sign-in, and no assertion can sign anyone in until this is fixed; with no OAuth provider or password sign-in configured, nobody can use the API"
+
+// mountedIssuerConsequence is what the boot line for a mounted assertion route
+// adds: an operator who sets the three settings before the door serves this
+// instance must be told why every API route answers 401.
+const mountedIssuerConsequence = "the API is locked: every API route requires a sign-in, and it stays locked until an assertion from the trusted issuer, or another configured sign-in, signs someone in"
 
 // MountTrustedIssuerAssertion registers POST /auth/assert when, and only when,
-// all three trusted-issuer settings are present, the key-list address is one
-// the verifier may read, and SESSION_SECRET is the instance's own. It reports
+// all three trusted-issuer settings are present, the issuer is an address the
+// door's sign-in address can be built from, the key-list address is one the
+// verifier may read, and SESSION_SECRET is the instance's own. It reports
 // whether it mounted the route.
 //
 // An unmounted route is never registered, so the path answers exactly like one
@@ -257,12 +265,14 @@ const unmountedIssuerConsequence = "the API still requires a sign-in; with no OA
 // reason: middleware ordering cannot turn an absent route into a 401.
 //
 // With none of the settings, nothing is logged: the instance is outside any
-// fleet. With one or two, or with an address the verifier refuses to read,
-// boot logs one warning saying what is wrong, because the operator asked for
-// something they are not getting. With all three and SESSION_SECRET at core's
-// public default, or empty, boot logs one error naming SESSION_SECRET: a
-// session signed with a key anyone knows can be forged, so the route fails
-// closed. build runs only when the route is mounted.
+// fleet. With one or two, or with an issuer or key-list address that cannot be
+// used, boot logs one warning saying what is wrong, because the operator asked
+// for something they are not getting. With all three and SESSION_SECRET at
+// core's public default, or empty, boot logs one error naming SESSION_SECRET:
+// a session signed with a key anyone knows can be forged, so the route fails
+// closed. With the route mounted, boot logs one info line. Every one of these
+// lines says, in its consequence field, that the API is locked. build runs
+// only when the route is mounted.
 //
 // serve.go and the acceptance tests both mount through here so there is one
 // copy of this decision rather than two that can drift apart.
@@ -284,6 +294,16 @@ func MountTrustedIssuerAssertion(
 			"consequence", unmountedIssuerConsequence)
 		return false
 	}
+	issuer := settings.IssuerID()
+	if err := trustedissuer.CheckIssuerURL(issuer); err != nil {
+		// The value is not logged: it failed the check, so it may carry user
+		// information.
+		logger.Warn(ctx, "TRUSTED_ISSUER cannot be used; POST /api/auth/assert is not mounted",
+			"error", err.Error(),
+			"remedy", "set TRUSTED_ISSUER to the door's https address, with no query, fragment or user information",
+			"consequence", unmountedIssuerConsequence)
+		return false
+	}
 	if err := trustedissuer.CheckJWKSURL(settings.JWKSURL); err != nil {
 		logger.Warn(ctx, "TRUSTED_ISSUER_JWKS_URL cannot be used; POST /api/auth/assert is not mounted",
 			"error", err.Error(),
@@ -300,5 +320,8 @@ func MountTrustedIssuerAssertion(
 		return false
 	}
 	g.POST("/auth/assert", build().Assert)
+	logger.Info(ctx, "trusted-issuer sign-in is on; POST /api/auth/assert is mounted",
+		"issuer", issuer,
+		"consequence", mountedIssuerConsequence)
 	return true
 }

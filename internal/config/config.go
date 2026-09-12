@@ -176,11 +176,16 @@ type Config struct {
 	// signed login assertions this instance accepts at POST /api/auth/assert.
 	// Three keys configure it, and all three are needed:
 	//
-	//   - TRUSTED_ISSUER: the exact iss an assertion carries, and the door's
-	//     host. GET /api/auth/providers offers it as the provider "issuer"
-	//     with the login_url <TRUSTED_ISSUER>/door/start (a trailing slash on
-	//     the issuer is trimmed), so a person whose session expired is sent
-	//     back to the door.
+	//   - TRUSTED_ISSUER: the iss an assertion carries, and the door's host.
+	//     Spaces and trailing slashes are trimmed once, at load, and that one
+	//     value is both what iss is compared with (an iss that differs only by
+	//     trailing slashes is accepted) and the base of the door's sign-in
+	//     address: GET /api/auth/providers offers the provider "issuer" with
+	//     the login_url <TRUSTED_ISSUER>/door/start, so a person whose session
+	//     expired is sent back to the door. It must be an absolute https URL
+	//     (plain http only to a loopback host) with a host and no query,
+	//     fragment or user information; otherwise boot warns, mounts nothing
+	//     and offers no issuer provider.
 	//   - TRUSTED_ISSUER_JWKS_URL: where the issuer publishes its signing keys;
 	//     https, or http to a loopback host.
 	//   - TRUSTED_ISSUER_AUDIENCE: the exact aud an assertion carries — this
@@ -717,7 +722,9 @@ func (c *Config) LoadFromEnvironment() {
 		c.OAuth.DefaultProvider = provider
 	}
 
-	if issuer := strings.TrimSpace(os.Getenv(EnvTrustedIssuer)); issuer != "" {
+	// Normalized once, here, so the door's sign-in address and the iss check
+	// read one value. A value that is only slashes is not set.
+	if issuer := NormalizeTrustedIssuer(os.Getenv(EnvTrustedIssuer)); issuer != "" {
 		c.TrustedIssuer.Issuer = issuer
 	}
 	if jwksURL := strings.TrimSpace(os.Getenv(EnvTrustedIssuerJWKSURL)); jwksURL != "" {
