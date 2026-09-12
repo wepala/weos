@@ -353,12 +353,12 @@ func newTestAssertedSignInWith(s *memoryAuthStore, configure func(*AssertedSignI
 	return NewAssertedSignIn(cfg)
 }
 
-// allowlisted configures an allowlisted instance, with password registration
-// open or not.
-func allowlisted(registrationOpen bool) func(*AssertedSignInConfig) {
+// allowlisted configures an allowlisted instance, with the operator's opt-in
+// that lets password credentials prove an owner set or not.
+func allowlisted(passwordOwners bool) func(*AssertedSignInConfig) {
 	return func(cfg *AssertedSignInConfig) {
 		cfg.LinkByEmail = true
-		cfg.PasswordRegistrationOpen = registrationOpen
+		cfg.PasswordOwnersProven = passwordOwners
 	}
 }
 
@@ -416,7 +416,7 @@ func TestAssertedSignInLinksAnOwnersNewIdentityWhenTheAllowlistIsSet(t *testing.
 	s.seedPerson(t, "agent-ops", "ops", "password", "ops@harborlegal.example", "ops@harborlegal.example")
 
 	identity := AssertedIdentity{Provider: "apple", Subject: appleSub, Email: " Ops@HarborLegal.example", Name: "Harbor Ops"}
-	got, err := newTestAssertedSignIn(s, true).SignIn(context.Background(), identity)
+	got, err := newTestAssertedSignInWith(s, allowlisted(true)).SignIn(context.Background(), identity)
 	if err != nil {
 		t.Fatalf("SignIn: %v", err)
 	}
@@ -477,7 +477,7 @@ func TestAssertedSignInRefusesAnEmailTwoPeopleHold(t *testing.T) {
 	s.seedPerson(t, "agent-dana", "Dana Whitfield", "password", "dana.whitfield@harborlegal.example", "dana.whitfield@harborlegal.example")
 	s.seedPerson(t, "agent-dana-2", "Dana W", "google", googleSub, "Dana.Whitfield@harborlegal.example")
 
-	_, err := newTestAssertedSignIn(s, true).SignIn(context.Background(), dana("apple", appleSub))
+	_, err := newTestAssertedSignInWith(s, allowlisted(true)).SignIn(context.Background(), dana("apple", appleSub))
 	if !errors.Is(err, ErrAmbiguousOwner) {
 		t.Fatalf("err = %v, want ErrAmbiguousOwner", err)
 	}
@@ -486,48 +486,35 @@ func TestAssertedSignInRefusesAnEmailTwoPeopleHold(t *testing.T) {
 	}
 }
 
-func TestAssertedSignInPassesOverACredentialWhosePersonIsGone(t *testing.T) {
+// A credential whose person no longer exists proves no owner, and it still
+// holds the email, so the sign-in is refused for an operator to decide rather
+// than creating a person beside it. Account erasure deletes a person's
+// credentials with them, so only damaged data leaves one behind.
+func TestAssertedSignInRefusesWhenTheOnlyCredentialHoldingTheEmailHasNoPerson(t *testing.T) {
 	s := newMemoryAuthStore()
 	s.seedCredential(t, "agent-erased", "google", googleSub, "dana.whitfield@harborlegal.example")
 
-	got, err := newTestAssertedSignIn(s, true).SignIn(context.Background(), dana("apple", appleSub))
-	if err != nil {
-		t.Fatalf("SignIn: %v", err)
-	}
-	if !got.NewAccount || s.createCount() != 1 {
-		t.Fatalf("a credential with no person behind it was linked: new=%v creates=%d", got.NewAccount, s.createCount())
-	}
+	_, err := newTestAssertedSignIn(s, true).SignIn(context.Background(), dana("apple", appleSub))
+	requireUnprovenOwner(t, s, err, "apple", appleSub)
 }
 
-// The capture: registration is open on an allowlisted instance, and someone
-// registers the owner's email with a password before the owner's first sign-in
-// through the door.
-func TestAssertedSignInNeverHandsAnOwnersIdentityToAPasswordAccountAnyoneCouldRegister(t *testing.T) {
+// The capture: someone registers the owner's email with a password before the
+// owner's first sign-in through the door. Unless the operator has said the
+// instance's password accounts are theirs, that credential proves nothing: the
+// sign-in is refused, neither linked to it nor given a second person.
+func TestAssertedSignInNeverHandsAnOwnersIdentityToAPasswordAccountWithoutTheOptIn(t *testing.T) {
 	s := newMemoryAuthStore()
 	s.seedPerson(t, "agent-registrant", "ops", "password", "ops@harborlegal.example", "ops@harborlegal.example")
 
-	owner := AssertedIdentity{Provider: "google", Subject: "117590246813570924368", Email: "ops@harborlegal.example", Name: "Harbor Ops"}
-	got, err := newTestAssertedSignInWith(s, allowlisted(true)).SignIn(context.Background(), owner)
-	if err != nil {
-		t.Fatalf("SignIn: %v", err)
-	}
-	if got.Agent.GetID() == "agent-registrant" {
-		t.Fatalf("the owner's door sign-in reached the self-registered password account")
-	}
-	if !got.NewAccount || s.createCount() != 1 {
-		t.Fatalf("want a new person: new=%v creates=%d", got.NewAccount, s.createCount())
-	}
-	if linked := s.credentialFor("google", "117590246813570924368"); linked == nil || linked.AgentID() == "agent-registrant" {
-		t.Fatalf("the owner's identity is stored against %v, want the new person", linked)
-	}
+	_, err := newTestAssertedSignInWith(s, allowlisted(false)).SignIn(context.Background(), harborOps("google", ownerSub))
+	requireUnprovenOwner(t, s, err, "google", ownerSub)
 }
 
-func TestAssertedSignInLinksAPasswordOwnerWhenOnlyTheOperatorCanRegister(t *testing.T) {
+func TestAssertedSignInLinksAPasswordOwnerWhenTheOperatorOptsIn(t *testing.T) {
 	s := newMemoryAuthStore()
 	s.seedPerson(t, "agent-ops", "ops", "password", "ops@harborlegal.example", "ops@harborlegal.example")
 
-	owner := AssertedIdentity{Provider: "google", Subject: "117590246813570924368", Email: "ops@harborlegal.example", Name: "Harbor Ops"}
-	got, err := newTestAssertedSignInWith(s, allowlisted(false)).SignIn(context.Background(), owner)
+	got, err := newTestAssertedSignInWith(s, allowlisted(true)).SignIn(context.Background(), harborOps("google", ownerSub))
 	if err != nil {
 		t.Fatalf("SignIn: %v", err)
 	}
@@ -536,14 +523,14 @@ func TestAssertedSignInLinksAPasswordOwnerWhenOnlyTheOperatorCanRegister(t *test
 	}
 }
 
-func TestAssertedSignInStillLinksAProviderCredentialWhilePasswordRegistrationIsOpen(t *testing.T) {
+func TestAssertedSignInLinksAProvingCredentialBesideAPasswordOneThatProvesNothing(t *testing.T) {
 	s := newMemoryAuthStore()
 	s.seedPerson(t, "agent-dana", "Dana Whitfield", "google", googleSub, "dana.whitfield@harborlegal.example")
 	// A registrant holding the same email is not counted, so it neither
 	// captures the owner nor makes the owner ambiguous.
 	s.seedPerson(t, "agent-registrant", "dana", "password", "dana.whitfield@harborlegal.example", "dana.whitfield@harborlegal.example")
 
-	got, err := newTestAssertedSignInWith(s, allowlisted(true)).SignIn(context.Background(), dana("apple", appleSub))
+	got, err := newTestAssertedSignInWith(s, allowlisted(false)).SignIn(context.Background(), dana("apple", appleSub))
 	if err != nil {
 		t.Fatalf("SignIn: %v", err)
 	}
@@ -558,23 +545,18 @@ func TestAssertedSignInPassesOverWhatWasTurnedOff(t *testing.T) {
 		"an inactive person":     func(t *testing.T, s *memoryAuthStore) { s.deactivateAgent(t, "agent-dana-old") },
 	}
 	for name, off := range turnOff {
-		t.Run(name+" is not linked", func(t *testing.T) {
+		t.Run(name+" alone proves no owner, so the sign-in is refused", func(t *testing.T) {
 			s := newMemoryAuthStore()
 			s.seedPerson(t, "agent-dana-old", "Dana Whitfield", "google", googleSub, "dana.whitfield@harborlegal.example")
 			off(t, s)
 
-			got, err := newTestAssertedSignIn(s, true).SignIn(context.Background(), dana("apple", appleSub))
-			if err != nil {
-				t.Fatalf("SignIn: %v", err)
-			}
-			if got.Agent.GetID() == "agent-dana-old" || !got.NewAccount {
-				t.Fatalf("what was turned off was linked back: agent=%s new=%v", got.Agent.GetID(), got.NewAccount)
-			}
+			_, err := newTestAssertedSignIn(s, true).SignIn(context.Background(), dana("apple", appleSub))
+			requireUnprovenOwner(t, s, err, "apple", appleSub)
 		})
 		t.Run(name+" does not make the owner ambiguous", func(t *testing.T) {
 			s := newMemoryAuthStore()
 			s.seedPerson(t, "agent-dana-old", "Dana Whitfield", "google", googleSub, "dana.whitfield@harborlegal.example")
-			s.seedPerson(t, "agent-dana", "Dana Whitfield", "password", "dana.whitfield@harborlegal.example", "dana.whitfield@harborlegal.example")
+			s.seedPerson(t, "agent-dana", "Dana Whitfield", "google", ownerSub, "dana.whitfield@harborlegal.example")
 			off(t, s)
 
 			got, err := newTestAssertedSignIn(s, true).SignIn(context.Background(), dana("apple", appleSub))
@@ -594,6 +576,7 @@ func TestAssertedSignInLogsEachLinkOnceWithHashesAndTheOwner(t *testing.T) {
 	logs := &signInLogs{}
 	svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) {
 		cfg.LinkByEmail = true
+		cfg.PasswordOwnersProven = true
 		cfg.Logger = logs
 	})
 
@@ -670,6 +653,7 @@ func TestAssertedSignInLogsAnAmbiguousOwnerWithEveryPersonHoldingTheEmail(t *tes
 	logs := &signInLogs{}
 	svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) {
 		cfg.LinkByEmail = true
+		cfg.PasswordOwnersProven = true
 		cfg.Logger = logs
 	})
 

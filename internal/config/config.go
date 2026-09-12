@@ -192,6 +192,18 @@ type Config struct {
 	// applies to assertions as it applies to OAuth sign-in (see
 	// OAuthConfig.AllowedEmails).
 	//
+	// A fourth key is not a setting of the route but an opt-in for owner
+	// binding on an allowlisted instance:
+	//
+	//   - TRUSTED_ISSUER_LINK_PASSWORD_OWNERS (default false): a password
+	//     credential proves who owns its email, so the owner's first door
+	//     sign-in links to the password account the operator made. Without it
+	//     only google and apple credentials prove an owner, and an email held
+	//     only by credentials that prove nothing is refused 409
+	//     unproven-owner. Set it only where the operator made every password
+	//     account: nothing verifies a password account's email. See
+	//     TrustedIssuerConfig.LinkPasswordOwners.
+	//
 	// The route also needs the instance's own SESSION_SECRET. With all three
 	// set but SESSION_SECRET left at core's public default, or empty, boot logs
 	// one error naming SESSION_SECRET, mounts nothing and offers no issuer
@@ -713,6 +725,11 @@ func (c *Config) LoadFromEnvironment() {
 	}
 	if audience := strings.TrimSpace(os.Getenv(EnvTrustedIssuerAudience)); audience != "" {
 		c.TrustedIssuer.Audience = audience
+	}
+	if v := strings.TrimSpace(os.Getenv(EnvTrustedIssuerLinkPasswordOwners)); v != "" {
+		if enabled, err := strconv.ParseBool(v); err == nil {
+			c.TrustedIssuer.LinkPasswordOwners = enabled
+		}
 	}
 
 	if smtpHost := os.Getenv("SMTP_HOST"); smtpHost != "" {

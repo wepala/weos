@@ -251,6 +251,7 @@ func (w *taWorld) clearAmbientSettings() {
 	w.setEnv("OAUTH_ALLOWED_EMAILS", nil)
 	w.setEnv("PASSWORD_AUTH_ENABLED", nil)
 	w.setEnv("PASSWORD_REGISTRATION_ENABLED", nil)
+	w.setEnv(config.EnvTrustedIssuerLinkPasswordOwners, nil)
 	w.setEnv("GOOGLE_CLIENT_ID", nil)
 	w.setEnv("GOOGLE_CLIENT_SECRET", nil)
 }
@@ -398,7 +399,20 @@ func (w *taWorld) restoreEnv() {
 
 // accountWithOwner has the operator create a person with a password, and names
 // their personal account.
+//
+// An operator who makes an instance's owners with passwords says so with
+// TRUSTED_ISSUER_LINK_PASSWORD_OWNERS: without it a password credential proves
+// nothing about who owns its email, because nothing verifies that email. So
+// the step also sets the opt-in and restarts the instance with it.
 func (w *taWorld) accountWithOwner(name, email, password string) error {
+	if err := w.createPasswordOwner(name, email, password); err != nil {
+		return err
+	}
+	w.setEnv(config.EnvTrustedIssuerLinkPasswordOwners, ptr("true"))
+	return w.boot()
+}
+
+func (w *taWorld) createPasswordOwner(name, email, password string) error {
 	ctx := context.Background()
 	_, _, account, err := w.authService.RegisterPassword(ctx, email, handlers.DefaultDisplayName(email, ""), password)
 	if err != nil {

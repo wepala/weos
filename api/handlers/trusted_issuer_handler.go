@@ -48,6 +48,11 @@ type AssertedSignInService interface {
 // instance, so it cannot say whose identity it is.
 const CodeAmbiguousOwner = application.ReasonAmbiguousOwner
 
+// CodeUnprovenOwner is the code of the conflict answered when credentials on
+// an allowlisted instance hold an accepted assertion's email but none of them
+// proves who owns it, so the sign-in can neither link nor create.
+const CodeUnprovenOwner = application.ReasonUnprovenOwner
+
 // TrustedIssuerHandlerConfig wires the login-assertion endpoint.
 type TrustedIssuerHandlerConfig struct {
 	Verifier AssertionVerifier
@@ -167,12 +172,16 @@ func (h *TrustedIssuerHandler) Assert(c echo.Context) error {
 		Name: DefaultDisplayName(identity.Email, identity.Name),
 	})
 	if err != nil {
+		// The sign-in service has logged each conflict with every person
+		// holding the email, which is what an operator acts on. A second line
+		// here would count one refusal twice.
 		if errors.Is(err, application.ErrAmbiguousOwner) {
-			// The sign-in service has logged the refusal with every person
-			// holding the email, which is what an operator acts on. A second
-			// line here would count one refusal twice.
 			return respondErrorCode(c, http.StatusConflict,
 				"more than one account holds this email, so the sign-in cannot tell whose it is", CodeAmbiguousOwner)
+		}
+		if errors.Is(err, application.ErrUnprovenOwner) {
+			return respondErrorCode(c, http.StatusConflict,
+				"an account holds this email, but nothing proves whose it is, so the sign-in cannot tell whose it is", CodeUnprovenOwner)
 		}
 		h.cfg.Logger.Error(ctx, "trusted issuer sign-in: could not find or create the agent",
 			"provider", identity.Provider, "error", err)

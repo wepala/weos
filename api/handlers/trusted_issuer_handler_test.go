@@ -483,6 +483,30 @@ func TestAssertAnswersAConflictWhenMoreThanOnePersonHoldsTheEmail(t *testing.T) 
 	}
 }
 
+func TestAssertAnswersAConflictWhenNothingProvesWhoOwnsTheEmail(t *testing.T) {
+	logs := &assertionLogCapture{}
+	auth := &assertAuthService{findErr: fmt.Errorf("%w (1 people)", application.ErrUnprovenOwner)}
+	h, sm := newTrustedIssuerHandler(&fakeAssertionVerifier{identity: acceptedIdentity()}, auth, logs)
+
+	rec := postAssertion(t, h, assertionBody(presentedAssertion))
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 (%s)", rec.Code, rec.Body.String())
+	}
+	if handlers.CodeUnprovenOwner != "unproven-owner" {
+		t.Fatalf("CodeUnprovenOwner = %q, want unproven-owner", handlers.CodeUnprovenOwner)
+	}
+	if code := readAssertAnswer(t, rec).Code; code != handlers.CodeUnprovenOwner {
+		t.Fatalf("answer code = %q, want %q", code, handlers.CodeUnprovenOwner)
+	}
+	if sm.createCalls != 0 || len(rec.Header().Values("Set-Cookie")) != 0 {
+		t.Fatalf("an unproven owner was signed in")
+	}
+	if logged := logs.text(); logged != "" {
+		t.Fatalf("the handler logged the conflict a second time:\n%s", logged)
+	}
+}
+
 // --- the constructor serve.go builds the route with ---
 
 func TestNewTrustedIssuerAssertionHandlerVerifiesAgainstTheSettings(t *testing.T) {

@@ -91,7 +91,10 @@ reset on restart — acceptable because assertions expire in 60 s); required cla
 core's registry keys (`google`, `apple`, …), verbatim. Every refusal is a 401 whose
 body and log line carry a machine-readable reason: `signature`, `kid-miss`,
 `keys-unreachable`, `iss`, `aud`, `expired`, `window`, `jti-replay`, `claims`,
-`allowlist`. A refusal's body and log line never carry the assertion. The `kid` in its
+`allowlist`. An accepted assertion can still be refused when owner binding cannot tell
+whose identity it is: that answer is **409**, not 401, with the code `ambiguous-owner` or
+`unproven-owner` (see "Owner binding"). A refusal's body and log line never carry the
+assertion. The `kid` in its
 header is chosen by the caller, so it never reaches a refusal's text and reaches a log
 line only as its first 16 characters, in printable ASCII. A request body over 16 KiB is
 answered 413 before any of it is read; that is not a refusal and carries no reason.
@@ -138,10 +141,16 @@ an Apple "Hide My Email" login still passes an owner's allowlist.
 
 **Owner binding.** On success, resolve the agent by `(provider, sub)` as
 `FindOrCreateAgent` does. If none exists **and** `OAUTH_ALLOWED_EMAILS` is set (the
-fleet's single-user shape), an existing credential whose email equals the claim's email
-is linked to the new `(provider, sub)` instead of a second agent being created. Any kind
-of credential can be linked to, password credentials included, within the two limits
-below. Otherwise create, as today; a person the assertion gives no name is named after
+fleet's single-user shape), look at the credentials whose email equals the claim's email:
+
+- When exactly one active person holds a credential that **proves ownership** (see
+  "Which credentials prove ownership" below), the new `(provider, sub)` is linked to that
+  person instead of a second agent being created.
+- When no credential holds the email, create, as today.
+- When credentials hold the email but none of them proves ownership, refuse with
+  `unproven-owner` (below).
+
+With no allowlist, create, as today. A person the assertion gives no name is named after
 the email's local part.
 
 - **How emails compare.** Both emails have spaces trimmed from each end and ASCII
@@ -153,10 +162,16 @@ the email's local part.
   a second person instead, and the warning under "What binding logs" reports it. The
   allowlist keeps the OAuth callback's comparison, so such an address can pass the
   allowlist and still not link.
-- **Two people holding the email.** When more than one active person holds a counted
-  credential for the email, the sign-in is answered **409** with the code
+- **Two people holding the email.** When more than one active person holds a credential
+  for the email that proves ownership, the sign-in is answered **409** with the code
   `ambiguous-owner`. Nothing is linked and nobody is created, because choosing one of
   them would sign a person in to someone else's data.
+- **Credentials that hold the email but prove nothing.** When one or more credentials hold
+  the email and none of them proves ownership, the sign-in is answered **409** with the
+  code `unproven-owner`. Nothing is linked and nobody is created. Linking could hand the
+  identity to whoever wrote that email. Creating could leave the owner in a second, empty
+  account, which the owner reports as lost data. An operator decides (see "Clearing
+  `ambiguous-owner` and `unproven-owner`").
 - **Races.** Sign-ins for one identity, and on an allowlisted instance sign-ins for one
   email, are serialized in process, so two first sign-ins that arrive together leave one
   person. The locks are per process. Replicas that share a database still race, and the
@@ -166,24 +181,38 @@ the email's local part.
   store fails after the row is saved, the sign-in fails and the row is left without its
   event.
 
-Two kinds of credential never say who owns an email. Binding neither links to them nor
-counts them toward `ambiguous-owner`:
+**Which credentials prove ownership.** The list is explicit: a credential proves who owns
+its email only when all three of these are true.
 
-- **A password credential while `PASSWORD_REGISTRATION_ENABLED` is on.** Open
-  registration checks neither the email nor the allowlist, so a password credential's
-  email is whatever its registrant typed. If binding linked to one, a person who
-  registers the owner's email before the owner's first door sign-in would receive the
-  owner's identity, and would keep the password. With registration off, only the
-  operator makes password accounts, and a password credential links like any other.
-  Credentials from a provider that verified the email (`google`, `apple`, `netsuite`)
-  link in both cases.
-- **An inactive credential, or any credential of an inactive person** (pericarp's
-  `Active` flag). A sign-in method or a person that someone turned off must not come
-  back through the door.
+- **It is active, and its person exists and is active** (pericarp's `Active` flags). A
+  sign-in method or a person that someone turned off must not come back through the door.
+- **It is a `google` or `apple` credential**, whose provider verified the address before
+  the credential was written.
+- **Or it is a `password` credential, and the operator set
+  `TRUSTED_ISSUER_LINK_PASSWORD_OWNERS=true`** (default `false`). Nothing verifies a
+  password credential's email. Open registration checks neither the email nor the
+  allowlist, and a credential registered while `PASSWORD_REGISTRATION_ENABLED` was on
+  stays after it is turned off, so the current value of that setting says nothing about
+  who made the accounts. The opt-in is the operator saying that they made every password
+  account on the instance. Set it only where registration was never open.
+
+Every other credential proves nothing. Binding neither links to it nor counts it toward
+`ambiguous-owner`, and an email held only by such credentials is refused as
+`unproven-owner`:
+
+- **`invite`.** Any signed-in person can invite an address from their own personal
+  account and accept that invite with no session. That leaves an active person holding an
+  active invite credential for an email that nobody verified.
+- **`netsuite`.** NetSuite reports the email that its account administrator set, with no
+  verification flag.
+- **Any provider this list does not name**, including a development provider and one
+  that a downstream binary adds.
 
 **What binding logs.** Each link, each person that a sign-in creates, and each
-`ambiguous-owner` refusal writes one structured log line. A link is logged at info and
-a refusal at error. A created person is logged at info, or at warn when the instance has
+`ambiguous-owner` or `unproven-owner` refusal writes one structured log line. A link is
+logged at info and a refusal at error. An `unproven-owner` line names every person
+holding the email in `agent_ids`, and the kinds of credential they hold in
+`matched_providers`. A created person is logged at info, or at warn when the instance has
 an allowlist and another active person already exists: an instance with named owners
 rarely gains a second person on purpose, so that person is most likely an owner whom
 binding missed. Every line names the `provider` and the `agent_ids` it is about (the
@@ -212,13 +241,27 @@ for an address, compute
   An allowlist entry that lets such a person in must equal the email on the owner's
   existing credential.
 
-**Clearing `ambiguous-owner`.** The refusal's error line lists in `agent_ids` every
-active person who holds the email. Decide which of them is the owner. Then turn off every
-other one: the person, or each of that person's credentials that holds the email
-(pericarp's `Agent.Deactivate` and `Credential.Deactivate`, which record
-`Agent.Deactivated` and `Credential.Deactivated`). Inactive people and credentials are
-not counted, so the next sign-in links to the one person left. Core has no command for
-this yet; bead `wm-2bx2g` adds one.
+**Clearing `ambiguous-owner` and `unproven-owner`.** The refusal's error line lists in
+`agent_ids` the people who hold the email: for `ambiguous-owner` every active person
+holding a credential that proves ownership, for `unproven-owner` every person holding any
+credential for it. Decide which of them is the owner.
+
+- For `ambiguous-owner`, turn off every other one: the person, or each of that person's
+  credentials that holds the email (pericarp's `Agent.Deactivate` and
+  `Credential.Deactivate`, which record `Agent.Deactivated` and `Credential.Deactivated`).
+  Inactive people and credentials are not counted, so the next sign-in links to the one
+  person left.
+- For `unproven-owner`, make the owner provable or take the other credentials away:
+  - when the owner or the owner's google or apple credential was turned off by mistake,
+    turn it back on;
+  - when the owner's only credential is a password account the operator made, and every
+    password account on the instance is the operator's, set
+    `TRUSTED_ISSUER_LINK_PASSWORD_OWNERS=true`;
+  - otherwise remove the credentials that hold the email. Turning them off is not
+    enough: an inactive credential still holds the email, so the sign-in is still
+    refused. With no credential for the email left, the next sign-in creates the person.
+
+Core has no command for this yet; bead `wm-2bx2g` adds one.
 
 **Response.** The `/auth/password-login` shape — `{agent, account, token, expires_at}`
 plus the JWT session cookie — with one added boolean, `new_account`, true when this call

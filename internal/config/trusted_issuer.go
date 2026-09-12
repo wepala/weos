@@ -22,6 +22,11 @@ const (
 	EnvTrustedIssuer         = "TRUSTED_ISSUER"
 	EnvTrustedIssuerJWKSURL  = "TRUSTED_ISSUER_JWKS_URL"
 	EnvTrustedIssuerAudience = "TRUSTED_ISSUER_AUDIENCE"
+	// EnvTrustedIssuerLinkPasswordOwners is the operator's opt-in that lets a
+	// password credential prove who owns its email during owner binding. It
+	// is not one of the three settings: alone it configures nothing, and it
+	// never makes the API require a sign-in.
+	EnvTrustedIssuerLinkPasswordOwners = "TRUSTED_ISSUER_LINK_PASSWORD_OWNERS"
 )
 
 // TrustedIssuerConfig names the one service — a fleet's front door — whose
@@ -43,6 +48,21 @@ type TrustedIssuerConfig struct {
 	// accept the same assertion, and jti memory cannot stop that because it is
 	// per instance.
 	Audience string
+	// LinkPasswordOwners lets a password credential prove who owns its email
+	// when owner binding links an identity the instance has not seen
+	// (TRUSTED_ISSUER_LINK_PASSWORD_OWNERS, default false). Only google and
+	// apple credentials prove an owner without it.
+	//
+	// Set it only on an instance whose password accounts the operator made.
+	// Nothing verifies the email a password account is registered under, and
+	// a credential registered while PASSWORD_REGISTRATION_ENABLED was on stays
+	// after it is turned off: with this set, whoever registered an owner's
+	// email first would receive the owner's identity from the door.
+	//
+	// It is not one of the three settings: it configures no route, is not
+	// counted by MissingKeys or Unset, and never makes the API require a
+	// sign-in.
+	LinkPasswordOwners bool
 }
 
 // MissingKeys names the settings that are not set, in a fixed order. A value
