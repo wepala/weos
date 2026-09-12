@@ -50,10 +50,12 @@ func refuseRedirect(*http.Request, []*http.Request) error { return errKeyListRed
 
 // keyRefusal is the key lookup's refusal: no key the verifier holds or can
 // read answers for the assertion. why is fixed wording and never carries the
-// kid, which the caller chooses.
+// kid, which the caller chooses. cause is set only when the request ended
+// while it waited for a read; it is that request's context error.
 type keyRefusal struct {
 	reason Reason
 	why    string
+	cause  error
 }
 
 func (r *keyRefusal) Error() string { return r.why }
@@ -69,7 +71,8 @@ func (r *keyRefusal) Error() string { return r.why }
 //     fetch slot. A request that needs a read while one is running waits for
 //     it and then sees what it found, so a burst of assertions naming a newly
 //     published key costs the issuer one read and is accepted whole. A
-//     request that is waiting leaves when its own request ends.
+//     request that is waiting leaves when its own request ends. That is not
+//     a failed read: it is not logged, and it does not touch the backoff.
 //   - Reads caused by a key the fresh cached list lacks are limited to one per
 //     missInterval, for the whole instance. Inside the interval such a key is
 //     refused as a kid miss with no read, so a stream of assertions naming
@@ -82,11 +85,16 @@ func (r *keyRefusal) Error() string { return r.why }
 //     not thrown away. It never replaces or extends the cached keys, and the
 //     next read that replaces them discards it.
 //   - A read that fails — unreachable, answering other than 200, undecodable,
-//     redirecting — or that holds no usable key starts a backoff of
-//     missInterval in which no read is made. A cached key, fresh or aged,
-//     still answers; anything else is refused with no read: keys-unreachable
-//     after a read that failed, kid-miss after a read that held no usable key.
-//     The failure is logged by the read, so once per backoff.
+//     redirecting — or that holds no usable key starts a backoff in which no
+//     read is made. The first failure backs off KeyListFirstRetry; each
+//     further failure in a row doubles it, up to missInterval; a complete
+//     read ends the run. An instance that wakes with nothing cached and
+//     misses one read is signing people in again seconds later, while an
+//     issuer that stays down is read at most once per missInterval. A cached
+//     key, fresh or aged, still answers; anything else is refused with no
+//     read: keys-unreachable after a read that failed, kid-miss after a read
+//     that held no usable key. The failure is logged by the read, so once per
+//     backoff.
 //   - A read that comes back short — failing, empty, or without the key that
 //     was asked for — fails only the request that caused it. It never
 //     replaces the cached keys and never restarts their clock. Replacing them
@@ -102,8 +110,10 @@ type keyList struct {
 	now    func() time.Time
 	logger entities.Logger
 	// missInterval is the shortest time between two reads caused by a key the
-	// fresh cached list lacks, and how long reads back off after one fails.
+	// fresh cached list lacks, and the longest reads back off after failures.
 	missInterval time.Duration
+	// firstRetry is how long reads back off after the first failure in a run.
+	firstRetry time.Duration
 
 	// fetchSlot holds a token while a request is deciding whether to read, or
 	// reading. A channel rather than a mutex, so a waiter can leave when its
@@ -122,6 +132,10 @@ type keyList struct {
 	// failedUnreachable says which. Cleared by a read that succeeds.
 	failedReadAt      time.Time
 	failedUnreachable bool
+	// failedReads counts the reads that failed in a row, and retryAfter is the
+	// backoff the last of them started. Both are reset by a complete read.
+	failedReads int
+	retryAfter  time.Duration
 }
 
 // keyView is what the cache says about one kid at one moment, without a read.
@@ -133,10 +147,11 @@ type keyView struct {
 	fresh bool
 	// throttled: a miss caused a read less than missInterval ago.
 	throttled bool
-	// backingOff: a read failed or held no usable key less than missInterval
+	// backingOff: a read failed or held no usable key less than retryAfter
 	// ago; unreachable says it failed.
 	backingOff  bool
 	unreachable bool
+	retryAfter  time.Duration
 }
 
 func (l *keyList) look(kid string) keyView {
@@ -147,8 +162,9 @@ func (l *keyList) look(kid string) keyView {
 		fresh:       l.keys != nil && now.Sub(l.readAt) < KeyListTTL,
 		key:         l.keys[kid],
 		throttled:   !l.missReadAt.IsZero() && now.Sub(l.missReadAt) < l.missInterval,
-		backingOff:  !l.failedReadAt.IsZero() && now.Sub(l.failedReadAt) < l.missInterval,
+		backingOff:  !l.failedReadAt.IsZero() && now.Sub(l.failedReadAt) < l.retryAfter,
 		unreachable: l.failedUnreachable,
+		retryAfter:  l.retryAfter,
 	}
 	if v.key == nil {
 		v.key = l.missKeys[kid]
@@ -163,7 +179,7 @@ func (l *keyList) store(keys map[string]*ecdsa.PublicKey) {
 	l.keys = keys
 	l.readAt = l.now()
 	l.missKeys = nil
-	l.failedReadAt = time.Time{}
+	l.clearFailuresLocked()
 }
 
 // storeMissRead keeps a complete read a miss caused beside the cached keys,
@@ -172,7 +188,14 @@ func (l *keyList) storeMissRead(keys map[string]*ecdsa.PublicKey) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.missKeys = keys
+	l.clearFailuresLocked()
+}
+
+// clearFailuresLocked ends a run of failed reads. l.mu must be held.
+func (l *keyList) clearFailuresLocked() {
 	l.failedReadAt = time.Time{}
+	l.failedReads = 0
+	l.retryAfter = 0
 }
 
 // markMissRead starts the interval in which no other miss causes a read. It is
@@ -183,12 +206,21 @@ func (l *keyList) markMissRead() {
 	l.missReadAt = l.now()
 }
 
-// markFailedRead starts the backoff in which no read is made.
-func (l *keyList) markFailedRead(unreachable bool) {
+// markFailedRead starts the backoff in which no read is made and returns its
+// length: firstRetry after the first failure in a run, doubled by each further
+// failure, never longer than missInterval.
+func (l *keyList) markFailedRead(unreachable bool) time.Duration {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.failedReads++
+	retry := min(l.firstRetry, l.missInterval)
+	for i := 1; i < l.failedReads && retry < l.missInterval; i++ {
+		retry = min(2*retry, l.missInterval)
+	}
+	l.retryAfter = retry
 	l.failedReadAt = l.now()
 	l.failedUnreachable = unreachable
+	return retry
 }
 
 func (l *keyList) throttledMiss() error {
@@ -197,15 +229,15 @@ func (l *keyList) throttledMiss() error {
 		l.missInterval)}
 }
 
-func (l *keyList) backoffRefusal(unreachable bool) error {
-	if unreachable {
+func backoffRefusal(v keyView) error {
+	if v.unreachable {
 		return &keyRefusal{reason: ReasonKeysUnreachable, why: fmt.Sprintf(
 			"the issuer's key list could not be read less than %s ago, and it is not read again before then",
-			l.missInterval)}
+			v.retryAfter)}
 	}
 	return &keyRefusal{reason: ReasonKidMiss, why: fmt.Sprintf(
 		"the issuer's key list held no usable key when it was read less than %s ago, and it is not read again before then",
-		l.missInterval)}
+		v.retryAfter)}
 }
 
 // logKIDMax is the most of a kid a log line carries.
@@ -237,8 +269,12 @@ func (l *keyList) key(ctx context.Context, kid string) (*ecdsa.PublicKey, error)
 	select {
 	case l.fetchSlot <- struct{}{}:
 	case <-ctx.Done():
+		// The request went away, not the key list: nothing is logged here and
+		// the backoff is left as it is. cause lets the caller tell this apart
+		// from a key list that could not be read.
 		return nil, &keyRefusal{reason: ReasonKeysUnreachable,
-			why: "the request ended while it waited for the issuer's key list to be read"}
+			why:   "the request ended while it waited for the issuer's key list to be read",
+			cause: ctx.Err()}
 	}
 	defer func() { <-l.fetchSlot }()
 
@@ -256,7 +292,7 @@ func (l *keyList) key(ctx context.Context, kid string) (*ecdsa.PublicKey, error)
 			// retired it.
 			return v.key, nil
 		}
-		return nil, l.backoffRefusal(v.unreachable)
+		return nil, backoffRefusal(v)
 	case v.fresh && v.throttled:
 		return nil, l.throttledMiss()
 	}
@@ -274,14 +310,14 @@ func (l *keyList) key(ctx context.Context, kid string) (*ecdsa.PublicKey, error)
 		err = errors.New("the key list holds no usable key")
 	}
 	if err != nil {
-		l.markFailedRead(unreachable)
+		retry := l.markFailedRead(unreachable)
 		if v.key != nil {
 			l.logger.Warn(ctx, "trusted issuer key list could not be refreshed; the cached keys stay in use",
-				"kid", logKID(kid), "kid_length", len(kid), "error", err.Error(), "retry_after", l.missInterval.String())
+				"kid", logKID(kid), "kid_length", len(kid), "error", err.Error(), "retry_after", retry.String())
 			return v.key, nil
 		}
 		l.logger.Warn(ctx, "trusted issuer key list came back short; the cached keys are unchanged",
-			"kid", logKID(kid), "kid_length", len(kid), "error", err.Error(), "retry_after", l.missInterval.String())
+			"kid", logKID(kid), "kid_length", len(kid), "error", err.Error(), "retry_after", retry.String())
 		if unreachable {
 			return nil, &keyRefusal{reason: ReasonKeysUnreachable,
 				why: "the issuer's key list could not be read to find the key the assertion names"}

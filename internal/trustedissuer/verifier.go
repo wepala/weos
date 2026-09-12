@@ -52,9 +52,11 @@ const (
 	ReasonKidMiss Reason = "kid-miss"
 	// ReasonKeysUnreachable: no cached key answers for the assertion, and the
 	// issuer's key list could not be read — unreachable, answering other than
-	// 200, undecodable, or redirecting — now or less than
-	// KeyMissRefetchInterval ago, or the request ended while it waited for a
-	// read. Publishing a key does not fix it; reaching the list does.
+	// 200, undecodable, or redirecting — now or inside the backoff that
+	// followed. Publishing a key does not fix it; reaching the list does. A
+	// request that ended while it waited for a read is also answered with it;
+	// that refusal wraps the request's own context error (see
+	// Refusal.Unwrap), because nothing is wrong with the key list.
 	ReasonKeysUnreachable Reason = "keys-unreachable"
 	// ReasonIssuer: iss is not exactly the trusted issuer.
 	ReasonIssuer Reason = "iss"
@@ -83,8 +85,13 @@ const (
 	KeyListTTL = 10 * time.Minute
 	// KeyMissRefetchInterval is the default for Config.KeyMissRefetchInterval:
 	// the shortest time between two reads of the key list caused by
-	// assertions naming a key the fresh cached list lacks.
+	// assertions naming a key the fresh cached list lacks. It is also the
+	// longest a run of failed key-list reads backs off.
 	KeyMissRefetchInterval = 30 * time.Second
+	// KeyListFirstRetry is how long key-list reads back off after the first
+	// failed read in a run. Each further failure in a row doubles it, up to
+	// the miss interval, and a complete read ends the run.
+	KeyListFirstRetry = 2 * time.Second
 	// ReplayMemory is how long a presented jti is remembered. It outlives any
 	// assertion that could still be valid: MaxLifetime plus the allowance on
 	// both ends is two minutes.
@@ -103,11 +110,20 @@ const (
 type Refusal struct {
 	Reason Reason
 	Detail string
+	// cause is the request's context error when the request ended while it
+	// waited for a key-list read; nil for every other refusal.
+	cause error
 }
 
 func (r *Refusal) Error() string {
 	return fmt.Sprintf("login assertion refused (%s): %s", r.Reason, r.Detail)
 }
+
+// Unwrap returns the request's context error when the refusal was made because
+// the request ended while it waited for a key-list read, and nil otherwise. A
+// caller that finds its own request's context error in a refusal knows the
+// request went away and the key list did not fail.
+func (r *Refusal) Unwrap() error { return r.cause }
 
 func refuse(reason Reason, detail string) (Identity, error) {
 	return Identity{}, &Refusal{Reason: reason, Detail: detail}
@@ -150,9 +166,10 @@ type Config struct {
 	// KeyMissRefetchInterval is the shortest time between two key-list reads
 	// caused by an unknown kid, instance-wide. Inside it, an assertion naming
 	// a key neither the fresh cached list nor the last miss read holds is
-	// refused as kid-miss with no read. It is also how long reads back off
-	// after one fails or holds no usable key. Optional; zero or less means
-	// KeyMissRefetchInterval.
+	// refused as kid-miss with no read. It is also the longest reads back off
+	// after a run of reads that failed or held no usable key; the first
+	// failure in a run backs off KeyListFirstRetry. Optional; zero or less
+	// means KeyMissRefetchInterval.
 	KeyMissRefetchInterval time.Duration
 
 	// HTTPClient reads the key list. Optional. The verifier reads through a
@@ -229,6 +246,7 @@ func NewVerifier(cfg Config) *Verifier {
 		keys: &keyList{
 			url: cfg.JWKSURL, client: client, now: now, logger: logger,
 			missInterval: missInterval,
+			firstRetry:   KeyListFirstRetry,
 			fetchSlot:    make(chan struct{}, 1),
 		},
 		spent: newReplayMemory(),
@@ -253,7 +271,7 @@ func (v *Verifier) Verify(ctx context.Context, assertion string) (Identity, erro
 	if err != nil {
 		var keys *keyRefusal
 		if errors.As(err, &keys) {
-			return refuse(keys.reason, keys.why)
+			return Identity{}, &Refusal{Reason: keys.reason, Detail: keys.why, cause: keys.cause}
 		}
 		return refuse(ReasonSignature, signatureDetail(err))
 	}

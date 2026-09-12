@@ -303,6 +303,35 @@ func TestAssertTreatsAnUnexpectedVerifierErrorAsASignatureRefusal(t *testing.T) 
 	}
 }
 
+func TestAssertDoesNotLogARequestThatEndedWhileWaitingForTheKeyListAsARefusal(t *testing.T) {
+	logs := &assertionLogCapture{}
+	// The verifier's refusal for a request that left the key-list queue wraps
+	// that request's context error.
+	verifier := &fakeAssertionVerifier{err: errors.Join(
+		&trustedissuer.Refusal{Reason: trustedissuer.ReasonKeysUnreachable, Detail: "the request ended while it waited"},
+		context.Canceled,
+	)}
+	h, sm := newTrustedIssuerHandler(verifier, &assertAuthService{}, logs)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	rec := httptest.NewRecorder()
+	req := newJSONRequest(http.MethodPost, "/api/auth/assert", assertionBody(presentedAssertion)).WithContext(ctx)
+	if err := h.Assert(echo.New().NewContext(req, rec)); err != nil {
+		t.Fatalf("Assert returned an error instead of answering: %v", err)
+	}
+
+	if rec.Code != http.StatusUnauthorized || sm.createCalls != 0 {
+		t.Fatalf("status = %d, sessions = %d; want a 401 and no session", rec.Code, sm.createCalls)
+	}
+	if warns := logs.atLevel("warn"); len(warns) != 0 {
+		t.Fatalf("a request that went away was logged as a refusal:\n%s", logs.text())
+	}
+	if strings.Contains(logs.text(), string(trustedissuer.ReasonKeysUnreachable)) {
+		t.Fatalf("a request that went away was logged as an unreachable key list:\n%s", logs.text())
+	}
+}
+
 // --- an accepted assertion ---
 
 func acceptedIdentity() trustedissuer.Identity {

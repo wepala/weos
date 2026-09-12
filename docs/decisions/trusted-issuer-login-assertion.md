@@ -106,8 +106,10 @@ cached set. The issuer is obliged to publish a new key before signing with it.
 - **One read at a time.** A request that needs a key while a read is running waits for
   that read and acts on what it found, so a burst of sign-ins with a newly published key
   costs one read and is accepted whole. A waiting request leaves when its own request
-  ends. A read runs to its own 5-second timeout even when the request that started it
-  ends, so a client that went away is never recorded as an unreachable key list.
+  ends. That is not a failed read: it is not logged as `keys-unreachable`, and it does
+  not start or lengthen the backoff below. A read runs to its own 5-second timeout even
+  when the request that started it ends, so a client that went away is never recorded
+  as an unreachable key list.
 - **The last successful miss read is kept.** A complete refetch caused by an unknown `kid`
   is kept beside the cached set, and a `kid` it holds is accepted until the cached set is
   next replaced. It never overwrites or extends the cached set. Without it, a refetch
@@ -116,10 +118,15 @@ cached set. The issuer is obliged to publish a new key before signing with it.
   refused until the cache aged out.
 - **A failed read backs off.** A read that cannot complete — the key list is unreachable,
   answers other than 200, cannot be decoded, or redirects (redirects are never followed) —
-  or that holds no usable key starts a **30-second backoff** in which no read is made.
-  Cached keys, fresh or aged, stay in use with no time limit. Anything else is refused
-  with no read: `keys-unreachable` when the read could not complete, `kid-miss` when the
-  key list answered with no usable key. The failure is logged once per backoff.
+  or that holds no usable key starts a backoff in which no read is made. The first
+  failure backs off **2 seconds**. Each further failure in a row doubles it — 4, 8, 16 —
+  up to **30 seconds**, and a complete read ends the run, so the next failure backs off
+  2 seconds again. An instance that wakes with nothing cached and misses one read (egress
+  not up yet, the door mid-deploy) signs people in again 2 seconds later, while an issuer
+  that stays down is read at most once every 30 seconds. Cached keys, fresh or aged, stay
+  in use with no time limit. Anything else is refused with no read: `keys-unreachable`
+  when the read could not complete, `kid-miss` when the key list answered with no usable
+  key. The failure is logged once per backoff, with the backoff's length.
   `keys-unreachable` tells the door that publishing a key will not help; reaching the key
   list will.
 

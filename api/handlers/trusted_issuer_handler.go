@@ -31,7 +31,8 @@ import (
 )
 
 // AssertionVerifier checks a login assertion. *trustedissuer.Verifier is the
-// implementation; every error it returns is a *trustedissuer.Refusal.
+// implementation; every error it returns is a *trustedissuer.Refusal. A refusal
+// made because the request ended first wraps the request's context error.
 type AssertionVerifier interface {
 	Verify(ctx context.Context, assertion string) (trustedissuer.Identity, error)
 }
@@ -202,13 +203,22 @@ func (h *TrustedIssuerHandler) tooLarge(c echo.Context) error {
 }
 
 func (h *TrustedIssuerHandler) refuse(c echo.Context, err error) error {
+	ctx := c.Request().Context()
 	reason, detail := trustedissuer.ReasonSignature, "the assertion could not be verified"
 	var refusal *trustedissuer.Refusal
 	if errors.As(err, &refusal) {
 		reason, detail = refusal.Reason, refusal.Detail
 	}
-	h.cfg.Logger.Warn(c.Request().Context(), "trusted issuer login assertion refused",
-		"reason", string(reason), "detail", detail)
+	if ended := ctx.Err(); ended != nil && errors.Is(err, ended) {
+		// The request ended while it waited for the issuer's key list. The
+		// client went away; the key list did not fail. A warning under the
+		// refusal's reason would send an operator after a network fault that
+		// never happened, so this is a debug line that names no reason.
+		h.cfg.Logger.Debug(ctx, "trusted issuer login assertion abandoned: the request ended before the assertion could be checked")
+	} else {
+		h.cfg.Logger.Warn(ctx, "trusted issuer login assertion refused",
+			"reason", string(reason), "detail", detail)
+	}
 	return respondErrorCode(c, http.StatusUnauthorized, "login assertion refused: "+string(reason), string(reason))
 }
 

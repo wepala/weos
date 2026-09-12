@@ -1177,6 +1177,9 @@ func TestARequestWaitingForAKeyListReadLeavesWhenItEnds(t *testing.T) {
 	select {
 	case err := <-waiting:
 		requireReason(t, err, trustedissuer.ReasonKeysUnreachable)
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("the refusal does not say the request ended: %v", err)
+		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("a request whose context ended was still waiting for the key-list read")
 	}
@@ -1186,6 +1189,128 @@ func TestARequestWaitingForAKeyListReadLeavesWhenItEnds(t *testing.T) {
 	if got := f.door.fetches.Load(); got != 1 {
 		t.Fatalf("expected the request that left to cause no read, got %d reads", got)
 	}
+	if lines := f.logs.all(); len(lines) != 0 {
+		t.Fatalf("a request that left the queue was logged:\n%s", f.logs.text())
+	}
+}
+
+func TestARequestThatLeavesTheQueueDoesNotLengthenTheBackoff(t *testing.T) {
+	f := newFixture(t)
+	f.door.setMode(doorUnreachable)
+	started, release := f.door.holdReads(t)
+
+	firstToken := f.door.sign(currentKey, f.good(t))
+	first := make(chan error, 1)
+	go func() { _, err := f.verify(firstToken); first <- err }()
+	waitFor(t, started, "the first assertion's key-list read")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, err := f.verifier.Verify(ctx, f.door.sign(currentKey, f.good(t)))
+	requireReason(t, err, trustedissuer.ReasonKeysUnreachable)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("the refusal does not say the request ended: %v", err)
+	}
+
+	release()
+	requireReason(t, <-first, trustedissuer.ReasonKeysUnreachable)
+	if lines := f.logs.all(); len(lines) != 1 {
+		t.Fatalf("expected only the failed read to be logged, got %d lines:\n%s", len(lines), f.logs.text())
+	}
+
+	// One failed read backs off KeyListFirstRetry. Had the request that left
+	// counted as a second failure, the backoff would be twice that and this
+	// sign-in would be refused without a read.
+	f.clock.Advance(trustedissuer.KeyListFirstRetry)
+	_, err = f.verify(f.door.sign(currentKey, f.good(t)))
+	requireReason(t, err, trustedissuer.ReasonKeysUnreachable)
+	if got := f.door.fetches.Load(); got != 2 {
+		t.Fatalf("expected a read once the first backoff has passed, got %d reads", got)
+	}
+}
+
+func TestAColdInstanceSignsInTwoSecondsAfterOneFailedKeyListRead(t *testing.T) {
+	f := newFixture(t)
+	f.door.setMode(doorUnreachable)
+	_, err := f.verify(f.door.sign(currentKey, f.good(t)))
+	requireReason(t, err, trustedissuer.ReasonKeysUnreachable)
+	lines := f.logs.all()
+	if len(lines) != 1 {
+		t.Fatalf("expected the failed read to be logged once, got:\n%s", f.logs.text())
+	}
+	if retry := logField(lines[0], "retry_after"); retry != "2s" {
+		t.Fatalf("the failed read's log line says retry_after %v, want 2s", retry)
+	}
+
+	f.door.publish(currentKey)
+	f.clock.Advance(2 * time.Second)
+	_, err = f.verify(f.door.sign(currentKey, f.good(t)))
+	requireAccepted(t, err)
+	if got := f.door.fetches.Load(); got != 2 {
+		t.Fatalf("expected the failed read and one more, got %d reads", got)
+	}
+}
+
+func TestFailedKeyListReadsInARowDoubleTheBackoffUpToThirtySeconds(t *testing.T) {
+	f := newFixture(t)
+	f.door.setMode(doorUnreachable)
+	_, err := f.verify(f.door.sign(currentKey, f.good(t)))
+	requireReason(t, err, trustedissuer.ReasonKeysUnreachable)
+
+	reads := int32(1)
+	for _, backoff := range []time.Duration{
+		2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second, 30 * time.Second, 30 * time.Second,
+	} {
+		f.clock.Advance(backoff - time.Millisecond)
+		_, err = f.verify(f.door.sign(currentKey, f.good(t)))
+		requireReason(t, err, trustedissuer.ReasonKeysUnreachable)
+		if got := f.door.fetches.Load(); got != reads {
+			t.Fatalf("a sign-in inside the %s backoff read the key list (%d reads, want %d)", backoff, got, reads)
+		}
+		f.clock.Advance(time.Millisecond)
+		_, err = f.verify(f.door.sign(currentKey, f.good(t)))
+		requireReason(t, err, trustedissuer.ReasonKeysUnreachable)
+		reads++
+		if got := f.door.fetches.Load(); got != reads {
+			t.Fatalf("no read once the %s backoff had passed (%d reads, want %d)", backoff, got, reads)
+		}
+	}
+
+	// A complete read ends the run.
+	f.door.publish(currentKey)
+	f.clock.Advance(30 * time.Second)
+	_, err = f.verify(f.door.sign(currentKey, f.good(t)))
+	requireAccepted(t, err)
+	reads++
+
+	// The next failure is the first of a new run: 2 s, not 30 s. The aged
+	// key keeps answering throughout.
+	f.clock.Advance(trustedissuer.KeyListTTL + time.Second)
+	f.door.setMode(doorUnreachable)
+	_, err = f.verify(f.door.sign(currentKey, f.good(t)))
+	requireAccepted(t, err)
+	reads++
+	f.clock.Advance(trustedissuer.KeyListFirstRetry - time.Millisecond)
+	_, err = f.verify(f.door.sign(currentKey, f.good(t)))
+	requireAccepted(t, err)
+	if got := f.door.fetches.Load(); got != reads {
+		t.Fatalf("a sign-in inside the reset backoff read the key list (%d reads, want %d)", got, reads)
+	}
+	f.clock.Advance(time.Millisecond)
+	_, err = f.verify(f.door.sign(currentKey, f.good(t)))
+	requireAccepted(t, err)
+	if got := f.door.fetches.Load(); got != reads+1 {
+		t.Fatalf("the backoff after a complete read did not start again at 2 s (%d reads, want %d)", got, reads+1)
+	}
+}
+
+func logField(line logLine, key string) any {
+	for i := 0; i+1 < len(line.fields); i += 2 {
+		if k, ok := line.fields[i].(string); ok && k == key {
+			return line.fields[i+1]
+		}
+	}
+	return nil
 }
 
 func TestARequestThatEndsDuringItsOwnReadDoesNotFailTheRead(t *testing.T) {
