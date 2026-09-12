@@ -42,7 +42,7 @@ Feature: Verifying a login assertion from a trusted issuer
 
   # --- An assertion the instance trusts ---
 
-  @wip @story-wm-63gg0.1
+  @story-wm-63gg0.1
   Scenario: An assertion from the trusted issuer signs the person in
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the issuer publishes only the signing key "door-2026-09"
@@ -51,7 +51,7 @@ Feature: Verifying a login assertion from a trusted issuer
     And "ops@harborlegal.example" holds an authenticated session
     And the answer names no refusal reason
 
-  @wip @story-wm-63gg0.1
+  @story-wm-63gg0.1
   Scenario: An assertion minted to live a full sixty seconds is accepted
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the issuer publishes only the signing key "door-2026-09"
@@ -59,7 +59,7 @@ Feature: Verifying a login assertion from a trusted issuer
     Then the sign-in succeeds
     And "ops@harborlegal.example" holds an authenticated session
 
-  @wip @story-wm-63gg0.1
+  @story-wm-63gg0.1
   Scenario: An assertion 20 seconds past its expiry is inside the clock allowance
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the issuer publishes only the signing key "door-2026-09"
@@ -67,7 +67,7 @@ Feature: Verifying a login assertion from a trusted issuer
     Then the sign-in succeeds
     And "ops@harborlegal.example" holds an authenticated session
 
-  @wip @story-wm-63gg0.1
+  @story-wm-63gg0.1
   Scenario: An assertion issued 20 seconds ahead of the instance's clock is accepted
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the issuer publishes only the signing key "door-2026-09"
@@ -77,7 +77,7 @@ Feature: Verifying a login assertion from a trusted issuer
 
   # --- Every refusal says which check refused it ---
 
-  @wip @story-wm-63gg0.1
+  @story-wm-63gg0.1
   Scenario Outline: An assertion the instance cannot trust is refused with the reason why
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the issuer publishes only the signing key "door-2026-09"
@@ -96,7 +96,7 @@ Feature: Verifying a login assertion from a trusted issuer
       | carrying no subject claim                               | claims    |
       | naming the sign-in provider "okta"                      | claims    |
 
-  @wip @story-wm-63gg0.1
+  @story-wm-63gg0.1
   Scenario: An assertion 45 seconds past its expiry is outside the clock allowance
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the issuer publishes only the signing key "door-2026-09"
@@ -104,7 +104,7 @@ Feature: Verifying a login assertion from a trusted issuer
     Then the sign-in is refused
     And the refusal names the reason "expired"
 
-  @wip @story-wm-63gg0.1
+  @story-wm-63gg0.1
   Scenario Outline: An assertion that is not signed as the issuer signs is refused
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the issuer publishes only the signing key "door-2026-09"
@@ -117,7 +117,7 @@ Feature: Verifying a login assertion from a trusted issuer
       | signed with HMAC over the issuer's published public key |
       | carrying no signature at all                            |
 
-  @wip @story-wm-63gg0.1
+  @story-wm-63gg0.1
   Scenario Outline: A request that carries no usable assertion is refused rather than failing
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     When someone sends a sign-in request <body>
@@ -133,7 +133,7 @@ Feature: Verifying a login assertion from a trusted issuer
 
   # --- An assertion is good for one sign-in ---
 
-  @wip @story-wm-63gg0.1
+  @story-wm-63gg0.1
   Scenario: An assertion presented a second time is refused as a replay
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the issuer publishes only the signing key "door-2026-09"
@@ -144,7 +144,7 @@ Feature: Verifying a login assertion from a trusted issuer
     And the second sign-in is refused
     And the refusal names the reason "jti-replay"
 
-  @wip @story-wm-63gg0.1
+  @story-wm-63gg0.1
   Scenario: Two sign-ins racing with one assertion leave a single session
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the issuer publishes only the signing key "door-2026-09"
@@ -154,7 +154,7 @@ Feature: Verifying a login assertion from a trusted issuer
     And the other sign-in is refused
     And the refusal names the reason "jti-replay"
 
-  @wip @story-wm-63gg0.1
+  @story-wm-63gg0.1
   Scenario: A person who signed in a moment ago signs in again with a fresh assertion
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the issuer publishes only the signing key "door-2026-09"
@@ -165,7 +165,7 @@ Feature: Verifying a login assertion from a trusted issuer
 
   # --- The issuer's key list ---
 
-  @wip @story-wm-63gg0.1
+  @story-wm-63gg0.1
   Scenario: A key the issuer has just published is accepted after one refetch
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the instance has the issuer's key "door-2026-09" in hand
@@ -174,7 +174,7 @@ Feature: Verifying a login assertion from a trusted issuer
     Then the sign-in succeeds
     And the instance read the issuer's key list again before answering
 
-  @wip @story-wm-63gg0.1
+  @story-wm-63gg0.1
   Scenario: An assertion naming a key the issuer does not publish is refused as a key miss
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the instance has the issuer's key "door-2026-09" in hand
@@ -184,7 +184,7 @@ Feature: Verifying a login assertion from a trusted issuer
     And the refusal names the reason "kid-miss"
     And the instance read the issuer's key list again before answering
 
-  @wip @story-wm-63gg0.1
+  @story-wm-63gg0.1
   Scenario: A refetch that comes back empty leaves the cached keys in place
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the instance has the issuer's key "door-2026-09" in hand
@@ -195,7 +195,7 @@ Feature: Verifying a login assertion from a trusted issuer
     And the refusal names the reason "kid-miss"
     And the second sign-in succeeds
 
-  @wip @story-wm-63gg0.1
+  @story-wm-63gg0.1
   Scenario: A key list that cannot be reached does not stop an assertion signed with a cached key
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the instance has the issuer's key "door-2026-09" in hand
@@ -204,7 +204,7 @@ Feature: Verifying a login assertion from a trusted issuer
     Then the sign-in succeeds
     And "ops@harborlegal.example" holds an authenticated session
 
-  @wip @story-wm-63gg0.1
+  @story-wm-63gg0.1
   Scenario: Two sign-ins a minute apart read the issuer's key list once
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the issuer publishes only the signing key "door-2026-09"
@@ -215,7 +215,7 @@ Feature: Verifying a login assertion from a trusted issuer
 
   # --- What the instance writes down ---
 
-  @wip @story-wm-63gg0.1
+  @story-wm-63gg0.1
   Scenario: A refused assertion is recorded by its reason and not by its token
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the issuer publishes only the signing key "door-2026-09"
@@ -224,7 +224,7 @@ Feature: Verifying a login assertion from a trusted issuer
     And the instance's log records the reason "signature"
     And nothing the instance logged contains the assertion
 
-  @wip @story-wm-63gg0.1
+  @story-wm-63gg0.1
   Scenario: An accepted assertion is never written to the instance's log
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the issuer publishes only the signing key "door-2026-09"
@@ -234,14 +234,14 @@ Feature: Verifying a login assertion from a trusted issuer
 
   # --- An instance outside the fleet has no assertion path ---
 
-  @wip @story-wm-63gg0.1
+  @story-wm-63gg0.1
   Scenario: An instance with no trusted issuer configured answers as though the path never existed
     Given a WeOS instance with no trusted issuer configured
     When someone presents an assertion to that instance
     And someone posts the same details to "/api/auth/enroll", an endpoint this instance has never had
     Then both requests are answered with the same status and the same body
 
-  @wip @story-wm-63gg0.1
+  @story-wm-63gg0.1
   Scenario: An instance missing one trusted-issuer setting mounts nothing and names what is missing
     Given a WeOS instance configured with a trusted issuer and its key list but no audience
     When the instance starts
