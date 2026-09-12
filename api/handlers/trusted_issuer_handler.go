@@ -212,6 +212,15 @@ func (h *TrustedIssuerHandler) refuse(c echo.Context, err error) error {
 	return respondErrorCode(c, http.StatusUnauthorized, "login assertion refused: "+string(reason), string(reason))
 }
 
+// trustedIssuerMountable reports whether MountTrustedIssuerAssertion mounts
+// the route for settings: all three present, and a key-list address the
+// verifier may read. WithTrustedIssuer offers the door on exactly this, so the
+// providers list never offers a door the instance cannot take an assertion
+// from.
+func trustedIssuerMountable(settings config.TrustedIssuerConfig) bool {
+	return settings.Configured() && trustedissuer.CheckJWKSURL(settings.JWKSURL) == nil
+}
+
 // MountTrustedIssuerAssertion registers POST /auth/assert when, and only when,
 // all three trusted-issuer settings are present and the key-list address is
 // one the verifier may read. It reports whether it mounted the route.

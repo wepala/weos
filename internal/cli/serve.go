@@ -271,8 +271,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Provider discovery for the sign-in screen. Reads the registry
 	// /auth/login resolves against, and sits with /auth/login and
 	// /auth/callback outside the protected group — the caller is anonymous
-	// by definition.
-	handlers.MountAuthProviders(api, handlers.NewAuthProvidersHandler(providerRegistry))
+	// by definition. When the instance takes a trusted issuer's assertions it
+	// also offers the issuer, so an expired session can get back to the door.
+	handlers.MountAuthProviders(api, handlers.NewAuthProvidersHandler(providerRegistry,
+		handlers.WithTrustedIssuer(appCfg.TrustedIssuer)))
 	// Email + password account flow. Public routes — must reach the handler
 	// even when no session exists yet, so they sit outside the protected group.
 	// Mirror the SessionManager's dev-default Secure flag (Secure=false when
