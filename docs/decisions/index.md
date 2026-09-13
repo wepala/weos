@@ -21,3 +21,4 @@ Architecture Decision Records (ADRs) capture significant technical decisions mad
 | [A Projection Clears an Omitted Property]({% link decisions/projection-clears-omitted-properties.md %}) | Accepted (Implemented) | 2026-08-30 |
 | [Release Tag Scheme]({% link decisions/release-tag-scheme.md %}) | Accepted | 2026-08-31 |
 | [What Core Carries for WeHungry — the Food Types, a Folder per Account, and Erasure of an Account]({% link decisions/wehungry-food-types-uploads-and-account-erasure.md %}) | Accepted | 2026-09-10 |
+| [Trusted-Issuer Login Assertion]({% link decisions/trusted-issuer-login-assertion.md %}) | Proposed | 2026-09-12 |

@@ -71,15 +71,26 @@ type OAuthConfig struct {
 	AppleKeyID      string
 	ApplePrivateKey string
 
-	FrontendURL         string
-	BaseURL             string // Public URL for OAuth metadata/endpoints (e.g. https://example.com)
-	JWTSigningKey       string // PEM-encoded RSA private key, or "auto" to generate ephemeral key
-	DynamicRegistration bool   // Enable OAuth Dynamic Client Registration (RFC 7591)
+	FrontendURL string
+	BaseURL     string // Public URL for OAuth metadata/endpoints (e.g. https://example.com)
+	// JWTSigningKey (JWT_SIGNING_KEY) signs the authorization server's access
+	// tokens, the bearer tokens MCP connectors present: a PEM-encoded RSA
+	// private key, or "auto" to generate an ephemeral key. It is honored
+	// whenever the instance has any sign-in (AuthEnabled: an OAuth provider,
+	// password sign-in or a trusted issuer), so tokens survive a restart only
+	// when it is set; with no sign-in it is ignored.
+	JWTSigningKey       string
+	DynamicRegistration bool // Enable OAuth Dynamic Client Registration (RFC 7591)
 
 	// AllowedEmails, when non-empty, restricts OAuth login to identities whose
 	// verified email is in this list (case-insensitive). The /oauth/callback
 	// rejects anyone else before an account is created; empty (the default)
 	// allows any authenticated user. Set via OAUTH_ALLOWED_EMAILS (comma-separated).
+	//
+	// The same list, compared the same way, governs a trusted issuer's login
+	// assertions (POST /api/auth/assert, see Config.TrustedIssuer): an
+	// assertion whose email is not on it is refused 401 with the reason
+	// allowlist, and nobody is created, signed in or linked.
 	AllowedEmails []string
 
 	// DefaultProvider is the provider used by /api/auth/login when the
@@ -132,7 +143,14 @@ type Config struct {
 	// Server holds configuration for the HTTP server.
 	Server ServerConfig
 
-	// SessionSecret is the secret key for session cookies.
+	// SessionSecret is the secret key for session cookies (SESSION_SECRET).
+	//
+	// A deployed instance must set its own. Core's default,
+	// DefaultSessionSecret, is public, so a session cookie signed with it
+	// can be forged; and serve turns the Secure flag off on the session and
+	// token cookies while the default is in use. A fleet instance behind a
+	// trusted issuer (see TrustedIssuer) is no exception: POST /api/auth/assert
+	// is not mounted while UsesPublicSessionSecret reports true.
 	SessionSecret string
 
 	// PasswordAuthEnabled toggles the email + password login endpoint.
@@ -159,6 +177,54 @@ type Config struct {
 
 	// OAuth holds configuration for OAuth authentication.
 	OAuth OAuthConfig
+
+	// TrustedIssuer names the one service — a fleet's front door — whose
+	// signed login assertions this instance accepts at POST /api/auth/assert.
+	// Three keys configure it, and all three are needed:
+	//
+	//   - TRUSTED_ISSUER: the iss an assertion carries, and the door's host.
+	//     Spaces and trailing slashes are trimmed once, at load, and that one
+	//     value is both what iss is compared with (an iss that differs only by
+	//     trailing slashes is accepted) and the base of the door's sign-in
+	//     address: GET /api/auth/providers offers the provider "issuer" with
+	//     the login_url <TRUSTED_ISSUER>/door/start, so a person whose session
+	//     expired is sent back to the door. It must be an absolute https URL
+	//     (plain http only to a loopback host) with a host and no query,
+	//     fragment or user information; otherwise boot warns, mounts nothing
+	//     and offers no issuer provider.
+	//   - TRUSTED_ISSUER_JWKS_URL: where the issuer publishes its signing keys;
+	//     https, or http to a loopback host.
+	//   - TRUSTED_ISSUER_AUDIENCE: the exact aud an assertion carries — this
+	//     one instance's own id, never shared with another instance.
+	//
+	// With none set, the instance has no assertion route and offers no issuer
+	// provider. With one or two set, boot logs one warning naming the missing
+	// keys, mounts nothing and offers no issuer provider. OAUTH_ALLOWED_EMAILS
+	// applies to assertions as it applies to OAuth sign-in (see
+	// OAuthConfig.AllowedEmails).
+	//
+	// A fourth key is not a setting of the route but an opt-in for owner
+	// binding on an allowlisted instance:
+	//
+	//   - TRUSTED_ISSUER_LINK_PASSWORD_OWNERS (default false): a password
+	//     credential proves who owns its email, so the owner's first door
+	//     sign-in links to the password account the operator made. Without it
+	//     only google and apple credentials prove an owner, and an email held
+	//     only by credentials that prove nothing is refused 409
+	//     unproven-owner. Set it only where the operator made every password
+	//     account: nothing verifies a password account's email. See
+	//     TrustedIssuerConfig.LinkPasswordOwners.
+	//
+	// The route also needs the instance's own SESSION_SECRET. With all three
+	// set but SESSION_SECRET left at core's public default, or empty, boot logs
+	// one error naming SESSION_SECRET, mounts nothing and offers no issuer
+	// provider: a session the route issued could be forged.
+	//
+	// Any one of the three settings makes the API require a sign-in (see
+	// AuthEnabled), mounted or not: a door that cannot be used locks the API
+	// rather than leaving it in dev mode. See SessionSecret,
+	// TrustedIssuerConfig and docs/decisions/trusted-issuer-login-assertion.md.
+	TrustedIssuer TrustedIssuerConfig
 
 	// SMTP holds configuration for outbound email.
 	SMTP SMTPConfig
@@ -405,13 +471,33 @@ func (c OAuthConfig) AppleConfigured() bool {
 	return c.AppleClientID != "" && c.AppleTeamID != "" && c.AppleKeyID != "" && c.ApplePrivateKey != ""
 }
 
+// DefaultSessionSecret is the SESSION_SECRET Default sets. It is published in
+// this source, so anyone can sign a session cookie with it.
+const DefaultSessionSecret = "change-me-in-production"
+
+// UsesPublicSessionSecret reports whether session cookies are signed with a
+// key anyone can know: DefaultSessionSecret, or no key at all. Surrounding
+// spaces are ignored. POST /api/auth/assert, which issues a session on another
+// service's word, is not mounted while this is true.
+func (c *Config) UsesPublicSessionSecret() bool {
+	secret := strings.TrimSpace(c.SessionSecret)
+	return secret == "" || secret == DefaultSessionSecret
+}
+
 // AuthEnabled returns true when any real authentication mechanism is
-// configured (OAuth provider or password endpoints). Drives whether the
-// API is mounted with RequireAuth or the dev-mode SoftAuth fallback —
-// without this, a password-only deployment would mount login endpoints
-// on top of routes that were still effectively unauthenticated.
+// configured: an OAuth provider, password sign-in, or a trusted issuer. Drives
+// whether the API is mounted with RequireAuth or the dev-mode SoftAuth
+// fallback — without this, a deployment would mount login endpoints on top of
+// routes that were still effectively unauthenticated, and SoftAuth answers
+// every caller as the seeded dev user.
+//
+// A trusted issuer counts as soon as any one of its settings is set, whether
+// or not POST /api/auth/assert can be mounted. An operator who set one asked
+// for sign-in through a door; a door that is partly configured, or refused
+// for its key-list address or its SESSION_SECRET, must leave the API locked
+// with the reason logged at boot, never open.
 func (c *Config) AuthEnabled() bool {
-	return c.OAuthEnabled() || c.PasswordAuthEnabled
+	return c.OAuthEnabled() || c.PasswordAuthEnabled || !c.TrustedIssuer.Unset()
 }
 
 // DefaultOAuthProvider returns the provider name to use when the caller
@@ -488,7 +574,7 @@ func Default() Config {
 			Port: 8080,
 			Host: "0.0.0.0",
 		},
-		SessionSecret: "change-me-in-production",
+		SessionSecret: DefaultSessionSecret,
 		LLM: LLMConfig{
 			GeminiModel: "gemini-2.5-flash",
 		},
@@ -640,6 +726,23 @@ func (c *Config) LoadFromEnvironment() {
 
 	if provider := os.Getenv("OAUTH_DEFAULT_PROVIDER"); provider != "" {
 		c.OAuth.DefaultProvider = provider
+	}
+
+	// Normalized once, here, so the door's sign-in address and the iss check
+	// read one value. A value that is only slashes is not set.
+	if issuer := NormalizeTrustedIssuer(os.Getenv(EnvTrustedIssuer)); issuer != "" {
+		c.TrustedIssuer.Issuer = issuer
+	}
+	if jwksURL := strings.TrimSpace(os.Getenv(EnvTrustedIssuerJWKSURL)); jwksURL != "" {
+		c.TrustedIssuer.JWKSURL = jwksURL
+	}
+	if audience := strings.TrimSpace(os.Getenv(EnvTrustedIssuerAudience)); audience != "" {
+		c.TrustedIssuer.Audience = audience
+	}
+	if v := strings.TrimSpace(os.Getenv(EnvTrustedIssuerLinkPasswordOwners)); v != "" {
+		if enabled, err := strconv.ParseBool(v); err == nil {
+			c.TrustedIssuer.LinkPasswordOwners = enabled
+		}
 	}
 
 	if smtpHost := os.Getenv("SMTP_HOST"); smtpHost != "" {

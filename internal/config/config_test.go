@@ -6,6 +6,56 @@ import (
 	"time"
 )
 
+// A trusted issuer takes the API out of dev mode as OAuth and password sign-in
+// do, from the first of its settings: a partial or unusable one locks the API
+// rather than leaving the dev user signed in for everyone.
+func TestAuthEnabled(t *testing.T) {
+	door := TrustedIssuerConfig{
+		Issuer:   "https://money.weos.cloud",
+		JWKSURL:  "https://money.weos.cloud/door/jwks.json",
+		Audience: "a1b2c3d4",
+	}
+	cases := map[string]struct {
+		cfg  Config
+		want bool
+	}{
+		"nothing configured":             {Default(), false},
+		"password sign-in":               {Config{PasswordAuthEnabled: true}, true},
+		"google":                         {Config{OAuth: OAuthConfig{GoogleClientID: "id", GoogleClientSecret: "secret"}}, true},
+		"trusted issuer only":            {Config{SessionSecret: "a-secret-of-this-instance-alone", TrustedIssuer: door}, true},
+		"trusted issuer, default secret": {Config{SessionSecret: DefaultSessionSecret, TrustedIssuer: door}, true},
+		"one trusted-issuer setting":     {Config{TrustedIssuer: TrustedIssuerConfig{Issuer: door.Issuer}}, true},
+		"unusable key-list address":      {Config{TrustedIssuer: TrustedIssuerConfig{Issuer: door.Issuer, JWKSURL: "jwks.json", Audience: door.Audience}}, true},
+		"trusted-issuer settings of only spaces": {
+			Config{TrustedIssuer: TrustedIssuerConfig{Issuer: "  ", JWKSURL: " ", Audience: "\t"}}, false,
+		},
+	}
+	for name, c := range cases {
+		cfg := c.cfg
+		if got := cfg.AuthEnabled(); got != c.want {
+			t.Errorf("%s: AuthEnabled() = %v, want %v", name, got, c.want)
+		}
+	}
+}
+
+func TestUsesPublicSessionSecret(t *testing.T) {
+	for secret, want := range map[string]bool{
+		DefaultSessionSecret:              true,
+		"  " + DefaultSessionSecret + " ": true,
+		"":                                true,
+		"   ":                             true,
+		"a-secret-of-this-instance-alone": false,
+	} {
+		cfg := Config{SessionSecret: secret}
+		if got := cfg.UsesPublicSessionSecret(); got != want {
+			t.Errorf("UsesPublicSessionSecret() with SESSION_SECRET %q = %v, want %v", secret, got, want)
+		}
+	}
+	if cfg := Default(); !cfg.UsesPublicSessionSecret() {
+		t.Errorf("Default() must use the public session secret, got %q", cfg.SessionSecret)
+	}
+}
+
 func TestLoadFromEnvironment_SMTP(t *testing.T) {
 	t.Setenv("SMTP_HOST", "mail.example.com")
 	t.Setenv("SMTP_PORT", "2525")

@@ -244,6 +244,23 @@ func (h *PasswordAuthHandler) completeAuth(
 	account *authentities.Account,
 	email string,
 ) error {
+	return h.completeAuthAs(c, agent, credential, account, email,
+		func(r authSuccessResponse) any { return r })
+}
+
+// completeAuthAs completes a sign-in exactly as completeAuth does — the same
+// session, the same cookies, the same fields — and lets the caller add to the
+// answer. shape receives the password sign-in's answer and returns what is
+// sent. A sign-in path that answers in this shape plus a field of its own
+// uses it, so the shared part cannot drift from password sign-in's.
+func (h *PasswordAuthHandler) completeAuthAs(
+	c echo.Context,
+	agent *authentities.Agent,
+	credential *authentities.Credential,
+	account *authentities.Account,
+	email string,
+	shape func(authSuccessResponse) any,
+) error {
 	ctx := c.Request().Context()
 	r := c.Request()
 	w := c.Response().Writer
@@ -360,7 +377,7 @@ func (h *PasswordAuthHandler) completeAuth(
 		response.ErasurePending = true
 		response.Code = apimw.CodeAccountErasurePending
 	}
-	return respond(c, http.StatusOK, response)
+	return respond(c, http.StatusOK, shape(response))
 }
 
 // lockedAccountFor finds an account whose erasure is unfinished that the

@@ -19,6 +19,25 @@ import (
 	"gorm.io/gorm"
 )
 
+// The keys the OAuth provider registry holds each provider under. They are
+// also the provider recorded on a credential, which is why a trusted issuer's
+// provider claim must name one of them verbatim: only then does a person the
+// door verified with Google resolve to the same credential as the one this
+// instance's own Google sign-in would.
+const (
+	OAuthProviderGoogle   = "google"
+	OAuthProviderNetSuite = "netsuite"
+	OAuthProviderApple    = "apple"
+)
+
+// OAuthProviderKeys lists every key the registry can hold, whether or not that
+// provider is configured on this instance. A fleet instance usually configures
+// none — the door signs people in — and must still accept the door's
+// "google" or "apple".
+func OAuthProviderKeys() []string {
+	return []string{OAuthProviderGoogle, OAuthProviderNetSuite, OAuthProviderApple}
+}
+
 func ProvideOAuthProviderRegistry(params struct {
 	fx.In
 	Config config.Config
@@ -29,13 +48,13 @@ func ProvideOAuthProviderRegistry(params struct {
 	}
 	cfg := params.Config.OAuth
 	if cfg.GoogleClientID != "" && cfg.GoogleClientSecret != "" {
-		registry["google"] = providers.NewGoogle(providers.GoogleConfig{
+		registry[OAuthProviderGoogle] = providers.NewGoogle(providers.GoogleConfig{
 			ClientID:     cfg.GoogleClientID,
 			ClientSecret: cfg.GoogleClientSecret,
 		})
 	}
 	if cfg.NetSuiteClientID != "" && cfg.NetSuiteClientSecret != "" && cfg.NetSuiteAccountID != "" {
-		registry["netsuite"] = &displayNameFallback{OAuthProvider: providers.NewNetSuite(providers.NetSuiteConfig{
+		registry[OAuthProviderNetSuite] = &displayNameFallback{OAuthProvider: providers.NewNetSuite(providers.NetSuiteConfig{
 			ClientID:     cfg.NetSuiteClientID,
 			ClientSecret: cfg.NetSuiteClientSecret,
 			AccountID:    cfg.NetSuiteAccountID,
@@ -49,7 +68,7 @@ func ProvideOAuthProviderRegistry(params struct {
 		// empty. Wrap in displayNameFallback for the same reason as NetSuite —
 		// otherwise FindOrCreateAgent rejects the empty name and the browser
 		// sees the opaque "failed to find or create agent".
-		registry["apple"] = &displayNameFallback{OAuthProvider: providers.NewApple(providers.AppleConfig{
+		registry[OAuthProviderApple] = &displayNameFallback{OAuthProvider: providers.NewApple(providers.AppleConfig{
 			ClientID:   cfg.AppleClientID,
 			TeamID:     cfg.AppleTeamID,
 			KeyID:      cfg.AppleKeyID,

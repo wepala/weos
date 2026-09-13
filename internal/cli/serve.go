@@ -107,9 +107,12 @@ func init() {
 	rootCmd.AddCommand(serveCmd)
 }
 
-func runServe(cmd *cobra.Command, args []string) error {
-	appCfg := loadServeConfig()
-
+// buildServer starts the application for appCfg and mounts every route serve
+// answers, in serve's order, with extra merged into the fx graph. It does not
+// listen: runServe does, and the tests serve the returned *echo.Echo
+// themselves, so what they boot is what serve boots. On success the caller
+// stops the returned app; on an error nothing is left running.
+func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.App, err error) {
 	var resourceTypeService application.ResourceTypeService
 	var resourceService application.ResourceService
 	var kgService application.KnowledgeGraphService
@@ -118,6 +121,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	var resourcePermService application.ResourcePermissionService
 	var fileService application.FileService
 	var authService authapp.AuthenticationService
+	var assertedSignIn *application.AssertedSignIn
 	var providerRegistry authapp.OAuthProviderRegistry
 	var sessionManager session.SessionManager
 	var credentialRepo authrepos.CredentialRepository
@@ -164,6 +168,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		fx.Populate(&resourcePermService),
 		fx.Populate(&fileService),
 		fx.Populate(&authService),
+		fx.Populate(&assertedSignIn),
 		fx.Populate(&providerRegistry),
 		fx.Populate(&sessionManager),
 		fx.Populate(&credentialRepo),
@@ -183,15 +188,27 @@ func runServe(cmd *cobra.Command, args []string) error {
 		fx.Populate(&notificationService),
 		fx.Populate(&erasureService, &erasureLocks, &memberQuery, &resourceRepo),
 	}
-	fxOpts = append(fxOpts, customFxOptions...)
+	fxOpts = append(fxOpts, extra...)
 	app := fx.New(fxOpts...)
 
 	startCtx, startCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
 	defer startCancel()
 
-	if err := app.Start(startCtx); err != nil {
-		return fmt.Errorf("failed to start application: %w", err)
+	if startErr := app.Start(startCtx); startErr != nil {
+		return nil, nil, fmt.Errorf("failed to start application: %w", startErr)
 	}
+	// A route that cannot be built must not leave the application running
+	// behind the error.
+	defer func() {
+		if err == nil {
+			return
+		}
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
+		defer stopCancel()
+		if stopErr := app.Stop(stopCtx); stopErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to shutdown dependencies: %v\n", stopErr)
+		}
+	}()
 
 	// Sync role-access policies from the config table into Casbin.
 	accessMap, accessMapErr := roleAccessRepo.GetAccessMap(context.Background())
@@ -269,14 +286,16 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Provider discovery for the sign-in screen. Reads the registry
 	// /auth/login resolves against, and sits with /auth/login and
 	// /auth/callback outside the protected group — the caller is anonymous
-	// by definition.
-	handlers.MountAuthProviders(api, handlers.NewAuthProvidersHandler(providerRegistry))
+	// by definition. When the instance takes a trusted issuer's assertions it
+	// also offers the issuer, so an expired session can get back to the door.
+	handlers.MountAuthProviders(api, handlers.NewAuthProvidersHandler(providerRegistry,
+		handlers.WithTrustedIssuer(appCfg)))
 	// Email + password account flow. Public routes — must reach the handler
 	// even when no session exists yet, so they sit outside the protected group.
 	// Mirror the SessionManager's dev-default Secure flag (Secure=false when
 	// SESSION_SECRET is unset) so the JWT cookie is accepted in plain-HTTP
 	// local dev and stays Secure in any real deployment.
-	secureCookies := appCfg.SessionSecret != "change-me-in-production"
+	secureCookies := appCfg.SessionSecret != config.DefaultSessionSecret
 	passwordAuthHandlers := handlers.NewPasswordAuthHandler(handlers.PasswordAuthHandlerConfig{
 		AuthService:    authService,
 		SessionManager: sessionManager,
@@ -307,14 +326,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 			"remedy", "set PASSWORD_AUTH_ENABLED=true as well")
 	}
 
-	// Logout must clear BOTH the gorilla session (pericarp Logout) AND the
-	// JWT cookie issued by the password and OAuth flows. Routing through
-	// the password handler so a single endpoint is correct for both flows.
-	api.POST("/auth/logout", func(c echo.Context) error {
-		return passwordAuthHandlers.Logout(c, authHandlers.Logout)
-	})
-
-	// Derive a public base URL for OAuth metadata, JWT issuer, and bearer auth.
+	// Derive a public base URL for OAuth metadata, JWT issuer, and bearer auth,
+	// and for the origin a browser may post a login assertion from.
 	baseURL := strings.TrimRight(appCfg.OAuth.BaseURL, "/")
 	if baseURL == "" {
 		host := appCfg.Server.Host
@@ -326,6 +339,32 @@ func runServe(cmd *cobra.Command, args []string) error {
 		hostPort := net.JoinHostPort(host, strconv.Itoa(appCfg.Server.Port))
 		baseURL = "http://" + hostPort
 	}
+
+	// Login asserted by a trusted issuer — a fleet's front door that has
+	// already verified the person. Public for the same reason as the password
+	// routes: the caller has no session yet. Mounted only when
+	// TRUSTED_ISSUER, TRUSTED_ISSUER_JWKS_URL and TRUSTED_ISSUER_AUDIENCE are
+	// all set and SESSION_SECRET is not core's public default; a partial set
+	// warns at boot and mounts nothing, and the default secret logs an error
+	// and mounts nothing. A browser may post to it only from the trusted
+	// issuer's origin or this instance's (baseURL). See
+	// docs/decisions/trusted-issuer-login-assertion.md.
+	handlers.MountTrustedIssuerAssertion(context.Background(), api, appCfg, logger,
+		func() *handlers.TrustedIssuerHandler {
+			return handlers.NewTrustedIssuerAssertionHandler(appCfg.TrustedIssuer, appCfg.OAuth.AllowedEmails, handlers.TrustedIssuerAssertionDeps{
+				SignIn:        assertedSignIn,
+				Sessions:      passwordAuthHandlers,
+				Logger:        logger,
+				PublicBaseURL: baseURL,
+			})
+		})
+
+	// Logout must clear BOTH the gorilla session (pericarp Logout) AND the
+	// JWT cookie issued by the password and OAuth flows. Routing through
+	// the password handler so a single endpoint is correct for both flows.
+	api.POST("/auth/logout", func(c echo.Context) error {
+		return passwordAuthHandlers.Logout(c, authHandlers.Logout)
+	})
 
 	// OAuth 2.1 endpoints for MCP remote auth (unprotected — they handle their own auth).
 	// Registered via e.Pre() so they run before the SPA static middleware,
@@ -384,10 +423,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 
 	// Protected API group — apply real auth middleware when any
-	// authentication mechanism (OAuth or password) is configured. Falling
-	// back to SoftAuth only in fully-unconfigured dev mode keeps a password
-	// deployment from looking authenticated while protected routes remain
-	// effectively open.
+	// authentication mechanism (OAuth, password, or a trusted issuer) is
+	// configured. Falling back to SoftAuth only in fully-unconfigured dev mode
+	// keeps a password or trusted-issuer deployment from looking authenticated
+	// while protected routes remain effectively open. A trusted issuer counts
+	// from its first setting, mounted or not: see config.Config.AuthEnabled.
 	protected := api.Group("")
 	if appCfg.AuthEnabled() {
 		// The erasure guard goes first, around RequireAuth: an account whose
@@ -530,15 +570,25 @@ func runServe(cmd *cobra.Command, args []string) error {
 	protected.GET("/invites", inviteHandler.List)
 	protected.DELETE("/invites/:id", inviteHandler.Revoke)
 
+	// The invite-accept, feature-listing and MCP groups below take the session
+	// stack under OAuth and under a trusted issuer. A trusted issuer counts from
+	// its first setting, as it does for AuthEnabled: an instance whose only
+	// sign-in is the door must never answer these routes as the dev user.
+	// A password-only instance keeps the dev stack it has always had on these
+	// three groups; that gap predates the trusted issuer and is tracked apart
+	// from it (bead wm-25gh1), so this change leaves password deployments as
+	// they were.
+	sessionStack := appCfg.OAuthEnabled() || !appCfg.TrustedIssuer.Unset()
+
 	// Accept uses a separate group that loads session identity when present
 	// (so the handler can verify email from the session) but does not require
 	// auth — the invite token itself is the authorization.
-	// In dev mode (no OAuth), no auth middleware is applied so the handler
+	// Without the session stack, no auth middleware is applied so the handler
 	// runs anonymously and uses the request-body email. SoftAuth is NOT used
 	// here because it defaults to admin@weos.dev, which would force the
 	// fail-closed session-email path for every accept request.
 	acceptGroup := api.Group("")
-	if appCfg.OAuthEnabled() {
+	if sessionStack {
 		acceptGroup.Use(echo.WrapMiddleware(apimw.OptionalAuth(sessionManager, authService)))
 	}
 	acceptGroup.POST("/invites/accept", inviteHandler.Accept)
@@ -565,7 +615,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// password_registration_flag.feature pins in a test that builds its own
 	// echo instance and would therefore not notice.
 	featuresGroup := api.Group("")
-	if appCfg.OAuthEnabled() {
+	if sessionStack {
 		featuresGroup.Use(echo.WrapMiddleware(apimw.OptionalAuth(sessionManager, authService)))
 		featuresGroup.Use(apimw.Impersonation(sessionStore, accountRepo, erasureLocks, logger))
 	} else {
@@ -588,9 +638,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 		handlers.ServeUploadedFiles("/api"+uploadFilesPath, appCfg.Storage.LocalPath, logger))
 
 	// MCP + in-app agent routes — registered before dynamic catch-all. Both
-	// share one auth stack (BearerOrSession under OAuth, SoftAuth in dev).
+	// share one auth stack (BearerOrSession under OAuth or a trusted issuer,
+	// SoftAuth otherwise; see sessionStack).
 	mcpGroup := api.Group("")
-	if appCfg.OAuthEnabled() {
+	if sessionStack {
 		sessionAuth := authhttp.RequireAuth(sessionManager, authService)
 		mcpGroup.Use(apimw.ErasureGuard(sessionManager, erasureLocks, logger, apimw.DeferToBearer()))
 		mcpGroup.Use(apimw.BearerOrSession(jwtService, sessionAuth, baseURL, accountRepo, erasureLocks))
@@ -603,9 +654,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Careful: this is the last Use() on an empty-prefix group under /api, and
 	// echo's Group.Use registers the group's not-found catch-all at the group
 	// prefix. So THIS group owns what an unmatched /api/... path answers —
-	// a bare 404 in dev, and 401 with a Bearer challenge once OAuth is
-	// configured, because BearerOrSession sets the challenge before it checks
-	// the session.
+	// a bare 404 in dev, and 401 with a Bearer challenge once OAuth or a
+	// trusted issuer is configured (sessionStack), because BearerOrSession
+	// sets the challenge before it checks the session.
 	//
 	// Adding a later empty-prefix group, or reordering these three (protected,
 	// acceptGroup, mcpGroup), silently moves that ownership and changes the
@@ -639,7 +690,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 			featureAdmin, application.ToolFeatureGate(featureClient), slog.Default(),
 		)
 		if mcpErr != nil {
-			return fmt.Errorf("failed to create MCP server: %w", mcpErr)
+			return nil, nil, fmt.Errorf("failed to create MCP server: %w", mcpErr)
 		}
 		mcpHandler := mcpserver.HandlerForServer(mcpSrv, slog.Default())
 
@@ -651,11 +702,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 		skillRegistry.SetKnownTools(mcpserver.KnownTools(mcpSrv))
 		readOnlyTools, roErr := mcpserver.ReadOnlyToolNames(context.Background(), mcpSrv)
 		if roErr != nil {
-			return fmt.Errorf("failed to list read-only tools for the agent: %w", roErr)
+			return nil, nil, fmt.Errorf("failed to list read-only tools for the agent: %w", roErr)
 		}
 		confirmMutations, cmErr := mcpserver.MutatingConfirmationProvider(context.Background(), mcpSrv)
 		if cmErr != nil {
-			return fmt.Errorf("failed to build the agent confirmation provider: %w", cmErr)
+			return nil, nil, fmt.Errorf("failed to build the agent confirmation provider: %w", cmErr)
 		}
 		orchestrator.SetToolsetFactory(
 			mcpserver.AgentToolsetFactory(mcpSrv, mcpserver.AgentToolsetConfig{
@@ -695,6 +746,16 @@ func runServe(cmd *cobra.Command, args []string) error {
 	protected.GET("/:typeSlug/:id", resourceHandler.Get)
 	protected.PUT("/:typeSlug/:id", resourceHandler.Update)
 	protected.DELETE("/:typeSlug/:id", resourceHandler.Delete)
+
+	return e, app, nil
+}
+
+func runServe(cmd *cobra.Command, args []string) error {
+	appCfg := loadServeConfig()
+	e, app, err := buildServer(appCfg, customFxOptions...)
+	if err != nil {
+		return err
+	}
 
 	addr := fmt.Sprintf("%s:%d", appCfg.Server.Host, appCfg.Server.Port)
 

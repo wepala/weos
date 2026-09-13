@@ -37,17 +37,26 @@ const (
 	rsaKeyBits            = 2048
 )
 
-// ProvideJWTService creates a pericarp RSAJWTService configured for MCP OAuth.
-// When JWTSigningKey is empty or "auto", an ephemeral RSA key is generated
-// (tokens become invalid across restarts — suitable for development only).
-// For production, provide a PEM-encoded RSA private key.
+// ProvideJWTService creates the pericarp RSAJWTService that signs and checks
+// the authorization server's access tokens: the bearer tokens MCP connectors
+// present at /api/mcp and /api/agent/*.
 //
-// When OAuth is not enabled, this returns a service with an ephemeral key
-// regardless of the JWT_SIGNING_KEY value, so a malformed key in an
-// OAuth-disabled deployment doesn't prevent server startup.
+// JWT_SIGNING_KEY is honored whenever the instance has any sign-in
+// (config.Config.AuthEnabled: an OAuth provider, password sign-in, or a
+// trusted issuer), because every such instance mounts the authorization
+// server and hands out tokens. A PEM-encoded RSA private key keeps those
+// tokens valid across a restart, an idle-stop wake and replicas; empty or
+// "auto" generates an ephemeral key, so every token dies with the process —
+// suitable for development only. A malformed key on such an instance stops
+// boot rather than silently logging every connector out at the next restart.
+//
+// An instance with no sign-in mounts no authorization server and issues no
+// tokens, so there the key is ignored and an ephemeral one is used: a
+// malformed JWT_SIGNING_KEY left in a development environment does not stop
+// the server starting.
 func ProvideJWTService(cfg config.Config) (authapp.JWTService, error) {
 	keyConfig := cfg.OAuth.JWTSigningKey
-	if !cfg.OAuthEnabled() {
+	if !cfg.AuthEnabled() {
 		keyConfig = "auto"
 	}
 	key, err := loadOrGenerateKey(keyConfig)
