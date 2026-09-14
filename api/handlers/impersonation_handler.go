@@ -256,8 +256,16 @@ func (h *ImpersonationHandler) Status(c echo.Context) error {
 // the token its sign-in handed back. The token is checked by
 // apimw.BearerWhenPresent, mounted in front of this route, and that middleware
 // is the only thing that puts an identity in this route's context. The answer
-// then reads no cookie, the impersonation cookie included: the token wins over
-// a cookie beside it, as it does wherever BearerOrSession takes both.
+// then reads no cookie: a token wins over a session cookie beside it.
+//
+// On the bearer path Me ignores the impersonation cookie on purpose
+// (wm-fqjc2). This does NOT match the MCP group, where apimw.Impersonation
+// runs after BearerOrSession (internal/cli/serve.go), so there a token for the
+// admin who started an impersonation acts as the person impersonated. Here a
+// token is always answered for its own person. Do not "restore a match" with
+// the MCP group: a cookie beside a token must not change whom the token
+// answers for. TestMe_ABearerTokenIsAnsweredForItsOwnPersonBesideAnImpersonationCookie
+// pins this.
 func (h *ImpersonationHandler) Me(authHandlers *authhttp.AuthHandlers) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		ctx := c.Request().Context()

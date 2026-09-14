@@ -114,8 +114,10 @@ func BearerOrSession(
 // It is for a route that checks the session its cookie names itself and whose
 // cookie path must not change: GET /api/auth/me (wm-ccg4f), which an app in a
 // native shell reads with only the token its sign-in handed back (wm-hg3xf).
-// A token wins over a cookie beside it, as under BearerOrSession: a token that
-// does not validate is refused and never handed to the cookie path.
+// A token wins over a session cookie beside it, as under BearerOrSession: a
+// token that does not validate is refused and never handed to the cookie path.
+// Unlike the MCP group, no Impersonation middleware follows it, so an
+// impersonation cookie beside a token changes nothing (wm-fqjc2).
 func BearerWhenPresent(
 	jwtService authapp.JWTService,
 	baseURL string,

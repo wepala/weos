@@ -144,13 +144,26 @@ func (t tokenFor) ValidateToken(context.Context, string) (*authapp.PericarpClaim
 	return t.claims, nil
 }
 
+// memberBook is stubAccounts that can also list the accounts a person belongs
+// to, which the impersonation branch reads.
+type memberBook struct {
+	stubAccounts
+	members map[string][]*authentities.Account
+}
+
+func (m memberBook) FindByMember(_ context.Context, agentID string) ([]*authentities.Account, error) {
+	return m.members[agentID], nil
+}
+
 // meRequest is one GET /api/auth/me: the claims the JWT service vouches for,
-// the bearer token the request carries (none when empty), and whether the
-// session cookie for ops in Harbor Legal rides along.
+// the bearer token the request carries (none when empty), whether the
+// session cookie for ops in Harbor Legal rides along, and the person an
+// impersonation cookie started by ops names (none when empty).
 type meRequest struct {
-	claims *authapp.PericarpClaims
-	token  string
-	cookie bool
+	claims        *authapp.PericarpClaims
+	token         string
+	cookie        bool
+	impersonating string
 }
 
 // readMeThrough sends the request through the identity read with the bearer
@@ -161,17 +174,22 @@ func readMeThrough(t *testing.T, r meRequest) *httptest.ResponseRecorder {
 	if err != nil {
 		t.Fatal(err)
 	}
-	accounts := stubAccounts{
-		accounts: map[string]*authentities.Account{"acct-harbor": harborAccount(t), "acct-cedar": cedar},
-		roles: map[string]string{
-			"ops|acct-harbor":   authentities.RoleOwner,
-			"broker|acct-cedar": authentities.RoleMember,
+	harbor := harborAccount(t)
+	accounts := memberBook{
+		stubAccounts: stubAccounts{
+			accounts: map[string]*authentities.Account{"acct-harbor": harbor, "acct-cedar": cedar},
+			roles: map[string]string{
+				"ops|acct-harbor":   authentities.RoleOwner,
+				"broker|acct-cedar": authentities.RoleMember,
+			},
 		},
+		members: map[string][]*authentities.Account{"ops": {harbor}, "broker": {cedar}},
 	}
+	store := sessions.NewCookieStore([]byte("test-secret"))
 	sessionsForOps := cookieSessionsFor{data: &session.SessionData{SessionID: "s1", AgentID: "ops", AccountID: "acct-harbor"}}
 	opsSession := validatingAuth{info: &authapp.SessionInfo{SessionID: "s1", AgentID: "ops", AccountID: "acct-harbor"}}
 	h := handlers.NewImpersonationHandler(handlers.ImpersonationHandlerConfig{
-		Store:          sessions.NewCookieStore([]byte("test-secret")),
+		Store:          store,
 		AccountRepo:    accounts,
 		AgentRepo:      stubAgents{},
 		CredRepo:       stubCreds{},
@@ -192,6 +210,23 @@ func readMeThrough(t *testing.T, r meRequest) *httptest.ResponseRecorder {
 	}
 	if r.cookie {
 		req.AddCookie(&http.Cookie{Name: "weos-session", Value: "x"})
+	}
+	if r.impersonating != "" {
+		// Encoded by the store the handler reads, the way Start saves it.
+		saved := httptest.NewRecorder()
+		imp, err := store.New(req, apimw.ImpersonationSessionName)
+		if err != nil {
+			t.Fatalf("start the impersonation session: %v", err)
+		}
+		imp.Values[apimw.KeyImpersonatedAgentID] = r.impersonating
+		imp.Values[apimw.KeyRealAgentID] = "ops"
+		imp.Values[apimw.KeyRealAccountID] = "acct-harbor"
+		if err := imp.Save(req, saved); err != nil {
+			t.Fatalf("save the impersonation session: %v", err)
+		}
+		for _, ck := range saved.Result().Cookies() {
+			req.AddCookie(ck)
+		}
 	}
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
@@ -275,8 +310,8 @@ func TestMe_RefusesABearerTokenItCannotTrust(t *testing.T) {
 	}
 }
 
-// The token wins over a cookie beside it, the precedence BearerOrSession
-// already applies on the routes that take both: the answer is for the token's
+// The token wins over a session cookie beside it, the precedence
+// BearerOrSession already applies on the routes that take both: the answer is for the token's
 // person, and a token the instance cannot trust is refused even when a good
 // session cookie rides along.
 func TestMe_ABearerTokenWinsOverASessionCookie(t *testing.T) {
@@ -291,6 +326,42 @@ func TestMe_ABearerTokenWinsOverASessionCookie(t *testing.T) {
 	rec = readMeThrough(t, meRequest{token: "token-for-broker", cookie: true})
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("an untrusted token beside a good cookie got %d %s, want 401", rec.Code, rec.Body.String())
+	}
+}
+
+// wm-fqjc2: on the bearer path the identity read ignores the impersonation
+// cookie on purpose. The MCP group does not — there Impersonation runs after
+// BearerOrSession — so this pins the difference: a token for the admin who
+// started an impersonation is answered for the admin, never for the person
+// the cookie names.
+func TestMe_ABearerTokenIsAnsweredForItsOwnPersonBesideAnImpersonationCookie(t *testing.T) {
+	// The cookie is good: beside the admin's session cookie, the read answers
+	// for the person it names.
+	bySession := readMeThrough(t, meRequest{cookie: true, impersonating: "broker"})
+	var impersonated struct {
+		Data struct {
+			ID            string `json:"id"`
+			Impersonating bool   `json:"impersonating"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(bySession.Body.Bytes(), &impersonated); err != nil {
+		t.Fatalf("body %q is not JSON: %v", bySession.Body.String(), err)
+	}
+	if bySession.Code != http.StatusOK || impersonated.Data.ID != "broker" || !impersonated.Data.Impersonating {
+		t.Fatalf("the admin's session beside the impersonation cookie got %d %s, want 200 for broker, impersonating", bySession.Code, bySession.Body.String())
+	}
+
+	ops := &authapp.PericarpClaims{AgentID: "ops", AccountIDs: []string{"acct-harbor"}, ActiveAccountID: "acct-harbor"}
+	byToken := readMeThrough(t, meRequest{claims: ops, token: "token-for-ops", impersonating: "broker"})
+	if byToken.Code != http.StatusOK {
+		t.Fatalf("the admin's token beside the impersonation cookie got %d %s, want 200", byToken.Code, byToken.Body.String())
+	}
+	if got := meBody(t, byToken); got != (meAnswer{ID: "ops", AccountID: "acct-harbor", Role: authentities.RoleOwner}) {
+		t.Fatalf("answer = %+v, want ops in acct-harbor as owner: the token's own person, not the one the cookie names", got)
+	}
+	tokenAlone := readMeThrough(t, meRequest{claims: ops, token: "token-for-ops"})
+	if byToken.Body.String() != tokenAlone.Body.String() {
+		t.Fatalf("the impersonation cookie changed the token's answer: %s, alone %s", byToken.Body.String(), tokenAlone.Body.String())
 	}
 }
 
