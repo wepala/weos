@@ -31,6 +31,12 @@ Feature: Limiting trusted-issuer sign-in to the allowlist and offering the door 
   Whether the door's start page really lives at that address is the door's contract. This one
   fixes only the address the instance publishes.
 
+  The issuer's entry also lists the sign-in providers an assertion may name on this instance.
+  An instance on an older build refuses a provider it does not know with the same reason as an
+  assertion that carries no subject, so the door cannot learn from a refusal that the instance
+  is too old. It reads the list instead, before it sends a person there. The list names
+  providers only, as the entry already did, and carries no configuration.
+
   # --- An email the allowlist does not name ---
 
   @story-wm-63gg0.3
@@ -108,7 +114,19 @@ Feature: Limiting trusted-issuer sign-in to the allowlist and offering the door 
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     When someone who is not signed in asks the instance which sign-in providers it offers
     Then the instance offers the sign-in provider "issuer" with the sign-in address "https://money.weos.cloud/door/start"
-    And that provider carries nothing but its name and its sign-in address
+    And that provider carries nothing but its name, its sign-in address and the sign-in providers an assertion may name
+
+  @wm-x0l4m
+  Scenario Outline: The door can read which sign-in providers an assertion may name before it sends a person
+    Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
+    When someone who is not signed in asks the instance which sign-in providers it offers
+    Then the "issuer" provider lists "<provider>" among the sign-in providers an assertion may name
+
+    Examples:
+      | provider |
+      | google   |
+      | apple    |
+      | door     |
 
   @story-wm-63gg0.3
   Scenario: The door is offered beside the sign-in providers the instance already had

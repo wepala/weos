@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"sort"
 	"testing"
 
 	"github.com/wepala/weos/v3/api/handlers"
+	"github.com/wepala/weos/v3/application"
 	"github.com/wepala/weos/v3/internal/config"
 	"github.com/wepala/weos/v3/internal/trustedissuer"
 
@@ -89,11 +91,40 @@ func TestAuthProviders_TrustedIssuerOffersTheDoor(t *testing.T) {
 	assertProviderNames(t, rec, []string{"issuer"})
 
 	entry := decodeProviderEntries(t, rec.Body.Bytes())[0]
-	if got := entryKeys(entry); len(got) != 2 || got[0] != "login_url" || got[1] != "name" {
-		t.Fatalf("issuer entry carries %v, want exactly login_url and name", got)
+	if got := entryKeys(entry); len(got) != 3 || got[0] != "accepted_provider_keys" || got[1] != "login_url" || got[2] != "name" {
+		t.Fatalf("issuer entry carries %v, want exactly accepted_provider_keys, login_url and name", got)
 	}
 	if got := fieldText(t, entry, "login_url"); got != "https://money.weos.cloud/door/start" {
 		t.Fatalf("login_url = %q, want https://money.weos.cloud/door/start", got)
+	}
+}
+
+// The issuer entry lists the provider keys an assertion may name on this
+// instance, so an issuer can tell before it sends a person whether the
+// instance accepts the key it would send. An older core refuses a key it does
+// not know as claims, the same reason as a missing subject, so a refusal
+// cannot tell the issuer that.
+func TestAuthProviders_TrustedIssuerListsTheProviderKeysAnAssertionMayName(t *testing.T) {
+	t.Parallel()
+	cfg := config.Config{SessionSecret: instanceSessionSecret, TrustedIssuer: config.TrustedIssuerConfig{
+		Issuer: doorIssuer, JWKSURL: doorKeyList, Audience: doorAudience,
+	}}
+	rec := getProviders(newIssuerBootServer(&cfg))
+	entry := issuerEntry(t, decodeProviderEntries(t, rec.Body.Bytes()))
+	if entry == nil {
+		t.Fatalf("no issuer provider offered: %s", rec.Body.String())
+	}
+	var got []string
+	if err := json.Unmarshal(entry["accepted_provider_keys"], &got); err != nil {
+		t.Fatalf("accepted_provider_keys = %s, want a list of provider keys (%v)", entry["accepted_provider_keys"], err)
+	}
+	if !slices.Contains(got, "door") {
+		t.Fatalf("accepted_provider_keys = %v, want it to list door", got)
+	}
+	want := application.OAuthProviderKeys()
+	sort.Strings(want)
+	if !slices.Equal(got, want) {
+		t.Fatalf("accepted_provider_keys = %v, want %v: the keys the verifier accepts, sorted", got, want)
 	}
 }
 
