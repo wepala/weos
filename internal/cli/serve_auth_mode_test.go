@@ -163,6 +163,25 @@ func serveCall(t *testing.T, srv *httptest.Server, method, path, body string, co
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
+	return serveSend(t, req)
+}
+
+// serveCallWithToken sends method path carrying only an Authorization header
+// with token and no cookie — the request an app in a native shell makes, whose
+// web view holds no cookie for the instance.
+func serveCallWithToken(t *testing.T, srv *httptest.Server, method, path, token string) serveAnswer {
+	t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), method, srv.URL+path, nil)
+	if err != nil {
+		t.Fatalf("build %s %s: %v", method, path, err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	return serveSend(t, req)
+}
+
+func serveSend(t *testing.T, req *http.Request) serveAnswer {
+	t.Helper()
+	method, path := req.Method, req.URL.Path
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
@@ -330,5 +349,46 @@ func TestServe_NothingConfiguredKeepsDevMode(t *testing.T) {
 	}
 	if got := serveCall(t, srv, http.MethodPost, "/api/mcp", "", nil); got.status == http.StatusUnauthorized {
 		t.Fatalf("POST /api/mcp in dev mode answered 401 %s; dev mode has no sign-in to ask for", got.body)
+	}
+}
+
+// wm-hg3xf. The door relays the assertion's answer to an app whose web view
+// holds no cookie for the instance, so the app reads who is signed in with the
+// token that answer carried. The identity read must answer that token with the
+// body the session gets, and refuse a token the instance did not sign. No
+// failure message here prints the sign-in's answer: it holds the token.
+func TestServe_IdentityReadAnswersTheTokenTheAssertionIssued(t *testing.T) {
+	door := newBootDoor(t)
+	cfg := config.Default()
+	cfg.SessionSecret = bootOwnSecret
+	cfg.TrustedIssuer = door.settings()
+	srv := bootServe(t, cfg)
+
+	signIn := serveCall(t, srv, http.MethodPost, "/api/auth/assert", door.assertionBody(t, bootOwnerEmail), nil)
+	if signIn.status != http.StatusOK {
+		t.Fatalf("POST /api/auth/assert answered %d, want 200", signIn.status)
+	}
+	var answer struct {
+		Data struct {
+			Token string `json:"token"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(signIn.body), &answer); err != nil || answer.Data.Token == "" {
+		t.Fatalf("the asserted sign-in's answer carries no token (decode error: %v)", err)
+	}
+
+	byToken := serveCallWithToken(t, srv, http.MethodGet, "/api/auth/me", answer.Data.Token)
+	if byToken.status != http.StatusOK || !strings.Contains(byToken.body, bootOwnerEmail) {
+		t.Fatalf("GET /api/auth/me with only the token answered %d %s, want 200 naming %s",
+			byToken.status, byToken.body, bootOwnerEmail)
+	}
+	bySession := serveCall(t, srv, http.MethodGet, "/api/auth/me", "", signIn.cookies)
+	if byToken.body != bySession.body {
+		t.Fatalf("GET /api/auth/me answered the token with %s and the session with %s", byToken.body, bySession.body)
+	}
+
+	tampered := serveCallWithToken(t, srv, http.MethodGet, "/api/auth/me", answer.Data.Token+"x")
+	if tampered.status != http.StatusUnauthorized || strings.Contains(tampered.body, bootOwnerEmail) {
+		t.Fatalf("GET /api/auth/me with a tampered token answered %d %s, want 401", tampered.status, tampered.body)
 	}
 }

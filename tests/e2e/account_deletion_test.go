@@ -279,6 +279,7 @@ func initAccountDeletionScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^they make a request with the session on the second device$`, w.requestOnSecondDevice)
 	sc.Step(`^they read who they are signed in as$`, w.readsWhoTheyAre)
 	sc.Step(`^they read who they are signed in as on the second device$`, w.readsWhoTheyAreOnSecondDevice)
+	sc.Step(`^they read who they are signed in as with only the token their sign-in handed back$`, w.readsWhoTheyAreByToken)
 	sc.Step(`^the projects "([^"]*)" sees with the session they already held include "([^"]*)"$`, w.projectsSeenInclude)
 	sc.Step(`^"([^"]*)" can still read its photo "([^"]*)" by its URL$`, w.accountReadsPhoto)
 	sc.Step(`^"([^"]*)" requests "([^"]*)" at its flat URL$`, w.personRequestsFlatPhoto)
