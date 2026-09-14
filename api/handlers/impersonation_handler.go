@@ -262,7 +262,7 @@ func (h *ImpersonationHandler) Me(authHandlers *authhttp.AuthHandlers) echo.Hand
 	return func(c echo.Context) error {
 		ctx := c.Request().Context()
 		if identity := auth.AgentFromCtx(ctx); identity != nil {
-			return respond(c, http.StatusOK, h.identityBody(ctx, identity.AgentID, identity.ActiveAccountID))
+			return h.answerToken(c, identity)
 		}
 		info, refused := h.validatedSession(c)
 		if refused {
@@ -290,7 +290,7 @@ func (h *ImpersonationHandler) Me(authHandlers *authhttp.AuthHandlers) echo.Hand
 				authHandlers.Me(c.Response(), c.Request())
 				return nil
 			}
-			return respond(c, http.StatusOK, h.identityBody(ctx, agentID, accountID))
+			return respond(c, http.StatusOK, h.identityBody(ctx, agentID, accountID, h.roleOrNone(ctx, accountID, agentID)))
 		}
 
 		realAgentID, _ := sess.Values[apimw.KeyRealAgentID].(string)
@@ -362,22 +362,52 @@ func (h *ImpersonationHandler) validatedSession(c echo.Context) (info *authapp.S
 	return nil, true
 }
 
-// identityBody is the identity read's answer for agentID acting in accountID.
-// A session and a bearer token both answer through it, so the two bodies
-// cannot drift apart.
-func (h *ImpersonationHandler) identityBody(ctx context.Context, agentID, accountID string) map[string]any {
-	name, email := h.resolveAgentInfo(ctx, agentID)
-	role := ""
-	if accountID != "" {
-		var roleErr error
-		role, roleErr = h.accountRepo.FindMemberRole(ctx, accountID, agentID)
-		if roleErr != nil {
-			// An unreadable role is answered empty, which withholds what a
-			// role would grant rather than granting it.
-			h.logger.Warn(ctx, "could not read the member's role", "account_id", accountID, "agent_id", agentID, "error", roleErr)
-			role = ""
-		}
+// answerToken is the identity read's answer for a bearer token's person.
+// BearerWhenPresent has checked the token and the state of the account it
+// names. The session path's ValidateSession also checks that the person still
+// belongs to that account, and refuses a session that names no account, so
+// this does the same with the same codes and body (wm-qqoq2): a person removed
+// from a household must not still see themselves in it on their phone.
+func (h *ImpersonationHandler) answerToken(c echo.Context, identity *auth.Identity) error {
+	ctx := c.Request().Context()
+	if identity.ActiveAccountID == "" {
+		return respondErrorCode(c, http.StatusUnauthorized, "not authenticated", apimw.CodeUnscopedSession)
 	}
+	role, err := h.accountRepo.FindMemberRole(ctx, identity.ActiveAccountID, identity.AgentID)
+	if err != nil {
+		// Fail closed: the membership could not be read, so the token is not
+		// known to be good. The bearer middleware answers an unreadable
+		// account state the same way.
+		h.logger.Error(ctx, "could not read the member's role for a bearer token",
+			"account_id", identity.ActiveAccountID, "agent_id", identity.AgentID, "error", err)
+		return respondError(c, http.StatusServiceUnavailable, "could not read the account's state")
+	}
+	if role == "" {
+		return respondErrorCode(c, http.StatusUnauthorized, "not authenticated", apimw.CodeAccountAccessRevoked)
+	}
+	return respond(c, http.StatusOK, h.identityBody(ctx, identity.AgentID, identity.ActiveAccountID, role))
+}
+
+// roleOrNone reads agentID's role in accountID for the session path. An
+// unreadable role is answered empty, which withholds what a role would grant
+// rather than granting it; the session itself was already validated.
+func (h *ImpersonationHandler) roleOrNone(ctx context.Context, accountID, agentID string) string {
+	if accountID == "" {
+		return ""
+	}
+	role, err := h.accountRepo.FindMemberRole(ctx, accountID, agentID)
+	if err != nil {
+		h.logger.Warn(ctx, "could not read the member's role", "account_id", accountID, "agent_id", agentID, "error", err)
+		return ""
+	}
+	return role
+}
+
+// identityBody is the identity read's answer for agentID acting in accountID
+// with role. A session and a bearer token both answer through it, so the two
+// bodies cannot drift apart.
+func (h *ImpersonationHandler) identityBody(ctx context.Context, agentID, accountID, role string) map[string]any {
+	name, email := h.resolveAgentInfo(ctx, agentID)
 	body := map[string]any{
 		"id":    agentID,
 		"name":  name,
