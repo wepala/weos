@@ -169,6 +169,38 @@ and for no other (see "Which credentials prove ownership").
     - Both people hold `google` or `apple` credentials. Every new identity, whatever its
       provider, is refused `ambiguous-owner`.
 
+    To find these owners, run this read-only query against the instance's database. It
+    lists every email that two or more active people hold through active `google`, `apple`
+    or `door` credentials, with one row for each such credential:
+
+    ```sql
+    SELECT LOWER(TRIM(c.email)) AS email, c.agent_id, c.provider
+    FROM credentials c
+    JOIN agents a ON a.id = c.agent_id
+    WHERE c.active
+      AND a.status = 'active'
+      AND c.provider IN ('google', 'apple', 'door')
+      AND LOWER(TRIM(c.email)) IN (
+        SELECT LOWER(TRIM(c2.email))
+        FROM credentials c2
+        JOIN agents a2 ON a2.id = c2.agent_id
+        WHERE c2.active
+          AND a2.status = 'active'
+          AND c2.provider IN ('google', 'apple', 'door')
+          AND TRIM(c2.email) <> ''
+        GROUP BY LOWER(TRIM(c2.email))
+        HAVING COUNT(DISTINCT c2.agent_id) > 1
+      )
+    ORDER BY email, c.agent_id, c.provider;
+    ```
+
+    It runs as written on SQLite and on Postgres. On Postgres, `LOWER` also folds non-ASCII
+    capitals, so the query can list a pair that binding keeps apart (see "How emails
+    compare"). Core cannot merge two people. An operator decides which person is the owner
+    and turns the other off (see "Clearing `ambiguous-owner` and `unproven-owner`").
+    Turning a person off hides that person's data: nothing moves to the owner, and nobody
+    can reach it by signing in.
+
 Every refusal is a 401 whose
 body and log line carry a machine-readable reason: `signature`, `kid-miss`,
 `keys-unreachable`, `iss`, `aud`, `expired`, `window`, `jti-replay`, `claims`,
