@@ -235,16 +235,41 @@ func TestMe_AnswersABearerTokenWithTheBodyASessionGets(t *testing.T) {
 	}
 }
 
+// A token is refused where the session it stands beside would be. A person
+// removed from the account the token names gets the code the cookie path
+// answers a revoked membership with, and a token that names no account gets
+// the code the cookie path answers an unscoped session with (wm-qqoq2).
 func TestMe_RefusesABearerTokenItCannotTrust(t *testing.T) {
-	cases := map[string]*authapp.PericarpClaims{
-		"invalid or expired":          nil,
-		"for an account that is gone": {AgentID: "ops", AccountIDs: []string{"acct-gone"}, ActiveAccountID: "acct-gone"},
+	cases := map[string]struct {
+		claims *authapp.PericarpClaims
+		code   string
+	}{
+		"invalid or expired":          {claims: nil},
+		"for an account that is gone": {claims: &authapp.PericarpClaims{AgentID: "ops", AccountIDs: []string{"acct-gone"}, ActiveAccountID: "acct-gone"}},
+		"for an account the person was removed from": {
+			claims: &authapp.PericarpClaims{AgentID: "ops", AccountIDs: []string{"acct-cedar"}, ActiveAccountID: "acct-cedar"},
+			code:   apimw.CodeAccountAccessRevoked,
+		},
+		"naming no account": {
+			claims: &authapp.PericarpClaims{AgentID: "ops"},
+			code:   apimw.CodeUnscopedSession,
+		},
 	}
-	for name, claims := range cases {
+	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			rec := readMeThrough(t, meRequest{claims: claims, token: "token-for-ops"})
-			if rec.Code != http.StatusUnauthorized || meCode(t, rec) != "" {
-				t.Fatalf("got %d %s, want a 401 with no code", rec.Code, rec.Body.String())
+			rec := readMeThrough(t, meRequest{claims: c.claims, token: "token-for-ops"})
+			if rec.Code != http.StatusUnauthorized || meCode(t, rec) != c.code {
+				t.Fatalf("got %d %s, want a 401 with code %q", rec.Code, rec.Body.String(), c.code)
+			}
+			if c.code == "" {
+				return
+			}
+			var body map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("body %q is not JSON: %v", rec.Body.String(), err)
+			}
+			if body["error"] != "not authenticated" || len(body) != 2 {
+				t.Fatalf("body = %s, want the cookie path's shape {\"error\":\"not authenticated\",\"code\":%q}", rec.Body.String(), c.code)
 			}
 		})
 	}
