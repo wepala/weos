@@ -42,6 +42,14 @@ import (
 // part-way through an erasure, refuses the token; the last two carry the
 // codes the session path answers with.
 //
+// The token's person must also still belong to that account, as the session
+// path's ValidateSession requires (wm-jwojd). A person removed from an account
+// keeps the token they were given for it until it expires, an hour later, so
+// without this they would keep reading and writing there. The refusal is the
+// session path's 401 — {"error":"not authenticated","code":
+// "account_access_revoked"} — and is given before anything about the
+// account's own state, as the session path gives it.
+//
 // Unauthenticated requests receive a 401 with WWW-Authenticate header per the
 // MCP Authorization spec, pointing to the Protected Resource Metadata endpoint.
 func BearerOrSession(
@@ -51,59 +59,147 @@ func BearerOrSession(
 	accounts authrepos.AccountRepository,
 	locks repositories.AccountErasureLocks,
 ) echo.MiddlewareFunc {
-	normalizedBaseURL := strings.TrimRight(baseURL, "/")
-	resourceMetadata := `resource_metadata="` + normalizedBaseURL +
-		`/.well-known/oauth-protected-resource"`
-	wwwAuth := `Bearer ` + resourceMetadata
-	wwwAuthInvalidToken := `Bearer ` + resourceMetadata +
-		`, error="invalid_token", error_description="The access token is invalid or expired"`
-
+	challenge := newBearerChallenge(baseURL)
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			token := extractBearer(c.Request())
 			if token == "" {
 				// No Bearer token — fall through to session auth.
-				return sessionAuthEcho(sessionAuth, next, wwwAuth)(c)
+				return sessionAuthEcho(sessionAuth, next, challenge.plain)(c)
 			}
-
-			claims, err := jwtService.ValidateToken(c.Request().Context(), token)
-			if err != nil {
-				c.Response().Header().Set("WWW-Authenticate", wwwAuthInvalidToken)
-				return c.JSON(http.StatusUnauthorized,
-					map[string]string{"error": "invalid_token"})
-			}
-
-			if claims.ActiveAccountID != "" {
-				state, err := stateOfAccount(c.Request().Context(), claims.ActiveAccountID, accounts, locks)
-				if err != nil {
-					// Fail closed: the account's state could not be read, so the
-					// token is not known to be good.
-					return c.JSON(http.StatusServiceUnavailable,
-						map[string]string{"error": "could not read the account's state"})
-				}
-				if state != accountActive {
-					c.Response().Header().Set("WWW-Authenticate", wwwAuthInvalidToken)
-					body := map[string]string{"error": "invalid_token"}
-					switch state {
-					case accountSuspended:
-						body["code"] = CodeAccountDeactivated
-					case accountErasurePending:
-						body["code"] = CodeAccountErasurePending
-					}
-					return c.JSON(http.StatusUnauthorized, body)
-				}
-			}
-
-			identity := &auth.Identity{
-				AgentID:         claims.AgentID,
-				AccountIDs:      claims.AccountIDs,
-				ActiveAccountID: claims.ActiveAccountID,
-			}
-			ctx := auth.ContextWithAgent(c.Request().Context(), identity)
-			c.SetRequest(c.Request().WithContext(ctx))
-			return next(c)
+			return authenticateToken(c, next, token, tokenCheck{
+				jwtService: jwtService, accounts: accounts, locks: locks, challenge: challenge,
+			})
 		}
 	}
+}
+
+// BearerOrSessionForErasure authenticates the account deletion route. A
+// request with no Bearer token goes to sessionAuth, which is
+// SessionAuthForErasure in serve. A request with one takes BearerOrSession's
+// token path, with the one admission SessionAuthForErasure makes for a
+// session: a token scoped to an account whose erasure is unfinished is let
+// through, marked as such, so the person can run the deletion again from the
+// app that holds it (wm-aj2eb). Everything else the token path refuses stays
+// refused, and a token wins over a session cookie beside it.
+func BearerOrSessionForErasure(
+	jwtService authapp.JWTService,
+	baseURL string,
+	accounts authrepos.AccountRepository,
+	locks repositories.AccountErasureLocks,
+	sessionAuth echo.MiddlewareFunc,
+) echo.MiddlewareFunc {
+	check := tokenCheck{
+		jwtService: jwtService, accounts: accounts, locks: locks,
+		challenge: newBearerChallenge(baseURL), admitErasureLocked: true,
+	}
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		bySession := sessionAuth(next)
+		return func(c echo.Context) error {
+			token := extractBearer(c.Request())
+			if token == "" {
+				return bySession(c)
+			}
+			return authenticateToken(c, next, token, check)
+		}
+	}
+}
+
+// bearerChallenge holds the WWW-Authenticate values the bearer path answers
+// with: plain for a request with no credentials, invalidToken for a token
+// that is refused.
+type bearerChallenge struct {
+	plain        string
+	invalidToken string
+}
+
+func newBearerChallenge(baseURL string) bearerChallenge {
+	resourceMetadata := `resource_metadata="` + strings.TrimRight(baseURL, "/") +
+		`/.well-known/oauth-protected-resource"`
+	return bearerChallenge{
+		plain: `Bearer ` + resourceMetadata,
+		invalidToken: `Bearer ` + resourceMetadata +
+			`, error="invalid_token", error_description="The access token is invalid or expired"`,
+	}
+}
+
+// tokenCheck is what the token path needs. admitErasureLocked is set only for
+// the deletion route.
+type tokenCheck struct {
+	jwtService         authapp.JWTService
+	accounts           authrepos.AccountRepository
+	locks              repositories.AccountErasureLocks
+	challenge          bearerChallenge
+	admitErasureLocked bool
+}
+
+// authenticateToken is the token path: it validates token and, when the token
+// names an account, checks that the account exists, that the token's person
+// still belongs to it, and that it is active. It writes the refusal itself, or
+// puts the token's identity in the request's context and calls next.
+func authenticateToken(c echo.Context, next echo.HandlerFunc, token string, check tokenCheck) error {
+	ctx := c.Request().Context()
+	claims, err := check.jwtService.ValidateToken(ctx, token)
+	if err != nil {
+		return refuseToken(c, check.challenge, "")
+	}
+
+	locked := false
+	if claims.ActiveAccountID != "" {
+		state, err := stateOfAccount(ctx, claims.ActiveAccountID, check.accounts, check.locks)
+		if err != nil {
+			// Fail closed: the account's state could not be read, so the
+			// token is not known to be good.
+			return accountStateUnreadable(c)
+		}
+		if state == accountGone {
+			return refuseToken(c, check.challenge, "")
+		}
+		role, err := check.accounts.FindMemberRole(ctx, claims.ActiveAccountID, claims.AgentID)
+		if err != nil {
+			// Fail closed, as for an unreadable account state.
+			return accountStateUnreadable(c)
+		}
+		if role == "" {
+			// The session path's own 401, body and all — the identity read
+			// pins that shape for a token (wm-qqoq2) — with the challenge a
+			// refused token carries.
+			c.Response().Header().Set("WWW-Authenticate", check.challenge.invalidToken)
+			return refuse(c, CodeAccountAccessRevoked)
+		}
+		switch state {
+		case accountSuspended:
+			return refuseToken(c, check.challenge, CodeAccountDeactivated)
+		case accountErasurePending:
+			if !check.admitErasureLocked {
+				return refuseToken(c, check.challenge, CodeAccountErasurePending)
+			}
+			locked = true
+		}
+	}
+
+	admit(c, &auth.Identity{
+		AgentID:         claims.AgentID,
+		AccountIDs:      claims.AccountIDs,
+		ActiveAccountID: claims.ActiveAccountID,
+	}, locked)
+	return next(c)
+}
+
+// refuseToken writes the bearer path's 401: invalid_token with the challenge
+// that says so, and a code only when there is one to give.
+func refuseToken(c echo.Context, challenge bearerChallenge, code string) error {
+	c.Response().Header().Set("WWW-Authenticate", challenge.invalidToken)
+	body := map[string]string{"error": "invalid_token"}
+	if code != "" {
+		body["code"] = code
+	}
+	return c.JSON(http.StatusUnauthorized, body)
+}
+
+func accountStateUnreadable(c echo.Context) error {
+	return c.JSON(http.StatusServiceUnavailable,
+		map[string]string{"error": "could not read the account's state"})
 }
 
 // BearerWhenPresent authenticates a request that carries a Bearer token exactly

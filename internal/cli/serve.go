@@ -340,8 +340,8 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	// that carries a bearer token is checked by BearerOrSession's bearer path
 	// instead, so an app in a native shell — whose web view holds no cookie for
 	// the instance, only the token its sign-in handed back — can read the
-	// account it signed in to (wm-hg3xf). Only this route takes a token here;
-	// the protected group still takes a session alone.
+	// account it signed in to (wm-hg3xf). The protected group below takes a
+	// token too (wm-aj2eb).
 	if appCfg.AuthEnabled() {
 		api.GET("/auth/me", impersonationHandler.Me(authHandlers),
 			apimw.BearerWhenPresent(jwtService, baseURL, accountRepo, erasureLocks))
@@ -451,13 +451,21 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	// from its first setting, mounted or not: see config.Config.AuthEnabled.
 	protected := api.Group("")
 	if appCfg.AuthEnabled() {
-		// The erasure guard goes first, around RequireAuth: an account whose
-		// deletion began and did not finish is refused everywhere with the
-		// code that says so, where RequireAuth alone would call it merely
-		// deactivated. The one route a locked account may still use is
+		// The group takes a bearer token as well as a session, the way the MCP
+		// group does (wm-aj2eb): an app in a native shell holds no cookie for
+		// the instance, only the token its sign-in handed back. A token wins
+		// over a cookie beside it. Preset handlers mounted Protected inherit
+		// this.
+		//
+		// The erasure guard goes first, around the session auth: an account
+		// whose deletion began and did not finish is refused everywhere with
+		// the code that says so, where RequireAuth alone would call it merely
+		// deactivated. It defers to the token path, which checks the token's
+		// account itself. The one route a locked account may still use is
 		// mounted on its own group below.
-		protected.Use(apimw.ErasureGuard(sessionManager, erasureLocks, logger))
-		protected.Use(echo.WrapMiddleware(authhttp.RequireAuth(sessionManager, authService)))
+		sessionAuth := authhttp.RequireAuth(sessionManager, authService)
+		protected.Use(apimw.ErasureGuard(sessionManager, erasureLocks, logger, apimw.DeferToBearer()))
+		protected.Use(apimw.BearerOrSession(jwtService, sessionAuth, baseURL, accountRepo, erasureLocks))
 		protected.Use(apimw.Impersonation(sessionStore, accountRepo, erasureLocks, logger))
 		protected.Use(apimw.AuthorizeResource(authzChecker, accountRepo, logger))
 	} else {
@@ -465,10 +473,13 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	}
 
 	// The account routes (story wm-kb6sg.3). The export is an ordinary
-	// protected read. The deletion has its own group: its session auth admits
-	// an erasure-locked account for this one purpose, and it takes no
+	// protected read. The deletion has its own group: its auth admits an
+	// erasure-locked account for this one purpose, and it takes no
 	// Impersonation middleware because it refuses while one is active rather
-	// than act as the impersonated person.
+	// than act as the impersonated person. It takes a bearer token as the
+	// protected group does (wm-aj2eb), so an app in a native shell can offer
+	// the in-app deletion; a token scoped to a locked account is admitted here
+	// as a session scoped to one is.
 	accountHandler := handlers.NewAccountHandler(handlers.AccountHandlerConfig{
 		Erasure:        erasureService,
 		Accounts:       accountRepo,
@@ -482,7 +493,8 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	protected.GET("/account/export", accountHandler.Export)
 	accountGroup := api.Group("")
 	if appCfg.AuthEnabled() {
-		accountGroup.Use(apimw.SessionAuthForErasure(sessionManager, authService, accountRepo, erasureLocks, logger))
+		accountGroup.Use(apimw.BearerOrSessionForErasure(jwtService, baseURL, accountRepo, erasureLocks,
+			apimw.SessionAuthForErasure(sessionManager, authService, accountRepo, erasureLocks, logger)))
 	} else {
 		accountGroup.Use(apimw.SoftAuth(credentialRepo, agentRepo, accountRepo, logger))
 	}
