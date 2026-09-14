@@ -213,7 +213,6 @@ func initAccountDeletionScenario(sc *godog.ScenarioContext) {
 	})
 	sc.Step(`^"([^"]*)" also belongs to "([^"]*)" with the role "([^"]*)"$`, w.memberWithRole)
 	sc.Step(`^"([^"]*)" is signed in to "([^"]*)"$`, w.signedInTo)
-	sc.Step(`^"([^"]*)" is an instance admin$`, w.isInstanceAdmin)
 	sc.Step(`^"([^"]*)" has a "([^"]*)" named "([^"]*)" in "([^"]*)"$`, w.personHasResourceIn)
 	sc.Step(`^"([^"]*)" has been deactivated$`, w.accountDeactivated)
 	sc.Step(`^"([^"]*)" is signed in and their requests are being served$`, w.signedInAndServedBy)
@@ -449,10 +448,6 @@ func (w *deletionWorld) signedInTo(email, name string) error {
 	w.actor = email
 	return w.stageSession(email, id)
 }
-
-// isInstanceAdmin is deliberately empty: an owner of an account already holds
-// the role the impersonation route requires, so there is nothing to stage.
-func (w *deletionWorld) isInstanceAdmin(string) error { return nil }
 
 func (w *deletionWorld) signedInAndServedBy(email string) error {
 	w.actor = email
