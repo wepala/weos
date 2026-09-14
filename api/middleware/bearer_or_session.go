@@ -58,7 +58,9 @@ import (
 // account's own state, as the session path gives it.
 //
 // A group that must not answer a third-party connector passes
-// RefuseConnectorTokens.
+// RefuseConnectorTokens. That refusal comes after the membership check and
+// before the account's state, so a connector's token for a suspended or
+// erasure-locked account gets the 403 no refresh changes.
 //
 // Unauthenticated requests receive a 401 with WWW-Authenticate header per the
 // MCP Authorization spec, pointing to the Protected Resource Metadata endpoint.
@@ -185,7 +187,8 @@ type tokenCheck struct {
 
 // authenticateToken is the token path: it validates token, refuses one that
 // names no account, and checks that the account exists, that the token's
-// person still belongs to it, and that it is active. It writes the refusal
+// person still belongs to it, that the route takes its kind of token, and that
+// the account is active — in that order. It writes the refusal
 // itself, or puts the token's identity in the request's context and calls
 // next.
 func authenticateToken(c echo.Context, next echo.HandlerFunc, token string, check tokenCheck) error {
@@ -223,6 +226,15 @@ func authenticateToken(c echo.Context, next echo.HandlerFunc, token string, chec
 		c.Response().Header().Set("WWW-Authenticate", check.challenge.invalidToken)
 		return refuse(c, CodeAccountAccessRevoked)
 	}
+	// A connector's token is refused here before anything about the account's
+	// state: the route refuses it in every state, and a 401 invalid_token for a
+	// suspended or erasure-locked account would send the connector to refresh a
+	// token no refresh makes acceptable on this route.
+	if check.refuseConnectorTokens && weosoauth.IssuedToConnector(claims) {
+		c.Response().Header().Set("WWW-Authenticate", check.challenge.insufficientScope)
+		return c.JSON(http.StatusForbidden,
+			map[string]string{"error": "insufficient_scope", "code": CodeTokenNotAllowed})
+	}
 	locked := false
 	switch state {
 	case accountSuspended:
@@ -232,12 +244,6 @@ func authenticateToken(c echo.Context, next echo.HandlerFunc, token string, chec
 			return refuseToken(c, check.challenge, CodeAccountErasurePending)
 		}
 		locked = true
-	}
-
-	if check.refuseConnectorTokens && weosoauth.IssuedToConnector(claims) {
-		c.Response().Header().Set("WWW-Authenticate", check.challenge.insufficientScope)
-		return c.JSON(http.StatusForbidden,
-			map[string]string{"error": "insufficient_scope", "code": CodeTokenNotAllowed})
 	}
 
 	admit(c, &auth.Identity{

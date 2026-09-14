@@ -530,6 +530,74 @@ func TestBearerOrSession_RefusesAConnectorsTokenOnlyWhereTold(t *testing.T) {
 	}
 }
 
+// wm-aj2eb, Copilot review 5203391068: a connector's token is refused on a
+// group that passed RefuseConnectorTokens with 403 token_not_allowed whatever
+// state its account is in. A 401 invalid_token for a suspended or erasure-locked
+// account sends the connector to refresh and try again, for a token no refresh
+// makes acceptable on this route. The refusal still comes after the account is
+// found and the membership confirmed, so a gone account and a removed member
+// keep their own answers, and a native token keeps every answer it had.
+func TestBearerOrSession_RefusesAConnectorsTokenWhateverTheAccountsState(t *testing.T) {
+	connector := &authapp.PericarpClaims{AgentID: "ops", AccountIDs: []string{"acct-harbor"}, ActiveAccountID: "acct-harbor",
+		Extras: map[string]any{"token_use": "oauth"}}
+	native := &authapp.PericarpClaims{AgentID: "ops", AccountIDs: []string{"acct-harbor"}, ActiveAccountID: "acct-harbor"}
+	owner := map[string]string{"ops|acct-harbor": authentities.RoleOwner}
+	inactive := map[string]*authentities.Account{"acct-harbor": account(t, "acct-harbor", false)}
+	suspended := accountBook{accounts: inactive, roles: owner}
+	removed := accountBook{accounts: inactive}
+	gone := accountBook{accounts: map[string]*authentities.Account{}, roles: owner}
+	locked := func() lockSet { return lockSet{"acct-harbor": true} }
+	noSession := func(next http.Handler) http.Handler { return next }
+	bySession := func(next echo.HandlerFunc) echo.HandlerFunc { return next }
+	protected := func(claims *authapp.PericarpClaims, book accountBook, locks lockSet) echo.MiddlewareFunc {
+		return BearerOrSession(claimsFor{claims: claims}, noSession, "http://x", book, locks, RefuseConnectorTokens())
+	}
+	deletion := func(claims *authapp.PericarpClaims, book accountBook, locks lockSet) echo.MiddlewareFunc {
+		return BearerOrSessionForErasure(claimsFor{claims: claims}, "http://x", book, locks, bySession, RefuseConnectorTokens())
+	}
+	cases := []struct {
+		name      string
+		mw        echo.MiddlewareFunc
+		status    int
+		code      string
+		challenge string
+		locked    bool
+	}{
+		{"a connector's token for a suspended account", protected(connector, suspended, lockSet{}), http.StatusForbidden, CodeTokenNotAllowed, "insufficient_scope", false},
+		{"a connector's token for an erasure-locked account", protected(connector, suspended, locked()), http.StatusForbidden, CodeTokenNotAllowed, "insufficient_scope", false},
+		{"a connector's token for a suspended account on the deletion", deletion(connector, suspended, lockSet{}), http.StatusForbidden, CodeTokenNotAllowed, "insufficient_scope", false},
+		{"a connector's token for an erasure-locked account on the deletion", deletion(connector, suspended, locked()), http.StatusForbidden, CodeTokenNotAllowed, "insufficient_scope", false},
+		{"a connector's token from a removed member of a suspended account", protected(connector, removed, lockSet{}), http.StatusUnauthorized, CodeAccountAccessRevoked, "invalid_token", false},
+		{"a connector's token for a gone account", protected(connector, gone, lockSet{}), http.StatusUnauthorized, "", "invalid_token", false},
+		{"a native token for a suspended account", protected(native, suspended, lockSet{}), http.StatusUnauthorized, CodeAccountDeactivated, "invalid_token", false},
+		{"a native token for an erasure-locked account", protected(native, suspended, locked()), http.StatusUnauthorized, CodeAccountErasurePending, "invalid_token", false},
+		{"an owner's native token for an erasure-locked account on the deletion", deletion(native, suspended, locked()), http.StatusOK, "", "", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec, identity, isLocked := serve(tc.mw, false, map[string]string{"Authorization": "Bearer t"})
+			if rec.Code != tc.status {
+				t.Fatalf("got %d %s, want %d", rec.Code, rec.Body.String(), tc.status)
+			}
+			if tc.status == http.StatusOK {
+				if identity == nil || identity.AgentID != "ops" || isLocked != tc.locked {
+					t.Fatalf("identity = %+v locked=%v, want ops, locked=%v", identity, isLocked, tc.locked)
+				}
+				return
+			}
+			if identity != nil {
+				t.Fatalf("a refused token reached the handler as %+v", identity)
+			}
+			if got := codeOf(t, rec); got != tc.code {
+				t.Fatalf("code = %q, want %q (%s)", got, tc.code, rec.Body.String())
+			}
+			if challenge := rec.Header().Get("WWW-Authenticate"); !strings.Contains(challenge, `error="`+tc.challenge+`"`) {
+				t.Fatalf("challenge = %q, want %s", challenge, tc.challenge)
+			}
+		})
+	}
+}
+
 // wm-aj2eb: the deletion route takes a token as SessionAuthForErasure takes a
 // session. A token for an account whose erasure is unfinished is admitted and
 // marked, so the deletion can run again; everything else the bearer path
