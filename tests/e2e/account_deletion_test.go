@@ -279,6 +279,7 @@ func initAccountDeletionScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^they make a request with the session on the second device$`, w.requestOnSecondDevice)
 	sc.Step(`^they read who they are signed in as$`, w.readsWhoTheyAre)
 	sc.Step(`^they read who they are signed in as on the second device$`, w.readsWhoTheyAreOnSecondDevice)
+	sc.Step(`^they read who they are signed in as with only the token their sign-in handed back$`, w.readsWhoTheyAreByToken)
 	sc.Step(`^the projects "([^"]*)" sees with the session they already held include "([^"]*)"$`, w.projectsSeenInclude)
 	sc.Step(`^"([^"]*)" can still read its photo "([^"]*)" by its URL$`, w.accountReadsPhoto)
 	sc.Step(`^"([^"]*)" requests "([^"]*)" at its flat URL$`, w.personRequestsFlatPhoto)
@@ -405,7 +406,10 @@ func (w *deletionWorld) mountDeletionRoutes(api *echo.Group, guards []echo.Middl
 	authHandlers := authhttp.NewAuthHandlers(authhttp.HandlerConfig{
 		AuthService: w.authService, SessionManager: w.sessionManager, Credentials: w.credRepo, Logger: w.logger,
 	})
-	api.GET("/auth/me", impersonation.Me(authHandlers))
+	// The bearer middleware in front, as serve.go mounts it (wm-hg3xf): an app
+	// in a native shell reads the identity with only its sign-in's token.
+	api.GET("/auth/me", impersonation.Me(authHandlers),
+		apimw.BearerWhenPresent(w.jwtService, "http://acceptance.invalid", w.accountRepo, w.locks))
 	api.POST("/admin/impersonate", impersonation.Start, guards...)
 }
 

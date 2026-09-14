@@ -20,17 +20,22 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/internal/config"
 
 	gojwt "github.com/golang-jwt/jwt/v5"
@@ -117,15 +122,16 @@ func (d *bootDoor) assertionBody(t *testing.T, email string) string {
 }
 
 // bootServe starts serve's application and routes for cfg on a fresh database
-// and serves them on a test listener.
-func bootServe(t *testing.T, cfg config.Config) *httptest.Server {
+// and serves them on a test listener. extra is handed to buildServer, so a
+// test can observe what serve's own graph provides.
+func bootServe(t *testing.T, cfg config.Config, extra ...fx.Option) *httptest.Server {
 	t.Helper()
 	dir := t.TempDir()
 	cfg.DatabaseDSN = filepath.Join(dir, "weos.db")
 	cfg.Storage.LocalPath = filepath.Join(dir, "uploads")
 	cfg.LogLevel = "error"
 
-	e, app, err := buildServer(cfg)
+	e, app, err := buildServer(cfg, extra...)
 	if err != nil {
 		t.Fatalf("build the server: %v", err)
 	}
@@ -163,6 +169,25 @@ func serveCall(t *testing.T, srv *httptest.Server, method, path, body string, co
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
+	return serveSend(t, req)
+}
+
+// serveCallWithToken sends method path carrying only an Authorization header
+// with token and no cookie — the request an app in a native shell makes, whose
+// web view holds no cookie for the instance.
+func serveCallWithToken(t *testing.T, srv *httptest.Server, method, path, token string) serveAnswer {
+	t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), method, srv.URL+path, nil)
+	if err != nil {
+		t.Fatalf("build %s %s: %v", method, path, err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	return serveSend(t, req)
+}
+
+func serveSend(t *testing.T, req *http.Request) serveAnswer {
+	t.Helper()
+	method, path := req.Method, req.URL.Path
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
@@ -330,5 +355,212 @@ func TestServe_NothingConfiguredKeepsDevMode(t *testing.T) {
 	}
 	if got := serveCall(t, srv, http.MethodPost, "/api/mcp", "", nil); got.status == http.StatusUnauthorized {
 		t.Fatalf("POST /api/mcp in dev mode answered 401 %s; dev mode has no sign-in to ask for", got.body)
+	}
+}
+
+// wm-hg3xf. The door relays the assertion's answer to an app whose web view
+// holds no cookie for the instance, so the app reads who is signed in with the
+// token that answer carried. The identity read must answer that token with the
+// body the session gets, and refuse a token the instance did not sign. No
+// failure message here prints the sign-in's answer: it holds the token.
+func TestServe_IdentityReadAnswersTheTokenTheAssertionIssued(t *testing.T) {
+	door := newBootDoor(t)
+	cfg := config.Default()
+	cfg.SessionSecret = bootOwnSecret
+	cfg.TrustedIssuer = door.settings()
+	srv := bootServe(t, cfg)
+
+	signIn := serveCall(t, srv, http.MethodPost, "/api/auth/assert", door.assertionBody(t, bootOwnerEmail), nil)
+	if signIn.status != http.StatusOK {
+		t.Fatalf("POST /api/auth/assert answered %d, want 200", signIn.status)
+	}
+	var answer struct {
+		Data struct {
+			Token string `json:"token"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(signIn.body), &answer); err != nil || answer.Data.Token == "" {
+		t.Fatalf("the asserted sign-in's answer carries no token (decode error: %v)", err)
+	}
+
+	byToken := serveCallWithToken(t, srv, http.MethodGet, "/api/auth/me", answer.Data.Token)
+	if byToken.status != http.StatusOK || !strings.Contains(byToken.body, bootOwnerEmail) {
+		t.Fatalf("GET /api/auth/me with only the token answered %d %s, want 200 naming %s",
+			byToken.status, byToken.body, bootOwnerEmail)
+	}
+	bySession := serveCall(t, srv, http.MethodGet, "/api/auth/me", "", signIn.cookies)
+	if byToken.body != bySession.body {
+		t.Fatalf("GET /api/auth/me answered the token with %s and the session with %s", byToken.body, bySession.body)
+	}
+
+	tampered := serveCallWithToken(t, srv, http.MethodGet, "/api/auth/me", answer.Data.Token+"x")
+	if tampered.status != http.StatusUnauthorized || strings.Contains(tampered.body, bootOwnerEmail) {
+		t.Fatalf("GET /api/auth/me with a tampered token answered %d %s, want 401", tampered.status, tampered.body)
+	}
+}
+
+// wm-6nfzq. Sign-out ends the session. It does not end the bearer token the
+// same sign-in handed back: that token is a stateless access token, and no
+// record on the instance says it was signed out, so it still reads the
+// identity until it expires, one hour after it was issued. This pins what
+// happens today, so a change to it is a decision made on purpose. An app that
+// signs out must delete the token it holds. No failure message prints the
+// sign-in's answer: it holds the token.
+func TestServe_SignOutDoesNotEndTheTokenTheSignInIssued(t *testing.T) {
+	door := newBootDoor(t)
+	cfg := config.Default()
+	cfg.SessionSecret = bootOwnSecret
+	cfg.TrustedIssuer = door.settings()
+	srv := bootServe(t, cfg)
+
+	signIn := serveCall(t, srv, http.MethodPost, "/api/auth/assert", door.assertionBody(t, bootOwnerEmail), nil)
+	if signIn.status != http.StatusOK {
+		t.Fatalf("POST /api/auth/assert answered %d, want 200", signIn.status)
+	}
+	var answer struct {
+		Data struct {
+			Token string `json:"token"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(signIn.body), &answer); err != nil || answer.Data.Token == "" {
+		t.Fatalf("the asserted sign-in's answer carries no token (decode error: %v)", err)
+	}
+	if before := serveCallWithToken(t, srv, http.MethodGet, "/api/auth/me", answer.Data.Token); before.status != http.StatusOK {
+		t.Fatalf("GET /api/auth/me with the token before sign-out answered %d %s, want 200", before.status, before.body)
+	}
+
+	signOut := serveCall(t, srv, http.MethodPost, "/api/auth/logout", "", signIn.cookies)
+	if signOut.status != http.StatusOK {
+		t.Fatalf("POST /api/auth/logout answered %d %s, want 200", signOut.status, signOut.body)
+	}
+	if bySession := serveCall(t, srv, http.MethodGet, "/api/auth/me", "", signIn.cookies); bySession.status != http.StatusUnauthorized {
+		t.Fatalf("GET /api/auth/me with the signed-out session answered %d %s, want 401", bySession.status, bySession.body)
+	}
+
+	after := serveCallWithToken(t, srv, http.MethodGet, "/api/auth/me", answer.Data.Token)
+	if after.status != http.StatusOK || !strings.Contains(after.body, bootOwnerEmail) {
+		t.Fatalf("GET /api/auth/me with the token after sign-out answered %d %s; today sign-out does not end a token, "+
+			"so it should still answer 200 naming %s. If sign-out now ends tokens, that is a decision: update this test and the release notes",
+			after.status, after.body, bootOwnerEmail)
+	}
+}
+
+// bootLogCapture records every line serve's graph logs while it boots.
+type bootLogCapture struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (l *bootLogCapture) add(level, msg string, fields []any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.lines = append(l.lines, fmt.Sprintf("%s: %s %v", level, msg, fields))
+}
+
+func (l *bootLogCapture) Debug(_ context.Context, m string, f ...any) { l.add("debug", m, f) }
+func (l *bootLogCapture) Info(_ context.Context, m string, f ...any)  { l.add("info", m, f) }
+func (l *bootLogCapture) Warn(_ context.Context, m string, f ...any)  { l.add("warn", m, f) }
+func (l *bootLogCapture) Error(_ context.Context, m string, f ...any) { l.add("error", m, f) }
+
+// mentioning is every recorded line, at any level, that contains s.
+func (l *bootLogCapture) mentioning(s string) []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var out []string
+	for _, line := range l.lines {
+		if strings.Contains(line, s) {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+func (l *bootLogCapture) text() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return strings.Join(l.lines, "\n")
+}
+
+func bootSigningKeyPEM(t *testing.T) string {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate the signing key: %v", err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))
+}
+
+// wm-a6xb6. With no JWT_SIGNING_KEY, every boot signs tokens with a key made
+// at boot, so a restart or a deploy ends every bearer token a native app
+// holds and signs the app out. An operator who turns on a trusted issuer is
+// told so at boot: one warning that names JWT_SIGNING_KEY and says the tokens
+// will not survive a restart. The key itself is never logged.
+//
+// The warning is about tokens the door's sign-in hands out, so it is given only
+// when POST /api/auth/assert is mounted. A partly configured issuer, or one on
+// core's public session secret, mounts no route and issues no such token: it
+// already logs why the route is not mounted, and a second line about tokens it
+// cannot issue would only mislead (Copilot review on PR #565).
+func TestServe_WarnsAtBootWhenATrustedIssuersTokensWillNotSurviveARestart(t *testing.T) {
+	door := newBootDoor(t)
+	key := bootSigningKeyPEM(t)
+	cases := map[string]struct {
+		issuer       bool
+		partial      bool
+		publicSecret bool
+		key          string
+		warns        int
+	}{
+		"a trusted issuer with no signing key":   {issuer: true, key: "", warns: 1},
+		"a trusted issuer with a signing key":    {issuer: true, key: key, warns: 0},
+		"no trusted issuer and no signing key":   {issuer: false, key: "", warns: 0},
+		"a trusted issuer with an ephemeral key": {issuer: true, key: "auto", warns: 1},
+		"a partly configured trusted issuer with no signing key": {
+			issuer: true, partial: true, key: "", warns: 0,
+		},
+		"a trusted issuer on the public session secret with no signing key": {
+			issuer: true, publicSecret: true, key: "", warns: 0,
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			cfg := config.Default()
+			cfg.SessionSecret = bootOwnSecret
+			if c.publicSecret {
+				cfg.SessionSecret = config.DefaultSessionSecret
+			}
+			if c.issuer {
+				cfg.TrustedIssuer = door.settings()
+			}
+			if c.partial {
+				cfg.TrustedIssuer.Audience = ""
+			}
+			cfg.OAuth.JWTSigningKey = c.key
+			logs := &bootLogCapture{}
+			bootServe(t, cfg, fx.Decorate(func(entities.Logger) entities.Logger { return logs }))
+
+			lines := logs.mentioning("JWT_SIGNING_KEY")
+			if len(lines) != c.warns {
+				t.Fatalf("got %d boot lines naming JWT_SIGNING_KEY, want %d:\n%s", len(lines), c.warns, logs.text())
+			}
+			if c.warns == 1 {
+				if !strings.HasPrefix(lines[0], "warn: ") {
+					t.Fatalf("the boot line %q is not a warning", lines[0])
+				}
+				if !strings.Contains(lines[0], "bearer token") || !strings.Contains(lines[0], "restart") {
+					t.Fatalf("the warning %q does not say bearer tokens will not survive a restart", lines[0])
+				}
+			}
+			logged := logs.text()
+			if strings.Contains(logged, "PRIVATE KEY") {
+				t.Fatalf("the boot log carries the signing key")
+			}
+			if c.key != "" && c.key != "auto" {
+				body := strings.Split(strings.TrimSpace(c.key), "\n")[1]
+				if strings.Contains(logged, body) {
+					t.Fatalf("the boot log carries the signing key")
+				}
+			}
+		})
 	}
 }

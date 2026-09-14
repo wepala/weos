@@ -186,6 +186,17 @@ Feature: A person can delete their account from the app
     And they read who they are signed in as
     Then the answer says the account they act in has 3 members
 
+  # wm-hg3xf. An app in a native shell holds no cookie for the instance, only
+  # the token its sign-in handed back, and it reads the account the same way.
+  Scenario: Before deleting, an app holding only its sign-in token can learn how many people share the account
+    Given a WeOS instance where password sign-in is enabled and requests are authenticated by their session
+    And the account "Cedar Realty", whose owner "broker@cedarrealty.example" signs in with password "trellis-anchor-mango-9"
+    And "counsel@harborlegal.example" belongs to "Cedar Realty" as an ordinary member
+    And "newcomer@cedarrealty.example" belongs to "Cedar Realty" as an ordinary member
+    When "broker@cedarrealty.example" signs in
+    And they read who they are signed in as with only the token their sign-in handed back
+    Then the answer says the account they act in has 3 members
+
   # --- What deletion removes ---
 
   Scenario: After deleting and signing in again, the pantry is empty and the old photo is gone
@@ -385,6 +396,17 @@ Feature: A person can delete their account from the app
     When "ops@harborlegal.example" deletes their account, confirming with "DELETE"
     And they read who they are signed in as on the second device
     Then the request is refused as not authenticated
+
+  # wm-hg3xf. An app's token names the account, and the token path looks the
+  # account up, so the deletion ends the token on the identity read as well.
+  Scenario: The identity read with an app's sign-in token is refused after the deletion
+    Given a WeOS instance where password sign-in is enabled and requests are authenticated by their session
+    And the account "Harbor Legal", whose owner "ops@harborlegal.example" signs in with password "correct-horse-battery-staple"
+    And "ops@harborlegal.example" signs in
+    When "ops@harborlegal.example" deletes their account, confirming with "DELETE"
+    And they read who they are signed in as with only the token their sign-in handed back
+    Then the request is refused as not authenticated
+    And the refusal carries no code
 
   Scenario: A connector's token issued before the deletion stops authenticating
     Given a demo instance where password sign-in is enabled and no Google provider is configured

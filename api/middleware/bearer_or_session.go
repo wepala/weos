@@ -106,6 +106,33 @@ func BearerOrSession(
 	}
 }
 
+// BearerWhenPresent authenticates a request that carries a Bearer token exactly
+// as BearerOrSession does — the same token check, the same account lookup and
+// the same refusals — and passes a request that carries none to the next
+// handler untouched.
+//
+// It is for a route that checks the session its cookie names itself and whose
+// cookie path must not change: GET /api/auth/me (wm-ccg4f), which an app in a
+// native shell reads with only the token its sign-in handed back (wm-hg3xf).
+// A token wins over a session cookie beside it, as under BearerOrSession: a
+// token that does not validate is refused and never handed to the cookie path.
+// Unlike the MCP group, no Impersonation middleware follows it, so an
+// impersonation cookie beside a token changes nothing (wm-fqjc2).
+func BearerWhenPresent(
+	jwtService authapp.JWTService,
+	baseURL string,
+	accounts authrepos.AccountRepository,
+	locks repositories.AccountErasureLocks,
+) echo.MiddlewareFunc {
+	return BearerOrSession(jwtService, handlerChecksSession, baseURL, accounts, locks)
+}
+
+// handlerChecksSession stands in for session auth on a route whose handler
+// checks the session itself. sessionAuthEcho clears its challenge header
+// before it calls the handler, so the handler's own answer goes out as it
+// would with no middleware in front of it.
+func handlerChecksSession(next http.Handler) http.Handler { return next }
+
 func extractBearer(r *http.Request) string {
 	h := r.Header.Get("Authorization")
 	const prefix = "Bearer "

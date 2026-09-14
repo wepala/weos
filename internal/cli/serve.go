@@ -278,11 +278,6 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	callback := authCallbackHandler(authHandlers.Callback)
 	api.GET("/auth/callback", callback)
 	api.POST("/auth/callback", callback)
-	if appCfg.AuthEnabled() {
-		api.GET("/auth/me", impersonationHandler.Me(authHandlers))
-	} else {
-		api.GET("/auth/me", handlers.DevMe(credentialRepo, agentRepo, accountRepo, logger))
-	}
 	// Provider discovery for the sign-in screen. Reads the registry
 	// /auth/login resolves against, and sits with /auth/login and
 	// /auth/callback outside the protected group — the caller is anonymous
@@ -340,6 +335,20 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 		baseURL = "http://" + hostPort
 	}
 
+	// The identity read sits outside the protected group: it checks the
+	// session its cookie names itself (see ImpersonationHandler.Me). A request
+	// that carries a bearer token is checked by BearerOrSession's bearer path
+	// instead, so an app in a native shell — whose web view holds no cookie for
+	// the instance, only the token its sign-in handed back — can read the
+	// account it signed in to (wm-hg3xf). Only this route takes a token here;
+	// the protected group still takes a session alone.
+	if appCfg.AuthEnabled() {
+		api.GET("/auth/me", impersonationHandler.Me(authHandlers),
+			apimw.BearerWhenPresent(jwtService, baseURL, accountRepo, erasureLocks))
+	} else {
+		api.GET("/auth/me", handlers.DevMe(credentialRepo, agentRepo, accountRepo, logger))
+	}
+
 	// Login asserted by a trusted issuer — a fleet's front door that has
 	// already verified the person. Public for the same reason as the password
 	// routes: the caller has no session yet. Mounted only when
@@ -349,7 +358,7 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	// and mounts nothing. A browser may post to it only from the trusted
 	// issuer's origin or this instance's (baseURL). See
 	// docs/decisions/trusted-issuer-login-assertion.md.
-	handlers.MountTrustedIssuerAssertion(context.Background(), api, appCfg, logger,
+	assertMounted := handlers.MountTrustedIssuerAssertion(context.Background(), api, appCfg, logger,
 		func() *handlers.TrustedIssuerHandler {
 			return handlers.NewTrustedIssuerAssertionHandler(appCfg.TrustedIssuer, appCfg.OAuth.AllowedEmails, handlers.TrustedIssuerAssertionDeps{
 				SignIn:        assertedSignIn,
@@ -358,6 +367,18 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 				PublicBaseURL: baseURL,
 			})
 		})
+	// A trusted issuer's sign-in hands a native app a bearer token, and the app
+	// reads its account with it (wm-hg3xf). With no JWT_SIGNING_KEY that token
+	// is signed by a key made at boot, so every restart or deploy signs the app
+	// out. Say so once at boot (wm-a6xb6). The key itself is never logged.
+	// Only when the assert route is mounted: a partly configured issuer, or one
+	// on core's public session secret, issues no such token, and the mount has
+	// already logged why.
+	if assertMounted && weosoauth.TokensDieOnRestart(appCfg) {
+		logger.Warn(context.Background(),
+			"JWT_SIGNING_KEY is empty or auto, so native bearer tokens will not survive a restart: each boot signs tokens with a new key, and an app holding one is signed out after every restart or deploy",
+			"remedy", "set JWT_SIGNING_KEY to a PEM-encoded RSA private key that stays the same across restarts and on every instance")
+	}
 
 	// Logout must clear BOTH the gorilla session (pericarp Logout) AND the
 	// JWT cookie issued by the password and OAuth flows. Routing through
