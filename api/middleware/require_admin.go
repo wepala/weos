@@ -33,18 +33,9 @@ func GetUserRole(ctx context.Context, accountRepo authrepos.AccountRepository) (
 	if identity == nil {
 		return "", nil
 	}
-
-	accountID := identity.ActiveAccountID
-	if accountID == "" {
-		// Fallback: find the first account this agent belongs to.
-		accounts, err := accountRepo.FindByMember(ctx, identity.AgentID)
-		if err != nil {
-			return "", fmt.Errorf("failed to find member accounts: %w", err)
-		}
-		if len(accounts) == 0 {
-			return "", nil
-		}
-		accountID = accounts[0].GetID()
+	accountID, err := CallerAccountID(ctx, accountRepo)
+	if err != nil || accountID == "" {
+		return "", err
 	}
 
 	role, err := accountRepo.FindMemberRole(ctx, accountID, identity.AgentID)
@@ -52,6 +43,29 @@ func GetUserRole(ctx context.Context, accountRepo authrepos.AccountRepository) (
 		return "", fmt.Errorf("failed to find member role: %w", err)
 	}
 	return role, nil
+}
+
+// CallerAccountID returns the account the authenticated caller acts in: their
+// active account or, for a legacy session with none set, the first account they
+// belong to. It is the account GetUserRole judges a role in, so a handler that
+// scopes its work to it acts where the role check was made. Returns ("", nil)
+// when no identity is present or the caller belongs to no account.
+func CallerAccountID(ctx context.Context, accountRepo authrepos.AccountRepository) (string, error) {
+	identity := auth.AgentFromCtx(ctx)
+	if identity == nil {
+		return "", nil
+	}
+	if identity.ActiveAccountID != "" {
+		return identity.ActiveAccountID, nil
+	}
+	accounts, err := accountRepo.FindByMember(ctx, identity.AgentID)
+	if err != nil {
+		return "", fmt.Errorf("failed to find member accounts: %w", err)
+	}
+	if len(accounts) == 0 {
+		return "", nil
+	}
+	return accounts[0].GetID(), nil
 }
 
 // IsAdmin checks whether the authenticated user has an admin or owner role

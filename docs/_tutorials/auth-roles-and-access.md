@@ -129,7 +129,8 @@ curl -X PUT http://localhost:8080/api/settings/roles \
 
 ## Step 4: Manage Users
 
-Assign roles to users via the user management API:
+Assign roles to the members of your account via the user management API. The
+routes act in the account you are signed in to, and only for its members:
 
 ```bash
 # List users

@@ -273,3 +273,22 @@ func (q *AccountMemberQuery) CountMembers(ctx context.Context, accountID string)
 	}
 	return int(count), nil
 }
+
+func (q *AccountMemberQuery) ListMembers(
+	ctx context.Context, accountID string,
+) ([]repositories.AccountMembership, error) {
+	if accountID == "" {
+		return nil, nil
+	}
+	var members []repositories.AccountMembership
+	err := q.db.WithContext(ctx).
+		Table("account_members").
+		Select("agent_id, role_id").
+		Where("account_id = ?", accountID).
+		Order("agent_id ASC").
+		Scan(&members).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to list the members of account %q: %w", accountID, err)
+	}
+	return members, nil
+}

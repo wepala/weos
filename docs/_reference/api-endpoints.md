@@ -154,9 +154,11 @@ The `name` field is auto-computed from `given_name` + `family_name`.
 
 | Method | Path | Description | Request Body |
 |--------|------|-------------|-------------|
-| GET | `/api/users` | List users | |
-| GET | `/api/users/:id` | Get a user | |
-| PUT | `/api/users/:id` | Update a user (name, role) | `{name?, role?}` |
+| GET | `/api/users` | List the members of the caller's account, with their role in it | |
+| GET | `/api/users/:id` | Get a member of the caller's account (404 for anyone else) | |
+| PUT | `/api/users/:id` | Update a member of the caller's account (name, role in that account; 404 for anyone else) | `{name?, role?}` |
+
+All three routes require the owner or admin role in the account the caller acts in.
 
 ## Settings
 

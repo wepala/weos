@@ -120,4 +120,17 @@ type AccountMemberQuery interface {
 	// read reports it so an app can say how many people share the account
 	// before one of them deletes it.
 	CountMembers(ctx context.Context, accountID string) (int, error)
+
+	// ListMembers returns every membership of accountID with the role it
+	// carries, ordered by agent ID. The users routes list an account's people
+	// from it, so an owner or admin sees the members of their own account and
+	// nobody else on the instance. An account with no members is not an error.
+	ListMembers(ctx context.Context, accountID string) ([]AccountMembership, error)
+}
+
+// AccountMembership is one person's membership of an account and the role
+// they hold in it.
+type AccountMembership struct {
+	AgentID string
+	RoleID  string
 }

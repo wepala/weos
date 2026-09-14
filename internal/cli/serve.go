@@ -553,6 +553,7 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 		AgentRepo:      agentRepo,
 		CredentialRepo: credentialRepo,
 		AccountRepo:    accountRepo,
+		Members:        memberQuery,
 		Features:       featureInvalidator,
 		Logger:         logger,
 	})
