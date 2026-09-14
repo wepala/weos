@@ -134,23 +134,96 @@ func TestAssertedSignInJoinsADoorIdentityAndAGoogleOrAppleIdentityForOneEmail(t 
 	}
 }
 
+// recreatedSub is the subject the door gives ops@harborlegal.example after an
+// operator re-created that person at the door.
+const recreatedSub = "2Vj4nR8wQ1tZ6yK3mP9xB5cL7hD"
+
 // Two door identities for one email are not one person. The door sends one
 // subject for each person it holds, so a second door subject for an email
-// comes only from an operator re-creating the person at the door. A door
-// credential proves its email for a google or apple identity alone, so the
-// new door identity is refused, with or without an allowlist, and nothing is
-// linked or created.
+// comes only from an operator re-creating the person at the door. While an
+// active door credential of an active person holds the email, the new door
+// identity is refused, with or without an allowlist, and nothing is linked or
+// created. That holds whatever else the person holds: a google or apple
+// credential beside the door one proves the email, but it does not make a
+// second door subject the same person as the first.
 func TestAssertedSignInNeverJoinsTwoDoorIdentitiesForOneEmail(t *testing.T) {
-	const recreatedSub = "2Vj4nR8wQ1tZ6yK3mP9xB5cL7hD"
-	for _, allowlist := range []bool{true, false} {
-		t.Run(fmt.Sprintf("allowlist set %v", allowlist), func(t *testing.T) {
-			s := newMemoryAuthStore()
+	holdings := map[string]func(t *testing.T, s *memoryAuthStore){
+		"the person holds only the door": func(t *testing.T, s *memoryAuthStore) {
 			s.seedPerson(t, "agent-ops", "Harbor Ops", "door", doorSub, "ops@harborlegal.example")
-
-			_, err := newTestAssertedSignIn(s, allowlist).SignIn(context.Background(), harborOps("door", recreatedSub))
-			requireUnprovenOwner(t, s, err, "door", recreatedSub)
-		})
+		},
+		"the person holds the door, then google": func(t *testing.T, s *memoryAuthStore) {
+			s.seedPerson(t, "agent-ops", "Harbor Ops", "door", doorSub, "ops@harborlegal.example")
+			s.seedCredential(t, "agent-ops", "google", ownerSub, "ops@harborlegal.example")
+		},
+		"the person holds google, then the door": func(t *testing.T, s *memoryAuthStore) {
+			s.seedPerson(t, "agent-ops", "Harbor Ops", "google", ownerSub, "ops@harborlegal.example")
+			s.seedCredential(t, "agent-ops", "door", doorSub, "ops@harborlegal.example")
+		},
 	}
+	for name, seed := range holdings {
+		for _, allowlist := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s, allowlist set %v", name, allowlist), func(t *testing.T) {
+				s := newMemoryAuthStore()
+				seed(t, s)
+
+				_, err := newTestAssertedSignIn(s, allowlist).SignIn(context.Background(), harborOps("door", recreatedSub))
+				requireUnprovenOwner(t, s, err, "door", recreatedSub)
+			})
+		}
+	}
+}
+
+// The refusal of a second door subject is logged like every unproven-owner
+// refusal: one error line that names the people holding the email and the
+// kinds of credential they hold, and never the subject or the email.
+func TestAssertedSignInLogsASecondDoorSubjectAsAnUnprovenOwner(t *testing.T) {
+	s := newMemoryAuthStore()
+	s.seedPerson(t, "agent-ops", "Harbor Ops", "door", doorSub, "ops@harborlegal.example")
+	s.seedCredential(t, "agent-ops", "google", ownerSub, "ops@harborlegal.example")
+	logs := &signInLogs{}
+	svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) { cfg.Logger = logs })
+
+	_, err := svc.SignIn(context.Background(), harborOps("door", recreatedSub))
+	requireUnprovenOwner(t, s, err, "door", recreatedSub)
+	lines := logs.all()
+	if len(lines) != 1 || lines[0].level != "error" {
+		t.Fatalf("expected one error line for the refusal, got:\n%s", logs.text())
+	}
+	if reason := lines[0].field("reason"); reason != ReasonUnprovenOwner {
+		t.Fatalf("reason = %v, want %q", reason, ReasonUnprovenOwner)
+	}
+	requireIdentityFields(t, lines[0], "door", recreatedSub, "ops@harborlegal.example", "agent-ops")
+	if kinds := lines[0].field("matched_providers"); kinds != "door,google" {
+		t.Fatalf("matched_providers = %v, want door,google", kinds)
+	}
+	requireNoRawIdentity(t, logs, recreatedSub, "ops@harborlegal.example")
+}
+
+// Only an active door credential of an active person refuses a second door
+// subject. One that was turned off, or whose person was turned off, holds the
+// email for nobody, so the new door identity is linked to the person whose
+// google credential proves the email.
+func TestAssertedSignInLinksANewDoorSubjectPastATurnedOffDoorCredential(t *testing.T) {
+	t.Run("the door credential is turned off", func(t *testing.T) {
+		s := newMemoryAuthStore()
+		s.seedPerson(t, "agent-ops", "Harbor Ops", "google", ownerSub, "ops@harborlegal.example")
+		s.seedCredential(t, "agent-ops", "door", doorSub, "ops@harborlegal.example")
+		s.deactivateCredential(t, "door", doorSub)
+		arriving := harborOps("door", recreatedSub)
+
+		got, err := newTestAssertedSignIn(s, false).SignIn(context.Background(), arriving)
+		requireLinkedTo(t, s, got, err, "agent-ops", arriving)
+	})
+	t.Run("the person holding the door credential is turned off", func(t *testing.T) {
+		s := newMemoryAuthStore()
+		s.seedPerson(t, "agent-ops", "Harbor Ops", "google", ownerSub, "ops@harborlegal.example")
+		s.seedPerson(t, "agent-door", "ops", "door", doorSub, "ops@harborlegal.example")
+		s.deactivateAgent(t, "agent-door")
+		arriving := harborOps("door", recreatedSub)
+
+		got, err := newTestAssertedSignIn(s, false).SignIn(context.Background(), arriving)
+		requireLinkedTo(t, s, got, err, "agent-ops", arriving)
+	})
 }
 
 // A door credential proves its email for a google or apple identity only, and
@@ -169,14 +242,17 @@ func TestAssertedSignInCountsADoorCredentialOnlyForAGoogleOrAppleIdentity(t *tes
 			t.Fatalf("an ambiguous owner still created something: creates=%d", s.createCount())
 		}
 	})
-	t.Run("beside a google owner, it is not counted for an arriving door identity", func(t *testing.T) {
-		s := newMemoryAuthStore()
-		s.seedPerson(t, "agent-ops", "Harbor Ops", "google", ownerSub, "ops@harborlegal.example")
-		s.seedPerson(t, "agent-door", "ops", "door", doorSub, "ops@harborlegal.example")
-		arriving := harborOps("door", "2Vj4nR8wQ1tZ6yK3mP9xB5cL7hD")
+	t.Run("beside a google owner, it refuses an arriving door identity", func(t *testing.T) {
+		for _, allowlist := range []bool{true, false} {
+			t.Run(fmt.Sprintf("allowlist set %v", allowlist), func(t *testing.T) {
+				s := newMemoryAuthStore()
+				s.seedPerson(t, "agent-ops", "Harbor Ops", "google", ownerSub, "ops@harborlegal.example")
+				s.seedPerson(t, "agent-door", "ops", "door", doorSub, "ops@harborlegal.example")
 
-		got, err := newTestAssertedSignIn(s, false).SignIn(context.Background(), arriving)
-		requireLinkedTo(t, s, got, err, "agent-ops", arriving)
+				_, err := newTestAssertedSignIn(s, allowlist).SignIn(context.Background(), harborOps("door", recreatedSub))
+				requireUnprovenOwner(t, s, err, "door", recreatedSub)
+			})
+		}
 	})
 	t.Run("alone, it proves nothing for an arriving netsuite identity", func(t *testing.T) {
 		s := newMemoryAuthStore()
