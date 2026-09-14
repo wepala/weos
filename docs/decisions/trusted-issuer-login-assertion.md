@@ -67,9 +67,11 @@ mounted handler that refuses, so middleware ordering cannot turn it into a 401).
 exactly one or two of the three are set, boot logs one warning naming the missing keys
 and mounts nothing.
 
-**Request.** Body `{"assertion": "<JWT>"}`. The browser makes this request itself,
-through the proxy — the door never calls it server-side — so the instance's `Set-Cookie`
-lands in the browser exactly as it does for `/auth/password-login`.
+**Request.** Body `{"assertion": "<JWT>"}`. The browser may make this request itself,
+through the proxy, or the door may post the assertion server-side and relay the answer —
+the status, the body and every `Set-Cookie` — on the host that serves the instance; either
+way the instance's `Set-Cookie` lands in the browser exactly as it does for
+`/auth/password-login`.
 
 - **A request from another site is refused before the assertion is read.** An assertion
   signs in whoever posts it. A page on another site that holds a valid assertion for this
