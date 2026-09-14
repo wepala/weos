@@ -392,3 +392,49 @@ func TestServe_IdentityReadAnswersTheTokenTheAssertionIssued(t *testing.T) {
 		t.Fatalf("GET /api/auth/me with a tampered token answered %d %s, want 401", tampered.status, tampered.body)
 	}
 }
+
+// wm-6nfzq. Sign-out ends the session. It does not end the bearer token the
+// same sign-in handed back: that token is a stateless access token, and no
+// record on the instance says it was signed out, so it still reads the
+// identity until it expires, one hour after it was issued. This pins what
+// happens today, so a change to it is a decision made on purpose. An app that
+// signs out must delete the token it holds. No failure message prints the
+// sign-in's answer: it holds the token.
+func TestServe_SignOutDoesNotEndTheTokenTheSignInIssued(t *testing.T) {
+	door := newBootDoor(t)
+	cfg := config.Default()
+	cfg.SessionSecret = bootOwnSecret
+	cfg.TrustedIssuer = door.settings()
+	srv := bootServe(t, cfg)
+
+	signIn := serveCall(t, srv, http.MethodPost, "/api/auth/assert", door.assertionBody(t, bootOwnerEmail), nil)
+	if signIn.status != http.StatusOK {
+		t.Fatalf("POST /api/auth/assert answered %d, want 200", signIn.status)
+	}
+	var answer struct {
+		Data struct {
+			Token string `json:"token"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(signIn.body), &answer); err != nil || answer.Data.Token == "" {
+		t.Fatalf("the asserted sign-in's answer carries no token (decode error: %v)", err)
+	}
+	if before := serveCallWithToken(t, srv, http.MethodGet, "/api/auth/me", answer.Data.Token); before.status != http.StatusOK {
+		t.Fatalf("GET /api/auth/me with the token before sign-out answered %d %s, want 200", before.status, before.body)
+	}
+
+	signOut := serveCall(t, srv, http.MethodPost, "/api/auth/logout", "", signIn.cookies)
+	if signOut.status != http.StatusOK {
+		t.Fatalf("POST /api/auth/logout answered %d %s, want 200", signOut.status, signOut.body)
+	}
+	if bySession := serveCall(t, srv, http.MethodGet, "/api/auth/me", "", signIn.cookies); bySession.status != http.StatusUnauthorized {
+		t.Fatalf("GET /api/auth/me with the signed-out session answered %d %s, want 401", bySession.status, bySession.body)
+	}
+
+	after := serveCallWithToken(t, srv, http.MethodGet, "/api/auth/me", answer.Data.Token)
+	if after.status != http.StatusOK || !strings.Contains(after.body, bootOwnerEmail) {
+		t.Fatalf("GET /api/auth/me with the token after sign-out answered %d %s; today sign-out does not end a token, "+
+			"so it should still answer 200 naming %s. If sign-out now ends tokens, that is a decision: update this test and the release notes",
+			after.status, after.body, bootOwnerEmail)
+	}
+}
