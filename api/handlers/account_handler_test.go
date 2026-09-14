@@ -507,7 +507,7 @@ func loginLocked(t *testing.T, role string, locked bool) (*httptest.ResponseReco
 		verifyCred:    newCredential(t),
 		verifyAccount: nil, // sign-in resolution passes over an inactive account
 		sessionResult: newAuthSession(t),
-		tokenString:   "should-not-be-issued",
+		tokenString:   "token-for-the-deletion",
 	}
 	locks := lockedSet{}
 	if locked {
@@ -554,8 +554,12 @@ func TestPasswordAuthHandler_Login_LockedAccountSignsInForTheDeletionOnly(t *tes
 	if body.Data.Account == nil || body.Data.Account.ID != "acct-harbor" || !body.Data.ErasurePending || body.Data.Code != apimw.CodeAccountErasurePending {
 		t.Errorf("answer = %+v, want the locked account named with erasure_pending and its code", body.Data)
 	}
-	if body.Data.Token != "" || authSvc.gotTokenAccountID != "" {
-		t.Error("a token was issued for a locked account")
+	// wm-xsvas: the token is scoped to the locked account, as the session is,
+	// so an app with no cookie can finish the deletion. The bearer path refuses
+	// it everywhere else.
+	if body.Data.Token == "" || authSvc.gotTokenAccountID != "acct-harbor" || !authSvc.gotTokenVouched {
+		t.Errorf("token issued=%v for %q vouched=%v, want a token for the locked account, vouched for",
+			body.Data.Token != "", authSvc.gotTokenAccountID, authSvc.gotTokenVouched)
 	}
 }
 
@@ -574,6 +578,9 @@ func TestPasswordAuthHandler_Login_SuspendedOrMemberStaysUnscoped(t *testing.T) 
 			}
 			if authSvc.gotSessionAccountID != "" {
 				t.Errorf("session scoped to %q, want no account", authSvc.gotSessionAccountID)
+			}
+			if authSvc.gotTokenAccountID != "" {
+				t.Errorf("a token was issued for %q; only a locked account's owner or admin gets one", authSvc.gotTokenAccountID)
 			}
 			if strings.Contains(rec.Body.String(), "erasure_pending") {
 				t.Errorf("the sign-in offered the deletion: %s", rec.Body.String())
