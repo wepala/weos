@@ -367,6 +367,15 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 				PublicBaseURL: baseURL,
 			})
 		})
+	// A trusted issuer's sign-in hands a native app a bearer token, and the app
+	// reads its account with it (wm-hg3xf). With no JWT_SIGNING_KEY that token
+	// is signed by a key made at boot, so every restart or deploy signs the app
+	// out. Say so once at boot (wm-a6xb6). The key itself is never logged.
+	if !appCfg.TrustedIssuer.Unset() && weosoauth.TokensDieOnRestart(appCfg) {
+		logger.Warn(context.Background(),
+			"JWT_SIGNING_KEY is empty or auto, so native bearer tokens will not survive a restart: each boot signs tokens with a new key, and an app holding one is signed out after every restart or deploy",
+			"remedy", "set JWT_SIGNING_KEY to a PEM-encoded RSA private key that stays the same across restarts and on every instance")
+	}
 
 	// Logout must clear BOTH the gorilla session (pericarp Logout) AND the
 	// JWT cookie issued by the password and OAuth flows. Routing through

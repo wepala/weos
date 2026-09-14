@@ -84,8 +84,20 @@ func ProvideJWTService(cfg config.Config) (authapp.JWTService, error) {
 	), nil
 }
 
+// TokensDieOnRestart reports whether the service ProvideJWTService builds for
+// cfg signs with a key made when the process starts, so that no token it
+// issues is valid after a restart, an idle-stop wake or on another replica.
+func TokensDieOnRestart(cfg config.Config) bool {
+	return !cfg.AuthEnabled() || ephemeralKey(cfg.OAuth.JWTSigningKey)
+}
+
+// ephemeralKey reports whether keyConfig asks for a key generated at boot.
+func ephemeralKey(keyConfig string) bool {
+	return keyConfig == "" || keyConfig == "auto"
+}
+
 func loadOrGenerateKey(keyConfig string) (*rsa.PrivateKey, error) {
-	if keyConfig == "" || keyConfig == "auto" {
+	if ephemeralKey(keyConfig) {
 		return rsa.GenerateKey(rand.Reader, rsaKeyBits)
 	}
 	return parseRSAPrivateKeyPEM([]byte(keyConfig))
