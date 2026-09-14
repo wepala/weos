@@ -100,15 +100,23 @@ func (d *bootDoor) settings() config.TrustedIssuerConfig {
 // for email.
 func (d *bootDoor) assertionBody(t *testing.T, email string) string {
 	t.Helper()
+	return d.assertionBodyFor(t, email, "108234567890", "Dana Whitfield")
+}
+
+// assertionBodyFor is assertionBody for the person the provider knows by
+// subject and name, so a test can sign in a second person whose credential is
+// not the first one's.
+func (d *bootDoor) assertionBodyFor(t *testing.T, email, subject, name string) string {
+	t.Helper()
 	now := time.Now()
 	token := gojwt.NewWithClaims(gojwt.SigningMethodES256, gojwt.MapClaims{
 		"iss":            bootDoorIssuer,
 		"aud":            bootDoorAudience,
-		"sub":            "108234567890",
+		"sub":            subject,
 		"email":          email,
 		"email_verified": true,
 		"provider":       "google",
-		"name":           "Dana Whitfield",
+		"name":           name,
 		"jti":            fmt.Sprintf("boot-%d", now.UnixNano()),
 		"iat":            now.Unix(),
 		"exp":            now.Add(60 * time.Second).Unix(),

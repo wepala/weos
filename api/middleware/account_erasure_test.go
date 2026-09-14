@@ -340,6 +340,7 @@ func (c claimsFor) ValidateToken(context.Context, string) (*authapp.PericarpClai
 func TestBearerOrSession_ChecksTheTokensAccount(t *testing.T) {
 	claims := &authapp.PericarpClaims{AgentID: "ops", AccountIDs: []string{"acct-harbor"}, ActiveAccountID: "acct-harbor"}
 	noSession := func(next http.Handler) http.Handler { return next }
+	owner := map[string]string{"ops|acct-harbor": authentities.RoleOwner}
 	cases := []struct {
 		name     string
 		accounts accountBook
@@ -347,10 +348,15 @@ func TestBearerOrSession_ChecksTheTokensAccount(t *testing.T) {
 		status   int
 		code     string
 	}{
-		{"active", accountBook{accounts: map[string]*authentities.Account{"acct-harbor": account(t, "acct-harbor", true)}}, lockSet{}, http.StatusOK, ""},
-		{"gone", accountBook{accounts: map[string]*authentities.Account{}}, lockSet{}, http.StatusUnauthorized, ""},
-		{"suspended", accountBook{accounts: map[string]*authentities.Account{"acct-harbor": account(t, "acct-harbor", false)}}, lockSet{}, http.StatusUnauthorized, CodeAccountDeactivated},
-		{"erasure locked", accountBook{accounts: map[string]*authentities.Account{"acct-harbor": account(t, "acct-harbor", false)}}, lockSet{"acct-harbor": true}, http.StatusUnauthorized, CodeAccountErasurePending},
+		{"active", accountBook{accounts: map[string]*authentities.Account{"acct-harbor": account(t, "acct-harbor", true)}, roles: owner}, lockSet{}, http.StatusOK, ""},
+		{"gone", accountBook{accounts: map[string]*authentities.Account{}, roles: owner}, lockSet{}, http.StatusUnauthorized, ""},
+		{"suspended", accountBook{accounts: map[string]*authentities.Account{"acct-harbor": account(t, "acct-harbor", false)}, roles: owner}, lockSet{}, http.StatusUnauthorized, CodeAccountDeactivated},
+		{"erasure locked", accountBook{accounts: map[string]*authentities.Account{"acct-harbor": account(t, "acct-harbor", false)}, roles: owner}, lockSet{"acct-harbor": true}, http.StatusUnauthorized, CodeAccountErasurePending},
+		// wm-jwojd: the session path refuses a person removed from the account
+		// with account_access_revoked, and before it says anything about the
+		// account's own state.
+		{"member removed", accountBook{accounts: map[string]*authentities.Account{"acct-harbor": account(t, "acct-harbor", true)}}, lockSet{}, http.StatusUnauthorized, CodeAccountAccessRevoked},
+		{"member removed from a suspended account", accountBook{accounts: map[string]*authentities.Account{"acct-harbor": account(t, "acct-harbor", false)}}, lockSet{}, http.StatusUnauthorized, CodeAccountAccessRevoked},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -373,4 +379,104 @@ func TestBearerOrSession_ChecksTheTokensAccount(t *testing.T) {
 			}
 		})
 	}
+}
+
+// unreadableRoles is an account book whose membership read fails.
+type unreadableRoles struct{ accountBook }
+
+func (unreadableRoles) FindMemberRole(context.Context, string, string) (string, error) {
+	return "", errors.New("database away")
+}
+
+// wm-jwojd: a membership that cannot be read is not known to be good, so the
+// token is refused as an unreadable account state is.
+func TestBearerOrSession_FailsClosedWhenTheMembershipCannotBeRead(t *testing.T) {
+	claims := &authapp.PericarpClaims{AgentID: "ops", AccountIDs: []string{"acct-harbor"}, ActiveAccountID: "acct-harbor"}
+	noSession := func(next http.Handler) http.Handler { return next }
+	book := unreadableRoles{accountBook{accounts: map[string]*authentities.Account{"acct-harbor": account(t, "acct-harbor", true)}}}
+	rec, identity, _ := serve(BearerOrSession(claimsFor{claims: claims}, noSession, "http://x", book, lockSet{}), false,
+		map[string]string{"Authorization": "Bearer t"})
+	if rec.Code != http.StatusServiceUnavailable || identity != nil {
+		t.Fatalf("got %d %s (identity %+v), want 503 and no identity", rec.Code, rec.Body.String(), identity)
+	}
+}
+
+// wm-aj2eb: the deletion route takes a token as SessionAuthForErasure takes a
+// session. A token for an account whose erasure is unfinished is admitted and
+// marked, so the deletion can run again; everything else the bearer path
+// refuses stays refused, and a request with no token goes to the session auth.
+func TestBearerOrSessionForErasure_TakesATokenAsTheDeletionTakesASession(t *testing.T) {
+	claims := &authapp.PericarpClaims{AgentID: "ops", AccountIDs: []string{"acct-harbor"}, ActiveAccountID: "acct-harbor"}
+	owner := map[string]string{"ops|acct-harbor": authentities.RoleOwner}
+	active := map[string]*authentities.Account{"acct-harbor": account(t, "acct-harbor", true)}
+	inactive := map[string]*authentities.Account{"acct-harbor": account(t, "acct-harbor", false)}
+	cases := []struct {
+		name   string
+		book   accountBook
+		locks  lockSet
+		status int
+		code   string
+		locked bool
+	}{
+		{"active", accountBook{accounts: active, roles: owner}, lockSet{}, http.StatusOK, "", false},
+		{"erasure locked", accountBook{accounts: inactive, roles: owner}, lockSet{"acct-harbor": true}, http.StatusOK, "", true},
+		{"suspended", accountBook{accounts: inactive, roles: owner}, lockSet{}, http.StatusUnauthorized, CodeAccountDeactivated, false},
+		{"member removed from a locked account", accountBook{accounts: inactive}, lockSet{"acct-harbor": true}, http.StatusUnauthorized, CodeAccountAccessRevoked, false},
+		{"gone", accountBook{accounts: map[string]*authentities.Account{}, roles: owner}, lockSet{}, http.StatusUnauthorized, "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sessionAsked := false
+			sessionAuth := func(next echo.HandlerFunc) echo.HandlerFunc {
+				return func(c echo.Context) error {
+					sessionAsked = true
+					return next(c)
+				}
+			}
+			mw := BearerOrSessionForErasure(claimsFor{claims: claims}, "http://x", tc.book, tc.locks, sessionAuth)
+			rec, identity, locked := serve(mw, true, map[string]string{"Authorization": "Bearer t"})
+			if sessionAsked {
+				t.Fatalf("a request with a token was handed to the session auth")
+			}
+			if rec.Code != tc.status {
+				t.Fatalf("got %d %s, want %d", rec.Code, rec.Body.String(), tc.status)
+			}
+			if tc.status == http.StatusOK {
+				if identity == nil || identity.AgentID != "ops" || identity.ActiveAccountID != "acct-harbor" || locked != tc.locked {
+					t.Fatalf("identity = %+v locked=%v, want ops in acct-harbor, locked=%v", identity, locked, tc.locked)
+				}
+				return
+			}
+			if got := codeOf(t, rec); got != tc.code {
+				t.Fatalf("code = %q, want %q (%s)", got, tc.code, rec.Body.String())
+			}
+			if rec.Header().Get("WWW-Authenticate") == "" {
+				t.Error("the refusal carries no WWW-Authenticate challenge")
+			}
+		})
+	}
+
+	t.Run("an invalid token is refused, not handed to the session", func(t *testing.T) {
+		sessionAsked := false
+		sessionAuth := func(next echo.HandlerFunc) echo.HandlerFunc {
+			return func(c echo.Context) error { sessionAsked = true; return next(c) }
+		}
+		mw := BearerOrSessionForErasure(claimsFor{}, "http://x", accountBook{}, lockSet{}, sessionAuth)
+		rec, _, _ := serve(mw, true, map[string]string{"Authorization": "Bearer t"})
+		if rec.Code != http.StatusUnauthorized || sessionAsked {
+			t.Fatalf("got %d %s (session asked %v), want 401 without asking the session", rec.Code, rec.Body.String(), sessionAsked)
+		}
+	})
+
+	t.Run("no token goes to the session auth", func(t *testing.T) {
+		sessionAsked := false
+		sessionAuth := func(next echo.HandlerFunc) echo.HandlerFunc {
+			return func(c echo.Context) error { sessionAsked = true; return next(c) }
+		}
+		mw := BearerOrSessionForErasure(claimsFor{claims: claims}, "http://x", accountBook{}, lockSet{}, sessionAuth)
+		rec, _, _ := serve(mw, true, nil)
+		if rec.Code != http.StatusOK || !sessionAsked {
+			t.Fatalf("got %d %s (session asked %v), want the session auth to decide", rec.Code, rec.Body.String(), sessionAsked)
+		}
+	})
 }
