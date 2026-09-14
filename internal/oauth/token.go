@@ -293,6 +293,33 @@ func handleRefreshGrant(
 		})
 	}
 
+	// The person must still belong to the account the connector was authorized
+	// for (wm-mo1bp). A removed member's access token is refused on every route
+	// with invalid_token, so a conformant connector refreshes; issuing it
+	// another token for the same account would only repeat that forever. The
+	// refresh token is revoked, so it stays refused if the person is added
+	// back — a new authorization is the way in. A membership that cannot be
+	// read issues nothing.
+	role, err := accountRepo.FindMemberRole(ctx, stored.AccountID, stored.AgentID)
+	if err != nil {
+		logger.Error(ctx, "oauth refresh: membership lookup failed",
+			"agent", stored.AgentID, "account", stored.AccountID, "error", err)
+		return c.JSON(http.StatusInternalServerError, tokenErrorResponse{
+			Error: "server_error",
+		})
+	}
+	if role == "" {
+		logger.Warn(ctx, "oauth refresh: agent is no longer a member of the account — revoking the refresh token",
+			"token", stored.ID, "agent", stored.AgentID, "account", stored.AccountID, "client", stored.ClientID)
+		if err := refreshRepo.Revoke(ctx, stored.ID); err != nil {
+			logger.Error(ctx, "oauth refresh: revoking a removed member's refresh token failed",
+				"token", stored.ID, "error", err)
+		}
+		return c.JSON(http.StatusBadRequest, tokenErrorResponse{
+			Error: "invalid_grant",
+		})
+	}
+
 	agent, err := agentRepo.FindByID(ctx, stored.AgentID)
 	if err != nil {
 		logger.Error(ctx, "oauth refresh: agent lookup failed",

@@ -27,6 +27,10 @@ import (
 	"testing"
 
 	"github.com/wepala/weos/v3/internal/config"
+
+	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
+	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
+	"go.uber.org/fx"
 )
 
 // wm-8i8ln. The protected API and the account deletion take the token a
@@ -99,6 +103,19 @@ func connectThroughOAuth(t *testing.T, srv *httptest.Server, cookies []*http.Coo
 	grant := decodeTokenAnswer(t, exchanged, "the code exchange")
 	grant.clientID = client.ClientID
 	return grant
+}
+
+// oauthError is the error an OAuth endpoint answered with, or "" for a body
+// that carries none. A failure message prints it rather than the body, which
+// on success carries tokens.
+func oauthError(body string) string {
+	var answer struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal([]byte(body), &answer) != nil {
+		return ""
+	}
+	return answer.Error
 }
 
 // refreshConnector presents the connector's refresh token.
@@ -237,5 +254,42 @@ func TestServe_AConnectorsTokenIsRefusedOnTheAccountAPIButNotOnMCP(t *testing.T)
 	}
 	if got := serveRequest(t, srv, http.MethodDelete, "/api/account", confirmDeletion, owner.token, nil); got.status != http.StatusOK {
 		t.Errorf("DELETE /api/account with the door's token answered %d %s, want 200", got.status, got.body)
+	}
+}
+
+// wm-mo1bp. A person removed from the account a connector was authorized for
+// is refused by every route the connector calls, and each refusal tells the
+// connector its token is invalid, so it refreshes. The refresh grant must not
+// hand it another token for that account: it answers invalid_grant, which ends
+// the loop, and revokes the refresh token, so the same token stays refused even
+// if the person is added back.
+func TestServe_TheRefreshGrantRefusesAPersonRemovedFromTheAccount(t *testing.T) {
+	door := newBootDoor(t)
+	var accounts authrepos.AccountRepository
+	srv := bootServe(t, connectorConfig(door), fx.Populate(&accounts))
+	owner := signInThroughTheDoor(t, srv, door, bootOwnerEmail, bootOwnerSubject, bootOwnerName)
+	connector := connectThroughOAuth(t, srv, owner.cookies)
+
+	// A member still in the account refreshes as before.
+	rotated := decodeTokenAnswer(t, refreshConnector(t, srv, connector), "the refresh grant for a member")
+	rotated.clientID = connector.clientID
+
+	ctx := context.Background()
+	if err := accounts.RemoveMember(ctx, owner.accountID, owner.agentID); err != nil {
+		t.Fatalf("remove the person from the account: %v", err)
+	}
+	refused := refreshConnector(t, srv, rotated)
+	if refused.status != http.StatusBadRequest || !strings.Contains(refused.body, `"invalid_grant"`) {
+		t.Fatalf("the refresh grant for a removed person answered %d %q, want 400 invalid_grant", refused.status, oauthError(refused.body))
+	}
+
+	// The refusal revoked the refresh token: with the membership restored it
+	// is still refused.
+	if err := accounts.SaveMember(ctx, owner.accountID, owner.agentID, authentities.RoleOwner); err != nil {
+		t.Fatalf("add the person back: %v", err)
+	}
+	again := refreshConnector(t, srv, rotated)
+	if again.status != http.StatusBadRequest || !strings.Contains(again.body, `"invalid_grant"`) {
+		t.Fatalf("the refused refresh token, presented again after the person was added back, answered %d %q, want 400 invalid_grant", again.status, oauthError(again.body))
 	}
 }
