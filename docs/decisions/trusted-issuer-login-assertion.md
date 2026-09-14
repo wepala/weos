@@ -121,7 +121,26 @@ the keys `application.OAuthProviderKeys()` lists, verbatim: core's registry keys
 signed up to the door with an email and a password. No registry entry holds it, so it
 reaches an instance only in an assertion. It still needs `email_verified == true`, as every
 key does, and a `door` credential never proves an owner (see "Which credentials prove
-ownership"). Every refusal is a 401 whose
+ownership").
+
+- **Upgrading an instance that already has people.** An instance that holds people before
+  the door signs anyone in — password accounts, invited members, people from its own
+  Google or Apple sign-in — gets a second way in for each of them when the door starts
+  to assert for it. Owner binding links a new identity by email only on an allowlisted
+  instance, and only to a credential that proves ownership. So, before an existing
+  instance takes door sign-ins:
+  - Set `OAUTH_ALLOWED_EMAILS`. Without it, nothing is linked by email: each existing
+    person whose first door identity the instance has not seen gets a second, empty
+    person.
+  - Where the operator created every password account on the instance, also set
+    `TRUSTED_ISSUER_LINK_PASSWORD_OWNERS=true`. Without it, a password credential proves
+    nothing, and a door sign-in for its email is refused `unproven-owner`.
+  - An invited member always needs an operator. An `invite` credential never proves an
+    owner, with or without that setting, so the member's first door sign-in is refused
+    `unproven-owner` until an operator clears it (see "Clearing `ambiguous-owner` and
+    `unproven-owner`").
+
+Every refusal is a 401 whose
 body and log line carry a machine-readable reason: `signature`, `kid-miss`,
 `keys-unreachable`, `iss`, `aud`, `expired`, `window`, `jti-replay`, `claims`,
 `allowlist`. An accepted assertion can still be refused when owner binding cannot tell
