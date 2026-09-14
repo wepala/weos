@@ -160,7 +160,12 @@ func (h *ImpersonationHandler) Start(c echo.Context) error {
 	if member {
 		target, err = h.agentRepo.FindByID(ctx, req.AgentID)
 		if err != nil {
-			h.logger.Warn(ctx, "failed to find a member's agent", "agent_id", req.AgentID, "error", err)
+			// The person is a member; only their record could not be read.
+			// That is a failure to answer, not the refusal a person outside
+			// the account gets (wm-ljypy).
+			h.logger.Error(ctx, "failed to find a member's agent",
+				"account_id", accountID, "agent_id", req.AgentID, "error", err)
+			return respondError(c, http.StatusInternalServerError, "authorization check failed")
 		}
 	}
 	if target == nil {
