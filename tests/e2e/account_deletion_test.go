@@ -406,7 +406,10 @@ func (w *deletionWorld) mountDeletionRoutes(api *echo.Group, guards []echo.Middl
 	authHandlers := authhttp.NewAuthHandlers(authhttp.HandlerConfig{
 		AuthService: w.authService, SessionManager: w.sessionManager, Credentials: w.credRepo, Logger: w.logger,
 	})
-	api.GET("/auth/me", impersonation.Me(authHandlers))
+	// The bearer middleware in front, as serve.go mounts it (wm-hg3xf): an app
+	// in a native shell reads the identity with only its sign-in's token.
+	api.GET("/auth/me", impersonation.Me(authHandlers),
+		apimw.BearerWhenPresent(w.jwtService, "http://acceptance.invalid", w.accountRepo, w.locks))
 	api.POST("/admin/impersonate", impersonation.Start, guards...)
 }
 

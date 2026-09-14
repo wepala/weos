@@ -183,10 +183,9 @@ func readMeThrough(t *testing.T, r meRequest) *httptest.ResponseRecorder {
 	pericarpMe := authhttp.NewAuthHandlers(authhttp.HandlerConfig{
 		AuthService: opsSession, SessionManager: sessionsForOps, Credentials: stubCreds{}, Logger: nopLogger{},
 	})
-	noSession := func(next http.Handler) http.Handler { return next }
 	e := echo.New()
 	e.GET("/api/auth/me", h.Me(pericarpMe),
-		apimw.BearerOrSession(tokenFor{claims: r.claims}, noSession, "http://acceptance.invalid", accounts, lockSetFor{}))
+		apimw.BearerWhenPresent(tokenFor{claims: r.claims}, "http://acceptance.invalid", accounts, lockSetFor{}))
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
 	if r.token != "" {
 		req.Header.Set("Authorization", "Bearer "+r.token)

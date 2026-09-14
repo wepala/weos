@@ -278,11 +278,6 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	callback := authCallbackHandler(authHandlers.Callback)
 	api.GET("/auth/callback", callback)
 	api.POST("/auth/callback", callback)
-	if appCfg.AuthEnabled() {
-		api.GET("/auth/me", impersonationHandler.Me(authHandlers))
-	} else {
-		api.GET("/auth/me", handlers.DevMe(credentialRepo, agentRepo, accountRepo, logger))
-	}
 	// Provider discovery for the sign-in screen. Reads the registry
 	// /auth/login resolves against, and sits with /auth/login and
 	// /auth/callback outside the protected group — the caller is anonymous
@@ -338,6 +333,20 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 		// net.JoinHostPort handles IPv6 bracketing correctly.
 		hostPort := net.JoinHostPort(host, strconv.Itoa(appCfg.Server.Port))
 		baseURL = "http://" + hostPort
+	}
+
+	// The identity read sits outside the protected group: it checks the
+	// session its cookie names itself (see ImpersonationHandler.Me). A request
+	// that carries a bearer token is checked by BearerOrSession's bearer path
+	// instead, so an app in a native shell — whose web view holds no cookie for
+	// the instance, only the token its sign-in handed back — can read the
+	// account it signed in to (wm-hg3xf). Only this route takes a token here;
+	// the protected group still takes a session alone.
+	if appCfg.AuthEnabled() {
+		api.GET("/auth/me", impersonationHandler.Me(authHandlers),
+			apimw.BearerWhenPresent(jwtService, baseURL, accountRepo, erasureLocks))
+	} else {
+		api.GET("/auth/me", handlers.DevMe(credentialRepo, agentRepo, accountRepo, logger))
 	}
 
 	// Login asserted by a trusted issuer — a fleet's front door that has

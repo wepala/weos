@@ -250,9 +250,20 @@ func (h *ImpersonationHandler) Status(c echo.Context) error {
 // it offers the deletion, and a cookie for an account locked for deletion —
 // or a second device's cookie for an account already gone — must get the
 // refusal every other route gives, not a 200 that says nothing is wrong.
+//
+// A request that carries a bearer token is answered for the token's person
+// (wm-hg3xf). An app in a native shell holds no cookie for the instance, only
+// the token its sign-in handed back. The token is checked by
+// apimw.BearerWhenPresent, mounted in front of this route, and that middleware
+// is the only thing that puts an identity in this route's context. The answer
+// then reads no cookie, the impersonation cookie included: the token wins over
+// a cookie beside it, as it does wherever BearerOrSession takes both.
 func (h *ImpersonationHandler) Me(authHandlers *authhttp.AuthHandlers) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		ctx := c.Request().Context()
+		if identity := auth.AgentFromCtx(ctx); identity != nil {
+			return respond(c, http.StatusOK, h.identityBody(ctx, identity.AgentID, identity.ActiveAccountID))
+		}
 		info, refused := h.validatedSession(c)
 		if refused {
 			return nil
@@ -279,24 +290,7 @@ func (h *ImpersonationHandler) Me(authHandlers *authhttp.AuthHandlers) echo.Hand
 				authHandlers.Me(c.Response(), c.Request())
 				return nil
 			}
-			name, email := h.resolveAgentInfo(ctx, agentID)
-			role := ""
-			if accountID != "" {
-				role, _ = h.accountRepo.FindMemberRole(ctx, accountID, agentID)
-			}
-			body := map[string]any{
-				"id":    agentID,
-				"name":  name,
-				"email": email,
-				"role":  role,
-			}
-			if accountID != "" {
-				body["account_id"] = accountID
-				if count, ok := h.memberCount(ctx, accountID); ok {
-					body["member_count"] = count
-				}
-			}
-			return respond(c, http.StatusOK, body)
+			return respond(c, http.StatusOK, h.identityBody(ctx, agentID, accountID))
 		}
 
 		realAgentID, _ := sess.Values[apimw.KeyRealAgentID].(string)
@@ -366,6 +360,37 @@ func (h *ImpersonationHandler) validatedSession(c echo.Context) (info *authapp.S
 		_ = respondErrorCode(c, http.StatusUnauthorized, "not authenticated", code)
 	}
 	return nil, true
+}
+
+// identityBody is the identity read's answer for agentID acting in accountID.
+// A session and a bearer token both answer through it, so the two bodies
+// cannot drift apart.
+func (h *ImpersonationHandler) identityBody(ctx context.Context, agentID, accountID string) map[string]any {
+	name, email := h.resolveAgentInfo(ctx, agentID)
+	role := ""
+	if accountID != "" {
+		var roleErr error
+		role, roleErr = h.accountRepo.FindMemberRole(ctx, accountID, agentID)
+		if roleErr != nil {
+			// An unreadable role is answered empty, which withholds what a
+			// role would grant rather than granting it.
+			h.logger.Warn(ctx, "could not read the member's role", "account_id", accountID, "agent_id", agentID, "error", roleErr)
+			role = ""
+		}
+	}
+	body := map[string]any{
+		"id":    agentID,
+		"name":  name,
+		"email": email,
+		"role":  role,
+	}
+	if accountID != "" {
+		body["account_id"] = accountID
+		if count, ok := h.memberCount(ctx, accountID); ok {
+			body["member_count"] = count
+		}
+	}
+	return body
 }
 
 // memberCount reports how many people share accountID, when a member query
