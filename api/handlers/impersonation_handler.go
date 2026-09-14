@@ -324,7 +324,8 @@ func (h *ImpersonationHandler) Me(authHandlers *authhttp.AuthHandlers) echo.Hand
 		}
 		impersonatedAgentID, _ := sess.Values[apimw.KeyImpersonatedAgentID].(string)
 		realAgentID, _ := sess.Values[apimw.KeyRealAgentID].(string)
-		impersonationAccountID, holds, judged := h.impersonationHolds(ctx, agentID, accountID, realAgentID, impersonatedAgentID)
+		startedIn, _ := sess.Values[apimw.KeyRealAccountID].(string)
+		impersonationAccountID, holds, judged := h.impersonationHolds(ctx, agentID, accountID, realAgentID, impersonatedAgentID, startedIn)
 		if !holds {
 			// No impersonation, or a cookie the protected routes would refuse:
 			// answer for the person signed in, as those routes would act. A
@@ -369,7 +370,7 @@ func (h *ImpersonationHandler) Me(authHandlers *authhttp.AuthHandlers) echo.Hand
 // refuse (wm-ptcuk). Anything unreadable is answered holds=false with
 // judged=false: the read then reports the person signed in, which grants
 // nothing, and leaves the cookie as it is.
-func (h *ImpersonationHandler) impersonationHolds(ctx context.Context, agentID, accountID, realAgentID, impersonatedAgentID string) (account string, holds, judged bool) {
+func (h *ImpersonationHandler) impersonationHolds(ctx context.Context, agentID, accountID, realAgentID, impersonatedAgentID, startedIn string) (account string, holds, judged bool) {
 	if impersonatedAgentID == "" || agentID == "" || realAgentID != agentID {
 		return "", false, true
 	}
@@ -378,7 +379,11 @@ func (h *ImpersonationHandler) impersonationHolds(ctx context.Context, agentID, 
 		h.logger.Warn(ctx, "could not resolve the account of an impersonation in Me", "agent_id", agentID, "error", err)
 		return "", false, false
 	}
-	allowed, err := apimw.MayImpersonate(ctx, h.accountRepo, resolved, agentID, impersonatedAgentID)
+	// The impersonation holds only in the account it started in (wm-dpzo5).
+	if startedIn == "" || resolved != startedIn {
+		return "", false, true
+	}
+	allowed, err := apimw.MayImpersonate(ctx, h.accountRepo, startedIn, agentID, impersonatedAgentID)
 	if err != nil {
 		h.logger.Warn(ctx, "could not judge an impersonation in Me", "account_id", resolved, "error", err)
 		return "", false, false

@@ -105,14 +105,17 @@ func MayImpersonate(ctx context.Context, accounts authrepos.AccountRepository, a
 // session and, if present, replaces the auth.Identity in the request context
 // with the impersonated person's identity, acting in the caller's account.
 //
-// The cookie is not trusted on its own. On every request the caller must still
-// hold the owner or admin role in the account they act in, and the person
-// impersonated must still be a member of it (wm-ptcuk). The impersonation acts
-// in that account, never in some other account the person belongs to: the
-// caller's authority reaches no further. A cookie that no longer passes —
-// one started before this check existed, or whose person has since left the
-// account — is cleared and the request refused with
-// CodeImpersonationTargetNotMember, rather than served as either person.
+// The cookie is not trusted on its own. An impersonation is judged, and acts,
+// only in the account it started in, which the start route records in the
+// cookie (wm-dpzo5). On every request the caller must still act in that
+// account, still hold the owner or admin role there, and the person
+// impersonated must still be a member of it (wm-ptcuk). It never acts in some
+// other account the person belongs to, and it does not follow the caller into
+// another account of their own: the authority that allowed it reaches no
+// further. A cookie that no longer passes — one that records no account, whose
+// caller now acts elsewhere, or whose person has since left the account — is
+// cleared and the request refused with CodeImpersonationTargetNotMember,
+// rather than served as either person.
 //
 // The account is refused with the code that says why when it is not active,
 // so an impersonation never opens an account locked for deletion or a
@@ -137,6 +140,7 @@ func Impersonation(
 			}
 
 			realAgentID, _ := sess.Values[KeyRealAgentID].(string)
+			startedIn, _ := sess.Values[KeyRealAccountID].(string)
 
 			currentIdentity := auth.AgentFromCtx(c.Request().Context())
 			if currentIdentity == nil {
@@ -154,20 +158,26 @@ func Impersonation(
 				logger.Error(ctx, "impersonation: could not resolve the caller's account", "agent_id", realAgentID, "error", err)
 				return unreadableAccountState(c)
 			}
-			allowed, err := MayImpersonate(ctx, accountRepo, accountID, realAgentID, impersonatedAgentID)
+			// The account the caller acts in now must be the one the
+			// impersonation started in. A second tab or a new sign-in in
+			// another account does not take the impersonation along, even
+			// where the same rule would hold there too (wm-dpzo5).
+			if startedIn == "" || accountID != startedIn {
+				logger.Warn(ctx, "impersonation refused: the caller acts in another account than the one the impersonation started in",
+					"account_id", accountID, "started_in_account_id", startedIn,
+					"admin_agent_id", realAgentID, "target_agent_id", impersonatedAgentID, "ip", c.RealIP())
+				return refuseImpersonation(c)
+			}
+			allowed, err := MayImpersonate(ctx, accountRepo, startedIn, realAgentID, impersonatedAgentID)
 			if err != nil {
 				logger.Error(ctx, "impersonation: could not read the roles in the caller's account",
-					"account_id", accountID, "admin_agent_id", realAgentID, "target_agent_id", impersonatedAgentID, "error", err)
+					"account_id", startedIn, "admin_agent_id", realAgentID, "target_agent_id", impersonatedAgentID, "error", err)
 				return unreadableAccountState(c)
 			}
 			if !allowed {
 				logger.Warn(ctx, "impersonation refused: the person is not a member of the caller's account, or the caller's role there does not allow it",
-					"account_id", accountID, "admin_agent_id", realAgentID, "target_agent_id", impersonatedAgentID, "ip", c.RealIP())
-				ExpireImpersonationCookie(c.Response())
-				return c.JSON(http.StatusForbidden, map[string]string{
-					"error": "impersonation not allowed",
-					"code":  CodeImpersonationTargetNotMember,
-				})
+					"account_id", startedIn, "admin_agent_id", realAgentID, "target_agent_id", impersonatedAgentID, "ip", c.RealIP())
+				return refuseImpersonation(c)
 			}
 
 			state, err := stateOfAccount(ctx, accountID, accountRepo, locks)
@@ -199,6 +209,18 @@ func Impersonation(
 			return next(c)
 		}
 	}
+}
+
+// refuseImpersonation ends the impersonation and refuses the request with
+// CodeImpersonationTargetNotMember, the code an app reads as "the
+// impersonation ended", so a refused cookie does not refuse every request
+// that follows it.
+func refuseImpersonation(c echo.Context) error {
+	ExpireImpersonationCookie(c.Response())
+	return c.JSON(http.StatusForbidden, map[string]string{
+		"error": "impersonation not allowed",
+		"code":  CodeImpersonationTargetNotMember,
+	})
 }
 
 // ExpireImpersonationCookie expires the impersonation cookie on w. It writes

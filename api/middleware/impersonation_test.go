@@ -33,12 +33,48 @@ func impersonate(t *testing.T, book accountBook, locks lockSet) impersonated {
 // cookie was still started by "ops".
 func impersonateAs(t *testing.T, caller string, book accountBook, locks lockSet) impersonated {
 	t.Helper()
+	return impersonateIn(t, caller, "acct-harbor", "acct-harbor", book, locks)
+}
+
+// wm-dpzo5: an impersonation is judged in the account it started in. The
+// caller acting in another account — where the same person is also a member
+// and the caller is also an admin — does not carry it there, and a cookie
+// that records no account is not applied anywhere.
+func TestImpersonation_StaysInTheAccountItStartedIn(t *testing.T) {
+	book := harborBook(t, map[string]string{
+		"counsel|acct-harbor": authentities.RoleMember,
+		"ops|acct-cedar":      authentities.RoleAdmin,
+		"counsel|acct-cedar":  authentities.RoleMember,
+	})
+	book.accounts["acct-cedar"] = account(t, "acct-cedar", true)
+
+	got := impersonateIn(t, "ops", "acct-cedar", "acct-harbor", book, lockSet{})
+	if got.rec.Code != http.StatusForbidden || codeOf(t, got.rec) != CodeImpersonationTargetNotMember {
+		t.Fatalf("acting in another account got %d %s identity %+v, want 403 %s",
+			got.rec.Code, got.rec.Body.String(), got.seen, CodeImpersonationTargetNotMember)
+	}
+	if got.seen != nil || !impersonationCookieCleared(got.rec) {
+		t.Fatalf("the handler was reached as %+v, cookie cleared=%v; want neither reached and the cookie cleared",
+			got.seen, impersonationCookieCleared(got.rec))
+	}
+
+	got = impersonateIn(t, "ops", "acct-harbor", "", book, lockSet{})
+	if got.rec.Code != http.StatusForbidden || got.seen != nil || !impersonationCookieCleared(got.rec) {
+		t.Fatalf("a cookie that records no account got %d %s identity %+v, want 403, not reached, and cleared",
+			got.rec.Code, got.rec.Body.String(), got.seen)
+	}
+}
+
+// impersonateIn runs one request as caller acting in acting, carrying a cookie
+// started by "ops" for "counsel" that records startedIn as its account.
+func impersonateIn(t *testing.T, caller, acting, startedIn string, book accountBook, locks lockSet) impersonated {
+	t.Helper()
 	store := sessions.NewCookieStore([]byte("test-secret"))
 	e := echo.New()
 	var got impersonated
 	signedIn := func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			ctx := auth.ContextWithAgent(c.Request().Context(), &auth.Identity{AgentID: caller, ActiveAccountID: "acct-harbor"})
+			ctx := auth.ContextWithAgent(c.Request().Context(), &auth.Identity{AgentID: caller, ActiveAccountID: acting})
 			c.SetRequest(c.Request().WithContext(ctx))
 			return next(c)
 		}
@@ -55,7 +91,7 @@ func impersonateAs(t *testing.T, caller string, book accountBook, locks lockSet)
 	sess, _ := store.Get(req, ImpersonationSessionName)
 	sess.Values[KeyImpersonatedAgentID] = "counsel"
 	sess.Values[KeyRealAgentID] = "ops"
-	sess.Values[KeyRealAccountID] = "acct-harbor"
+	sess.Values[KeyRealAccountID] = startedIn
 	if err := sess.Save(req, rec); err != nil {
 		t.Fatal(err)
 	}
@@ -194,6 +230,7 @@ func TestImpersonation_FailsClosedWhenTheRolesCannotBeRead(t *testing.T) {
 	sess, _ := store.Get(req, ImpersonationSessionName)
 	sess.Values[KeyImpersonatedAgentID] = "counsel"
 	sess.Values[KeyRealAgentID] = "ops"
+	sess.Values[KeyRealAccountID] = "acct-harbor"
 	if err := sess.Save(req, rec); err != nil {
 		t.Fatal(err)
 	}

@@ -23,13 +23,16 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	apimw "github.com/wepala/weos/v3/api/middleware"
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/internal/config"
 
+	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
 	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
+	"github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/session"
 	"github.com/gorilla/sessions"
 	"go.uber.org/fx"
 )
@@ -324,6 +327,86 @@ func TestServe_StoppingEndsAnImpersonationTheProtectedRoutesRefuse(t *testing.T)
 	lines := logs.mentioning("impersonation stopped")
 	if len(lines) != 1 || !strings.Contains(lines[0], ops.agentID) {
 		t.Fatalf("want one stop line naming ops, got:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+// sessionIn opens a second session for person, acting in accountID, as a second
+// tab signed in to another account would, and returns its cookies.
+func sessionIn(t *testing.T, authService authapp.AuthenticationService, sessionManager session.SessionManager,
+	credentials authrepos.CredentialRepository, person signedUpPerson, accountID string) []*http.Cookie {
+	t.Helper()
+	ctx := context.Background()
+	creds, err := credentials.FindByAgent(ctx, person.agentID)
+	if err != nil || len(creds) == 0 {
+		t.Fatalf("find the person's credential: %v", err)
+	}
+	opened, err := authService.CreateSession(ctx, person.agentID, accountID, creds[0].GetID(), "127.0.0.1", "serve-test", time.Hour)
+	if err != nil {
+		t.Fatalf("open a session in account %s: %v", accountID, err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", nil)
+	rec := httptest.NewRecorder()
+	if err := sessionManager.CreateHTTPSession(rec, req, session.SessionData{
+		SessionID: opened.GetID(),
+		AgentID:   person.agentID,
+		AccountID: accountID,
+		CreatedAt: time.Now(),
+		ExpiresAt: opened.ExpiresAt(),
+	}); err != nil {
+		t.Fatalf("write the session cookie: %v", err)
+	}
+	return rec.Result().Cookies()
+}
+
+// wm-dpzo5. An impersonation stays in the account it started in. When the
+// caller acts in another account — where the same person is also a member and
+// the caller is also an admin — the impersonation is refused and ended there
+// rather than carried along.
+func TestServe_AnImpersonationDoesNotFollowTheCallerIntoAnotherAccount(t *testing.T) {
+	var accounts authrepos.AccountRepository
+	var credentials authrepos.CredentialRepository
+	var authService authapp.AuthenticationService
+	var sessionManager session.SessionManager
+	srv := passwordInstance(t, fx.Populate(&accounts, &credentials, &authService, &sessionManager))
+	ops := signUp(t, srv, "ops@harborlegal.example")
+	broker := signUp(t, srv, "broker@cedarrealty.example")
+	counsel := signUp(t, srv, "counsel@lanternhomes.example")
+	for _, m := range []struct{ account, agent, role string }{
+		{ops.accountID, counsel.agentID, authentities.RoleMember},
+		{broker.accountID, counsel.agentID, authentities.RoleMember},
+		{broker.accountID, ops.agentID, authentities.RoleAdmin},
+	} {
+		if err := accounts.SaveMember(context.Background(), m.account, m.agent, m.role); err != nil {
+			t.Fatalf("add %s to %s as %s: %v", m.agent, m.account, m.role, err)
+		}
+	}
+
+	started := startImpersonation(t, srv, ops, counsel.agentID)
+	if started.status != http.StatusOK {
+		t.Fatalf("starting an impersonation of a member answered %d %s, want 200", started.status, started.body)
+	}
+	impersonating := withCookies(ops.cookies, started.cookies)
+	if answer, acting := actingAccount(t, srv, impersonating); answer.status != http.StatusOK || acting != ops.accountID {
+		t.Fatalf("while impersonating, the export answered %d for account %q, want the account it started in", answer.status, acting)
+	}
+
+	inOtherAccount := sessionIn(t, authService, sessionManager, credentials, ops, broker.accountID)
+	if answer, acting := actingAccount(t, srv, inOtherAccount); answer.status != http.StatusOK || acting != broker.accountID {
+		t.Fatalf("the test could not put the caller in the other account: the export answered %d %s for %q",
+			answer.status, answer.body, acting)
+	}
+	moved := withCookies(inOtherAccount, started.cookies)
+
+	if id, active := meAs(t, srv, moved); id != ops.agentID || active {
+		t.Fatalf("the identity read answered for %q impersonating=%v, want ops, not impersonating", id, active)
+	}
+	refused, acting := actingAccount(t, srv, moved)
+	if refused.status != http.StatusForbidden || errorCode(t, refused) != apimw.CodeImpersonationTargetNotMember {
+		t.Fatalf("with the caller in the other account, the impersonation answered %d %s for account %q, want 403 %s",
+			refused.status, refused.body, acting, apimw.CodeImpersonationTargetNotMember)
+	}
+	if !impersonationCleared(refused) {
+		t.Fatalf("the refusal did not clear the impersonation cookie")
 	}
 }
 
