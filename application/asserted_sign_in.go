@@ -81,7 +81,10 @@ var ownerProvingProviders = map[string]bool{
 // person, in either order (decision wm-vvi6t). A door credential proves nothing
 // for another door identity: the door sends one subject for each person it
 // holds, so a second door subject for an email comes only from an operator
-// re-creating the person, and that person is not joined to the first.
+// re-creating the person, and that person is not joined to the first. While an
+// active door credential of an active person holds the email, ownerOf refuses
+// the second door subject as ErrUnprovenOwner, even when that person also
+// holds a google or apple credential that proves the email.
 var doorCredentialProvesOwnerFor = map[string]bool{
 	OAuthProviderGoogle: true,
 	OAuthProviderApple:  true,
@@ -281,7 +284,9 @@ func (s *AssertedSignIn) SignIn(ctx context.Context, id AssertedIdentity) (Asser
 // ErrUnprovenOwner when credentials hold it but none says who owns it. Only a
 // credential that provesOwnership for the arriving identity counts, and only
 // for a person who still exists and is active: a person who is gone or turned
-// off owns nothing.
+// off owns nothing. A door identity also gets ErrUnprovenOwner when an active
+// door credential of an active person already holds the email, whatever other
+// credentials hold it.
 func (s *AssertedSignIn) ownerOf(ctx context.Context, id AssertedIdentity, email string) (string, error) {
 	matches, err := s.cfg.Emails.CredentialsByEmail(ctx, email)
 	if err != nil {
@@ -291,23 +296,56 @@ func (s *AssertedSignIn) ownerOf(ctx context.Context, id AssertedIdentity, email
 	counted := map[string]bool{}
 	held := map[string]bool{}
 	providers := map[string]bool{}
+	activePeople := map[string]bool{}
+	isActive := func(agentID string) (bool, error) {
+		if active, read := activePeople[agentID]; read {
+			return active, nil
+		}
+		agent, err := s.cfg.Agents.FindByID(ctx, agentID)
+		if err != nil {
+			return false, fmt.Errorf("read a person holding the asserted email: %w", err)
+		}
+		active := agent != nil && agent.Active()
+		activePeople[agentID] = active
+		return active, nil
+	}
+	// doorHeld is true when the arriving identity is a door identity and an
+	// active door credential of an active person already holds the email.
+	doorHeld := false
 	for _, m := range matches {
 		providers[m.Provider] = true
 		if !held[m.AgentID] {
 			held[m.AgentID] = true
 			holders = append(holders, m.AgentID)
 		}
+		if !doorHeld && id.Provider == OAuthProviderDoor && m.Provider == OAuthProviderDoor && m.Active {
+			active, err := isActive(m.AgentID)
+			if err != nil {
+				return "", err
+			}
+			doorHeld = active
+		}
 		if counted[m.AgentID] || !s.provesOwnership(m, id.Provider) {
 			continue
 		}
 		counted[m.AgentID] = true
-		agent, err := s.cfg.Agents.FindByID(ctx, m.AgentID)
+		active, err := isActive(m.AgentID)
 		if err != nil {
-			return "", fmt.Errorf("read a person holding the asserted email: %w", err)
+			return "", err
 		}
-		if agent != nil && agent.Active() {
+		if active {
 			owners = append(owners, m.AgentID)
 		}
+	}
+	if doorHeld {
+		// A second door subject for an email comes only from an operator
+		// re-creating the person at the door, and it is never joined to the
+		// first, whatever else the person holding the first one holds: a
+		// google credential beside it proves the email, not that the two door
+		// subjects are one person.
+		s.refuseUnproven(ctx, id, email, holders, providers,
+			"trusted issuer sign-in refused: a door credential already holds the asserted email, and a second door identity is never joined to it, so nothing was linked or created")
+		return "", fmt.Errorf("%w (%d people)", ErrUnprovenOwner, len(holders))
 	}
 	switch len(owners) {
 	case 0:
@@ -316,18 +354,9 @@ func (s *AssertedSignIn) ownerOf(ctx context.Context, id AssertedIdentity, email
 		}
 		// Somebody holds the email, so creating a person could leave the
 		// owner in a second, empty account; nobody proves they own it, so
-		// linking could hand the identity to whoever wrote the email. The
-		// line names every person holding it and the kinds of credential they
-		// hold, which is what an operator decides from.
-		sort.Strings(holders)
-		kinds := make([]string, 0, len(providers))
-		for p := range providers {
-			kinds = append(kinds, p)
-		}
-		sort.Strings(kinds)
-		s.cfg.Logger.Error(ctx, "trusted issuer sign-in refused: credentials hold the asserted email but none of them proves who owns it, so nothing was linked or created",
-			append(append([]any{"reason", ReasonUnprovenOwner}, identityFields(id, email, holders...)...),
-				"matched_providers", strings.Join(kinds, ","))...)
+		// linking could hand the identity to whoever wrote the email.
+		s.refuseUnproven(ctx, id, email, holders, providers,
+			"trusted issuer sign-in refused: credentials hold the asserted email but none of them proves who owns it, so nothing was linked or created")
 		return "", fmt.Errorf("%w (%d people)", ErrUnprovenOwner, len(holders))
 	case 1:
 		return owners[0], nil
@@ -339,6 +368,21 @@ func (s *AssertedSignIn) ownerOf(ctx context.Context, id AssertedIdentity, email
 			append([]any{"reason", ReasonAmbiguousOwner}, identityFields(id, email, owners...)...)...)
 		return "", fmt.Errorf("%w (%d people)", ErrAmbiguousOwner, len(owners))
 	}
+}
+
+// refuseUnproven writes the one error line for an unproven-owner refusal. The
+// line names every person holding the email and the kinds of credential they
+// hold, which is what an operator decides from.
+func (s *AssertedSignIn) refuseUnproven(ctx context.Context, id AssertedIdentity, email string, holders []string, providers map[string]bool, message string) {
+	sort.Strings(holders)
+	kinds := make([]string, 0, len(providers))
+	for p := range providers {
+		kinds = append(kinds, p)
+	}
+	sort.Strings(kinds)
+	s.cfg.Logger.Error(ctx, message,
+		append(append([]any{"reason", ReasonUnprovenOwner}, identityFields(id, email, holders...)...),
+			"matched_providers", strings.Join(kinds, ","))...)
 }
 
 // logCreated writes the one line for a person a sign-in created. On an

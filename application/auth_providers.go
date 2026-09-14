@@ -48,13 +48,15 @@ const (
 // owns its email for that google or apple identity, which is linked to the
 // person (doorCredentialProvesOwnerFor). A door identity the instance has not
 // seen is linked, the same way, to a person whose google, apple or opted-in
-// password credential holds its email.
+// password credential holds its email, unless a door credential already holds
+// it (below).
 //
 // A door credential proves nothing for another door identity. A second door
 // subject for an email comes only from an operator re-creating the person at
-// the door, and when only credentials that prove nothing, door ones included,
-// hold the email, that sign-in is refused 409 unproven-owner
-// (ErrUnprovenOwner).
+// the door, and it is never joined to the first: while an active door
+// credential of an active person holds the email, that sign-in is refused 409
+// unproven-owner (ErrUnprovenOwner), whatever other credentials that person
+// holds.
 const OAuthProviderDoor = "door"
 
 // OAuthProviderKeys lists every provider key a trusted issuer's assertion may

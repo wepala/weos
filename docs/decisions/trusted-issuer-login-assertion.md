@@ -284,7 +284,8 @@ its email only when it is active and its kind proves the email for the arriving 
   in through the door with Google reaches the instance as a `google` identity it has not
   seen, and that identity is linked to the person whose `door` credential holds the email.
   A `door` identity the instance has not seen is linked, the same way, to the person whose
-  `google` or `apple` credential holds its email.
+  `google` or `apple` credential holds its email, unless a `door` credential already holds
+  that email (see the `door` entry below).
 - **Or it is a `password` credential, and the operator set
   `TRUSTED_ISSUER_LINK_PASSWORD_OWNERS=true`** (default `false`). Nothing verifies a
   password credential's email. Open registration checks neither the email nor the
@@ -304,9 +305,13 @@ Every other credential proves nothing. Binding neither links to it nor counts it
   verification flag.
 - **`door`, for an arriving identity that is not `google` or `apple`.** A second `door`
   identity for an email comes only from an operator re-creating the person at the door,
-  and it is not joined to the first: when only `door` credentials, or others on this list,
-  hold the email, the sign-in is refused **409** `unproven-owner`, with or without an
-  allowlist. The mini-me front-door record keeps its re-creation rule on this.
+  and it is never joined to the first. While an active `door` credential of an active
+  person holds the email, a `door` identity the instance has not seen is refused **409**
+  `unproven-owner`, with or without an allowlist, whatever other credentials that person
+  holds: a `google` or `apple` credential beside the `door` one proves the email, but not
+  that the two door subjects are one person. The mini-me front-door record keeps its
+  re-creation rule on this. The refusal ends when the earlier `door` credential, or its
+  person, is turned off; the new identity then links as any other identity does.
 - **Any provider this list does not name**, including a development provider and one
   that a downstream binary adds.
 
