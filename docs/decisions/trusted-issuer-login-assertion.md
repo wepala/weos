@@ -148,6 +148,13 @@ and for no other (see "Which credentials prove ownership").
     owner, with or without that setting, so the member's first door sign-in is refused
     `unproven-owner` until an operator clears it (see "Clearing `ambiguous-owner` and
     `unproven-owner`").
+  - Offer a second sign-in method only to an instance that says it joins them. A core with
+    the `wm-6lx6z` amendment puts `"joins_door_and_google_apple_by_email": true` on the
+    `issuer` entry of `GET /api/auth/providers` (see "Renewal"). An older core makes a
+    second, empty person when a person who signed up with a door password later signs in
+    with Google or Apple, or the other way round, and the two stay apart after the
+    instance is upgraded. So an issuer offers a person a second sign-in method to an
+    instance only when that field is present.
   - Look for an owner who is already two people. A core older than the `wm-6lx6z`
     amendment linked nothing on an instance with no allowlist, so an owner who signed in
     there with two providers became two people. Each person keeps working by its own
@@ -381,13 +388,18 @@ redirect query; a JSON caller has no redirect, hence the field.)
 **Renewal.** When a session expires on an instance whose only sign-in is a trusted
 issuer, `/api/auth/providers` answers `[]` today and the SPA shows buttons that do
 nothing. In fleet mode the instance publishes `TRUSTED_ISSUER` as its provider entry
-(`{"name":"issuer","login_url":"<TRUSTED_ISSUER>/door/start","accepted_provider_keys":["apple","door","google","netsuite"]}`)
+(`{"name":"issuer","login_url":"<TRUSTED_ISSUER>/door/start","accepted_provider_keys":["apple","door","google","netsuite"],"joins_door_and_google_apple_by_email":true}`)
 so the SPA's existing providers list sends the person back to the door, which re-asserts.
 Owned by story 3. `accepted_provider_keys` lists, sorted, the provider keys an assertion may
 name on this instance (`application.OAuthProviderKeys()`), so the issuer can check an
 instance before it sends a person there (see "Request"). The field was added beside the
-others; no existing field changed. A registry provider's entry carries neither
-`login_url` nor `accepted_provider_keys`.
+others; no existing field changed. `joins_door_and_google_apple_by_email` is always `true`
+where it is present: it says that this core joins a `door` identity and a `google` or
+`apple` identity with the same email into one person (see "Which credentials prove
+ownership"). An older core leaves it out, and an issuer offers a second sign-in method to an
+instance only when it is present (see the upgrade note under "Request"). It too was added
+beside the others, and no existing field changed. A registry provider's entry carries none
+of `login_url`, `accepted_provider_keys` and `joins_door_and_google_apple_by_email`.
 
 **Session secret.** A fleet instance must run with a per-instance `SESSION_SECRET`,
 and the route refuses to mount without one. Core's default value is public, so a

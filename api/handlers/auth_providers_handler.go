@@ -59,6 +59,11 @@ type AuthProvidersOption func(*AuthProvidersHandler)
 // older core refuses a key it does not know as claims, the same reason as a
 // missing subject, so an issuer reads this list, not a refusal, to learn
 // whether the instance accepts the key it would send.
+//
+// The entry also carries joins_door_and_google_apple_by_email, always true:
+// this core joins a door identity and a google or apple identity with the same
+// email into one person. An issuer offers a second sign-in method to an
+// instance only when the field is present.
 func WithTrustedIssuer(cfg config.Config) AuthProvidersOption {
 	return func(h *AuthProvidersHandler) {
 		if !trustedIssuerMountable(cfg) {
@@ -104,6 +109,15 @@ type oauthProviderInfo struct {
 	// it would send. Omitted for every registry provider. The keys are fixed
 	// names in core, never configuration.
 	AcceptedProviderKeys []string `json:"accepted_provider_keys,omitempty"`
+	// JoinsDoorAndGoogleAppleByEmail says that this core joins a door identity
+	// and a google or apple identity with the same email into one person, in
+	// either order, with or without an allowlist (decision wm-vvi6t). An older
+	// core makes a second, empty person instead, and the two stay apart after
+	// the instance is upgraded, so an issuer offers a person a second sign-in
+	// method to an instance only when this is true. Set only for the trusted
+	// issuer, and always true there; omitted for every registry provider and by
+	// every older core.
+	JoinsDoorAndGoogleAppleByEmail bool `json:"joins_door_and_google_apple_by_email,omitempty"`
 }
 
 // oauthProvidersResponse is an object rather than a bare array so the shape
@@ -124,9 +138,10 @@ func (h *AuthProvidersHandler) List(c echo.Context) error {
 	}
 	if h.issuerLoginURL != "" {
 		providers = append(providers, oauthProviderInfo{
-			Name:                 TrustedIssuerProviderName,
-			LoginURL:             h.issuerLoginURL,
-			AcceptedProviderKeys: h.issuerProviderKeys,
+			Name:                           TrustedIssuerProviderName,
+			LoginURL:                       h.issuerLoginURL,
+			AcceptedProviderKeys:           h.issuerProviderKeys,
+			JoinsDoorAndGoogleAppleByEmail: true,
 		})
 	}
 	sort.Slice(providers, func(i, j int) bool { return providers[i].Name < providers[j].Name })
