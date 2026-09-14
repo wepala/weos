@@ -69,6 +69,40 @@ func (i *issuing) IssueToken(_ context.Context, _ *authentities.Agent, _ []*auth
 
 func refreshWith(t *testing.T, accounts membership) (*httptest.ResponseRecorder, *issuing, RefreshTokenRepository, string) {
 	t.Helper()
+	return refreshThrough(t, accounts, nil)
+}
+
+// revokeFails is a refresh token repository whose Revoke cannot write.
+type revokeFails struct{ RefreshTokenRepository }
+
+func (revokeFails) Revoke(context.Context, string) error { return errors.New("database away") }
+
+// wm-aj2eb (Copilot review on #566): a removed member is told invalid_grant only
+// once the refresh token is revoked. When the revocation cannot be written the
+// token is still live, so the answer is server_error and the client retries,
+// rather than a final refusal that leaves the token able to mint access after
+// a re-add.
+func TestTokenHandler_RefreshToken_RevocationFails(t *testing.T) {
+	rec, jwt, refreshRepo, raw := refreshThrough(t, membership{}, func(r RefreshTokenRepository) RefreshTokenRepository {
+		return revokeFails{r}
+	})
+	if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), `"server_error"`) || jwt.issued {
+		t.Fatalf("got %d %s (issued %v), want 500 server_error and no token", rec.Code, rec.Body.String(), jwt.issued)
+	}
+	stored, err := refreshRepo.FindByTokenHash(context.Background(), HashToken(raw))
+	mustNoErr(t, err, "read the refresh token back")
+	if stored.Revoked {
+		t.Fatal("the refresh token reads revoked, but the revocation was made to fail")
+	}
+}
+
+// refreshThrough is refreshWith with the handler seeing the refresh repository
+// through wrap, when wrap is set. It returns the unwrapped repository, so a test
+// reads what was really stored.
+func refreshThrough(
+	t *testing.T, accounts membership, wrap func(RefreshTokenRepository) RefreshTokenRepository,
+) (*httptest.ResponseRecorder, *issuing, RefreshTokenRepository, string) {
+	t.Helper()
 	db := setupTestDB(t)
 	refreshRepo := NewRefreshTokenRepository(db)
 	ctx := context.Background()
@@ -79,7 +113,11 @@ func refreshWith(t *testing.T, accounts membership) (*httptest.ResponseRecorder,
 	agent, err := (&authentities.Agent{}).With("agent-ops", "Dana Whitfield", authentities.AgentTypePerson)
 	mustNoErr(t, err, "make the agent")
 	jwt := &issuing{}
-	handler := Token(jwt, NewAuthCodeRepository(db), refreshRepo, oneAgent{agent: agent}, accounts, noopLogger{})
+	seen := refreshRepo
+	if wrap != nil {
+		seen = wrap(refreshRepo)
+	}
+	handler := Token(jwt, NewAuthCodeRepository(db), seen, oneAgent{agent: agent}, accounts, noopLogger{})
 
 	rec := httptest.NewRecorder()
 	c := echo.New().NewContext(newTokenRequest(tokenForm(map[string]string{

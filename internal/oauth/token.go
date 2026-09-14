@@ -333,9 +333,15 @@ func handleRefreshGrant(
 	if role == "" {
 		logger.Warn(ctx, "oauth refresh: agent is no longer a member of the account — revoking the refresh token",
 			"token", stored.ID, "agent", stored.AgentID, "account", stored.AccountID, "client", stored.ClientID)
+		// invalid_grant is final, so say it only once the token is revoked. A
+		// revocation that could not be written leaves the token live; answer
+		// server_error so the client retries and the revocation is tried again.
 		if err := refreshRepo.Revoke(ctx, stored.ID); err != nil {
 			logger.Error(ctx, "oauth refresh: revoking a removed member's refresh token failed",
 				"token", stored.ID, "error", err)
+			return c.JSON(http.StatusInternalServerError, tokenErrorResponse{
+				Error: "server_error",
+			})
 		}
 		return c.JSON(http.StatusBadRequest, tokenErrorResponse{
 			Error: "invalid_grant",
