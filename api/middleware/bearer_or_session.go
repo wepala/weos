@@ -46,8 +46,8 @@ import (
 // account was erased would otherwise authenticate until it expired, and a
 // write through it would recreate rows — and a per-account graph directory —
 // under the deleted account's id. An account that is gone, or suspended, or
-// part-way through an erasure, refuses the token: a gone account with
-// account_gone, the other two with the codes the session path answers with.
+// part-way through an erasure, refuses the token; the last two carry the
+// codes the session path answers with.
 //
 // The token's person must also still belong to that account, as the session
 // path's ValidateSession requires (wm-jwojd). A person removed from an account
@@ -209,7 +209,7 @@ func authenticateToken(c echo.Context, next echo.HandlerFunc, token string, chec
 		return accountStateUnreadable(c)
 	}
 	if state == accountGone {
-		return refuseToken(c, check.challenge, CodeAccountGone)
+		return refuseToken(c, check.challenge, "")
 	}
 	role, err := check.accounts.FindMemberRole(ctx, claims.ActiveAccountID, claims.AgentID)
 	if err != nil {

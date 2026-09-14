@@ -277,15 +277,8 @@ func TestServe_TheAccountDeletionAnswersTheTokenAlone(t *testing.T) {
 	if byToken.status != http.StatusOK || !strings.Contains(byToken.body, app.accountID) {
 		t.Fatalf("DELETE /api/account with only the token answered %d %s, want 200 naming the token's account", byToken.status, byToken.body)
 	}
-	// wm-sx2zx: the refusal says the account is gone, not merely that the token
-	// is bad, so the app shows that the deletion is done instead of offering to
-	// sign in again. It keeps the 401 and the invalid_token challenge.
-	gone := serveRequest(t, srv, http.MethodGet, "/api/resource-types", "", app.token, nil)
-	if gone.status != http.StatusUnauthorized || refusalCode(gone.body) != "account_gone" {
-		t.Fatalf("GET /api/resource-types with the deleted account's token answered %d %s, want 401 account_gone", gone.status, gone.body)
-	}
-	if challenge := gone.header.Get("WWW-Authenticate"); !strings.Contains(challenge, `error="invalid_token"`) {
-		t.Fatalf("the gone account's refusal carries the challenge %q, want invalid_token", challenge)
+	if got := serveRequest(t, srv, http.MethodGet, "/api/resource-types", "", app.token, nil); got.status != http.StatusUnauthorized {
+		t.Fatalf("GET /api/resource-types with the deleted account's token answered %d %s, want 401", got.status, got.body)
 	}
 
 	bySession := serveRequest(t, srv, http.MethodDelete, "/api/account", confirmDeletion, "", browser.cookies)

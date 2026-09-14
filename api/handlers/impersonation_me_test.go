@@ -273,30 +273,21 @@ func TestMe_AnswersABearerTokenWithTheBodyASessionGets(t *testing.T) {
 // A token is refused where the session it stands beside would be. A person
 // removed from the account the token names gets the code the cookie path
 // answers a revoked membership with, and a token that names no account gets
-// the code the cookie path answers an unscoped session with (wm-qqoq2). A
-// token for an account that no longer exists is told so with account_gone, so
-// an app does not offer to sign in to an account that was deleted (wm-sx2zx).
+// the code the cookie path answers an unscoped session with (wm-qqoq2).
 func TestMe_RefusesABearerTokenItCannotTrust(t *testing.T) {
 	cases := map[string]struct {
 		claims *authapp.PericarpClaims
 		code   string
-		// sessionBody: the refusal is the cookie path's own body.
-		sessionBody bool
 	}{
-		"invalid or expired": {claims: nil},
-		"for an account that is gone": {
-			claims: &authapp.PericarpClaims{AgentID: "ops", AccountIDs: []string{"acct-gone"}, ActiveAccountID: "acct-gone"},
-			code:   "account_gone",
-		},
+		"invalid or expired":          {claims: nil},
+		"for an account that is gone": {claims: &authapp.PericarpClaims{AgentID: "ops", AccountIDs: []string{"acct-gone"}, ActiveAccountID: "acct-gone"}},
 		"for an account the person was removed from": {
-			claims:      &authapp.PericarpClaims{AgentID: "ops", AccountIDs: []string{"acct-cedar"}, ActiveAccountID: "acct-cedar"},
-			code:        apimw.CodeAccountAccessRevoked,
-			sessionBody: true,
+			claims: &authapp.PericarpClaims{AgentID: "ops", AccountIDs: []string{"acct-cedar"}, ActiveAccountID: "acct-cedar"},
+			code:   apimw.CodeAccountAccessRevoked,
 		},
 		"naming no account": {
-			claims:      &authapp.PericarpClaims{AgentID: "ops"},
-			code:        apimw.CodeUnscopedSession,
-			sessionBody: true,
+			claims: &authapp.PericarpClaims{AgentID: "ops"},
+			code:   apimw.CodeUnscopedSession,
 		},
 	}
 	for name, c := range cases {
@@ -305,7 +296,7 @@ func TestMe_RefusesABearerTokenItCannotTrust(t *testing.T) {
 			if rec.Code != http.StatusUnauthorized || meCode(t, rec) != c.code {
 				t.Fatalf("got %d %s, want a 401 with code %q", rec.Code, rec.Body.String(), c.code)
 			}
-			if !c.sessionBody {
+			if c.code == "" {
 				return
 			}
 			var body map[string]any

@@ -368,9 +368,7 @@ func TestBearerOrSession_ChecksTheTokensAccount(t *testing.T) {
 		code     string
 	}{
 		{"active", accountBook{accounts: map[string]*authentities.Account{"acct-harbor": account(t, "acct-harbor", true)}, roles: owner}, lockSet{}, http.StatusOK, ""},
-		// wm-sx2zx: a gone account says so, so an app does not offer to sign in
-		// again to an account that was deleted.
-		{"gone", accountBook{accounts: map[string]*authentities.Account{}, roles: owner}, lockSet{}, http.StatusUnauthorized, "account_gone"},
+		{"gone", accountBook{accounts: map[string]*authentities.Account{}, roles: owner}, lockSet{}, http.StatusUnauthorized, ""},
 		{"suspended", accountBook{accounts: map[string]*authentities.Account{"acct-harbor": account(t, "acct-harbor", false)}, roles: owner}, lockSet{}, http.StatusUnauthorized, CodeAccountDeactivated},
 		{"erasure locked", accountBook{accounts: map[string]*authentities.Account{"acct-harbor": account(t, "acct-harbor", false)}, roles: owner}, lockSet{"acct-harbor": true}, http.StatusUnauthorized, CodeAccountErasurePending},
 		// wm-jwojd: the session path refuses a person removed from the account
@@ -553,7 +551,7 @@ func TestBearerOrSessionForErasure_TakesATokenAsTheDeletionTakesASession(t *test
 		{"erasure locked", accountBook{accounts: inactive, roles: owner}, lockSet{"acct-harbor": true}, http.StatusOK, "", true},
 		{"suspended", accountBook{accounts: inactive, roles: owner}, lockSet{}, http.StatusUnauthorized, CodeAccountDeactivated, false},
 		{"member removed from a locked account", accountBook{accounts: inactive}, lockSet{"acct-harbor": true}, http.StatusUnauthorized, CodeAccountAccessRevoked, false},
-		{"gone", accountBook{accounts: map[string]*authentities.Account{}, roles: owner}, lockSet{}, http.StatusUnauthorized, "account_gone", false},
+		{"gone", accountBook{accounts: map[string]*authentities.Account{}, roles: owner}, lockSet{}, http.StatusUnauthorized, "", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
