@@ -37,6 +37,13 @@
         <template v-if="column.key === 'actions'">
           <a-space>
             <a-button size="small" @click="openEditModal(record)">Edit</a-button>
+            <!--
+              Offered for every active person, members of the caller's account
+              or not. This list is instance-wide and its role column is read
+              from the instance's first account, not the caller's, so the page
+              cannot tell who is a member (wm-669nf; scoping it is wm-govvg).
+              The server refuses a non-member, and impersonate() explains why.
+            -->
             <a-button
               v-if="record.status === 'active' && record.id !== user?.id"
               size="small"
@@ -146,6 +153,7 @@
 <script setup lang="ts">
 import { message } from 'ant-design-vue'
 import { unwrapEnvelope, forwardMessages } from '~/composables/useApi'
+import { impersonationErrorText } from '~/composables/impersonationRefusal'
 
 const { user, startImpersonation } = useAuth()
 const router = useRouter()
@@ -325,7 +333,7 @@ async function impersonate(agentId: string) {
     await startImpersonation(agentId)
     router.push('/')
   } catch (err: any) {
-    message.error(err?.data?.error || 'Failed to start impersonation')
+    message.error(impersonationErrorText(err, 'Failed to start impersonation'))
   }
 }
 
