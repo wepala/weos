@@ -16,6 +16,10 @@
 package middleware
 
 import (
+	"context"
+	"fmt"
+	"net/http"
+
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
 
@@ -32,16 +36,87 @@ const (
 	KeyRealAccountID         = "real_account_id"
 )
 
+// CodeImpersonationTargetNotMember names the refusal of an impersonation whose
+// person is not a member of the account the caller acts in. A person who does
+// not exist gets the same code, so the refusal says nothing about who has an
+// identity on the instance outside that account (wm-ptcuk).
+const CodeImpersonationTargetNotMember = "impersonation_target_not_member"
+
+type impersonatorKey struct{}
+
+// ImpersonatorFromCtx returns the identity Impersonation replaced — the person
+// who is really signed in — or nil when no impersonation applies to the
+// request.
+func ImpersonatorFromCtx(ctx context.Context) *auth.Identity {
+	identity, _ := ctx.Value(impersonatorKey{}).(*auth.Identity)
+	return identity
+}
+
+// ImpersonationAccount is the account an impersonation by caller is judged in
+// and acts in: the caller's active account, or, for an identity that names
+// none, the first account the caller belongs to, which is how GetUserRole
+// resolves the caller's role. It is "" when the caller belongs to no account.
+func ImpersonationAccount(ctx context.Context, accounts authrepos.AccountRepository, caller *auth.Identity) (string, error) {
+	if caller == nil {
+		return "", nil
+	}
+	if caller.ActiveAccountID != "" {
+		return caller.ActiveAccountID, nil
+	}
+	memberships, err := accounts.FindByMember(ctx, caller.AgentID)
+	if err != nil {
+		return "", fmt.Errorf("failed to find member accounts: %w", err)
+	}
+	for _, account := range memberships {
+		if account != nil {
+			return account.GetID(), nil
+		}
+	}
+	return "", nil
+}
+
+// IsMember reports whether agentID holds any role in accountID.
+func IsMember(ctx context.Context, accounts authrepos.AccountRepository, accountID, agentID string) (bool, error) {
+	if accountID == "" || agentID == "" {
+		return false, nil
+	}
+	role, err := accounts.FindMemberRole(ctx, accountID, agentID)
+	if err != nil {
+		return false, err
+	}
+	return role != "", nil
+}
+
+// MayImpersonate reports whether callerID may act as targetID in accountID:
+// the caller holds the owner or admin role there, and the target is a member
+// there. Holding that role in some other account grants nothing here.
+func MayImpersonate(ctx context.Context, accounts authrepos.AccountRepository, accountID, callerID, targetID string) (bool, error) {
+	if accountID == "" || callerID == "" || targetID == "" || callerID == targetID {
+		return false, nil
+	}
+	admin, err := IsOwnerOrAdmin(ctx, accounts, accountID, callerID)
+	if err != nil || !admin {
+		return false, err
+	}
+	return IsMember(ctx, accounts, accountID, targetID)
+}
+
 // Impersonation returns Echo middleware that checks for an active impersonation
 // session and, if present, replaces the auth.Identity in the request context
-// with the impersonated user's identity (including their account).
+// with the impersonated person's identity, acting in the caller's account.
 //
-// The account it lands in is the person's first ACTIVE one, the way pericarp's
-// own sign-in resolves it. A person whose accounts are all inactive is not
-// impersonated into one of them: an account locked for deletion serves nothing
-// but the deletion, and a suspended one serves nothing at all, so the request
-// is refused with the code that says which (wm-iiasy). A person with no
-// account is impersonated with none, as before.
+// The cookie is not trusted on its own. On every request the caller must still
+// hold the owner or admin role in the account they act in, and the person
+// impersonated must still be a member of it (wm-ptcuk). The impersonation acts
+// in that account, never in some other account the person belongs to: the
+// caller's authority reaches no further. A cookie that no longer passes —
+// one started before this check existed, or whose person has since left the
+// account — is cleared and the request refused with
+// CodeImpersonationTargetNotMember, rather than served as either person.
+//
+// The account is refused with the code that says why when it is not active,
+// so an impersonation never opens an account locked for deletion or a
+// suspended one (wm-iiasy).
 func Impersonation(
 	store sessions.Store,
 	accountRepo authrepos.AccountRepository,
@@ -74,29 +149,48 @@ func Impersonation(
 			}
 
 			ctx := c.Request().Context()
-			activeAccountID := ""
-			accounts, err := accountRepo.FindByMember(ctx, impersonatedAgentID)
+			accountID, err := ImpersonationAccount(ctx, accountRepo, currentIdentity)
 			if err != nil {
-				logger.Warn(ctx, "impersonation: could not read the person's memberships", "agent_id", impersonatedAgentID, "error", err)
+				logger.Error(ctx, "impersonation: could not resolve the caller's account", "agent_id", realAgentID, "error", err)
+				return unreadableAccountState(c)
 			}
-			for _, account := range accounts {
-				if account != nil && account.Active() {
-					activeAccountID = account.GetID()
-					break
-				}
+			allowed, err := MayImpersonate(ctx, accountRepo, accountID, realAgentID, impersonatedAgentID)
+			if err != nil {
+				logger.Error(ctx, "impersonation: could not read the roles in the caller's account",
+					"account_id", accountID, "admin_agent_id", realAgentID, "target_agent_id", impersonatedAgentID, "error", err)
+				return unreadableAccountState(c)
 			}
-			if activeAccountID == "" && len(accounts) > 0 {
-				switch code := unscopedCode(ctx, impersonatedAgentID, accountRepo, locks, logger); code {
-				case CodeAccountErasurePending, CodeAccountDeactivated:
-					return refuse(c, code)
-				}
+			if !allowed {
+				logger.Warn(ctx, "impersonation refused: the person is not a member of the caller's account, or the caller's role there does not allow it",
+					"account_id", accountID, "admin_agent_id", realAgentID, "target_agent_id", impersonatedAgentID, "ip", c.RealIP())
+				endImpersonation(c, sess, logger)
+				return c.JSON(http.StatusForbidden, map[string]string{
+					"error": "impersonation not allowed",
+					"code":  CodeImpersonationTargetNotMember,
+				})
+			}
+
+			state, err := stateOfAccount(ctx, accountID, accountRepo, locks)
+			if err != nil {
+				logger.Error(ctx, "impersonation: could not read the account's state", "account_id", accountID, "error", err)
+				return unreadableAccountState(c)
+			}
+			switch state {
+			case accountErasurePending:
+				return refuse(c, CodeAccountErasurePending)
+			case accountSuspended:
+				return refuse(c, CodeAccountDeactivated)
+			case accountGone:
+				return refuse(c, "")
+			case accountActive:
 			}
 
 			impersonatedIdentity := &auth.Identity{
 				AgentID:         impersonatedAgentID,
-				AccountIDs:      []string{activeAccountID},
-				ActiveAccountID: activeAccountID,
+				AccountIDs:      []string{accountID},
+				ActiveAccountID: accountID,
 			}
+			ctx = context.WithValue(ctx, impersonatorKey{}, currentIdentity)
 			ctx = auth.ContextWithAgent(ctx, impersonatedIdentity)
 			c.SetRequest(c.Request().WithContext(ctx))
 
@@ -105,4 +199,30 @@ func Impersonation(
 			return next(c)
 		}
 	}
+}
+
+// endImpersonation expires the impersonation cookie on the response, so a
+// refused impersonation does not refuse every request that follows it.
+func endImpersonation(c echo.Context, sess *sessions.Session, logger entities.Logger) {
+	sess.Options = &sessions.Options{
+		MaxAge:   -1,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	}
+	for key := range sess.Values {
+		delete(sess.Values, key)
+	}
+	if err := sess.Save(c.Request(), c.Response()); err != nil {
+		// The refusal still stands; the next request with the cookie is
+		// judged, and refused, the same way.
+		logger.Warn(c.Request().Context(), "impersonation: could not clear a refused impersonation cookie", "error", err)
+	}
+}
+
+// unreadableAccountState fails closed when the roles or state of the account
+// could not be read, with the answer the bearer path gives.
+func unreadableAccountState(c echo.Context) error {
+	return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "could not read the account's state"})
 }

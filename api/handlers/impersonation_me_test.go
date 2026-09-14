@@ -181,6 +181,10 @@ func readMeThrough(t *testing.T, r meRequest) *httptest.ResponseRecorder {
 			roles: map[string]string{
 				"ops|acct-harbor":   authentities.RoleOwner,
 				"broker|acct-cedar": authentities.RoleMember,
+				// broker also belongs to Harbor Legal, so the impersonation
+				// cookie ops started names a member of ops's account and is
+				// one the protected routes would apply (wm-ptcuk).
+				"broker|acct-harbor": authentities.RoleMember,
 			},
 		},
 		members: map[string][]*authentities.Account{"ops": {harbor}, "broker": {cedar}},
