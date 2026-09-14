@@ -271,6 +271,61 @@ func TestAssertedSignInCountsADoorCredentialOnlyForAGoogleOrAppleIdentity(t *tes
 	})
 }
 
+// A core older than wm-6lx6z linked nothing on an instance with no allowlist,
+// so an owner who signed in there with two methods became two people. The
+// ADR's upgrade note tells an operator what a new identity for that email
+// meets after the upgrade; these are those outcomes.
+func TestAssertedSignInMeetsAnOwnerAnOlderCoreSplitIntoTwoPeople(t *testing.T) {
+	type outcome int
+	const (
+		ambiguous outcome = iota
+		unproven
+		linkedToGoogle
+	)
+	doorAndGoogle := func(t *testing.T, s *memoryAuthStore) {
+		s.seedPerson(t, "agent-google", "Harbor Ops", "google", ownerSub, "ops@harborlegal.example")
+		s.seedPerson(t, "agent-door", "ops", "door", doorSub, "ops@harborlegal.example")
+	}
+	googleAndApple := func(t *testing.T, s *memoryAuthStore) {
+		s.seedPerson(t, "agent-google", "Harbor Ops", "google", ownerSub, "ops@harborlegal.example")
+		s.seedPerson(t, "agent-apple", "ops", "apple", appleSub, "ops@harborlegal.example")
+	}
+	cases := map[string]struct {
+		seed     func(t *testing.T, s *memoryAuthStore)
+		arriving AssertedIdentity
+		want     outcome
+	}{
+		"door and google people, a new google identity":  {doorAndGoogle, harborOps("google", googleSub), ambiguous},
+		"door and google people, a new apple identity":   {doorAndGoogle, harborOps("apple", appleSub), ambiguous},
+		"door and google people, a netsuite identity":    {doorAndGoogle, harborOps("netsuite", "4812337"), linkedToGoogle},
+		"door and google people, a new door identity":    {doorAndGoogle, harborOps("door", recreatedSub), unproven},
+		"google and apple people, a new google identity": {googleAndApple, harborOps("google", googleSub), ambiguous},
+		"google and apple people, a netsuite identity":   {googleAndApple, harborOps("netsuite", "4812337"), ambiguous},
+		"google and apple people, a door identity":       {googleAndApple, harborOps("door", doorSub), ambiguous},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := newMemoryAuthStore()
+			c.seed(t, s)
+
+			got, err := newTestAssertedSignIn(s, false).SignIn(context.Background(), c.arriving)
+			switch c.want {
+			case ambiguous:
+				if !errors.Is(err, ErrAmbiguousOwner) {
+					t.Fatalf("err = %v, want ErrAmbiguousOwner", err)
+				}
+				if s.createCount() != 0 || s.credentialFor(c.arriving.Provider, c.arriving.Subject) != nil {
+					t.Fatalf("an ambiguous owner still created or linked something: creates=%d", s.createCount())
+				}
+			case unproven:
+				requireUnprovenOwner(t, s, err, c.arriving.Provider, c.arriving.Subject)
+			case linkedToGoogle:
+				requireLinkedTo(t, s, got, err, "agent-google", c.arriving)
+			}
+		})
+	}
+}
+
 func TestAssertedSignInLinksToAnOwnerAGoogleOrAppleCredentialProves(t *testing.T) {
 	cases := map[string]AssertedIdentity{
 		"google": harborOps("apple", appleSub),

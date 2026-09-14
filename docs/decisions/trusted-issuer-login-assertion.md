@@ -157,9 +157,17 @@ and for no other (see "Which credentials prove ownership").
     instance only when that field is present.
   - Look for an owner who is already two people. A core older than the `wm-6lx6z`
     amendment linked nothing on an instance with no allowlist, so an owner who signed in
-    there with two providers became two people. Each person keeps working by its own
-    identity, but a third identity for that email is refused `ambiguous-owner` until an
-    operator turns one of them off.
+    there with two methods became two people. Each person keeps working by its own
+    identity. A new identity for that email meets one of these, depending on which two
+    people exist:
+    - One person holds a `door` credential and the other a `google` or `apple` one. A
+      third Google or Apple identity is refused `ambiguous-owner`, because both
+      credentials prove the email for it. A NetSuite identity is linked to the person who
+      holds Google or Apple, because a `door` credential proves nothing for it. A new
+      `door` identity follows the two-door rule: it is refused `unproven-owner`, because a
+      `door` credential already holds the email (see "Which credentials prove ownership").
+    - Both people hold `google` or `apple` credentials. Every new identity, whatever its
+      provider, is refused `ambiguous-owner`.
 
 Every refusal is a 401 whose
 body and log line carry a machine-readable reason: `signature`, `kid-miss`,
