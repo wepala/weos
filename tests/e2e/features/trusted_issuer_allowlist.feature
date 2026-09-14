@@ -37,6 +37,11 @@ Feature: Limiting trusted-issuer sign-in to the allowlist and offering the door 
   is too old. It reads the list instead, before it sends a person there. The list names
   providers only, as the entry already did, and carries no configuration.
 
+  The issuer's entry also says that the instance joins a door identity and a Google or Apple
+  identity with the same email into one person. An instance on an older build makes a second,
+  empty person instead, and the two stay apart after it is upgraded. So the door offers a
+  person a second way to sign in to an instance only when the instance says this.
+
   # --- An email the allowlist does not name ---
 
   @story-wm-63gg0.3
@@ -114,7 +119,13 @@ Feature: Limiting trusted-issuer sign-in to the allowlist and offering the door 
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     When someone who is not signed in asks the instance which sign-in providers it offers
     Then the instance offers the sign-in provider "issuer" with the sign-in address "https://money.weos.cloud/door/start"
-    And that provider carries nothing but its name, its sign-in address and the sign-in providers an assertion may name
+    And that provider carries nothing but its name, its sign-in address, the sign-in providers an assertion may name and whether it joins identities by email
+
+  @wm-6lx6z
+  Scenario: The door can read that the instance joins a door identity and a Google or Apple identity with one email
+    Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
+    When someone who is not signed in asks the instance which sign-in providers it offers
+    Then the "issuer" provider says the instance joins a door identity and a Google or Apple identity with the same email
 
   @wm-x0l4m
   Scenario Outline: The door can read which sign-in providers an assertion may name before it sends a person
