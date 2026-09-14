@@ -7,7 +7,7 @@ nav_order: 2
 
 # ADR: Trusted-Issuer Login Assertion (`POST /auth/assert`)
 
-**Status:** Proposed (revised 2026-09-12 after design premortem; amended 2026-09-12 after the story `wm-63gg0.1` review: clock leeway, audience uniqueness, key-list throttle and backoff, `keys-unreachable`; amended 2026-09-12 after the story `wm-63gg0.2` review: what owner binding never links to, how emails compare, the 409, what binding logs, a 2-second first backoff; amended 2026-09-12 after the PR 563 Copilot review: the route refuses to mount under core's public `SESSION_SECRET`, and any trusted-issuer setting makes the API require a sign-in; amended 2026-09-13 for bead `wm-x0l4m`: the door may post the assertion server-side, and the door's own provider key `door` is accepted, still needs a verified email and never proves an owner; amended 2026-09-14 after the `wm-x0l4m` review: an upgrade note for an instance that already has people, what an unseen identity whose email only a `door` credential holds meets today, and the `issuer` providers entry lists the provider keys an assertion may name)
+**Status:** Proposed (revised 2026-09-12 after design premortem; amended 2026-09-12 after the story `wm-63gg0.1` review: clock leeway, audience uniqueness, key-list throttle and backoff, `keys-unreachable`; amended 2026-09-12 after the story `wm-63gg0.2` review: what owner binding never links to, how emails compare, the 409, what binding logs, a 2-second first backoff; amended 2026-09-12 after the PR 563 Copilot review: the route refuses to mount under core's public `SESSION_SECRET`, and any trusted-issuer setting makes the API require a sign-in; amended 2026-09-13 for bead `wm-x0l4m`: the door may post the assertion server-side, and the door's own provider key `door` is accepted, still needs a verified email and never proves an owner; amended 2026-09-14 after the `wm-x0l4m` review: an upgrade note for an instance that already has people, what an unseen identity whose email only a `door` credential holds meets today, and the `issuer` providers entry lists the provider keys an assertion may name; amended 2026-09-14 for bead `wm-6lx6z`, on decision `wm-vvi6t`: owner binding runs with or without `OAUTH_ALLOWED_EMAILS`, and a `door` credential proves who owns its email for a `google` or `apple` identity, so a door password identity and a Google or Apple identity with the same email are one person, in either order)
 **Date:** 2026-09-12
 **Ticket:** bead `wm-63gg0` (mirror: wepala/mini-me-weos#530)
 **Base:** `v3` (the integration branch the `v3.0.1-beta.*` tags are cut from; `main` is the old line)
@@ -127,25 +127,32 @@ the keys `application.OAuthProviderKeys()` lists, verbatim: core's registry keys
 `apple`, …) and `door`. `door` names an identity that the door owns itself: a person who
 signed up to the door with an email and a password. No registry entry holds it, so it
 reaches an instance only in an assertion. It still needs `email_verified == true`, as every
-key does, and a `door` credential never proves an owner (see "Which credentials prove
-ownership").
+key does. A `door` credential proves who owns its email for a `google` or `apple` identity,
+and for no other (see "Which credentials prove ownership").
 
 - **Upgrading an instance that already has people.** An instance that holds people before
   the door signs anyone in — password accounts, invited members, people from its own
   Google or Apple sign-in — gets a second way in for each of them when the door starts
-  to assert for it. Owner binding links a new identity by email only on an allowlisted
-  instance, and only to a credential that proves ownership. So, before an existing
+  to assert for it. Owner binding links a new identity by email to a credential that
+  proves ownership, whether or not `OAUTH_ALLOWED_EMAILS` is set. So, before an existing
   instance takes door sign-ins:
-  - Set `OAUTH_ALLOWED_EMAILS`. Without it, nothing is linked by email: each existing
-    person whose first door identity the instance has not seen gets a second, empty
-    person.
+  - Decide who may come in. `OAUTH_ALLOWED_EMAILS` admits only the people it names;
+    without it, the instance admits anyone the door vouches for. It does not decide
+    whether an identity is linked: a person whose Google or Apple credential holds the
+    email is reached either way.
   - Where the operator created every password account on the instance, also set
     `TRUSTED_ISSUER_LINK_PASSWORD_OWNERS=true`. Without it, a password credential proves
-    nothing, and a door sign-in for its email is refused `unproven-owner`.
+    nothing, and a door sign-in for its email is refused `unproven-owner`, with or without
+    an allowlist.
   - An invited member always needs an operator. An `invite` credential never proves an
     owner, with or without that setting, so the member's first door sign-in is refused
     `unproven-owner` until an operator clears it (see "Clearing `ambiguous-owner` and
     `unproven-owner`").
+  - Look for an owner who is already two people. A core older than the `wm-6lx6z`
+    amendment linked nothing on an instance with no allowlist, so an owner who signed in
+    there with two providers became two people. Each person keeps working by its own
+    identity, but a third identity for that email is refused `ambiguous-owner` until an
+    operator turns one of them off.
 
 Every refusal is a 401 whose
 body and log line carry a machine-readable reason: `signature`, `kid-miss`,
@@ -200,18 +207,28 @@ the address the person signed up to the door with — never a provider relay add
 an Apple "Hide My Email" login still passes an owner's allowlist.
 
 **Owner binding.** On success, resolve the agent by `(provider, sub)` as
-`FindOrCreateAgent` does. If none exists **and** `OAUTH_ALLOWED_EMAILS` is set (the
-fleet's single-user shape), look at the credentials whose email equals the claim's email:
+`FindOrCreateAgent` does. If none exists, look at the credentials whose email equals the
+claim's email, whether or not `OAUTH_ALLOWED_EMAILS` is set:
 
-- When exactly one active person holds a credential that **proves ownership** (see
-  "Which credentials prove ownership" below), the new `(provider, sub)` is linked to that
-  person instead of a second agent being created.
+- When exactly one active person holds a credential that **proves ownership** for the
+  arriving identity (see "Which credentials prove ownership" below), the new
+  `(provider, sub)` is linked to that person instead of a second agent being created.
 - When no credential holds the email, create, as today.
 - When credentials hold the email but none of them proves ownership, refuse with
   `unproven-owner` (below).
 
-With no allowlist, create, as today. A person the assertion gives no name is named after
-the email's local part.
+A person the assertion gives no name is named after the email's local part.
+
+- **The allowlist does not decide binding.** Binding first ran only on an allowlisted
+  instance, because it then linked to a credential of any kind, and on an instance that
+  admits anyone an email alone says nothing about who owns it. It now links only to a
+  credential whose email was proved (see "Which credentials prove ownership"), and that
+  proof holds whether or not the operator named the owners. The instances behind the
+  mini-me front door run with no allowlist, and without binding there an owner who used a
+  second sign-in method became a second, empty person (decision `wm-vvi6t`). The allowlist
+  still decides who is admitted, before binding runs. Binding is reached only through
+  `POST /auth/assert`, so it never applies to the instance's own OAuth sign-in or to an
+  invite.
 
 - **How emails compare.** Both emails have spaces trimmed from each end and ASCII
   capitals lower-cased, and nothing else is folded. The service and the database query
@@ -235,9 +252,9 @@ the email's local part.
   identity to whoever wrote that email. Creating could leave the owner in a second, empty
   account, which the owner reports as lost data. An operator decides (see "Clearing
   `ambiguous-owner` and `unproven-owner`").
-- **Races.** Sign-ins for one identity, and on an allowlisted instance sign-ins for one
-  email, are serialized in process, so two first sign-ins that arrive together leave one
-  person. The locks are per process. Replicas that share a database still race, and the
+- **Races.** Sign-ins for one identity, and sign-ins for one email, are serialized in
+  process, so two first sign-ins that arrive together leave one person. The locks are per
+  process. Replicas that share a database still race, and the
   store's unique `(provider, provider_user_id)` index is what stops a second credential
   there. A link saves the credential row first and records `Credential.Created` only
   after the row is saved, so a link that loses that race records no event.
@@ -252,12 +269,22 @@ the email's local part.
   next sign-in links again.
 
 **Which credentials prove ownership.** The list is explicit: a credential proves who owns
-its email only when all three of these are true.
+its email only when it is active and its kind proves the email for the arriving identity.
 
 - **It is active, and its person exists and is active** (pericarp's `Active` flags). A
   sign-in method or a person that someone turned off must not come back through the door.
 - **It is a `google` or `apple` credential**, whose provider verified the address before
-  the credential was written.
+  the credential was written. It proves the email for every arriving identity.
+- **Or it is a `door` credential, and the arriving identity is `google` or `apple`.** The
+  door writes a person only after that person enters a code sent to the mailbox, so a
+  `door` credential holds an email its person proved they read (decision `wm-vvi6t`). A
+  door password identity and a Google or Apple identity with the same email are therefore
+  one person, in either order. The issuer sends one provider key and one `sub` for each
+  person it asserts, so a person who signed up to the door with a password and later signs
+  in through the door with Google reaches the instance as a `google` identity it has not
+  seen, and that identity is linked to the person whose `door` credential holds the email.
+  A `door` identity the instance has not seen is linked, the same way, to the person whose
+  `google` or `apple` credential holds its email.
 - **Or it is a `password` credential, and the operator set
   `TRUSTED_ISSUER_LINK_PASSWORD_OWNERS=true`** (default `false`). Nothing verifies a
   password credential's email. Open registration checks neither the email nor the
@@ -275,21 +302,11 @@ Every other credential proves nothing. Binding neither links to it nor counts it
   active invite credential for an email that nobody verified.
 - **`netsuite`.** NetSuite reports the email that its account administrator set, with no
   verification flag.
-- **`door`.** The door proves once, at sign-up, that a person controls the mailbox. Google
-  and Apple also stand behind the account's recovery over time. A `door` identity that the
-  instance has not seen can still be linked to a person whose credential proves ownership,
-  but a `door` credential itself never proves one (mini-me front-door decision 3C).
-  The other way round does not link. The issuer sends one provider key and one `sub` for
-  each person it asserts. So a person who signed up to the door with a password and later
-  signs in through the door with Google reaches the instance as a `google` identity that
-  it has not seen. When only that person's `door` credential holds the email:
-  - on an allowlisted instance, the sign-in is refused **409** `unproven-owner`;
-  - on an instance with no `OAUTH_ALLOWED_EMAILS`, where nothing links by email, it
-    creates a second, empty person.
-
-  Whether a `door` credential and a Google or Apple identity for the same email should be
-  one person is an **open decision** (bead `wm-vvi6t`). This record says what core does
-  today and does not choose.
+- **`door`, for an arriving identity that is not `google` or `apple`.** A second `door`
+  identity for an email comes only from an operator re-creating the person at the door,
+  and it is not joined to the first: when only `door` credentials, or others on this list,
+  hold the email, the sign-in is refused **409** `unproven-owner`, with or without an
+  allowlist. The mini-me front-door record keeps its re-creation rule on this.
 - **Any provider this list does not name**, including a development provider and one
   that a downstream binary adds.
 
@@ -312,19 +329,22 @@ for an address, compute
 
 - *A recycled email links to the person who held it before.* A credential keeps the
   email it was created with, and a returning sign-in does not update it. Suppose an
-  organization gives a departed person's address to someone new, and the allowlist still
-  names it. The new holder's first door sign-in, with an identity the instance has never
-  seen, is then linked to the previous holder and reaches that person's data. The link's
-  log line names the person and the new identity. Before an address goes to someone
-  else, remove it from the allowlist or turn off the person who held it.
+  organization gives a departed person's address to someone new, and the instance still
+  admits it: it has no allowlist, or the allowlist still names it. The new holder's first
+  door sign-in, with an identity the instance has never seen, is then linked to the
+  previous holder and reaches that person's data. The link's log line names the person
+  and the new identity. Before an address goes to someone else, turn off the person who
+  held it, or remove the address from the allowlist where there is one. On an instance
+  with no allowlist, turning the person off is the only way.
 - *An email that no credential holds creates a second person.* Binding compares the email
   the door sends with the emails that credentials here already hold, so the door must
   send the door-account email. Nothing matches, and a second, empty person is created,
   when the door account itself was made with an Apple "Hide My Email" relay address, when
   the person's Google email has changed since their credential was written, or when the
-  operator made the account under a different address. The warning above is the signal.
-  An allowlist entry that lets such a person in must equal the email on the owner's
-  existing credential.
+  operator made the account under a different address. On an allowlisted instance, the
+  warning above is the signal; on an instance with no allowlist, the created person's info
+  line is. An allowlist entry that lets such a person in must equal the email on the
+  owner's existing credential.
 
 **Clearing `ambiguous-owner` and `unproven-owner`.** The refusal's error line lists in
 `agent_ids` the people who hold the email: for `ambiguous-owner` every active person
@@ -337,8 +357,8 @@ credential for it. Decide which of them is the owner.
   Inactive people and credentials are not counted, so the next sign-in links to the one
   person left.
 - For `unproven-owner`, make the owner provable or take the other credentials away:
-  - when the owner or the owner's google or apple credential was turned off by mistake,
-    turn it back on;
+  - when the owner or the owner's credential that proves ownership (`google`, `apple`, or
+    `door` for a Google or Apple sign-in) was turned off by mistake, turn it back on;
   - when the owner's only credential is a password account the operator made, and every
     password account on the instance is the operator's, set
     `TRUSTED_ISSUER_LINK_PASSWORD_OWNERS=true`;
@@ -409,7 +429,15 @@ every connector authorize again.
 - Good: one door key rotation (a new key beside the old in the JWKS) covers the fleet,
   and a bad rotation fails one login at a time, never a cache TTL of logins.
 - Good: an instance outside the fleet (no `TRUSTED_ISSUER*`) is byte-identical to today.
-- Good: an owner can use Google one day and Apple the next and stay one account.
+- Good: an owner can use Google one day, Apple the next and the door's password after that,
+  and stay one account, on an instance with or without an allowlist.
+- Bad: a mailbox proof joins accounts across sign-in methods (decision `wm-vvi6t`). A door
+  password opens a person whose account Google or Apple made, without their recovery or
+  second factor, and a link stays made if the rule is taken back later.
+- Bad: on an instance with no allowlist, an email held only by credentials that prove
+  nothing (an invite, or a password without the opt-in) is now refused `unproven-owner`
+  instead of creating a person, so whoever can write such a credential for an address can
+  make that address's first door sign-in wait for an operator.
 - Bad: the instance makes an outbound HTTPS call to the JWKS URL; a fleet instance
   therefore needs egress to the door's host, or the key delivered by env instead —
   the config keys deliberately leave room for `TRUSTED_ISSUER_JWKS` (inline key) later.
