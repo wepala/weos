@@ -45,6 +45,16 @@ const (
 // link to its person by email. A door identity the instance has not seen can
 // still be linked, on an allowlisted instance, to a person whose google, apple
 // or opted-in password credential holds its email.
+//
+// The other way round does not link. An issuer sends one provider key and one
+// subject for each person it asserts, so a person who signed up to the door
+// with a password and later signs in through the door with Google reaches this
+// instance as a google identity it has not seen. When only that person's door
+// credential holds the email, the sign-in is refused 409 unproven-owner
+// (ErrUnprovenOwner) on an allowlisted instance, and on an instance with no
+// OAUTH_ALLOWED_EMAILS, where nothing links by email, it creates a second,
+// empty person. Whether the two should be one person is an open decision (bead
+// wm-vvi6t); this describes what the instance does today.
 const OAuthProviderDoor = "door"
 
 // OAuthProviderKeys lists every provider key a trusted issuer's assertion may

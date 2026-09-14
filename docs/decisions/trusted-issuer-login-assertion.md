@@ -272,6 +272,17 @@ Every other credential proves nothing. Binding neither links to it nor counts it
   and Apple also stand behind the account's recovery over time. A `door` identity that the
   instance has not seen can still be linked to a person whose credential proves ownership,
   but a `door` credential itself never proves one (mini-me front-door decision 3C).
+  The other way round does not link. The issuer sends one provider key and one `sub` for
+  each person it asserts. So a person who signed up to the door with a password and later
+  signs in through the door with Google reaches the instance as a `google` identity that
+  it has not seen. When only that person's `door` credential holds the email:
+  - on an allowlisted instance, the sign-in is refused **409** `unproven-owner`;
+  - on an instance with no `OAUTH_ALLOWED_EMAILS`, where nothing links by email, it
+    creates a second, empty person.
+
+  Whether a `door` credential and a Google or Apple identity for the same email should be
+  one person is an **open decision** (bead `wm-vvi6t`). This record says what core does
+  today and does not choose.
 - **Any provider this list does not name**, including a development provider and one
   that a downstream binary adds.
 

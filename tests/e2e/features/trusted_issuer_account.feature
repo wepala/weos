@@ -20,6 +20,12 @@ Feature: Signing a person in to their own account from a trusted issuer's assert
   cleared, and the identity it joined keeps working too. An instance with no allowlist lets
   anyone in, so an email there proves nothing about who owns what, and it links nothing.
 
+  A person who signed up to the door with an email and a password arrives under the door's own
+  provider, door. The door sends one provider and one subject for each person, so when that
+  person later chooses Google at the door, the instance sees a Google identity it has never
+  seen. Whether those two should be one person is still an open decision. One scenario below
+  records what an instance with no allowlist does with them today.
+
   The answer is a password sign-in's answer, field for field and cookie for cookie, because the
   browser makes this request itself through the door and must be left holding exactly what a
   password sign-in leaves it holding. It adds one field, new_account, which is true only when
@@ -136,6 +142,16 @@ Feature: Signing a person in to their own account from a trusted issuer's assert
     And the instance has no allowlist
     And "dana.whitfield@harborlegal.example" signed in through the door from "google" with the subject "108234917650023841257" earlier
     When the door presents an assertion for "dana.whitfield@harborlegal.example" from "apple" with the subject "001482.7f3c9a2e5b8d4e61a0c2f9b7d3e6a815.1734"
+    Then the sign-in succeeds
+    And the sign-in reports that it created a new account
+    And the person the sign-in names is not the one "dana.whitfield@harborlegal.example" signed in as earlier
+
+  @wm-x0l4m
+  Scenario: A person who signed up to the door and then signs in with Google becomes a second person on an instance with no allowlist
+    Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
+    And the instance has no allowlist
+    And "dana.whitfield@harborlegal.example" signed in through the door from "door" with the subject "2VhQ7kX9mT4rY8nL1pW6zC3dF5b" earlier
+    When the door presents an assertion for "dana.whitfield@harborlegal.example" from "google" with the subject "108234917650023841257"
     Then the sign-in succeeds
     And the sign-in reports that it created a new account
     And the person the sign-in names is not the one "dana.whitfield@harborlegal.example" signed in as earlier
