@@ -7,7 +7,7 @@ nav_order: 2
 
 # ADR: Trusted-Issuer Login Assertion (`POST /auth/assert`)
 
-**Status:** Proposed (revised 2026-09-12 after design premortem; amended 2026-09-12 after the story `wm-63gg0.1` review: clock leeway, audience uniqueness, key-list throttle and backoff, `keys-unreachable`; amended 2026-09-12 after the story `wm-63gg0.2` review: what owner binding never links to, how emails compare, the 409, what binding logs, a 2-second first backoff; amended 2026-09-12 after the PR 563 Copilot review: the route refuses to mount under core's public `SESSION_SECRET`, and any trusted-issuer setting makes the API require a sign-in; amended 2026-09-13 for bead `wm-x0l4m`: the door may post the assertion server-side, and the door's own provider key `door` is accepted, still needs a verified email and never proves an owner)
+**Status:** Proposed (revised 2026-09-12 after design premortem; amended 2026-09-12 after the story `wm-63gg0.1` review: clock leeway, audience uniqueness, key-list throttle and backoff, `keys-unreachable`; amended 2026-09-12 after the story `wm-63gg0.2` review: what owner binding never links to, how emails compare, the 409, what binding logs, a 2-second first backoff; amended 2026-09-12 after the PR 563 Copilot review: the route refuses to mount under core's public `SESSION_SECRET`, and any trusted-issuer setting makes the API require a sign-in; amended 2026-09-13 for bead `wm-x0l4m`: the door may post the assertion server-side, and the door's own provider key `door` is accepted, still needs a verified email and never proves an owner; amended 2026-09-14 after the `wm-x0l4m` review: an upgrade note for an instance that already has people, what an unseen identity whose email only a `door` credential holds meets today, and the `issuer` providers entry lists the provider keys an assertion may name)
 **Date:** 2026-09-12
 **Ticket:** bead `wm-63gg0` (mirror: wepala/mini-me-weos#530)
 **Base:** `v3` (the integration branch the `v3.0.1-beta.*` tags are cut from; `main` is the old line)
@@ -86,6 +86,13 @@ way the instance's `Set-Cookie` lands in the browser exactly as it does for
   assertion's `jti` is not spent, and the warning names the reason and at most the
   request's normalized origin. A request with neither header comes from a client that is
   not a browser, which no other site can drive, and is not affected.
+- **A new provider key reaches every trusting instance first.** Every instance that trusts
+  the issuer is upgraded to a core that accepts a provider key before the issuer sends
+  that key. An older core refuses the key as `claims`, the reason a missing `sub` also
+  gets, so a refusal cannot tell the issuer that the instance is too old. The issuer reads
+  the keys an instance accepts from the `issuer` entry of `GET /api/auth/providers`, in
+  `accepted_provider_keys` (see "Renewal"). An `issuer` entry without that field comes
+  from a core that does not accept `door`.
 
 **Verification.** ES256 signature against the issuer's JWKS; `iss` equals
 `TRUSTED_ISSUER`, where trailing slashes on either side do not count; `aud` is exactly one
@@ -349,8 +356,13 @@ redirect query; a JSON caller has no redirect, hence the field.)
 **Renewal.** When a session expires on an instance whose only sign-in is a trusted
 issuer, `/api/auth/providers` answers `[]` today and the SPA shows buttons that do
 nothing. In fleet mode the instance publishes `TRUSTED_ISSUER` as its provider entry
-(`{"name":"issuer","login_url":"<TRUSTED_ISSUER>/door/start"}`) so the SPA's existing
-providers list sends the person back to the door, which re-asserts. Owned by story 3.
+(`{"name":"issuer","login_url":"<TRUSTED_ISSUER>/door/start","accepted_provider_keys":["apple","door","google","netsuite"]}`)
+so the SPA's existing providers list sends the person back to the door, which re-asserts.
+Owned by story 3. `accepted_provider_keys` lists, sorted, the provider keys an assertion may
+name on this instance (`application.OAuthProviderKeys()`), so the issuer can check an
+instance before it sends a person there (see "Request"). The field was added beside the
+others; no existing field changed. A registry provider's entry carries neither
+`login_url` nor `accepted_provider_keys`.
 
 **Session secret.** A fleet instance must run with a per-instance `SESSION_SECRET`,
 and the route refuses to mount without one. Core's default value is public, so a
