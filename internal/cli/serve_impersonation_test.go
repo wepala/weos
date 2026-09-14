@@ -410,6 +410,67 @@ func TestServe_AnImpersonationDoesNotFollowTheCallerIntoAnotherAccount(t *testin
 	}
 }
 
+// wm-4dnpt. A person who is not an owner or admin of the account they act in
+// is refused the start, and the refusal is recorded with who asked, in which
+// account, for whom, and from where — and no cookie value. The start and stop
+// lines name the account whose authority allowed the impersonation.
+func TestServe_ImpersonationRecordsTheAccountAndTheRefusalOfANonAdmin(t *testing.T) {
+	var accounts authrepos.AccountRepository
+	var credentials authrepos.CredentialRepository
+	var authService authapp.AuthenticationService
+	var sessionManager session.SessionManager
+	logs, capture := capturedLogs()
+	srv := passwordInstance(t, fx.Populate(&accounts, &credentials, &authService, &sessionManager), capture)
+	ops := signUp(t, srv, "ops@harborlegal.example")
+	counsel := signUp(t, srv, "counsel@cedarrealty.example")
+	if err := accounts.SaveMember(context.Background(), ops.accountID, counsel.agentID, authentities.RoleMember); err != nil {
+		t.Fatalf("add counsel to the caller's account: %v", err)
+	}
+
+	// counsel, acting in Harbor Legal where they are a member, asks to
+	// impersonate its owner.
+	asMember := sessionIn(t, authService, sessionManager, credentials, counsel, ops.accountID)
+	refused := serveCall(t, srv, http.MethodPost, "/api/admin/impersonate",
+		fmt.Sprintf(`{"agent_id":%q}`, ops.agentID), asMember)
+	if refused.status != http.StatusForbidden {
+		t.Fatalf("a member's start answered %d %s, want 403", refused.status, refused.body)
+	}
+	lines := logs.mentioning("not an owner or admin")
+	if len(lines) != 1 || !strings.HasPrefix(lines[0], "warn: ") {
+		t.Fatalf("want one warning recording the refusal, got:\n%s", strings.Join(lines, "\n"))
+	}
+	for _, want := range []string{
+		"admin_agent_id " + counsel.agentID,
+		"account_id " + ops.accountID,
+		"target_agent_id " + ops.agentID,
+		"ip ",
+	} {
+		if !strings.Contains(lines[0], want) {
+			t.Errorf("the refusal line %q does not carry %q", lines[0], want)
+		}
+	}
+	for _, c := range asMember {
+		if c.Value != "" && strings.Contains(logs.text(), c.Value) {
+			t.Errorf("the log carries the value of the %s cookie", c.Name)
+		}
+	}
+
+	started := startImpersonation(t, srv, ops, counsel.agentID)
+	if started.status != http.StatusOK {
+		t.Fatalf("starting an impersonation of a member answered %d %s, want 200", started.status, started.body)
+	}
+	stopped := serveCall(t, srv, http.MethodPost, "/api/admin/stop-impersonation", "", withCookies(ops.cookies, started.cookies))
+	if stopped.status != http.StatusOK {
+		t.Fatalf("stopping answered %d %s, want 200", stopped.status, stopped.body)
+	}
+	for _, msg := range []string{"impersonation started", "impersonation stopped"} {
+		got := logs.mentioning(msg)
+		if len(got) != 1 || !strings.Contains(got[0], "account_id "+ops.accountID) {
+			t.Errorf("want one %q line naming account %s, got:\n%s", msg, ops.accountID, strings.Join(got, "\n"))
+		}
+	}
+}
+
 // wm-1yjuv. Signing out ends an impersonation, so the next person to sign in
 // on the same browser does not inherit the cookie.
 func TestServe_SigningOutEndsTheImpersonation(t *testing.T) {

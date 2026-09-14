@@ -136,6 +136,14 @@ func (h *ImpersonationHandler) Start(c echo.Context) error {
 		}
 	}
 	if !isAdmin {
+		// Recorded, because this is the answer an ordinary member gets for
+		// every attempt (wm-4dnpt). No cookie or credential value is logged.
+		h.logger.Warn(ctx, "impersonation refused: the caller is not an owner or admin of the account they act in",
+			"admin_agent_id", caller.AgentID,
+			"account_id", accountID,
+			"target_agent_id", req.AgentID,
+			"ip", c.RealIP(),
+		)
 		return respondError(c, http.StatusForbidden, "admin role required")
 	}
 
@@ -186,6 +194,7 @@ func (h *ImpersonationHandler) Start(c echo.Context) error {
 
 	h.logger.Info(ctx, "impersonation started",
 		"admin_agent_id", adminAgentID,
+		"account_id", accountID,
 		"target_agent_id", req.AgentID,
 		"ip", c.RealIP(),
 	)
@@ -218,13 +227,14 @@ func (h *ImpersonationHandler) Stop(c echo.Context) error {
 		callerID = caller.AgentID
 	}
 
-	var realAgentID, targetAgentID string
+	var realAgentID, targetAgentID, accountID string
 	sess, err := h.store.Get(c.Request(), apimw.ImpersonationSessionName)
 	if err != nil {
 		h.logger.Warn(ctx, "failed to read impersonation session in Stop", "error", err)
 	} else {
 		realAgentID, _ = sess.Values[apimw.KeyRealAgentID].(string)
 		targetAgentID, _ = sess.Values[apimw.KeyImpersonatedAgentID].(string)
+		accountID, _ = sess.Values[apimw.KeyRealAccountID].(string)
 	}
 	apimw.ExpireImpersonationCookie(c.Response())
 
@@ -232,14 +242,18 @@ func (h *ImpersonationHandler) Stop(c echo.Context) error {
 	case targetAgentID == "":
 		// No impersonation was held, so there is nothing to record.
 	case callerID != "" && realAgentID == callerID:
+		// account_id is the account the impersonation started in, whose
+		// owner or admin role allowed it (wm-4dnpt).
 		h.logger.Info(ctx, "impersonation stopped",
 			"admin_agent_id", callerID,
+			"account_id", accountID,
 			"target_agent_id", targetAgentID,
 			"ip", c.RealIP(),
 		)
 	default:
 		h.logger.Warn(ctx, "impersonation cookie cleared: it was not started by the person signed in",
 			"agent_id", callerID,
+			"account_id", accountID,
 			"cookie_admin_agent_id", realAgentID,
 			"target_agent_id", targetAgentID,
 			"ip", c.RealIP(),
