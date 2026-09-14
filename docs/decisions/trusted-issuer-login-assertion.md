@@ -7,7 +7,7 @@ nav_order: 2
 
 # ADR: Trusted-Issuer Login Assertion (`POST /auth/assert`)
 
-**Status:** Proposed (revised 2026-09-12 after design premortem; amended 2026-09-12 after the story `wm-63gg0.1` review: clock leeway, audience uniqueness, key-list throttle and backoff, `keys-unreachable`; amended 2026-09-12 after the story `wm-63gg0.2` review: what owner binding never links to, how emails compare, the 409, what binding logs, a 2-second first backoff; amended 2026-09-12 after the PR 563 Copilot review: the route refuses to mount under core's public `SESSION_SECRET`, and any trusted-issuer setting makes the API require a sign-in)
+**Status:** Proposed (revised 2026-09-12 after design premortem; amended 2026-09-12 after the story `wm-63gg0.1` review: clock leeway, audience uniqueness, key-list throttle and backoff, `keys-unreachable`; amended 2026-09-12 after the story `wm-63gg0.2` review: what owner binding never links to, how emails compare, the 409, what binding logs, a 2-second first backoff; amended 2026-09-12 after the PR 563 Copilot review: the route refuses to mount under core's public `SESSION_SECRET`, and any trusted-issuer setting makes the API require a sign-in; amended 2026-09-13 for bead `wm-x0l4m`: the door may post the assertion server-side, and the door's own provider key `door` is accepted, still needs a verified email and never proves an owner; amended 2026-09-14 after the `wm-x0l4m` review: an upgrade note for an instance that already has people, what an unseen identity whose email only a `door` credential holds meets today, and the `issuer` providers entry lists the provider keys an assertion may name)
 **Date:** 2026-09-12
 **Ticket:** bead `wm-63gg0` (mirror: wepala/mini-me-weos#530)
 **Base:** `v3` (the integration branch the `v3.0.1-beta.*` tags are cut from; `main` is the old line)
@@ -67,9 +67,11 @@ mounted handler that refuses, so middleware ordering cannot turn it into a 401).
 exactly one or two of the three are set, boot logs one warning naming the missing keys
 and mounts nothing.
 
-**Request.** Body `{"assertion": "<JWT>"}`. The browser makes this request itself,
-through the proxy — the door never calls it server-side — so the instance's `Set-Cookie`
-lands in the browser exactly as it does for `/auth/password-login`.
+**Request.** Body `{"assertion": "<JWT>"}`. The browser may make this request itself,
+through the proxy, or the door may post the assertion server-side and relay the answer —
+the status, the body and every `Set-Cookie` — on the host that serves the instance; either
+way the instance's `Set-Cookie` lands in the browser exactly as it does for
+`/auth/password-login`.
 
 - **A request from another site is refused before the assertion is read.** An assertion
   signs in whoever posts it. A page on another site that holds a valid assertion for this
@@ -84,6 +86,13 @@ lands in the browser exactly as it does for `/auth/password-login`.
   assertion's `jti` is not spent, and the warning names the reason and at most the
   request's normalized origin. A request with neither header comes from a client that is
   not a browser, which no other site can drive, and is not affected.
+- **A new provider key reaches every trusting instance first.** Every instance that trusts
+  the issuer is upgraded to a core that accepts a provider key before the issuer sends
+  that key. An older core refuses the key as `claims`, the reason a missing `sub` also
+  gets, so a refusal cannot tell the issuer that the instance is too old. The issuer reads
+  the keys an instance accepts from the `issuer` entry of `GET /api/auth/providers`, in
+  `accepted_provider_keys` (see "Renewal"). An `issuer` entry without that field comes
+  from a core that does not accept `door`.
 
 **Verification.** ES256 signature against the issuer's JWKS; `iss` equals
 `TRUSTED_ISSUER`, where trailing slashes on either side do not count; `aud` is exactly one
@@ -114,7 +123,31 @@ value and equals `TRUSTED_ISSUER_AUDIENCE`.
 Single-use `jti` remembered for 5 minutes in an **in-memory** store (documented as
 reset on restart — acceptable because assertions expire in 60 s); required claims `sub`,
 `email`, `provider`, `email_verified == true`; optional `name`. `provider` must be one of
-core's registry keys (`google`, `apple`, …), verbatim. Every refusal is a 401 whose
+the keys `application.OAuthProviderKeys()` lists, verbatim: core's registry keys (`google`,
+`apple`, …) and `door`. `door` names an identity that the door owns itself: a person who
+signed up to the door with an email and a password. No registry entry holds it, so it
+reaches an instance only in an assertion. It still needs `email_verified == true`, as every
+key does, and a `door` credential never proves an owner (see "Which credentials prove
+ownership").
+
+- **Upgrading an instance that already has people.** An instance that holds people before
+  the door signs anyone in — password accounts, invited members, people from its own
+  Google or Apple sign-in — gets a second way in for each of them when the door starts
+  to assert for it. Owner binding links a new identity by email only on an allowlisted
+  instance, and only to a credential that proves ownership. So, before an existing
+  instance takes door sign-ins:
+  - Set `OAUTH_ALLOWED_EMAILS`. Without it, nothing is linked by email: each existing
+    person whose first door identity the instance has not seen gets a second, empty
+    person.
+  - Where the operator created every password account on the instance, also set
+    `TRUSTED_ISSUER_LINK_PASSWORD_OWNERS=true`. Without it, a password credential proves
+    nothing, and a door sign-in for its email is refused `unproven-owner`.
+  - An invited member always needs an operator. An `invite` credential never proves an
+    owner, with or without that setting, so the member's first door sign-in is refused
+    `unproven-owner` until an operator clears it (see "Clearing `ambiguous-owner` and
+    `unproven-owner`").
+
+Every refusal is a 401 whose
 body and log line carry a machine-readable reason: `signature`, `kid-miss`,
 `keys-unreachable`, `iss`, `aud`, `expired`, `window`, `jti-replay`, `claims`,
 `allowlist`. An accepted assertion can still be refused when owner binding cannot tell
@@ -242,6 +275,21 @@ Every other credential proves nothing. Binding neither links to it nor counts it
   active invite credential for an email that nobody verified.
 - **`netsuite`.** NetSuite reports the email that its account administrator set, with no
   verification flag.
+- **`door`.** The door proves once, at sign-up, that a person controls the mailbox. Google
+  and Apple also stand behind the account's recovery over time. A `door` identity that the
+  instance has not seen can still be linked to a person whose credential proves ownership,
+  but a `door` credential itself never proves one (mini-me front-door decision 3C).
+  The other way round does not link. The issuer sends one provider key and one `sub` for
+  each person it asserts. So a person who signed up to the door with a password and later
+  signs in through the door with Google reaches the instance as a `google` identity that
+  it has not seen. When only that person's `door` credential holds the email:
+  - on an allowlisted instance, the sign-in is refused **409** `unproven-owner`;
+  - on an instance with no `OAUTH_ALLOWED_EMAILS`, where nothing links by email, it
+    creates a second, empty person.
+
+  Whether a `door` credential and a Google or Apple identity for the same email should be
+  one person is an **open decision** (bead `wm-vvi6t`). This record says what core does
+  today and does not choose.
 - **Any provider this list does not name**, including a development provider and one
   that a downstream binary adds.
 
@@ -308,8 +356,13 @@ redirect query; a JSON caller has no redirect, hence the field.)
 **Renewal.** When a session expires on an instance whose only sign-in is a trusted
 issuer, `/api/auth/providers` answers `[]` today and the SPA shows buttons that do
 nothing. In fleet mode the instance publishes `TRUSTED_ISSUER` as its provider entry
-(`{"name":"issuer","login_url":"<TRUSTED_ISSUER>/door/start"}`) so the SPA's existing
-providers list sends the person back to the door, which re-asserts. Owned by story 3.
+(`{"name":"issuer","login_url":"<TRUSTED_ISSUER>/door/start","accepted_provider_keys":["apple","door","google","netsuite"]}`)
+so the SPA's existing providers list sends the person back to the door, which re-asserts.
+Owned by story 3. `accepted_provider_keys` lists, sorted, the provider keys an assertion may
+name on this instance (`application.OAuthProviderKeys()`), so the issuer can check an
+instance before it sends a person there (see "Request"). The field was added beside the
+others; no existing field changed. A registry provider's entry carries neither
+`login_url` nor `accepted_provider_keys`.
 
 **Session secret.** A fleet instance must run with a per-instance `SESSION_SECRET`,
 and the route refuses to mount without one. Core's default value is public, so a

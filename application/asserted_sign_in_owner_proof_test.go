@@ -59,9 +59,11 @@ func TestAssertedSignInNeverHandsAnOwnersIdentityToAnInvitedPerson(t *testing.T)
 
 // Only google, apple and (under the opt-in) password prove an owner. Every
 // other provider string proves nothing, alone or beside a real owner, and is
-// never counted toward ambiguous-owner.
+// never counted toward ambiguous-owner. That includes the door's own key: the
+// door proves control of a mailbox once, at sign-up, which is less than a
+// provider that stands behind the account's recovery over time.
 func TestAssertedSignInCountsNoProviderOutsideTheProvingList(t *testing.T) {
-	for _, provider := range []string{"invite", "netsuite", "dev", "acme-sso"} {
+	for _, provider := range []string{"invite", "netsuite", "door", "dev", "acme-sso"} {
 		t.Run(provider+" alone", func(t *testing.T) {
 			s := newMemoryAuthStore()
 			s.seedPerson(t, "agent-holder", "ops", provider, "holder-"+provider, "ops@harborlegal.example")

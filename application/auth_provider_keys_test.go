@@ -16,11 +16,17 @@ import (
 	"go.uber.org/fx"
 )
 
+// doorProviderKey is the provider a trusted issuer names for an identity it
+// owns itself, an email and a password it verified. Written out rather than
+// read from the application package, so a rename there fails this test.
+const doorProviderKey = "door"
+
 // TestOAuthProviderKeysCoverTheRegistry pins OAuthProviderKeys to the keys the
-// registry actually registers providers under. A trusted issuer's provider
-// claim is checked against that list, so a provider added to the registry and
-// not to the list would be refused at the door, and one renamed in only one
-// place would sign its people in as someone new.
+// registry actually registers providers under, plus the door's own key, which
+// no registry entry holds. A trusted issuer's provider claim is checked against
+// that list, so a provider added to the registry and not to the list would be
+// refused at the door, and one renamed in only one place would sign its people
+// in as someone new.
 func TestOAuthProviderKeysCoverTheRegistry(t *testing.T) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -41,10 +47,14 @@ func TestOAuthProviderKeysCoverTheRegistry(t *testing.T) {
 		Config config.Config
 	}{Config: cfg})
 
-	got := make([]string, 0, len(registry))
+	got := make([]string, 0, len(registry)+1)
 	for name := range registry {
 		got = append(got, name)
 	}
+	// The door's key is accepted from a trusted issuer and never registered:
+	// the door, not this instance, signs those identities in. A registry that
+	// ever registered it would list it twice here.
+	got = append(got, doorProviderKey)
 	want := append([]string(nil), application.OAuthProviderKeys()...)
 	sort.Strings(got)
 	sort.Strings(want)

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"sort"
 
+	"github.com/wepala/weos/v3/application"
 	"github.com/wepala/weos/v3/internal/config"
 
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
@@ -34,6 +35,9 @@ type AuthProvidersHandler struct {
 	registry authapp.OAuthProviderRegistry
 	// issuerLoginURL is the door's start page; "" when no issuer is offered.
 	issuerLoginURL string
+	// issuerProviderKeys are the provider keys an assertion may name, sorted;
+	// nil when no issuer is offered.
+	issuerProviderKeys []string
 }
 
 // AuthProvidersOption adds to what GET /api/auth/providers offers.
@@ -49,12 +53,21 @@ type AuthProvidersOption func(*AuthProvidersHandler)
 //
 // The address is built from config.TrustedIssuerConfig.IssuerID, the same
 // value, trailing slashes trimmed, that the verifier compares iss with.
+//
+// The entry also lists, as accepted_provider_keys, the provider keys the
+// verifier accepts in an assertion: application.OAuthProviderKeys, sorted. An
+// older core refuses a key it does not know as claims, the same reason as a
+// missing subject, so an issuer reads this list, not a refusal, to learn
+// whether the instance accepts the key it would send.
 func WithTrustedIssuer(cfg config.Config) AuthProvidersOption {
 	return func(h *AuthProvidersHandler) {
 		if !trustedIssuerMountable(cfg) {
 			return
 		}
 		h.issuerLoginURL = cfg.TrustedIssuer.IssuerID() + trustedIssuerLoginPath
+		keys := application.OAuthProviderKeys()
+		sort.Strings(keys)
+		h.issuerProviderKeys = keys
 	}
 }
 
@@ -73,7 +86,8 @@ func NewAuthProvidersHandler(registry authapp.OAuthProviderRegistry, opts ...Aut
 // provider structs carry client IDs, secrets, and key material, and
 // marshaling any of them — or tagging fields on them — is one added field
 // away from leaking a credential. Nothing rides along on a type that only
-// has a name and, for the trusted issuer alone, a public sign-in address.
+// has a name and, for the trusted issuer alone, a public sign-in address and
+// the fixed names of the providers its assertions may name.
 type oauthProviderInfo struct {
 	// Name is the registry key, which is also the value /api/auth/login
 	// accepts as its `provider` query param (e.g. "google", "apple",
@@ -83,6 +97,13 @@ type oauthProviderInfo struct {
 	// /api/auth/login: set only for the trusted issuer, whose sign-in starts
 	// at the door. Omitted for every registry provider.
 	LoginURL string `json:"login_url,omitempty"`
+	// AcceptedProviderKeys lists, sorted, the provider keys a trusted issuer's
+	// assertion may name on this instance (application.OAuthProviderKeys):
+	// core's registry keys and "door". Set only for the trusted issuer, so it
+	// can tell before it sends a person whether this instance accepts the key
+	// it would send. Omitted for every registry provider. The keys are fixed
+	// names in core, never configuration.
+	AcceptedProviderKeys []string `json:"accepted_provider_keys,omitempty"`
 }
 
 // oauthProvidersResponse is an object rather than a bare array so the shape
@@ -102,7 +123,11 @@ func (h *AuthProvidersHandler) List(c echo.Context) error {
 		providers = append(providers, oauthProviderInfo{Name: name})
 	}
 	if h.issuerLoginURL != "" {
-		providers = append(providers, oauthProviderInfo{Name: TrustedIssuerProviderName, LoginURL: h.issuerLoginURL})
+		providers = append(providers, oauthProviderInfo{
+			Name:                 TrustedIssuerProviderName,
+			LoginURL:             h.issuerLoginURL,
+			AcceptedProviderKeys: h.issuerProviderKeys,
+		})
 	}
 	sort.Slice(providers, func(i, j int) bool { return providers[i].Name < providers[j].Name })
 	return respond(c, http.StatusOK, oauthProvidersResponse{Providers: providers})

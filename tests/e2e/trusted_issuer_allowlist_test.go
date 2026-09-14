@@ -104,7 +104,8 @@ func initTrustedIssuerAllowlistScenario(sc *godog.ScenarioContext) {
 
 	// Outcomes of asking for the providers
 	sc.Step(`^the instance offers the sign-in provider "([^"]*)" with the sign-in address "([^"]*)"$`, w.offersProviderAt)
-	sc.Step(`^that provider carries nothing but its name and its sign-in address$`, w.namedCarriesOnlyNameAndAddress)
+	sc.Step(`^that provider carries nothing but its name, its sign-in address and the sign-in providers an assertion may name$`, w.namedCarriesOnlyNameAddressAndKeys)
+	sc.Step(`^the "([^"]*)" provider lists "([^"]*)" among the sign-in providers an assertion may name$`, w.providerListsAcceptedKey)
 	sc.Step(`^the instance offers exactly the sign-in providers "([^"]*)" and "([^"]*)"$`, w.offersExactly)
 	sc.Step(`^the "([^"]*)" provider carries no sign-in address$`, w.providerCarriesNoAddress)
 	sc.Step(`^the instance offers no sign-in provider named "([^"]*)"$`, w.offersNoProviderNamed)
@@ -279,7 +280,10 @@ func (w *alWorld) offersProviderAt(name, address string) error {
 	return nil
 }
 
-func (w *alWorld) namedCarriesOnlyNameAndAddress() error {
+// namedCarriesOnlyNameAddressAndKeys requires the provider found last to carry
+// exactly its name, its sign-in address and the provider keys an assertion may
+// name: nothing else rides along on the issuer's entry.
+func (w *alWorld) namedCarriesOnlyNameAddressAndKeys() error {
 	if w.named == nil {
 		return fmt.Errorf("no provider has been found to look at")
 	}
@@ -288,10 +292,36 @@ func (w *alWorld) namedCarriesOnlyNameAndAddress() error {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	if len(keys) != 2 || keys[0] != "login_url" || keys[1] != "name" {
-		return fmt.Errorf("the provider carries %v, want only its name and its sign-in address", keys)
+	if len(keys) != 3 || keys[0] != "accepted_provider_keys" || keys[1] != "login_url" || keys[2] != "name" {
+		return fmt.Errorf("the provider carries %v, want only its name, its sign-in address and the sign-in providers an assertion may name", keys)
 	}
 	return nil
+}
+
+// providerListsAcceptedKey requires the named provider to list key among the
+// provider keys a trusted issuer's assertion may name on this instance.
+func (w *alWorld) providerListsAcceptedKey(name, key string) error {
+	p, err := w.provider(name)
+	if err != nil {
+		return err
+	}
+	if p == nil {
+		return fmt.Errorf("the instance offers %v, and not %q", w.providerNames(), name)
+	}
+	raw, ok := p["accepted_provider_keys"]
+	if !ok {
+		return fmt.Errorf("the %q provider lists no sign-in providers an assertion may name", name)
+	}
+	var keys []string
+	if err := json.Unmarshal(raw, &keys); err != nil {
+		return fmt.Errorf("the %q provider's accepted_provider_keys is %s, want a list of provider names", name, raw)
+	}
+	for _, k := range keys {
+		if k == key {
+			return nil
+		}
+	}
+	return fmt.Errorf("the %q provider lists %v, and not %q", name, keys, key)
 }
 
 func (w *alWorld) offersExactly(a, b string) error {

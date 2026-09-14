@@ -130,6 +130,7 @@ func initTrustedIssuerScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the door presents an assertion for "([^"]*)" whose email address is not marked verified$`, w.presentUnverifiedEmail)
 	sc.Step(`^the door presents an assertion for "([^"]*)" carrying no subject claim$`, w.presentWithoutSubject)
 	sc.Step(`^the door presents an assertion for "([^"]*)" naming the sign-in provider "([^"]*)"$`, w.presentNamingProvider)
+	sc.Step(`^the door presents an assertion for "([^"]*)" naming the sign-in provider "([^"]*)" but not marking the email address verified$`, w.presentNamingProviderUnverified)
 	sc.Step(`^the door presents an assertion for "([^"]*)" signed with HMAC over the issuer's published public key$`, w.presentHMACOverPublicKey)
 	sc.Step(`^the door presents an assertion for "([^"]*)" carrying no signature at all$`, w.presentUnsigned)
 	sc.Step(`^the door presents a freshly signed assertion for "([^"]*)"$`, w.presentFresh)
@@ -744,6 +745,16 @@ func (w *tiWorld) presentWithoutSubject(email string) error {
 func (w *tiWorld) presentNamingProvider(email, provider string) error {
 	c := w.claimsFor(email)
 	c["provider"] = provider
+	return w.presentClaims(c)
+}
+
+// presentNamingProviderUnverified names a provider the instance knows and
+// leaves the email unverified, so the refusal can only come from the
+// email_verified check and not from the provider check.
+func (w *tiWorld) presentNamingProviderUnverified(email, provider string) error {
+	c := w.claimsFor(email)
+	c["provider"] = provider
+	c["email_verified"] = false
 	return w.presentClaims(c)
 }
 

@@ -115,10 +115,12 @@ type TrustedIssuerAssertionDeps struct {
 
 // NewTrustedIssuerAssertionHandler builds the handler POST /auth/assert serves:
 // a verifier for the configured issuer, key list and audience that accepts
-// core's OAuth registry keys as providers and enforces allowedEmails — the
-// instance's OAUTH_ALLOWED_EMAILS, empty for none — wired to deps. A browser
-// may post to it from the trusted issuer's origin, where the door serves the
-// instance, or from deps.PublicBaseURL's.
+// the keys application.OAuthProviderKeys lists as providers (core's OAuth
+// registry keys, plus "door" for an identity the door owns), each only with
+// email_verified true, and enforces allowedEmails — the instance's
+// OAUTH_ALLOWED_EMAILS, empty for none — wired to deps. A browser may post to
+// it from the trusted issuer's origin, where the door serves the instance, or
+// from deps.PublicBaseURL's.
 //
 // The allowlist is a parameter rather than a field of deps so that no caller
 // can build the route and forget it: a forgotten allowlist would admit

@@ -21,21 +21,49 @@ import (
 
 // The keys the OAuth provider registry holds each provider under. They are
 // also the provider recorded on a credential, which is why a trusted issuer's
-// provider claim must name one of them verbatim: only then does a person the
-// door verified with Google resolve to the same credential as the one this
-// instance's own Google sign-in would.
+// provider claim for one of these providers must name it verbatim: only then
+// does a person the door verified with Google resolve to the same credential
+// as the one this instance's own Google sign-in would. An assertion may also
+// name OAuthProviderDoor, which is not a registry key (see OAuthProviderKeys).
 const (
 	OAuthProviderGoogle   = "google"
 	OAuthProviderNetSuite = "netsuite"
 	OAuthProviderApple    = "apple"
 )
 
-// OAuthProviderKeys lists every key the registry can hold, whether or not that
-// provider is configured on this instance. A fleet instance usually configures
-// none — the door signs people in — and must still accept the door's
-// "google" or "apple".
+// OAuthProviderDoor is the provider a trusted issuer (the door) names for an
+// identity it owns itself: a person who signed up to the door with an email
+// and a password, whose address the door proved before it asserts. No registry
+// entry holds this key — this instance never runs that sign-in itself — so it
+// reaches an instance only through a login assertion, and only with
+// email_verified true, as every other key does.
+//
+// The key does NOT prove who owns an email (mini-me front-door decision 3C). It
+// is deliberately absent from ownerProvingProviders: the door proves control of
+// a mailbox once, at sign-up, while Google and Apple stand behind the account's
+// recovery over time. So a stored door credential never lets another identity
+// link to its person by email. A door identity the instance has not seen can
+// still be linked, on an allowlisted instance, to a person whose google, apple
+// or opted-in password credential holds its email.
+//
+// The other way round does not link. An issuer sends one provider key and one
+// subject for each person it asserts, so a person who signed up to the door
+// with a password and later signs in through the door with Google reaches this
+// instance as a google identity it has not seen. When only that person's door
+// credential holds the email, the sign-in is refused 409 unproven-owner
+// (ErrUnprovenOwner) on an allowlisted instance, and on an instance with no
+// OAUTH_ALLOWED_EMAILS, where nothing links by email, it creates a second,
+// empty person. Whether the two should be one person is an open decision (bead
+// wm-vvi6t); this describes what the instance does today.
+const OAuthProviderDoor = "door"
+
+// OAuthProviderKeys lists every provider key a trusted issuer's assertion may
+// name: every key the registry can hold, whether or not that provider is
+// configured on this instance, plus OAuthProviderDoor, which the registry never
+// holds. A fleet instance usually configures none — the door signs people in —
+// and must still accept the door's "google", "apple" or "door".
 func OAuthProviderKeys() []string {
-	return []string{OAuthProviderGoogle, OAuthProviderNetSuite, OAuthProviderApple}
+	return []string{OAuthProviderGoogle, OAuthProviderNetSuite, OAuthProviderApple, OAuthProviderDoor}
 }
 
 func ProvideOAuthProviderRegistry(params struct {
