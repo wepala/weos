@@ -37,9 +37,9 @@ import (
 
 // TestTrustedIssuerAccount runs the acceptance scenarios for story wm-63gg0.2
 // (epic wm-63gg0): an assertion the instance accepts signs in the one person
-// it names — found by provider and subject, linked to its owner by email on an
-// allowlisted instance, or created — and answers as a password sign-in does,
-// plus new_account.
+// it names — found by provider and subject, linked to its owner by email with
+// or without an allowlist, or created — and answers as a password sign-in
+// does, plus new_account.
 //
 // The scenarios drive real HTTP against the real application, with the
 // assertion route mounted through handlers.MountTrustedIssuerAssertion and the
