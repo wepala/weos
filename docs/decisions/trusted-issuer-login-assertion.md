@@ -7,7 +7,7 @@ nav_order: 2
 
 # ADR: Trusted-Issuer Login Assertion (`POST /auth/assert`)
 
-**Status:** Proposed (revised 2026-09-12 after design premortem; amended 2026-09-12 after the story `wm-63gg0.1` review: clock leeway, audience uniqueness, key-list throttle and backoff, `keys-unreachable`; amended 2026-09-12 after the story `wm-63gg0.2` review: what owner binding never links to, how emails compare, the 409, what binding logs, a 2-second first backoff; amended 2026-09-12 after the PR 563 Copilot review: the route refuses to mount under core's public `SESSION_SECRET`, and any trusted-issuer setting makes the API require a sign-in)
+**Status:** Proposed (revised 2026-09-12 after design premortem; amended 2026-09-12 after the story `wm-63gg0.1` review: clock leeway, audience uniqueness, key-list throttle and backoff, `keys-unreachable`; amended 2026-09-12 after the story `wm-63gg0.2` review: what owner binding never links to, how emails compare, the 409, what binding logs, a 2-second first backoff; amended 2026-09-12 after the PR 563 Copilot review: the route refuses to mount under core's public `SESSION_SECRET`, and any trusted-issuer setting makes the API require a sign-in; amended 2026-09-13 for bead `wm-x0l4m`: the door may post the assertion server-side, and the door's own provider key `door` is accepted, still needs a verified email and never proves an owner)
 **Date:** 2026-09-12
 **Ticket:** bead `wm-63gg0` (mirror: wepala/mini-me-weos#530)
 **Base:** `v3` (the integration branch the `v3.0.1-beta.*` tags are cut from; `main` is the old line)
@@ -116,7 +116,12 @@ value and equals `TRUSTED_ISSUER_AUDIENCE`.
 Single-use `jti` remembered for 5 minutes in an **in-memory** store (documented as
 reset on restart — acceptable because assertions expire in 60 s); required claims `sub`,
 `email`, `provider`, `email_verified == true`; optional `name`. `provider` must be one of
-core's registry keys (`google`, `apple`, …), verbatim. Every refusal is a 401 whose
+the keys `application.OAuthProviderKeys()` lists, verbatim: core's registry keys (`google`,
+`apple`, …) and `door`. `door` names an identity that the door owns itself: a person who
+signed up to the door with an email and a password. No registry entry holds it, so it
+reaches an instance only in an assertion. It still needs `email_verified == true`, as every
+key does, and a `door` credential never proves an owner (see "Which credentials prove
+ownership"). Every refusal is a 401 whose
 body and log line carry a machine-readable reason: `signature`, `kid-miss`,
 `keys-unreachable`, `iss`, `aud`, `expired`, `window`, `jti-replay`, `claims`,
 `allowlist`. An accepted assertion can still be refused when owner binding cannot tell
@@ -244,6 +249,10 @@ Every other credential proves nothing. Binding neither links to it nor counts it
   active invite credential for an email that nobody verified.
 - **`netsuite`.** NetSuite reports the email that its account administrator set, with no
   verification flag.
+- **`door`.** The door proves once, at sign-up, that a person controls the mailbox. Google
+  and Apple also stand behind the account's recovery over time. A `door` identity that the
+  instance has not seen can still be linked to a person whose credential proves ownership,
+  but a `door` credential itself never proves one (mini-me front-door decision 3C).
 - **Any provider this list does not name**, including a development provider and one
   that a downstream binary adds.
 

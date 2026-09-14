@@ -21,9 +21,10 @@ import (
 
 // The keys the OAuth provider registry holds each provider under. They are
 // also the provider recorded on a credential, which is why a trusted issuer's
-// provider claim must name one of them verbatim: only then does a person the
-// door verified with Google resolve to the same credential as the one this
-// instance's own Google sign-in would.
+// provider claim for one of these providers must name it verbatim: only then
+// does a person the door verified with Google resolve to the same credential
+// as the one this instance's own Google sign-in would. An assertion may also
+// name OAuthProviderDoor, which is not a registry key (see OAuthProviderKeys).
 const (
 	OAuthProviderGoogle   = "google"
 	OAuthProviderNetSuite = "netsuite"
@@ -40,8 +41,10 @@ const (
 // The key does NOT prove who owns an email (mini-me front-door decision 3C). It
 // is deliberately absent from ownerProvingProviders: the door proves control of
 // a mailbox once, at sign-up, while Google and Apple stand behind the account's
-// recovery over time. So a door identity is linked to an existing person only by
-// its own (provider, sub), never by the email alone.
+// recovery over time. So a stored door credential never lets another identity
+// link to its person by email. A door identity the instance has not seen can
+// still be linked, on an allowlisted instance, to a person whose google, apple
+// or opted-in password credential holds its email.
 const OAuthProviderDoor = "door"
 
 // OAuthProviderKeys lists every provider key a trusted issuer's assertion may

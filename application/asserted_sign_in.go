@@ -62,10 +62,11 @@ const ReasonUnprovenOwner = "unproven-owner"
 // ownerProvingProviders are the credential providers whose email says who owns
 // it, because the provider verified the address before the credential was
 // written. The list is explicit on purpose: a provider string that is not on
-// it — invite, netsuite, a development provider, or one a downstream binary
-// adds — never proves an owner. An invite credential's email is whatever the
-// inviter and the accepter typed, and NetSuite reports an email its account
-// administrator sets, with no verification flag.
+// it — invite, netsuite, door, a development provider, or one a downstream
+// binary adds — never proves an owner. An invite credential's email is whatever
+// the inviter and the accepter typed, NetSuite reports an email its account
+// administrator sets, with no verification flag, and the door proves control of
+// the mailbox only once, at sign-up (mini-me front-door decision 3C).
 var ownerProvingProviders = map[string]bool{
 	"google": true,
 	"apple":  true,
@@ -73,7 +74,8 @@ var ownerProvingProviders = map[string]bool{
 
 // AssertedIdentity is the person a trusted issuer's accepted assertion names.
 type AssertedIdentity struct {
-	// Provider is the registry key of the provider that verified the person.
+	// Provider is the key of the provider that verified the person: a registry
+	// key such as "google", or OAuthProviderDoor for an identity the door owns.
 	Provider string
 	// Subject is that provider's stable id for the person.
 	Subject string

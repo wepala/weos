@@ -72,7 +72,7 @@ const (
 	// ReasonReplay: the assertion's jti was already presented.
 	ReasonReplay Reason = "jti-replay"
 	// ReasonClaims: a required claim is missing or unacceptable — jti, sub,
-	// email, provider (a registry key, verbatim), email_verified == true.
+	// email, provider (verbatim, one of Config.Providers), email_verified == true.
 	ReasonClaims Reason = "claims"
 	// ReasonAllowlist: the instance has an identity allowlist
 	// (OAUTH_ALLOWED_EMAILS) and it does not name the assertion's email. It is
@@ -136,7 +136,8 @@ type Identity struct {
 	Subject string
 	// Email is the person's door-account email.
 	Email string
-	// Provider is the registry key of the provider that verified the person.
+	// Provider is the key of the provider that verified the person: a registry
+	// key such as "google", or "door" for an identity the door owns itself.
 	Provider string
 	// Name is optional.
 	Name string
@@ -153,8 +154,11 @@ type Config struct {
 	JWKSURL string
 	// Audience is the exact aud value accepted (TRUSTED_ISSUER_AUDIENCE).
 	Audience string
-	// Providers are the provider claim values accepted, verbatim — core's
-	// OAuth registry keys.
+	// Providers are the provider claim values accepted, verbatim — the keys
+	// application.OAuthProviderKeys lists: core's OAuth registry keys, plus
+	// "door", which no registry entry holds and which names an email+password
+	// identity the door owns. Every key, "door" included, is accepted only with
+	// email_verified true.
 	Providers []string
 	// AllowedEmails is the instance's identity allowlist
 	// (OAUTH_ALLOWED_EMAILS). When it has any entry, an assertion whose email
