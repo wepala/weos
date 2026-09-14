@@ -19,6 +19,10 @@ import (
 // ownerSub is the subject Google gives the owner of ops@harborlegal.example.
 const ownerSub = "117590246813570924368"
 
+// doorSub is the subject the door gives the person who signed up to it with
+// ops@harborlegal.example and a password.
+const doorSub = "2VhQ7kX9mT4rY8nL1pW6zC3dF5b"
+
 func harborOps(provider, sub string) AssertedIdentity {
 	return AssertedIdentity{Provider: provider, Subject: sub, Email: "ops@harborlegal.example", Name: "Harbor Ops"}
 }
@@ -35,6 +39,21 @@ func requireUnprovenOwner(t *testing.T, s *memoryAuthStore, err error, provider,
 	}
 	if linked := s.credentialFor(provider, sub); linked != nil {
 		t.Fatalf("an unproven owner was linked: the identity is stored against %s", linked.AgentID())
+	}
+}
+
+// requireLinkedTo checks that a sign-in reached owner by linking the arriving
+// identity to it: nobody created, and the identity stored against owner.
+func requireLinkedTo(t *testing.T, s *memoryAuthStore, got AssertedSignInResult, err error, owner string, id AssertedIdentity) {
+	t.Helper()
+	if err != nil {
+		t.Fatalf("SignIn: %v", err)
+	}
+	if got.NewAccount || got.Agent.GetID() != owner || s.createCount() != 0 {
+		t.Fatalf("want a link to %s: agent=%s new=%v creates=%d", owner, got.Agent.GetID(), got.NewAccount, s.createCount())
+	}
+	if linked := s.credentialFor(id.Provider, id.Subject); linked == nil || linked.AgentID() != owner {
+		t.Fatalf("the %s identity is not stored against %s: %v", id.Provider, owner, linked)
 	}
 }
 
@@ -57,13 +76,13 @@ func TestAssertedSignInNeverHandsAnOwnersIdentityToAnInvitedPerson(t *testing.T)
 	}
 }
 
-// Only google, apple and (under the opt-in) password prove an owner. Every
-// other provider string proves nothing, alone or beside a real owner, and is
-// never counted toward ambiguous-owner. That includes the door's own key: the
-// door proves control of a mailbox once, at sign-up, which is less than a
-// provider that stands behind the account's recovery over time.
+// Only google, apple, a password under the opt-in, and a door credential for
+// an arriving google or apple identity prove an owner. Every other provider
+// string proves nothing, alone or beside a real owner, and is never counted
+// toward ambiguous-owner. The door's key is tested on its own below, because
+// whether it proves depends on the identity arriving.
 func TestAssertedSignInCountsNoProviderOutsideTheProvingList(t *testing.T) {
-	for _, provider := range []string{"invite", "netsuite", "door", "dev", "acme-sso"} {
+	for _, provider := range []string{"invite", "netsuite", "dev", "acme-sso"} {
 		t.Run(provider+" alone", func(t *testing.T) {
 			s := newMemoryAuthStore()
 			s.seedPerson(t, "agent-holder", "ops", provider, "holder-"+provider, "ops@harborlegal.example")
@@ -85,6 +104,95 @@ func TestAssertedSignInCountsNoProviderOutsideTheProvingList(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A door password identity and a Google or Apple identity that hold the same
+// email are one person, in both directions, with or without an allowlist
+// (decision wm-vvi6t). The door proved that the person reads the mailbox, with
+// a code, before it wrote the door credential, so for an arriving google or
+// apple identity that credential proves who owns the email.
+func TestAssertedSignInJoinsADoorIdentityAndAGoogleOrAppleIdentityForOneEmail(t *testing.T) {
+	cases := map[string]struct {
+		heldProvider, heldSub string
+		arriving              AssertedIdentity
+	}{
+		"(a) a door identity after google":     {"google", ownerSub, harborOps("door", doorSub)},
+		"(a) a door identity after apple":      {"apple", appleSub, harborOps("door", doorSub)},
+		"(b) a google identity after the door": {"door", doorSub, harborOps("google", ownerSub)},
+		"(b) an apple identity after the door": {"door", doorSub, harborOps("apple", appleSub)},
+	}
+	for name, c := range cases {
+		for _, allowlist := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s, allowlist set %v", name, allowlist), func(t *testing.T) {
+				s := newMemoryAuthStore()
+				s.seedPerson(t, "agent-ops", "Harbor Ops", c.heldProvider, c.heldSub, "ops@harborlegal.example")
+
+				got, err := newTestAssertedSignIn(s, allowlist).SignIn(context.Background(), c.arriving)
+				requireLinkedTo(t, s, got, err, "agent-ops", c.arriving)
+			})
+		}
+	}
+}
+
+// Two door identities for one email are not one person. The door sends one
+// subject for each person it holds, so a second door subject for an email
+// comes only from an operator re-creating the person at the door. A door
+// credential proves its email for a google or apple identity alone, so the
+// new door identity is refused, with or without an allowlist, and nothing is
+// linked or created.
+func TestAssertedSignInNeverJoinsTwoDoorIdentitiesForOneEmail(t *testing.T) {
+	const recreatedSub = "2Vj4nR8wQ1tZ6yK3mP9xB5cL7hD"
+	for _, allowlist := range []bool{true, false} {
+		t.Run(fmt.Sprintf("allowlist set %v", allowlist), func(t *testing.T) {
+			s := newMemoryAuthStore()
+			s.seedPerson(t, "agent-ops", "Harbor Ops", "door", doorSub, "ops@harborlegal.example")
+
+			_, err := newTestAssertedSignIn(s, allowlist).SignIn(context.Background(), harborOps("door", recreatedSub))
+			requireUnprovenOwner(t, s, err, "door", recreatedSub)
+		})
+	}
+}
+
+// A door credential proves its email for a google or apple identity only, and
+// for those it counts like any proving credential.
+func TestAssertedSignInCountsADoorCredentialOnlyForAGoogleOrAppleIdentity(t *testing.T) {
+	t.Run("beside a google owner, it makes an arriving apple identity ambiguous", func(t *testing.T) {
+		s := newMemoryAuthStore()
+		s.seedPerson(t, "agent-ops", "Harbor Ops", "google", ownerSub, "ops@harborlegal.example")
+		s.seedPerson(t, "agent-door", "ops", "door", doorSub, "ops@harborlegal.example")
+
+		_, err := newTestAssertedSignIn(s, false).SignIn(context.Background(), harborOps("apple", appleSub))
+		if !errors.Is(err, ErrAmbiguousOwner) {
+			t.Fatalf("err = %v, want ErrAmbiguousOwner", err)
+		}
+		if s.createCount() != 0 || s.credentialFor("apple", appleSub) != nil {
+			t.Fatalf("an ambiguous owner still created something: creates=%d", s.createCount())
+		}
+	})
+	t.Run("beside a google owner, it is not counted for an arriving door identity", func(t *testing.T) {
+		s := newMemoryAuthStore()
+		s.seedPerson(t, "agent-ops", "Harbor Ops", "google", ownerSub, "ops@harborlegal.example")
+		s.seedPerson(t, "agent-door", "ops", "door", doorSub, "ops@harborlegal.example")
+		arriving := harborOps("door", "2Vj4nR8wQ1tZ6yK3mP9xB5cL7hD")
+
+		got, err := newTestAssertedSignIn(s, false).SignIn(context.Background(), arriving)
+		requireLinkedTo(t, s, got, err, "agent-ops", arriving)
+	})
+	t.Run("alone, it proves nothing for an arriving netsuite identity", func(t *testing.T) {
+		s := newMemoryAuthStore()
+		s.seedPerson(t, "agent-door", "ops", "door", doorSub, "ops@harborlegal.example")
+
+		_, err := newTestAssertedSignIn(s, false).SignIn(context.Background(), harborOps("netsuite", "4812337"))
+		requireUnprovenOwner(t, s, err, "netsuite", "4812337")
+	})
+	t.Run("turned off, it proves nothing for an arriving google identity", func(t *testing.T) {
+		s := newMemoryAuthStore()
+		s.seedPerson(t, "agent-door", "ops", "door", doorSub, "ops@harborlegal.example")
+		s.deactivateCredential(t, "door", doorSub)
+
+		_, err := newTestAssertedSignIn(s, false).SignIn(context.Background(), harborOps("google", ownerSub))
+		requireUnprovenOwner(t, s, err, "google", ownerSub)
+	})
 }
 
 func TestAssertedSignInLinksToAnOwnerAGoogleOrAppleCredentialProves(t *testing.T) {
@@ -161,20 +269,36 @@ func TestAssertedSignInLogsAnUnprovenOwnerWithEveryPersonHoldingTheEmail(t *test
 	requireNoRawIdentity(t, logs, ownerSub, "ops@harborlegal.example")
 }
 
-// An instance with no allowlist links nothing, so a credential that proves
-// nothing is not a reason to refuse there either: the sign-in creates, as the
-// OAuth callback does.
-func TestAssertedSignInWithoutTheAllowlistRefusesNothingForAnUnprovenEmail(t *testing.T) {
+// Owner binding runs with or without an allowlist (decision wm-vvi6t), so a
+// credential that proves nothing refuses the sign-in on an instance with no
+// allowlist too. Creating could leave the owner in a second, empty account,
+// and linking could hand the identity to whoever wrote the email.
+func TestAssertedSignInRefusesAnUnprovenEmailWithoutTheAllowlistToo(t *testing.T) {
 	s := newMemoryAuthStore()
 	s.seedPerson(t, "agent-invited", "ops", "invite", "2VbXk9hQ4mT7rY1pL8nW3cZ6dF0", "ops@harborlegal.example")
 
-	got, err := newTestAssertedSignIn(s, false).SignIn(context.Background(), harborOps("google", ownerSub))
-	if err != nil {
-		t.Fatalf("SignIn: %v", err)
-	}
-	if !got.NewAccount || got.Agent.GetID() == "agent-invited" {
-		t.Fatalf("want a new person: agent=%s new=%v", got.Agent.GetID(), got.NewAccount)
-	}
+	_, err := newTestAssertedSignIn(s, false).SignIn(context.Background(), harborOps("google", ownerSub))
+	requireUnprovenOwner(t, s, err, "google", ownerSub)
+}
+
+// provideOver builds the AssertedSignIn the application wires, from cfg, over
+// the memory store.
+func provideOver(s *memoryAuthStore, cfg config.Config) *AssertedSignIn {
+	return ProvideAssertedSignIn(struct {
+		fx.In
+		Config         config.Config
+		Auth           authapp.AuthenticationService
+		Credentials    authrepos.CredentialRepository
+		Agents         authrepos.AgentRepository
+		Emails         repositories.CredentialEmailQuery
+		EventStore     esdomain.EventStore               `optional:"true"`
+		Dispatcher     *esdomain.EventDispatcher         `optional:"true"`
+		CredentialRows repositories.CredentialRowDeleter `optional:"true"`
+		Logger         weosentities.Logger               `optional:"true"`
+	}{
+		Config: cfg, Auth: storeAuth{s: s}, Credentials: storeCredentials{s: s},
+		Agents: storeAgents{s: s}, Emails: storeEmails{s: s},
+	})
 }
 
 // Whether a password credential proves an owner is the operator's opt-in
@@ -196,23 +320,7 @@ func TestProvideAssertedSignInTakesPasswordOwnersFromTheOptInAlone(t *testing.T)
 			cfg.PasswordRegistrationEnabled = c.registration
 			cfg.TrustedIssuer.LinkPasswordOwners = c.optIn
 
-			svc := ProvideAssertedSignIn(struct {
-				fx.In
-				Config         config.Config
-				Auth           authapp.AuthenticationService
-				Credentials    authrepos.CredentialRepository
-				Agents         authrepos.AgentRepository
-				Emails         repositories.CredentialEmailQuery
-				EventStore     esdomain.EventStore               `optional:"true"`
-				Dispatcher     *esdomain.EventDispatcher         `optional:"true"`
-				CredentialRows repositories.CredentialRowDeleter `optional:"true"`
-				Logger         weosentities.Logger               `optional:"true"`
-			}{
-				Config: cfg, Auth: storeAuth{s: s}, Credentials: storeCredentials{s: s},
-				Agents: storeAgents{s: s}, Emails: storeEmails{s: s},
-			})
-
-			got, err := svc.SignIn(context.Background(), harborOps("google", ownerSub))
+			got, err := provideOver(s, cfg).SignIn(context.Background(), harborOps("google", ownerSub))
 			if !c.linked {
 				requireUnprovenOwner(t, s, err, "google", ownerSub)
 				return
@@ -222,4 +330,18 @@ func TestProvideAssertedSignInTakesPasswordOwnersFromTheOptInAlone(t *testing.T)
 			}
 		})
 	}
+}
+
+// The instances behind the door set no OAUTH_ALLOWED_EMAILS. The service the
+// application wires binds owners there too, so a Google identity arriving
+// after the door reaches the person the door made, not a second, empty one.
+func TestProvideAssertedSignInBindsOwnersWithoutAnAllowlist(t *testing.T) {
+	s := newMemoryAuthStore()
+	s.seedPerson(t, "agent-ops", "Harbor Ops", "door", doorSub, "ops@harborlegal.example")
+	cfg := config.Default()
+	cfg.OAuth.AllowedEmails = nil
+
+	arriving := harborOps("google", ownerSub)
+	got, err := provideOver(s, cfg).SignIn(context.Background(), arriving)
+	requireLinkedTo(t, s, got, err, "agent-ops", arriving)
 }

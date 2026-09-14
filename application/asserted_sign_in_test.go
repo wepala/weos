@@ -445,7 +445,10 @@ func TestAssertedSignInLinksAnOwnersNewIdentityWhenTheAllowlistIsSet(t *testing.
 	}
 }
 
-func TestAssertedSignInLinksNothingWithoutTheAllowlist(t *testing.T) {
+// Owner binding runs with or without an allowlist (decision wm-vvi6t). The
+// instances behind the door set none, and an owner who signs in there with a
+// second provider must still reach the one person they already are.
+func TestAssertedSignInLinksAnOwnersNewIdentityWithoutTheAllowlist(t *testing.T) {
 	s := newMemoryAuthStore()
 	s.seedPerson(t, "agent-dana", "Dana Whitfield", "google", googleSub, "dana.whitfield@harborlegal.example")
 
@@ -453,8 +456,11 @@ func TestAssertedSignInLinksNothingWithoutTheAllowlist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SignIn: %v", err)
 	}
-	if !got.NewAccount || got.Agent.GetID() == "agent-dana" || s.createCount() != 1 {
-		t.Fatalf("no allowlist: NewAccount=%v agent=%s creates=%d", got.NewAccount, got.Agent.GetID(), s.createCount())
+	if got.NewAccount || got.Agent.GetID() != "agent-dana" || s.createCount() != 0 {
+		t.Fatalf("no allowlist: NewAccount=%v agent=%s creates=%d, want a link to agent-dana", got.NewAccount, got.Agent.GetID(), s.createCount())
+	}
+	if linked := s.credentialFor("apple", appleSub); linked == nil || linked.AgentID() != "agent-dana" {
+		t.Fatalf("the new identity is not stored against its owner: %v", linked)
 	}
 }
 
@@ -831,22 +837,28 @@ func TestAssertedSignInConcurrentFirstSignInsForOneIdentityLeaveOnePerson(t *tes
 	requireOnePersonOneCreate(t, results)
 }
 
+// Owner binding runs with or without an allowlist, so sign-ins for one email
+// are serialized either way.
 func TestAssertedSignInConcurrentFirstSignInsFromTwoProvidersLeaveOneOwner(t *testing.T) {
-	s := newMemoryAuthStore()
-	s.window = 20 * time.Millisecond
-	svc := newTestAssertedSignIn(s, true)
+	for _, allowlist := range []bool{true, false} {
+		t.Run(fmt.Sprintf("allowlist set %v", allowlist), func(t *testing.T) {
+			s := newMemoryAuthStore()
+			s.window = 20 * time.Millisecond
+			svc := newTestAssertedSignIn(s, allowlist)
 
-	results := runTogether(t, 2, func(i int) AssertedIdentity {
-		if i == 0 {
-			return dana("google", googleSub)
-		}
-		return dana("apple", appleSub)
-	}, svc)
+			results := runTogether(t, 2, func(i int) AssertedIdentity {
+				if i == 0 {
+					return dana("google", googleSub)
+				}
+				return dana("apple", appleSub)
+			}, svc)
 
-	if s.createCount() != 1 {
-		t.Fatalf("created %d people for one owner's two identities, want 1", s.createCount())
+			if s.createCount() != 1 {
+				t.Fatalf("created %d people for one owner's two identities, want 1", s.createCount())
+			}
+			requireOnePersonOneCreate(t, results)
+		})
 	}
-	requireOnePersonOneCreate(t, results)
 }
 
 func runTogether(t *testing.T, n int, identity func(int) AssertedIdentity, svc *AssertedSignIn) []AssertedSignInResult {

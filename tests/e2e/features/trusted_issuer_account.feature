@@ -10,21 +10,22 @@ Feature: Signing a person in to their own account from a trusted issuer's assert
   alone. A subject the instance has seen before reaches the same person every time, even when
   the email beside it has changed.
 
-  One case differs, and it is the reason this contract exists. A fleet instance has one owner,
-  and its allowlist says so. When that owner signs in with a provider the instance has not seen
-  them use, deciding by subject alone would create a second person with a second, empty
-  account. So when the allowlist is set, and only then, an identity the instance has never seen
-  is linked to the person who already holds a credential for the same email, compared without
-  regard to capitals, instead of becoming someone new. The link is stored rather than worked
-  out again on every sign-in: the new identity keeps reaching its owner after the allowlist is
-  cleared, and the identity it joined keeps working too. An instance with no allowlist lets
-  anyone in, so an email there proves nothing about who owns what, and it links nothing.
+  One case differs, and it is the reason this contract exists. When a person signs in with a
+  provider the instance has not seen them use, deciding by subject alone would create a second
+  person with a second, empty account. So an identity the instance has never seen is linked to
+  the person who already holds a credential for the same email, compared without regard to
+  capitals, instead of becoming someone new. That holds whether or not the instance has an
+  allowlist; the instances behind the door run with none. Only a credential whose email was
+  proved counts. The link is stored rather than worked out again on every sign-in: the new
+  identity keeps reaching its owner after the allowlist is cleared, and the identity it joined
+  keeps working too.
 
   A person who signed up to the door with an email and a password arrives under the door's own
   provider, door. The door sends one provider and one subject for each person, so when that
   person later chooses Google at the door, the instance sees a Google identity it has never
-  seen. Whether those two should be one person is still an open decision. One scenario below
-  records what an instance with no allowlist does with them today.
+  seen. The door proved with a code that the person reads that mailbox before it made the
+  account, so a door identity and a Google or Apple identity with the same email are one
+  person, in either order. Two door identities with the same email are not one person.
 
   The answer is a password sign-in's answer, field for field and cookie for cookie, because the
   browser makes this request itself through the door and must be left holding exactly what a
@@ -76,12 +77,23 @@ Feature: Signing a person in to their own account from a trusted issuer's assert
     And both sign-ins name the same person
     And the store holds exactly one account for "dana.whitfield@harborlegal.example"
 
-  # --- An allowlisted instance links its owner's new identity instead of minting a second person ---
+  # --- An owner's new identity is linked to the owner instead of minting a second person ---
 
   @story-wm-63gg0.2
   Scenario: An owner who signed in with Google and then with Apple remains one person
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the instance's allowlist names "dana.whitfield@harborlegal.example"
+    And "dana.whitfield@harborlegal.example" signed in through the door from "google" with the subject "108234917650023841257" earlier
+    When the door presents an assertion for "dana.whitfield@harborlegal.example" from "apple" with the subject "001482.7f3c9a2e5b8d4e61a0c2f9b7d3e6a815.1734"
+    Then the sign-in succeeds
+    And the sign-in reports that it created no new account
+    And the person the sign-in names is the one "dana.whitfield@harborlegal.example" signed in as earlier
+    And the store holds exactly one account for "dana.whitfield@harborlegal.example"
+
+  @wm-6lx6z
+  Scenario: An owner who signed in with Google and then with Apple remains one person on an instance with no allowlist
+    Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
+    And the instance has no allowlist
     And "dana.whitfield@harborlegal.example" signed in through the door from "google" with the subject "108234917650023841257" earlier
     When the door presents an assertion for "dana.whitfield@harborlegal.example" from "apple" with the subject "001482.7f3c9a2e5b8d4e61a0c2f9b7d3e6a815.1734"
     Then the sign-in succeeds
@@ -136,25 +148,29 @@ Feature: Signing a person in to their own account from a trusted issuer's assert
     And the sign-in reports that it created a new account
     And the person the sign-in names is not the one "dana.whitfield@harborlegal.example" signed in as earlier
 
-  @story-wm-63gg0.2
-  Scenario: An instance with no allowlist links nothing and creates a second person
-    Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
-    And the instance has no allowlist
-    And "dana.whitfield@harborlegal.example" signed in through the door from "google" with the subject "108234917650023841257" earlier
-    When the door presents an assertion for "dana.whitfield@harborlegal.example" from "apple" with the subject "001482.7f3c9a2e5b8d4e61a0c2f9b7d3e6a815.1734"
-    Then the sign-in succeeds
-    And the sign-in reports that it created a new account
-    And the person the sign-in names is not the one "dana.whitfield@harborlegal.example" signed in as earlier
+  # --- A door sign-in and a Google or Apple sign-in with the same email are one person ---
 
-  @wm-x0l4m
-  Scenario: A person who signed up to the door and then signs in with Google becomes a second person on an instance with no allowlist
+  @wm-6lx6z
+  Scenario: A person who signed up to the door and then signs in with Google remains one person on an instance with no allowlist
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
     And the instance has no allowlist
     And "dana.whitfield@harborlegal.example" signed in through the door from "door" with the subject "2VhQ7kX9mT4rY8nL1pW6zC3dF5b" earlier
     When the door presents an assertion for "dana.whitfield@harborlegal.example" from "google" with the subject "108234917650023841257"
     Then the sign-in succeeds
-    And the sign-in reports that it created a new account
-    And the person the sign-in names is not the one "dana.whitfield@harborlegal.example" signed in as earlier
+    And the sign-in reports that it created no new account
+    And the person the sign-in names is the one "dana.whitfield@harborlegal.example" signed in as earlier
+    And the store holds exactly one account for "dana.whitfield@harborlegal.example"
+
+  @wm-6lx6z
+  Scenario: A person who signed in with Google and then signs up to the door remains one person on an instance with no allowlist
+    Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
+    And the instance has no allowlist
+    And "dana.whitfield@harborlegal.example" signed in through the door from "google" with the subject "108234917650023841257" earlier
+    When the door presents an assertion for "dana.whitfield@harborlegal.example" from "door" with the subject "2VhQ7kX9mT4rY8nL1pW6zC3dF5b"
+    Then the sign-in succeeds
+    And the sign-in reports that it created no new account
+    And the person the sign-in names is the one "dana.whitfield@harborlegal.example" signed in as earlier
+    And the store holds exactly one account for "dana.whitfield@harborlegal.example"
 
   # --- The answer the browser is left holding ---
 
