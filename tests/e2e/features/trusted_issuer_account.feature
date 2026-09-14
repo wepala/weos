@@ -23,8 +23,9 @@ Feature: Signing a person in to their own account from a trusted issuer's assert
   A person who signed up to the door with an email and a password arrives under the door's own
   provider, door. The door sends one provider and one subject for each person, so when that
   person later chooses Google at the door, the instance sees a Google identity it has never
-  seen. The door proved with a code that the person reads that mailbox before it made the
-  account, so a door identity and a Google or Apple identity with the same email are one
+  seen. A door credential means the issuer vouches for the email: the door proves it with a
+  mailbox code at sign-up, and the door's operator also writes demo and owner people
+  directly, so a door identity and a Google or Apple identity with the same email are one
   person, in either order. Two door identities with the same email are not one person.
 
   The answer is a password sign-in's answer, field for field and cookie for cookie, because the
