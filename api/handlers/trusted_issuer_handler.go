@@ -46,13 +46,14 @@ type AssertedSignInService interface {
 }
 
 // CodeAmbiguousOwner is the code of the conflict answered when an accepted
-// assertion's email is held by more than one person on an allowlisted
-// instance, so it cannot say whose identity it is.
+// assertion's email is held by more than one person, so it cannot say whose
+// identity it is. Owner binding runs with or without an allowlist.
 const CodeAmbiguousOwner = application.ReasonAmbiguousOwner
 
-// CodeUnprovenOwner is the code of the conflict answered when credentials on
-// an allowlisted instance hold an accepted assertion's email but none of them
-// proves who owns it, so the sign-in can neither link nor create.
+// CodeUnprovenOwner is the code of the conflict answered when credentials hold
+// an accepted assertion's email but none of them proves who owns it, so the
+// sign-in can neither link nor create. Owner binding runs with or without an
+// allowlist.
 const CodeUnprovenOwner = application.ReasonUnprovenOwner
 
 // CodeCrossSite is the code of the refusal answered, 403, when a browser

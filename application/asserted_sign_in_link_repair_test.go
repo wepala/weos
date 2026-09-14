@@ -51,7 +51,7 @@ func TestAssertedSignInTakesBackALinkWhoseCreationCannotBeRecorded(t *testing.T)
 	rows := &storeCredentialRows{s: s}
 	logs := &signInLogs{}
 	svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) {
-		cfg.LinkByEmail = true
+		cfg.Allowlisted = true
 		cfg.EventStore = failingEventStore{esinfra.NewMemoryStore()}
 		cfg.CredentialRows = rows
 		cfg.Logger = logs
@@ -83,7 +83,7 @@ func TestAssertedSignInTakesBackALinkWhoseCreationCannotBeRecorded(t *testing.T)
 	// records the link's creation.
 	events := esinfra.NewMemoryStore()
 	retry := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) {
-		cfg.LinkByEmail = true
+		cfg.Allowlisted = true
 		cfg.EventStore = events
 		cfg.CredentialRows = rows
 	})
@@ -112,7 +112,7 @@ func TestAssertedSignInNamesALinkRowItCouldNotTakeBackForRepair(t *testing.T) {
 			s.seedPerson(t, "agent-dana", "Dana Whitfield", "google", googleSub, "dana.whitfield@harborlegal.example")
 			logs := &signInLogs{}
 			svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) {
-				cfg.LinkByEmail = true
+				cfg.Allowlisted = true
 				cfg.EventStore = failingEventStore{esinfra.NewMemoryStore()}
 				if rows := deleter(s); rows != nil {
 					cfg.CredentialRows = rows

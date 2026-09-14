@@ -50,8 +50,9 @@ type TrustedIssuerConfig struct {
 	Audience string
 	// LinkPasswordOwners lets a password credential prove who owns its email
 	// when owner binding links an identity the instance has not seen
-	// (TRUSTED_ISSUER_LINK_PASSWORD_OWNERS, default false). Only google and
-	// apple credentials prove an owner without it.
+	// (TRUSTED_ISSUER_LINK_PASSWORD_OWNERS, default false), with or without an
+	// allowlist. Without it only google and apple credentials, and a door
+	// credential for a google or apple identity, prove an owner.
 	//
 	// Set it only on an instance whose password accounts the operator made.
 	// Nothing verifies the email a password account is registered under, and

@@ -204,15 +204,15 @@ type Config struct {
 	// OAuthConfig.AllowedEmails).
 	//
 	// A fourth key is not a setting of the route but an opt-in for owner
-	// binding on an allowlisted instance:
+	// binding, which runs with or without an allowlist:
 	//
 	//   - TRUSTED_ISSUER_LINK_PASSWORD_OWNERS (default false): a password
 	//     credential proves who owns its email, so the owner's first door
 	//     sign-in links to the password account the operator made. Without it
-	//     only google and apple credentials prove an owner, and an email held
-	//     only by credentials that prove nothing is refused 409
-	//     unproven-owner. Set it only where the operator made every password
-	//     account: nothing verifies a password account's email. See
+	//     a password credential proves nothing, and an email held only by
+	//     credentials that prove nothing is refused 409 unproven-owner. Set it
+	//     only where the operator made every password account: nothing
+	//     verifies a password account's email. See
 	//     TrustedIssuerConfig.LinkPasswordOwners.
 	//
 	// The route also needs the instance's own SESSION_SECRET. With all three

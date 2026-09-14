@@ -60,16 +60,31 @@ var ErrUnprovenOwner = errors.New("credentials hold the asserted email, but none
 const ReasonUnprovenOwner = "unproven-owner"
 
 // ownerProvingProviders are the credential providers whose email says who owns
-// it, because the provider verified the address before the credential was
-// written. The list is explicit on purpose: a provider string that is not on
-// it — invite, netsuite, door, a development provider, or one a downstream
-// binary adds — never proves an owner. An invite credential's email is whatever
-// the inviter and the accepter typed, NetSuite reports an email its account
-// administrator sets, with no verification flag, and the door proves control of
-// the mailbox only once, at sign-up (mini-me front-door decision 3C).
+// it, whatever identity arrives, because the provider verified the address
+// before the credential was written. The list is explicit on purpose: a
+// provider string that is not on it — invite, netsuite, a development
+// provider, or one a downstream binary adds — never proves an owner. An invite
+// credential's email is whatever the inviter and the accepter typed, and
+// NetSuite reports an email its account administrator sets, with no
+// verification flag. A password credential proves an owner only under the
+// operator's opt-in, and a door credential only for the arriving identities
+// doorCredentialProvesOwnerFor names (see provesOwnership).
 var ownerProvingProviders = map[string]bool{
-	"google": true,
-	"apple":  true,
+	OAuthProviderGoogle: true,
+	OAuthProviderApple:  true,
+}
+
+// doorCredentialProvesOwnerFor are the providers of an arriving identity for
+// which a door credential proves who owns its email. The door writes a person
+// only after that person reads a code sent to the mailbox, so a door password
+// identity and a Google or Apple identity that hold the same email are one
+// person, in either order (decision wm-vvi6t). A door credential proves nothing
+// for another door identity: the door sends one subject for each person it
+// holds, so a second door subject for an email comes only from an operator
+// re-creating the person, and that person is not joined to the first.
+var doorCredentialProvesOwnerFor = map[string]bool{
+	OAuthProviderGoogle: true,
+	OAuthProviderApple:  true,
 }
 
 // AssertedIdentity is the person a trusted issuer's accepted assertion names.
@@ -114,11 +129,14 @@ type AssertedSignInConfig struct {
 	// event could not be committed (see link). Optional; without it such a row
 	// is left behind, and a repair line names it.
 	CredentialRows repositories.CredentialRowDeleter
-	// LinkByEmail turns owner binding on. It is set exactly when the instance
-	// has an identity allowlist (OAUTH_ALLOWED_EMAILS): an allowlisted
-	// instance has named its owners, so an email there says who a person is;
-	// an open instance lets anyone in, so an email there proves nothing.
-	LinkByEmail bool
+	// Allowlisted says the instance has an identity allowlist
+	// (OAUTH_ALLOWED_EMAILS). The allowlist is enforced before SignIn runs.
+	// Owner binding runs whether or not it is set: only a credential whose
+	// email was proved can say who owns it (see provesOwnership), which is as
+	// true on an instance with no allowlist, as the instances behind the door
+	// run (decision wm-vvi6t). Allowlisted decides only how a person a sign-in
+	// creates is logged (see logCreated).
+	Allowlisted bool
 	// PasswordOwnersProven lets a password credential prove who owns its
 	// email (TRUSTED_ISSUER_LINK_PASSWORD_OWNERS). Off by default: nothing
 	// verifies a password credential's email, so while it is off a password
@@ -126,7 +144,8 @@ type AssertedSignInConfig struct {
 	// registered the owner's email would be handed the owner's identity and
 	// keep the password. An operator turns it on for an instance whose
 	// password accounts they made themselves. Credentials from google and
-	// apple prove an owner either way.
+	// apple, and a door credential for a google or apple identity, prove an
+	// owner either way.
 	PasswordOwnersProven bool
 	// Logger receives one line for each link, each person a sign-in creates,
 	// each ambiguous-owner or unproven-owner refusal, and each link that could
@@ -136,16 +155,17 @@ type AssertedSignInConfig struct {
 
 // AssertedSignIn decides whom a trusted issuer's accepted assertion signs in.
 // It resolves the person by (provider, subject) the way the OAuth callback
-// does, through FindOrCreateAgent. On an allowlisted instance, an identity it
-// has never seen is linked to the one person already holding a credential for
-// the same email instead of becoming a second person. See
-// docs/decisions/trusted-issuer-login-assertion.md, "Owner binding".
+// does, through FindOrCreateAgent. An identity it has never seen is linked to
+// the one person already holding a credential that proves the same email,
+// instead of becoming a second person, whether or not the instance has an
+// allowlist. See docs/decisions/trusted-issuer-login-assertion.md, "Owner
+// binding".
 //
-// It is safe for concurrent use. Sign-ins for one identity, and on an
-// allowlisted instance sign-ins for one email, are serialized in process, so
-// two first sign-ins arriving together leave one person. The locks are held
-// per process: replicas sharing a database still race, and the store's unique
-// (provider, provider_user_id) index is what stops a second credential there.
+// It is safe for concurrent use. Sign-ins for one identity, and sign-ins for
+// one email, are serialized in process, so two first sign-ins arriving
+// together leave one person. The locks are held per process: replicas sharing
+// a database still race, and the store's unique (provider, provider_user_id)
+// index is what stops a second credential there.
 type AssertedSignIn struct {
 	cfg        AssertedSignInConfig
 	identities keyedMutex
@@ -161,9 +181,9 @@ func NewAssertedSignIn(cfg AssertedSignInConfig) *AssertedSignIn {
 }
 
 // ProvideAssertedSignIn builds the AssertedSignIn the application wires, with
-// owner binding on exactly when the instance has an identity allowlist, and
+// Allowlisted set exactly when the instance has an identity allowlist, and
 // password credentials proving an owner exactly when the operator opted in
-// with TRUSTED_ISSUER_LINK_PASSWORD_OWNERS.
+// with TRUSTED_ISSUER_LINK_PASSWORD_OWNERS. Owner binding runs either way.
 func ProvideAssertedSignIn(params struct {
 	fx.In
 	Config         config.Config
@@ -185,7 +205,7 @@ func ProvideAssertedSignIn(params struct {
 		Dispatcher:           params.Dispatcher,
 		CredentialRows:       params.CredentialRows,
 		Logger:               params.Logger,
-		LinkByEmail:          len(params.Config.OAuth.AllowedEmails) > 0,
+		Allowlisted:          len(params.Config.OAuth.AllowedEmails) > 0,
 		PasswordOwnersProven: params.Config.TrustedIssuer.LinkPasswordOwners,
 	})
 }
@@ -199,7 +219,7 @@ func (s *AssertedSignIn) SignIn(ctx context.Context, id AssertedIdentity) (Asser
 	// The same fold the credential query compares under, so the email lock
 	// serializes exactly the sign-ins that could reach one owner.
 	email := repositories.FoldCredentialEmail(id.Email)
-	if s.cfg.LinkByEmail && email != "" {
+	if email != "" {
 		defer s.emails.lock(email)()
 	}
 
@@ -208,7 +228,7 @@ func (s *AssertedSignIn) SignIn(ctx context.Context, id AssertedIdentity) (Asser
 		return AssertedSignInResult{}, fmt.Errorf("look up the credential for provider %s: %w", id.Provider, err)
 	}
 	known := existing != nil
-	if !known && s.cfg.LinkByEmail {
+	if !known && email != "" {
 		owner, err := s.ownerOf(ctx, id, email)
 		if err != nil {
 			return AssertedSignInResult{}, err
@@ -259,8 +279,9 @@ func (s *AssertedSignIn) SignIn(ctx context.Context, id AssertedIdentity) (Asser
 // ownerOf returns the one person holding a credential for email, "" when no
 // credential holds it, ErrAmbiguousOwner when more than one person does, or
 // ErrUnprovenOwner when credentials hold it but none says who owns it. Only a
-// credential that provesOwnership counts, and only for a person who still
-// exists and is active: a person who is gone or turned off owns nothing.
+// credential that provesOwnership for the arriving identity counts, and only
+// for a person who still exists and is active: a person who is gone or turned
+// off owns nothing.
 func (s *AssertedSignIn) ownerOf(ctx context.Context, id AssertedIdentity, email string) (string, error) {
 	matches, err := s.cfg.Emails.CredentialsByEmail(ctx, email)
 	if err != nil {
@@ -276,7 +297,7 @@ func (s *AssertedSignIn) ownerOf(ctx context.Context, id AssertedIdentity, email
 			held[m.AgentID] = true
 			holders = append(holders, m.AgentID)
 		}
-		if counted[m.AgentID] || !s.provesOwnership(m) {
+		if counted[m.AgentID] || !s.provesOwnership(m, id.Provider) {
 			continue
 		}
 		counted[m.AgentID] = true
@@ -327,7 +348,7 @@ func (s *AssertedSignIn) ownerOf(ctx context.Context, id AssertedIdentity, email
 // matches no credential here.
 func (s *AssertedSignIn) logCreated(ctx context.Context, id AssertedIdentity, email, agentID string) {
 	fields := identityFields(id, email, agentID)
-	if !s.cfg.LinkByEmail {
+	if !s.cfg.Allowlisted {
 		s.cfg.Logger.Info(ctx, "trusted issuer sign-in created a person", fields...)
 		return
 	}
@@ -406,16 +427,21 @@ func (discardSignInLogs) Warn(context.Context, string, ...any)  {}
 func (discardSignInLogs) Error(context.Context, string, ...any) {}
 
 // provesOwnership reports whether a credential holding the asserted email may
-// say who owns it. It must be active: a sign-in method someone turned off must
-// not come back through the door. And it must come from a provider that
-// verified the email (ownerProvingProviders), or be a password credential on
-// an instance whose operator opted in (PasswordOwnersProven).
-func (s *AssertedSignIn) provesOwnership(m repositories.CredentialEmailMatch) bool {
+// say who owns it, for an identity arriving from the provider arriving. It
+// must be active: a sign-in method someone turned off must not come back
+// through the door. And it must come from a provider that verified the email
+// (ownerProvingProviders), be a password credential on an instance whose
+// operator opted in (PasswordOwnersProven), or be a door credential while the
+// arriving identity is one doorCredentialProvesOwnerFor names.
+func (s *AssertedSignIn) provesOwnership(m repositories.CredentialEmailMatch, arriving string) bool {
 	if !m.Active {
 		return false
 	}
-	if m.Provider == entities.ProviderPassword {
+	switch m.Provider {
+	case entities.ProviderPassword:
 		return s.cfg.PasswordOwnersProven
+	case OAuthProviderDoor:
+		return doorCredentialProvesOwnerFor[arriving]
 	}
 	return ownerProvingProviders[m.Provider]
 }

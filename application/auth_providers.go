@@ -38,23 +38,23 @@ const (
 // reaches an instance only through a login assertion, and only with
 // email_verified true, as every other key does.
 //
-// The key does NOT prove who owns an email (mini-me front-door decision 3C). It
-// is deliberately absent from ownerProvingProviders: the door proves control of
-// a mailbox once, at sign-up, while Google and Apple stand behind the account's
-// recovery over time. So a stored door credential never lets another identity
-// link to its person by email. A door identity the instance has not seen can
-// still be linked, on an allowlisted instance, to a person whose google, apple
-// or opted-in password credential holds its email.
+// A door identity and a Google or Apple identity that hold the same email are
+// one person, in either order, with or without OAUTH_ALLOWED_EMAILS (decision
+// wm-vvi6t). An issuer sends one provider key and one subject for each person
+// it asserts, so a person who signed up to the door with a password and later
+// signs in through the door with Google reaches this instance as a google
+// identity it has not seen. The door writes a person only after that person
+// reads a code sent to the mailbox, so the person's door credential proves who
+// owns its email for that google or apple identity, which is linked to the
+// person (doorCredentialProvesOwnerFor). A door identity the instance has not
+// seen is linked, the same way, to a person whose google, apple or opted-in
+// password credential holds its email.
 //
-// The other way round does not link. An issuer sends one provider key and one
-// subject for each person it asserts, so a person who signed up to the door
-// with a password and later signs in through the door with Google reaches this
-// instance as a google identity it has not seen. When only that person's door
-// credential holds the email, the sign-in is refused 409 unproven-owner
-// (ErrUnprovenOwner) on an allowlisted instance, and on an instance with no
-// OAUTH_ALLOWED_EMAILS, where nothing links by email, it creates a second,
-// empty person. Whether the two should be one person is an open decision (bead
-// wm-vvi6t); this describes what the instance does today.
+// A door credential proves nothing for another door identity. A second door
+// subject for an email comes only from an operator re-creating the person at
+// the door, and when only credentials that prove nothing, door ones included,
+// hold the email, that sign-in is refused 409 unproven-owner
+// (ErrUnprovenOwner).
 const OAuthProviderDoor = "door"
 
 // OAuthProviderKeys lists every provider key a trusted issuer's assertion may

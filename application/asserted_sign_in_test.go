@@ -336,8 +336,8 @@ func (s *memoryAuthStore) deactivateAgent(t *testing.T, agentID string) {
 	}
 }
 
-func newTestAssertedSignIn(s *memoryAuthStore, linkByEmail bool) *AssertedSignIn {
-	return newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) { cfg.LinkByEmail = linkByEmail })
+func newTestAssertedSignIn(s *memoryAuthStore, allowlist bool) *AssertedSignIn {
+	return newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) { cfg.Allowlisted = allowlist })
 }
 
 // newTestAssertedSignInWith builds the service over the store, letting a test
@@ -357,7 +357,7 @@ func newTestAssertedSignInWith(s *memoryAuthStore, configure func(*AssertedSignI
 // that lets password credentials prove an owner set or not.
 func allowlisted(passwordOwners bool) func(*AssertedSignInConfig) {
 	return func(cfg *AssertedSignInConfig) {
-		cfg.LinkByEmail = true
+		cfg.Allowlisted = true
 		cfg.PasswordOwnersProven = passwordOwners
 	}
 }
@@ -581,7 +581,7 @@ func TestAssertedSignInLogsEachLinkOnceWithHashesAndTheOwner(t *testing.T) {
 	s.seedPerson(t, "agent-ops", "ops", "password", "ops@harborlegal.example", "ops@harborlegal.example")
 	logs := &signInLogs{}
 	svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) {
-		cfg.LinkByEmail = true
+		cfg.Allowlisted = true
 		cfg.PasswordOwnersProven = true
 		cfg.Logger = logs
 	})
@@ -631,7 +631,7 @@ func TestAssertedSignInLogsEachPersonItCreates(t *testing.T) {
 			c.stage(t, s)
 			logs := &signInLogs{}
 			svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) {
-				cfg.LinkByEmail = c.allowlist
+				cfg.Allowlisted = c.allowlist
 				cfg.Logger = logs
 			})
 
@@ -658,7 +658,7 @@ func TestAssertedSignInLogsAnAmbiguousOwnerWithEveryPersonHoldingTheEmail(t *tes
 	s.seedPerson(t, "agent-dana", "Dana Whitfield", "password", "dana.whitfield@harborlegal.example", "dana.whitfield@harborlegal.example")
 	logs := &signInLogs{}
 	svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) {
-		cfg.LinkByEmail = true
+		cfg.Allowlisted = true
 		cfg.PasswordOwnersProven = true
 		cfg.Logger = logs
 	})
@@ -717,7 +717,7 @@ func TestAssertedSignInRecordsALinkedCredentialsCreationOnce(t *testing.T) {
 	s.seedPerson(t, "agent-dana", "Dana Whitfield", "google", googleSub, "dana.whitfield@harborlegal.example")
 	events := esinfra.NewMemoryStore()
 	svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) {
-		cfg.LinkByEmail = true
+		cfg.Allowlisted = true
 		cfg.EventStore = events
 	})
 
@@ -752,7 +752,7 @@ func TestAssertedSignInThatLosesALinkRaceRecordsAndLogsNothing(t *testing.T) {
 	events := esinfra.NewMemoryStore()
 	logs := &signInLogs{}
 	svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) {
-		cfg.LinkByEmail = true
+		cfg.Allowlisted = true
 		cfg.EventStore = events
 		cfg.Logger = logs
 	})
@@ -778,7 +778,7 @@ func TestAssertedSignInRecordsNoEventForALinkThatCannotBeSaved(t *testing.T) {
 	s.saveErr = errors.New("database unavailable")
 	events := esinfra.NewMemoryStore()
 	svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) {
-		cfg.LinkByEmail = true
+		cfg.Allowlisted = true
 		cfg.EventStore = events
 	})
 
@@ -798,7 +798,7 @@ func TestAssertedSignInFailsWhenALinkedCredentialsCreationCannotBeRecorded(t *te
 	s := newMemoryAuthStore()
 	s.seedPerson(t, "agent-dana", "Dana Whitfield", "google", googleSub, "dana.whitfield@harborlegal.example")
 	svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) {
-		cfg.LinkByEmail = true
+		cfg.Allowlisted = true
 		cfg.EventStore = failingEventStore{esinfra.NewMemoryStore()}
 	})
 

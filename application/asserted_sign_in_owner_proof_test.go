@@ -225,7 +225,7 @@ func TestAssertedSignInCountsOnlyProvingCredentialsTowardAnAmbiguousOwner(t *tes
 	s.seedPerson(t, "agent-invited", "ops", "invite", "2VbXk9hQ4mT7rY1pL8nW3cZ6dF0", "ops@harborlegal.example")
 	logs := &signInLogs{}
 	svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) {
-		cfg.LinkByEmail = true
+		cfg.Allowlisted = true
 		cfg.Logger = logs
 	})
 
@@ -246,7 +246,7 @@ func TestAssertedSignInLogsAnUnprovenOwnerWithEveryPersonHoldingTheEmail(t *test
 	s.seedPerson(t, "agent-invited", "ops", "invite", "2VbXk9hQ4mT7rY1pL8nW3cZ6dF0", "Ops@HarborLegal.example")
 	logs := &signInLogs{}
 	svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) {
-		cfg.LinkByEmail = true
+		cfg.Allowlisted = true
 		cfg.Logger = logs
 	})
 
