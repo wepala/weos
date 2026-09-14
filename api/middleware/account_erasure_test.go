@@ -235,6 +235,24 @@ func TestErasureGuard_FailsClosedWhenTheLockCannotBeRead(t *testing.T) {
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("got %d %s, want 503 when the lock cannot be read", rec.Code, rec.Body.String())
 	}
+	// wm-w0bha: every "could not read the account's state" answer says when
+	// to try again.
+	if rec.Header().Get("Retry-After") == "" {
+		t.Error("the 503 carries no Retry-After header")
+	}
+}
+
+// wm-w0bha: the deletion route's session auth answers an unreadable lock with
+// the same 503 and Retry-After.
+func TestSessionAuthForErasure_FailsClosedWithRetryAfterWhenTheLockCannotBeRead(t *testing.T) {
+	sm := cookieSessions{data: &session.SessionData{SessionID: "s1", AgentID: "ops", AccountID: "acct-harbor"}}
+	deactivated := validating{err: authapp.ErrSessionAccountDeactivated}
+	locks := &countingLocks{lockSet: lockSet{}, err: errors.New("database away")}
+	rec, identity, _ := serve(SessionAuthForErasure(sm, deactivated, accountBook{}, locks, nopLogger{}), true, nil)
+	if rec.Code != http.StatusServiceUnavailable || identity != nil || rec.Header().Get("Retry-After") == "" {
+		t.Fatalf("got %d %s (identity %+v, Retry-After %q), want 503 with Retry-After and no identity",
+			rec.Code, rec.Body.String(), identity, rec.Header().Get("Retry-After"))
+	}
 }
 
 func TestSessionAuthForErasure_AdmitsALockedAccountAndOnlyThat(t *testing.T) {
@@ -401,6 +419,31 @@ func TestBearerOrSession_FailsClosedWhenTheMembershipCannotBeRead(t *testing.T) 
 		map[string]string{"Authorization": "Bearer t"})
 	if rec.Code != http.StatusServiceUnavailable || identity != nil {
 		t.Fatalf("got %d %s (identity %+v), want 503 and no identity", rec.Code, rec.Body.String(), identity)
+	}
+	// wm-w0bha: the 503 says when to try again, so a client backs off rather
+	// than reading a database blip as an outage.
+	if rec.Header().Get("Retry-After") == "" {
+		t.Error("the 503 carries no Retry-After header")
+	}
+}
+
+// unreadableAccounts is an account book whose account read fails.
+type unreadableAccounts struct{ accountBook }
+
+func (unreadableAccounts) FindByID(context.Context, string) (*authentities.Account, error) {
+	return nil, errors.New("database away")
+}
+
+// wm-w0bha: an account state that cannot be read answers the same 503, with a
+// Retry-After header.
+func TestBearerOrSession_FailsClosedWithRetryAfterWhenTheAccountCannotBeRead(t *testing.T) {
+	claims := &authapp.PericarpClaims{AgentID: "ops", AccountIDs: []string{"acct-harbor"}, ActiveAccountID: "acct-harbor"}
+	noSession := func(next http.Handler) http.Handler { return next }
+	rec, identity, _ := serve(BearerOrSession(claimsFor{claims: claims}, noSession, "http://x", unreadableAccounts{}, lockSet{}), false,
+		map[string]string{"Authorization": "Bearer t"})
+	if rec.Code != http.StatusServiceUnavailable || identity != nil || rec.Header().Get("Retry-After") == "" {
+		t.Fatalf("got %d %s (identity %+v, Retry-After %q), want 503 with Retry-After and no identity",
+			rec.Code, rec.Body.String(), identity, rec.Header().Get("Retry-After"))
 	}
 }
 

@@ -259,7 +259,17 @@ func refuseToken(c echo.Context, challenge bearerChallenge, code string) error {
 	return c.JSON(http.StatusUnauthorized, body)
 }
 
+// accountStateRetryAfter is the Retry-After, in seconds, on the 503 for an
+// account state or a membership that could not be read (wm-w0bha). Those reads
+// fail on a database blip, which clears in seconds; the header tells a client
+// to back off and try again rather than take the answer for an outage.
+const accountStateRetryAfter = "5"
+
+// accountStateUnreadable answers a request whose account state, erasure lock or
+// membership could not be read: 503 with Retry-After. The request is not let
+// through on a guess.
 func accountStateUnreadable(c echo.Context) error {
+	c.Response().Header().Set("Retry-After", accountStateRetryAfter)
 	return c.JSON(http.StatusServiceUnavailable,
 		map[string]string{"error": "could not read the account's state"})
 }
