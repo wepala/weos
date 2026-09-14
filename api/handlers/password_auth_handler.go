@@ -233,6 +233,10 @@ func (h *PasswordAuthHandler) Logout(c echo.Context, oauthLogout http.HandlerFun
 		Secure:   h.cfg.SecureCookies,
 		SameSite: http.SameSiteLaxMode,
 	})
+	// An impersonation belongs to the session that started it, so it ends
+	// with that session. Otherwise the next person to sign in on this browser
+	// is handed the cookie (wm-1yjuv).
+	apimw.ExpireImpersonationCookie(w)
 	oauthLogout(w, c.Request())
 	return nil
 }

@@ -163,7 +163,7 @@ func Impersonation(
 			if !allowed {
 				logger.Warn(ctx, "impersonation refused: the person is not a member of the caller's account, or the caller's role there does not allow it",
 					"account_id", accountID, "admin_agent_id", realAgentID, "target_agent_id", impersonatedAgentID, "ip", c.RealIP())
-				endImpersonation(c, sess, logger)
+				ExpireImpersonationCookie(c.Response())
 				return c.JSON(http.StatusForbidden, map[string]string{
 					"error": "impersonation not allowed",
 					"code":  CodeImpersonationTargetNotMember,
@@ -201,24 +201,18 @@ func Impersonation(
 	}
 }
 
-// endImpersonation expires the impersonation cookie on the response, so a
-// refused impersonation does not refuse every request that follows it.
-func endImpersonation(c echo.Context, sess *sessions.Session, logger entities.Logger) {
-	sess.Options = &sessions.Options{
+// ExpireImpersonationCookie expires the impersonation cookie on w. It writes
+// the same cookie the session store writes for an ended session, so it needs
+// no store and cannot fail. Every path that ends an impersonation uses it: a
+// refusal here, the stop route, the identity read, and sign-out (wm-1yjuv).
+func ExpireImpersonationCookie(w http.ResponseWriter) {
+	http.SetCookie(w, sessions.NewCookie(ImpersonationSessionName, "", &sessions.Options{
 		MaxAge:   -1,
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
-	}
-	for key := range sess.Values {
-		delete(sess.Values, key)
-	}
-	if err := sess.Save(c.Request(), c.Response()); err != nil {
-		// The refusal still stands; the next request with the cookie is
-		// judged, and refused, the same way.
-		logger.Warn(c.Request().Context(), "impersonation: could not clear a refused impersonation cookie", "error", err)
-	}
+	}))
 }
 
 // unreadableAccountState fails closed when the roles or state of the account

@@ -21,9 +21,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	apimw "github.com/wepala/weos/v3/api/middleware"
+	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/internal/config"
 
 	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
@@ -229,11 +231,172 @@ func TestServe_ImpersonationOfAMemberOfTheCallersAccountStillWorks(t *testing.T)
 	if id, active := meAs(t, srv, impersonating); id != counsel.agentID || !active {
 		t.Fatalf("the identity read answered for %q impersonating=%v, want counsel, impersonating", id, active)
 	}
+	status, data := impersonationStatus(t, srv, impersonating)
+	user, _ := data["user"].(map[string]any)
+	if status.status != http.StatusOK || data["active"] != true || user["id"] != counsel.agentID {
+		t.Fatalf("the impersonation status answered %d %s, want active for counsel", status.status, status.body)
+	}
 
 	stopped := serveCall(t, srv, http.MethodPost, "/api/admin/stop-impersonation", "", impersonating)
 	if stopped.status != http.StatusOK {
 		t.Fatalf("stopping answered %d %s, want 200", stopped.status, stopped.body)
 	}
+	if !impersonationCleared(stopped) {
+		t.Fatalf("stopping did not clear the impersonation cookie")
+	}
+}
+
+// wm-1yjuv. A cookie that names another person than the one signed in — left
+// on a shared browser, or made by hand — is never reported as an
+// impersonation, and the status, identity and stop routes each end it. The
+// stop is recorded against the person who made the request.
+func TestServe_AnImpersonationCookieStartedByAnotherPersonIsNeitherReportedNorKept(t *testing.T) {
+	var accounts authrepos.AccountRepository
+	logs, capture := capturedLogs()
+	srv := passwordInstance(t, fx.Populate(&accounts), capture)
+	ops := signUp(t, srv, "ops@harborlegal.example")
+	counsel := signUp(t, srv, "counsel@cedarrealty.example")
+	broker := signUp(t, srv, "broker@lanternhomes.example")
+	if err := accounts.SaveMember(context.Background(), ops.accountID, counsel.agentID, authentities.RoleMember); err != nil {
+		t.Fatalf("add counsel to the caller's account: %v", err)
+	}
+	started := startImpersonation(t, srv, ops, counsel.agentID)
+	if started.status != http.StatusOK {
+		t.Fatalf("starting an impersonation of a member answered %d %s, want 200", started.status, started.body)
+	}
+	left := withCookies(broker.cookies, started.cookies)
+
+	status, data := impersonationStatus(t, srv, left)
+	if status.status != http.StatusOK || data["active"] != false {
+		t.Fatalf("the status for another person's cookie answered %d %s, want active false", status.status, status.body)
+	}
+	if _, named := data["user"]; named || strings.Contains(status.body, counsel.agentID) {
+		t.Fatalf("the status for another person's cookie names a person: %s", status.body)
+	}
+
+	me := serveCall(t, srv, http.MethodGet, "/api/auth/me", "", left)
+	var identity struct {
+		Data struct {
+			ID            string `json:"id"`
+			Impersonating bool   `json:"impersonating"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(me.body), &identity); err != nil || me.status != http.StatusOK {
+		t.Fatalf("the identity read answered %d %s", me.status, me.body)
+	}
+	if identity.Data.ID != broker.agentID || identity.Data.Impersonating {
+		t.Fatalf("the identity read answered for %q impersonating=%v, want broker, not impersonating",
+			identity.Data.ID, identity.Data.Impersonating)
+	}
+	if !impersonationCleared(me) {
+		t.Fatalf("the identity read did not clear a cookie started by another person")
+	}
+
+	stopped := serveCall(t, srv, http.MethodPost, "/api/admin/stop-impersonation", "", left)
+	if stopped.status != http.StatusOK || !impersonationCleared(stopped) {
+		t.Fatalf("stopping with another person's cookie answered %d %s cleared=%v, want 200 and the cookie cleared",
+			stopped.status, stopped.body, impersonationCleared(stopped))
+	}
+	if lines := logs.mentioning("impersonation stopped"); len(lines) != 0 {
+		t.Fatalf("a stop by broker was recorded as the stop of ops's impersonation:\n%s", strings.Join(lines, "\n"))
+	}
+	cleared := logs.mentioning("not started by the person signed in")
+	if len(cleared) != 1 || !strings.Contains(cleared[0], "agent_id "+broker.agentID) {
+		t.Fatalf("want one line recording that broker cleared the cookie, got:\n%s", strings.Join(cleared, "\n"))
+	}
+}
+
+// wm-1yjuv. Stopping ends an impersonation the protected routes would refuse,
+// rather than being refused with it, and records the person signed in.
+func TestServe_StoppingEndsAnImpersonationTheProtectedRoutesRefuse(t *testing.T) {
+	var store sessions.Store
+	logs, capture := capturedLogs()
+	srv := passwordInstance(t, fx.Populate(&store), capture)
+	ops := signUp(t, srv, "ops@harborlegal.example")
+	counsel := signUp(t, srv, "counsel@cedarrealty.example")
+	stale := withCookies(ops.cookies, mintImpersonationCookie(t, store, counsel.agentID, ops.agentID, ops.accountID))
+
+	stopped := serveCall(t, srv, http.MethodPost, "/api/admin/stop-impersonation", "", stale)
+	if stopped.status != http.StatusOK || !impersonationCleared(stopped) {
+		t.Fatalf("stopping a refused impersonation answered %d %s cleared=%v, want 200 and the cookie cleared",
+			stopped.status, stopped.body, impersonationCleared(stopped))
+	}
+	lines := logs.mentioning("impersonation stopped")
+	if len(lines) != 1 || !strings.Contains(lines[0], ops.agentID) {
+		t.Fatalf("want one stop line naming ops, got:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+// wm-1yjuv. Signing out ends an impersonation, so the next person to sign in
+// on the same browser does not inherit the cookie.
+func TestServe_SigningOutEndsTheImpersonation(t *testing.T) {
+	var accounts authrepos.AccountRepository
+	srv := passwordInstance(t, fx.Populate(&accounts))
+	ops := signUp(t, srv, "ops@harborlegal.example")
+	counsel := signUp(t, srv, "counsel@cedarrealty.example")
+	if err := accounts.SaveMember(context.Background(), ops.accountID, counsel.agentID, authentities.RoleMember); err != nil {
+		t.Fatalf("add counsel to the caller's account: %v", err)
+	}
+	started := startImpersonation(t, srv, ops, counsel.agentID)
+	if started.status != http.StatusOK {
+		t.Fatalf("starting an impersonation of a member answered %d %s, want 200", started.status, started.body)
+	}
+
+	out := serveCall(t, srv, http.MethodPost, "/api/auth/logout", "", withCookies(ops.cookies, started.cookies))
+	if out.status >= http.StatusBadRequest {
+		t.Fatalf("signing out answered %d %s", out.status, out.body)
+	}
+	if !impersonationCleared(out) {
+		t.Fatalf("signing out did not clear the impersonation cookie")
+	}
+}
+
+// mintImpersonationCookie encodes, with the server's own store, the cookie the
+// start route writes for an impersonation of target started by real in
+// account.
+func mintImpersonationCookie(t *testing.T, store sessions.Store, target, real, account string) []*http.Cookie {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/impersonate", nil)
+	rec := httptest.NewRecorder()
+	sess, err := store.New(req, apimw.ImpersonationSessionName)
+	if err != nil {
+		t.Fatalf("start the impersonation session: %v", err)
+	}
+	sess.Values[apimw.KeyImpersonatedAgentID] = target
+	sess.Values[apimw.KeyRealAgentID] = real
+	sess.Values[apimw.KeyRealAccountID] = account
+	if err := sess.Save(req, rec); err != nil {
+		t.Fatalf("save the impersonation session: %v", err)
+	}
+	return rec.Result().Cookies()
+}
+
+// impersonationCleared reports whether answer expired the impersonation cookie.
+func impersonationCleared(answer serveAnswer) bool {
+	c := impersonationCookieIn(answer.cookies)
+	return c != nil && c.MaxAge < 0
+}
+
+// impersonationStatus reads GET /api/admin/impersonation-status with cookies
+// and returns the answer and its data.
+func impersonationStatus(t *testing.T, srv *httptest.Server, cookies []*http.Cookie) (serveAnswer, map[string]any) {
+	t.Helper()
+	answer := serveCall(t, srv, http.MethodGet, "/api/admin/impersonation-status", "", cookies)
+	var envelope struct {
+		Data map[string]any `json:"data"`
+	}
+	if answer.status == http.StatusOK {
+		if err := json.Unmarshal([]byte(answer.body), &envelope); err != nil {
+			t.Fatalf("decode the impersonation status: %v", err)
+		}
+	}
+	return answer, envelope.Data
+}
+
+// capturedLogs replaces the server's logger with one that records every line.
+func capturedLogs() (*bootLogCapture, fx.Option) {
+	logs := &bootLogCapture{}
+	return logs, fx.Decorate(func(entities.Logger) entities.Logger { return logs })
 }
 
 // An impersonation cookie minted before the start route checked membership
@@ -246,19 +409,7 @@ func TestServe_AnImpersonationCookieForAPersonOutsideTheAccountIsNotHonored(t *t
 	counsel := signUp(t, srv, "counsel@cedarrealty.example")
 
 	// The cookie the start route used to write for this request.
-	req := httptest.NewRequest(http.MethodPost, "/api/admin/impersonate", nil)
-	rec := httptest.NewRecorder()
-	sess, err := store.New(req, apimw.ImpersonationSessionName)
-	if err != nil {
-		t.Fatalf("start the impersonation session: %v", err)
-	}
-	sess.Values[apimw.KeyImpersonatedAgentID] = counsel.agentID
-	sess.Values[apimw.KeyRealAgentID] = ops.agentID
-	sess.Values[apimw.KeyRealAccountID] = ops.accountID
-	if err := sess.Save(req, rec); err != nil {
-		t.Fatalf("save the impersonation session: %v", err)
-	}
-	stale := withCookies(ops.cookies, rec.Result().Cookies())
+	stale := withCookies(ops.cookies, mintImpersonationCookie(t, store, counsel.agentID, ops.agentID, ops.accountID))
 
 	if id, active := meAs(t, srv, stale); id != ops.agentID || active {
 		t.Fatalf("the identity read answered for %q impersonating=%v, want ops, not impersonating", id, active)

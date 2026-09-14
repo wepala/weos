@@ -200,33 +200,47 @@ func (h *ImpersonationHandler) Start(c echo.Context) error {
 	})
 }
 
-// Stop ends the current impersonation session.
+// Stop ends the impersonation the request's cookie holds, and always expires
+// the cookie. serve.go mounts it beside the protected group rather than in it,
+// so the impersonation middleware cannot refuse the one request that ends an
+// impersonation it no longer allows. The person recorded as stopping it is the
+// person signed in, never the person the cookie names (wm-1yjuv).
 func (h *ImpersonationHandler) Stop(c echo.Context) error {
+	ctx := c.Request().Context()
+	// Where the middleware did run and applied the impersonation, the person
+	// signed in is the identity it replaced.
+	caller := apimw.ImpersonatorFromCtx(ctx)
+	if caller == nil {
+		caller = auth.AgentFromCtx(ctx)
+	}
+	callerID := ""
+	if caller != nil {
+		callerID = caller.AgentID
+	}
+
+	var realAgentID, targetAgentID string
 	sess, err := h.store.Get(c.Request(), apimw.ImpersonationSessionName)
 	if err != nil {
-		return respond(c, http.StatusOK, map[string]string{"status": "ok"})
+		h.logger.Warn(ctx, "failed to read impersonation session in Stop", "error", err)
+	} else {
+		realAgentID, _ = sess.Values[apimw.KeyRealAgentID].(string)
+		targetAgentID, _ = sess.Values[apimw.KeyImpersonatedAgentID].(string)
 	}
+	apimw.ExpireImpersonationCookie(c.Response())
 
-	realAgentID, _ := sess.Values[apimw.KeyRealAgentID].(string)
-	targetAgentID, _ := sess.Values[apimw.KeyImpersonatedAgentID].(string)
-
-	sess.Options = &sessions.Options{
-		MaxAge:   -1,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteLaxMode,
-	}
-	for key := range sess.Values {
-		delete(sess.Values, key)
-	}
-	if err := sess.Save(c.Request(), c.Response()); err != nil {
-		return respondError(c, http.StatusInternalServerError, "failed to clear impersonation session")
-	}
-
-	if realAgentID != "" {
-		h.logger.Info(c.Request().Context(), "impersonation stopped",
-			"admin_agent_id", realAgentID,
+	switch {
+	case targetAgentID == "":
+		// No impersonation was held, so there is nothing to record.
+	case callerID != "" && realAgentID == callerID:
+		h.logger.Info(ctx, "impersonation stopped",
+			"admin_agent_id", callerID,
+			"target_agent_id", targetAgentID,
+			"ip", c.RealIP(),
+		)
+	default:
+		h.logger.Warn(ctx, "impersonation cookie cleared: it was not started by the person signed in",
+			"agent_id", callerID,
+			"cookie_admin_agent_id", realAgentID,
 			"target_agent_id", targetAgentID,
 			"ip", c.RealIP(),
 		)
@@ -235,23 +249,23 @@ func (h *ImpersonationHandler) Stop(c echo.Context) error {
 	return respond(c, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// Status returns the current impersonation state.
+// Status reports the impersonation the impersonation middleware applied to
+// this request. It reads nothing from the cookie: a cookie the middleware did
+// not apply, because another person started it or because it is no longer
+// allowed, is no impersonation. Naming its person would tell the caller about
+// somebody outside their account (wm-1yjuv).
 func (h *ImpersonationHandler) Status(c echo.Context) error {
-	sess, err := h.store.Get(c.Request(), apimw.ImpersonationSessionName)
-	if err != nil {
+	ctx := c.Request().Context()
+	impersonated := auth.AgentFromCtx(ctx)
+	if apimw.ImpersonatorFromCtx(ctx) == nil || impersonated == nil {
 		return respond(c, http.StatusOK, map[string]any{"active": false})
 	}
 
-	impersonatedAgentID, ok := sess.Values[apimw.KeyImpersonatedAgentID].(string)
-	if !ok || impersonatedAgentID == "" {
-		return respond(c, http.StatusOK, map[string]any{"active": false})
-	}
-
-	name, email := h.resolveAgentInfo(c.Request().Context(), impersonatedAgentID)
+	name, email := h.resolveAgentInfo(ctx, impersonated.AgentID)
 	return respond(c, http.StatusOK, map[string]any{
 		"active": true,
 		"user": map[string]string{
-			"id":    impersonatedAgentID,
+			"id":    impersonated.AgentID,
 			"name":  name,
 			"email": email,
 		},
@@ -310,10 +324,17 @@ func (h *ImpersonationHandler) Me(authHandlers *authhttp.AuthHandlers) echo.Hand
 		}
 		impersonatedAgentID, _ := sess.Values[apimw.KeyImpersonatedAgentID].(string)
 		realAgentID, _ := sess.Values[apimw.KeyRealAgentID].(string)
-		impersonationAccountID, holds := h.impersonationHolds(ctx, agentID, accountID, realAgentID, impersonatedAgentID)
+		impersonationAccountID, holds, judged := h.impersonationHolds(ctx, agentID, accountID, realAgentID, impersonatedAgentID)
 		if !holds {
 			// No impersonation, or a cookie the protected routes would refuse:
-			// answer for the person signed in, as those routes would act.
+			// answer for the person signed in, as those routes would act. A
+			// cookie that was judged and failed is ended here too, so the app
+			// that reads this answer is not refused by the next protected call
+			// (wm-1yjuv). One that could not be judged is left alone: a read
+			// error is no reason to end an impersonation that may still hold.
+			if impersonatedAgentID != "" && judged {
+				apimw.ExpireImpersonationCookie(c.Response())
+			}
 			if agentID == "" {
 				authHandlers.Me(c.Response(), c.Request())
 				return nil
@@ -345,23 +366,24 @@ func (h *ImpersonationHandler) Me(authHandlers *authhttp.AuthHandlers) echo.Hand
 // be applied to a protected request from agentID acting in accountID, and the
 // account the impersonation acts in. It asks what apimw.Impersonation asks, so
 // the identity read never reports an impersonation the protected routes would
-// refuse (wm-ptcuk). Anything unreadable is answered false: the read then
-// reports the person signed in, which grants nothing.
-func (h *ImpersonationHandler) impersonationHolds(ctx context.Context, agentID, accountID, realAgentID, impersonatedAgentID string) (string, bool) {
+// refuse (wm-ptcuk). Anything unreadable is answered holds=false with
+// judged=false: the read then reports the person signed in, which grants
+// nothing, and leaves the cookie as it is.
+func (h *ImpersonationHandler) impersonationHolds(ctx context.Context, agentID, accountID, realAgentID, impersonatedAgentID string) (account string, holds, judged bool) {
 	if impersonatedAgentID == "" || agentID == "" || realAgentID != agentID {
-		return "", false
+		return "", false, true
 	}
 	resolved, err := apimw.ImpersonationAccount(ctx, h.accountRepo, &auth.Identity{AgentID: agentID, ActiveAccountID: accountID})
 	if err != nil {
 		h.logger.Warn(ctx, "could not resolve the account of an impersonation in Me", "agent_id", agentID, "error", err)
-		return "", false
+		return "", false, false
 	}
 	allowed, err := apimw.MayImpersonate(ctx, h.accountRepo, resolved, agentID, impersonatedAgentID)
 	if err != nil {
 		h.logger.Warn(ctx, "could not judge an impersonation in Me", "account_id", resolved, "error", err)
-		return "", false
+		return "", false, false
 	}
-	return resolved, allowed
+	return resolved, allowed, true
 }
 
 // validatedSession checks the session the cookie names, the way the

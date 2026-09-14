@@ -645,8 +645,22 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	featuresGroup.GET("/features", featureHandler.List)
 
 	protected.POST("/admin/impersonate", impersonationHandler.Start)
-	protected.POST("/admin/stop-impersonation", impersonationHandler.Stop)
 	protected.GET("/admin/impersonation-status", impersonationHandler.Status)
+	// Stopping takes the protected group's session checks but not its
+	// Impersonation middleware. That middleware refuses a cookie it no longer
+	// allows, and the request that ends such an impersonation must not be
+	// refused with it (wm-1yjuv). The checks are per-route middleware, not a
+	// new group, so no group's not-found catch-all moves (see featuresGroup).
+	var stopGuards []echo.MiddlewareFunc
+	if appCfg.AuthEnabled() {
+		stopGuards = []echo.MiddlewareFunc{
+			apimw.ErasureGuard(sessionManager, erasureLocks, logger),
+			echo.WrapMiddleware(authhttp.RequireAuth(sessionManager, authService)),
+		}
+	} else {
+		stopGuards = []echo.MiddlewareFunc{apimw.SoftAuth(credentialRepo, agentRepo, accountRepo, logger)}
+	}
+	api.POST("/admin/stop-impersonation", impersonationHandler.Stop, stopGuards...)
 
 	// File upload routes — registered before dynamic catch-all
 	uploadHandler := handlers.NewUploadHandler(fileService, logger, appCfg.Storage.MaxUploadBytes)
