@@ -33,7 +33,8 @@ const (
 
 // OAuthProviderDoor is the provider a trusted issuer (the door) names for an
 // identity it owns itself: a person who signed up to the door with an email
-// and a password, whose address the door proved before it asserts. No registry
+// and a password, or whom the door's operator wrote, whose address the issuer
+// vouches for. No registry
 // entry holds this key — this instance never runs that sign-in itself — so it
 // reaches an instance only through a login assertion, and only with
 // email_verified true, as every other key does.
@@ -43,10 +44,13 @@ const (
 // wm-vvi6t). An issuer sends one provider key and one subject for each person
 // it asserts, so a person who signed up to the door with a password and later
 // signs in through the door with Google reaches this instance as a google
-// identity it has not seen. The door writes a person only after that person
-// reads a code sent to the mailbox, so the person's door credential proves who
-// owns its email for that google or apple identity, which is linked to the
-// person (doorCredentialProvesOwnerFor). A door identity the instance has not
+// identity it has not seen. A door credential means the issuer vouches for its
+// email: the mini-me door proves the address with a code sent to the mailbox
+// at sign-up, and its operator also writes demo and owner people directly. An
+// issuer must only write door credentials for addresses it controls or has
+// proved. So the person's door credential proves who owns its email for that
+// google or apple identity, which is linked to the person
+// (doorCredentialProvesOwnerFor). A door identity the instance has not
 // seen is linked, the same way, to a person whose google, apple or opted-in
 // password credential holds its email, unless a door credential already holds
 // it (below).

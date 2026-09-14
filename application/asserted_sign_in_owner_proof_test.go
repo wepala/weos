@@ -108,9 +108,9 @@ func TestAssertedSignInCountsNoProviderOutsideTheProvingList(t *testing.T) {
 
 // A door password identity and a Google or Apple identity that hold the same
 // email are one person, in both directions, with or without an allowlist
-// (decision wm-vvi6t). The door proved that the person reads the mailbox, with
-// a code, before it wrote the door credential, so for an arriving google or
-// apple identity that credential proves who owns the email.
+// (decision wm-vvi6t). A door credential means the issuer vouches for the
+// email, so for an arriving google or apple identity that credential proves
+// who owns it.
 func TestAssertedSignInJoinsADoorIdentityAndAGoogleOrAppleIdentityForOneEmail(t *testing.T) {
 	cases := map[string]struct {
 		heldProvider, heldSub string

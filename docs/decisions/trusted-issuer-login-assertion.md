@@ -290,9 +290,16 @@ its email only when it is active and its kind proves the email for the arriving 
   sign-in method or a person that someone turned off must not come back through the door.
 - **It is a `google` or `apple` credential**, whose provider verified the address before
   the credential was written. It proves the email for every arriving identity.
-- **Or it is a `door` credential, and the arriving identity is `google` or `apple`.** The
-  door writes a person only after that person enters a code sent to the mailbox, so a
-  `door` credential holds an email its person proved they read (decision `wm-vvi6t`). A
+- **Or it is a `door` credential, and the arriving identity is `google` or `apple`.** A
+  `door` credential means the issuer vouches for its email (decision `wm-vvi6t`). It is
+  not a record that a code was sent. The mini-me door proves the address with a code sent
+  to the mailbox when a person signs up, but its operator also writes people directly,
+  with no code, on two paths: demo people (`writeDemoPerson`, used by
+  `tools/door-register.sh demo`), and owner people (`ownerPerson`, used by
+  `register --identity`, which pairs an owner with the owner's own Google identity).
+  Demo addresses are on a domain that receives no mail, so nobody can hold a Google or
+  Apple account for them. **An issuer must only write `door` credentials for addresses it
+  controls or has proved.** A
   door password identity and a Google or Apple identity with the same email are therefore
   one person, in either order. The issuer sends one provider key and one `sub` for each
   person it asserts, so a person who signed up to the door with a password and later signs
@@ -456,7 +463,9 @@ every connector authorize again.
 - Good: an instance outside the fleet (no `TRUSTED_ISSUER*`) is byte-identical to today.
 - Good: an owner can use Google one day, Apple the next and the door's password after that,
   and stay one account, on an instance with or without an allowlist.
-- Bad: a mailbox proof joins accounts across sign-in methods (decision `wm-vvi6t`). A door
+- Bad: the issuer's word on an email joins accounts across sign-in methods (decision
+  `wm-vvi6t`), and a sign-in method is only as safe as the issuer's rule for writing
+  `door` credentials (see "Which credentials prove ownership"). A door
   password opens a person whose account Google or Apple made, without their recovery or
   second factor, and a link stays made if the rule is taken back later.
 - Bad: on an instance with no allowlist, an email held only by credentials that prove

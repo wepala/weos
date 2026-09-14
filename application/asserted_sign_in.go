@@ -75,10 +75,13 @@ var ownerProvingProviders = map[string]bool{
 }
 
 // doorCredentialProvesOwnerFor are the providers of an arriving identity for
-// which a door credential proves who owns its email. The door writes a person
-// only after that person reads a code sent to the mailbox, so a door password
-// identity and a Google or Apple identity that hold the same email are one
-// person, in either order (decision wm-vvi6t). A door credential proves nothing
+// which a door credential proves who owns its email. A door credential means
+// the issuer vouches for its email: the mini-me door proves the address with a
+// code sent to the mailbox when a person signs up, and the door's operator also
+// writes demo people and owner people directly, with no code. An issuer must
+// only write door credentials for addresses it controls or has proved. On that
+// word, a door password identity and a Google or Apple identity that hold the
+// same email are one person, in either order (decision wm-vvi6t). A door credential proves nothing
 // for another door identity: the door sends one subject for each person it
 // holds, so a second door subject for an email comes only from an operator
 // re-creating the person, and that person is not joined to the first. While an
