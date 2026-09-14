@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/akeemphilbert/pericarp/pkg/auth"
@@ -398,6 +399,50 @@ func TestBearerOrSession_FailsClosedWhenTheMembershipCannotBeRead(t *testing.T) 
 		map[string]string{"Authorization": "Bearer t"})
 	if rec.Code != http.StatusServiceUnavailable || identity != nil {
 		t.Fatalf("got %d %s (identity %+v), want 503 and no identity", rec.Code, rec.Body.String(), identity)
+	}
+}
+
+// wm-8i8ln: a token the OAuth token endpoint issued to a connector carries
+// token_use=oauth. A group that passed RefuseConnectorTokens refuses it with
+// 403 token_not_allowed and an insufficient_scope challenge; a group that did
+// not takes it; and a token without the mark is taken everywhere.
+func TestBearerOrSession_RefusesAConnectorsTokenOnlyWhereTold(t *testing.T) {
+	connector := &authapp.PericarpClaims{AgentID: "ops", AccountIDs: []string{"acct-harbor"}, ActiveAccountID: "acct-harbor",
+		Extras: map[string]any{"token_use": "oauth"}}
+	native := &authapp.PericarpClaims{AgentID: "ops", AccountIDs: []string{"acct-harbor"}, ActiveAccountID: "acct-harbor"}
+	book := accountBook{
+		accounts: map[string]*authentities.Account{"acct-harbor": account(t, "acct-harbor", true)},
+		roles:    map[string]string{"ops|acct-harbor": authentities.RoleOwner},
+	}
+	noSession := func(next http.Handler) http.Handler { return next }
+	bySession := func(next echo.HandlerFunc) echo.HandlerFunc { return next }
+	cases := []struct {
+		name    string
+		mw      echo.MiddlewareFunc
+		refused bool
+	}{
+		{"a connector's token where connectors are taken", BearerOrSession(claimsFor{claims: connector}, noSession, "http://x", book, lockSet{}), false},
+		{"a connector's token where they are refused", BearerOrSession(claimsFor{claims: connector}, noSession, "http://x", book, lockSet{}, RefuseConnectorTokens()), true},
+		{"a native token where connectors are refused", BearerOrSession(claimsFor{claims: native}, noSession, "http://x", book, lockSet{}, RefuseConnectorTokens()), false},
+		{"a connector's token on the deletion", BearerOrSessionForErasure(claimsFor{claims: connector}, "http://x", book, lockSet{}, bySession, RefuseConnectorTokens()), true},
+		{"a native token on the deletion", BearerOrSessionForErasure(claimsFor{claims: native}, "http://x", book, lockSet{}, bySession, RefuseConnectorTokens()), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec, identity, _ := serve(tc.mw, false, map[string]string{"Authorization": "Bearer t"})
+			if !tc.refused {
+				if rec.Code != http.StatusOK || identity == nil || identity.AgentID != "ops" {
+					t.Fatalf("got %d %s (identity %+v), want 200 for ops", rec.Code, rec.Body.String(), identity)
+				}
+				return
+			}
+			if rec.Code != http.StatusForbidden || identity != nil || codeOf(t, rec) != CodeTokenNotAllowed {
+				t.Fatalf("got %d %s (identity %+v), want 403 %s and no identity", rec.Code, rec.Body.String(), identity, CodeTokenNotAllowed)
+			}
+			if challenge := rec.Header().Get("WWW-Authenticate"); !strings.Contains(challenge, `error="insufficient_scope"`) {
+				t.Fatalf("challenge = %q, want insufficient_scope", challenge)
+			}
+		})
 	}
 }
 

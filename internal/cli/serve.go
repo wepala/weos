@@ -457,6 +457,11 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 		// over a cookie beside it. Preset handlers mounted Protected inherit
 		// this.
 		//
+		// It takes a native sign-in's token only. A token a third-party
+		// connector got from /oauth/token is refused here (wm-8i8ln): a person
+		// connecting a client agrees to the MCP and agent routes, not to roles,
+		// invites, impersonation or the account itself.
+		//
 		// The erasure guard goes first, around the session auth: an account
 		// whose deletion began and did not finish is refused everywhere with
 		// the code that says so, where RequireAuth alone would call it merely
@@ -465,7 +470,8 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 		// mounted on its own group below.
 		sessionAuth := authhttp.RequireAuth(sessionManager, authService)
 		protected.Use(apimw.ErasureGuard(sessionManager, erasureLocks, logger, apimw.DeferToBearer()))
-		protected.Use(apimw.BearerOrSession(jwtService, sessionAuth, baseURL, accountRepo, erasureLocks))
+		protected.Use(apimw.BearerOrSession(jwtService, sessionAuth, baseURL, accountRepo, erasureLocks,
+			apimw.RefuseConnectorTokens()))
 		protected.Use(apimw.Impersonation(sessionStore, accountRepo, erasureLocks, logger))
 		protected.Use(apimw.AuthorizeResource(authzChecker, accountRepo, logger))
 	} else {
@@ -479,7 +485,8 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	// than act as the impersonated person. It takes a bearer token as the
 	// protected group does (wm-aj2eb), so an app in a native shell can offer
 	// the in-app deletion; a token scoped to a locked account is admitted here
-	// as a session scoped to one is.
+	// as a session scoped to one is. A connector's token is refused, as on the
+	// protected group (wm-8i8ln).
 	accountHandler := handlers.NewAccountHandler(handlers.AccountHandlerConfig{
 		Erasure:        erasureService,
 		Accounts:       accountRepo,
@@ -494,7 +501,8 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	accountGroup := api.Group("")
 	if appCfg.AuthEnabled() {
 		accountGroup.Use(apimw.BearerOrSessionForErasure(jwtService, baseURL, accountRepo, erasureLocks,
-			apimw.SessionAuthForErasure(sessionManager, authService, accountRepo, erasureLocks, logger)))
+			apimw.SessionAuthForErasure(sessionManager, authService, accountRepo, erasureLocks, logger),
+			apimw.RefuseConnectorTokens()))
 	} else {
 		accountGroup.Use(apimw.SoftAuth(credentialRepo, agentRepo, accountRepo, logger))
 	}
@@ -672,7 +680,8 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 
 	// MCP + in-app agent routes — registered before dynamic catch-all. Both
 	// share one auth stack (BearerOrSession under OAuth or a trusted issuer,
-	// SoftAuth otherwise; see sessionStack).
+	// SoftAuth otherwise; see sessionStack). This is the group a connector's
+	// token is for, so it takes one; the protected group does not.
 	mcpGroup := api.Group("")
 	if sessionStack {
 		sessionAuth := authhttp.RequireAuth(sessionManager, authService)

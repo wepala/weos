@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/wepala/weos/v3/domain/repositories"
+	weosoauth "github.com/wepala/weos/v3/internal/oauth"
 
 	"github.com/akeemphilbert/pericarp/pkg/auth"
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
@@ -50,6 +51,9 @@ import (
 // "account_access_revoked"} — and is given before anything about the
 // account's own state, as the session path gives it.
 //
+// A group that must not answer a third-party connector passes
+// RefuseConnectorTokens.
+//
 // Unauthenticated requests receive a 401 with WWW-Authenticate header per the
 // MCP Authorization spec, pointing to the Protected Resource Metadata endpoint.
 func BearerOrSession(
@@ -58,20 +62,56 @@ func BearerOrSession(
 	baseURL string,
 	accounts authrepos.AccountRepository,
 	locks repositories.AccountErasureLocks,
+	opts ...BearerOption,
 ) echo.MiddlewareFunc {
-	challenge := newBearerChallenge(baseURL)
+	check := newTokenCheck(jwtService, baseURL, accounts, locks, opts)
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			token := extractBearer(c.Request())
 			if token == "" {
 				// No Bearer token — fall through to session auth.
-				return sessionAuthEcho(sessionAuth, next, challenge.plain)(c)
+				return sessionAuthEcho(sessionAuth, next, check.challenge.plain)(c)
 			}
-			return authenticateToken(c, next, token, tokenCheck{
-				jwtService: jwtService, accounts: accounts, locks: locks, challenge: challenge,
-			})
+			return authenticateToken(c, next, token, check)
 		}
 	}
+}
+
+// CodeTokenNotAllowed is the code a valid token is refused with on a route its
+// kind of token does not reach: a connector's token on a group that passed
+// RefuseConnectorTokens.
+const CodeTokenNotAllowed = "token_not_allowed"
+
+// BearerOption tunes the token path for the group it guards.
+type BearerOption func(*tokenCheck)
+
+// RefuseConnectorTokens refuses a token the OAuth token endpoint issued to a
+// third-party connector (wm-8i8ln). Such a token is for the MCP and agent
+// routes a person agreed to connect the client to; the group that takes this
+// option answers only a native sign-in's token. A token that carries no
+// connector mark — every native sign-in's, including one issued before the
+// mark existed — is unaffected.
+//
+// The refusal is 403 {"error":"insufficient_scope","code":"token_not_allowed"}
+// with an insufficient_scope challenge (RFC 6750 section 3.1), not 401
+// invalid_token: the token is valid, and a connector told invalid_token
+// refreshes it and tries again, for a token no refresh can make acceptable.
+func RefuseConnectorTokens() BearerOption {
+	return func(c *tokenCheck) { c.refuseConnectorTokens = true }
+}
+
+func newTokenCheck(
+	jwtService authapp.JWTService, baseURL string,
+	accounts authrepos.AccountRepository, locks repositories.AccountErasureLocks,
+	opts []BearerOption,
+) tokenCheck {
+	check := tokenCheck{
+		jwtService: jwtService, accounts: accounts, locks: locks, challenge: newBearerChallenge(baseURL),
+	}
+	for _, opt := range opts {
+		opt(&check)
+	}
+	return check
 }
 
 // BearerOrSessionForErasure authenticates the account deletion route. A
@@ -88,11 +128,10 @@ func BearerOrSessionForErasure(
 	accounts authrepos.AccountRepository,
 	locks repositories.AccountErasureLocks,
 	sessionAuth echo.MiddlewareFunc,
+	opts ...BearerOption,
 ) echo.MiddlewareFunc {
-	check := tokenCheck{
-		jwtService: jwtService, accounts: accounts, locks: locks,
-		challenge: newBearerChallenge(baseURL), admitErasureLocked: true,
-	}
+	check := newTokenCheck(jwtService, baseURL, accounts, locks, opts)
+	check.admitErasureLocked = true
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		bySession := sessionAuth(next)
 		return func(c echo.Context) error {
@@ -107,10 +146,12 @@ func BearerOrSessionForErasure(
 
 // bearerChallenge holds the WWW-Authenticate values the bearer path answers
 // with: plain for a request with no credentials, invalidToken for a token
-// that is refused.
+// that is refused, insufficientScope for a valid token this route does not
+// take.
 type bearerChallenge struct {
-	plain        string
-	invalidToken string
+	plain             string
+	invalidToken      string
+	insufficientScope string
 }
 
 func newBearerChallenge(baseURL string) bearerChallenge {
@@ -120,17 +161,20 @@ func newBearerChallenge(baseURL string) bearerChallenge {
 		plain: `Bearer ` + resourceMetadata,
 		invalidToken: `Bearer ` + resourceMetadata +
 			`, error="invalid_token", error_description="The access token is invalid or expired"`,
+		insufficientScope: `Bearer ` + resourceMetadata +
+			`, error="insufficient_scope", error_description="A connector's access token does not reach this route"`,
 	}
 }
 
 // tokenCheck is what the token path needs. admitErasureLocked is set only for
-// the deletion route.
+// the deletion route; refuseConnectorTokens by RefuseConnectorTokens.
 type tokenCheck struct {
-	jwtService         authapp.JWTService
-	accounts           authrepos.AccountRepository
-	locks              repositories.AccountErasureLocks
-	challenge          bearerChallenge
-	admitErasureLocked bool
+	jwtService            authapp.JWTService
+	accounts              authrepos.AccountRepository
+	locks                 repositories.AccountErasureLocks
+	challenge             bearerChallenge
+	admitErasureLocked    bool
+	refuseConnectorTokens bool
 }
 
 // authenticateToken is the token path: it validates token and, when the token
@@ -176,6 +220,12 @@ func authenticateToken(c echo.Context, next echo.HandlerFunc, token string, chec
 			}
 			locked = true
 		}
+	}
+
+	if check.refuseConnectorTokens && weosoauth.IssuedToConnector(claims) {
+		c.Response().Header().Set("WWW-Authenticate", check.challenge.insufficientScope)
+		return c.JSON(http.StatusForbidden,
+			map[string]string{"error": "insufficient_scope", "code": CodeTokenNotAllowed})
 	}
 
 	admit(c, &auth.Identity{

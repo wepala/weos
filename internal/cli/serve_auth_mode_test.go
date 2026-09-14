@@ -159,6 +159,7 @@ type serveAnswer struct {
 	status  int
 	body    string
 	cookies []*http.Cookie
+	header  http.Header
 }
 
 func serveCall(t *testing.T, srv *httptest.Server, method, path, body string, cookies []*http.Cookie) serveAnswer {
@@ -211,7 +212,7 @@ func serveSend(t *testing.T, req *http.Request) serveAnswer {
 	if err != nil {
 		t.Fatalf("read %s %s: %v", method, path, err)
 	}
-	return serveAnswer{status: resp.StatusCode, body: strings.TrimSpace(string(raw)), cookies: resp.Cookies()}
+	return serveAnswer{status: resp.StatusCode, body: strings.TrimSpace(string(raw)), cookies: resp.Cookies(), header: resp.Header}
 }
 
 // offersTheDoor reports whether GET /api/auth/providers lists the issuer.
