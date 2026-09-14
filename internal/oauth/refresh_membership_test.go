@@ -28,6 +28,7 @@ import (
 	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
 	"github.com/labstack/echo/v4"
+	"gorm.io/gorm"
 )
 
 // oneAgent answers FindByID with the agent it holds.
@@ -88,6 +89,83 @@ func refreshWith(t *testing.T, accounts membership) (*httptest.ResponseRecorder,
 		t.Fatalf("handler returned error: %v", err)
 	}
 	return rec, jwt, refreshRepo, raw
+}
+
+// exchangeWith exchanges an issued authorization code for Dana Whitfield in
+// acct-harbor, answering membership with accounts. It returns the response, the
+// JWT recorder and the database, so a test can count the refresh tokens kept.
+func exchangeWith(t *testing.T, accounts membership) (*httptest.ResponseRecorder, *issuing, *gorm.DB) {
+	t.Helper()
+	db := setupTestDB(t)
+	codeRepo := NewAuthCodeRepository(db)
+	ctx := context.Background()
+	verifier, err := authapp.GenerateCodeVerifier()
+	mustNoErr(t, err, "make a code verifier")
+	authCode := &OAuthAuthorizationCode{
+		ClientID:            "client-notes",
+		RedirectURI:         "https://notes.example.com/cb",
+		CodeChallenge:       authapp.GenerateCodeChallenge(verifier),
+		CodeChallengeMethod: "S256",
+		Status:              StatusPending,
+	}
+	mustNoErr(t, codeRepo.Create(ctx, authCode), "create code")
+	mustNoErr(t, codeRepo.UpdateIdentity(ctx, authCode.Code, "agent-ops", "acct-harbor"), "issue the code")
+
+	agent, err := (&authentities.Agent{}).With("agent-ops", "Dana Whitfield", authentities.AgentTypePerson)
+	mustNoErr(t, err, "make the agent")
+	jwt := &issuing{}
+	handler := Token(jwt, codeRepo, NewRefreshTokenRepository(db), oneAgent{agent: agent}, accounts, noopLogger{})
+
+	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(newTokenRequest(tokenForm(map[string]string{
+		"grant_type": "authorization_code", "code": authCode.Code, "code_verifier": verifier,
+		"client_id": "client-notes", "redirect_uri": "https://notes.example.com/cb",
+	})), rec)
+	if err := handler(c); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+	return rec, jwt, db
+}
+
+func refreshTokensKept(t *testing.T, db *gorm.DB) int64 {
+	t.Helper()
+	var n int64
+	mustNoErr(t, db.Model(&OAuthRefreshToken{}).Count(&n).Error, "count refresh tokens")
+	return n
+}
+
+// wm-aj2eb (Copilot review on #566): the person must still belong to the
+// account when the code is exchanged, not only when it was authorized. A person
+// removed in between gets invalid_grant and no refresh token is kept, so adding
+// them back later does not revive the connector; a membership that cannot be
+// read issues nothing.
+func TestTokenHandler_AuthCode_ChecksTheMembership(t *testing.T) {
+	t.Run("a member", func(t *testing.T) {
+		rec, jwt, db := exchangeWith(t, membership{role: authentities.RoleOwner})
+		if rec.Code != http.StatusOK || !jwt.issued || refreshTokensKept(t, db) != 1 {
+			t.Fatalf("got %d %s (issued %v), want 200, a token and one refresh token", rec.Code, rec.Body.String(), jwt.issued)
+		}
+	})
+
+	t.Run("removed after authorizing", func(t *testing.T) {
+		rec, jwt, db := exchangeWith(t, membership{})
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"invalid_grant"`) || jwt.issued {
+			t.Fatalf("got %d %s (issued %v), want 400 invalid_grant and no token", rec.Code, rec.Body.String(), jwt.issued)
+		}
+		if n := refreshTokensKept(t, db); n != 0 {
+			t.Fatalf("%d refresh token(s) kept for a person who is no longer a member, want 0", n)
+		}
+	})
+
+	t.Run("the membership cannot be read", func(t *testing.T) {
+		rec, jwt, db := exchangeWith(t, membership{err: errors.New("database away")})
+		if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), `"server_error"`) || jwt.issued {
+			t.Fatalf("got %d %s (issued %v), want 500 server_error and no token", rec.Code, rec.Body.String(), jwt.issued)
+		}
+		if n := refreshTokensKept(t, db); n != 0 {
+			t.Fatalf("%d refresh token(s) kept when the membership could not be read, want 0", n)
+		}
+	})
 }
 
 // wm-mo1bp: a member refreshes, and the new access token carries the connector

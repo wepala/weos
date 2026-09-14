@@ -173,6 +173,28 @@ func handleAuthCodeGrant(
 		})
 	}
 
+	// The person must still belong to the account at exchange time, not only
+	// when they authorized (wm-aj2eb). A person removed in between gets no
+	// token pair: a refresh token kept now would outlive the removal and mint
+	// access again if they were added back, without a new authorization. The
+	// code is already claimed, so a refused exchange cannot be retried. A
+	// membership that cannot be read issues nothing.
+	role, err := accountRepo.FindMemberRole(ctx, authCode.AccountID, authCode.AgentID)
+	if err != nil {
+		logger.Error(ctx, "oauth token: membership lookup failed",
+			"agent", authCode.AgentID, "account", authCode.AccountID, "error", err)
+		return c.JSON(http.StatusInternalServerError, tokenErrorResponse{
+			Error: "server_error",
+		})
+	}
+	if role == "" {
+		logger.Warn(ctx, "oauth token: agent is no longer a member of the authorized account — issuing nothing",
+			"agent", authCode.AgentID, "account", authCode.AccountID, "client", authCode.ClientID)
+		return c.JSON(http.StatusBadRequest, tokenErrorResponse{
+			Error: "invalid_grant",
+		})
+	}
+
 	agent, err := agentRepo.FindByID(ctx, authCode.AgentID)
 	if err != nil {
 		logger.Error(ctx, "oauth token: agent lookup failed",
