@@ -495,25 +495,45 @@ func bootSigningKeyPEM(t *testing.T) string {
 // holds and signs the app out. An operator who turns on a trusted issuer is
 // told so at boot: one warning that names JWT_SIGNING_KEY and says the tokens
 // will not survive a restart. The key itself is never logged.
+//
+// The warning is about tokens the door's sign-in hands out, so it is given only
+// when POST /api/auth/assert is mounted. A partly configured issuer, or one on
+// core's public session secret, mounts no route and issues no such token: it
+// already logs why the route is not mounted, and a second line about tokens it
+// cannot issue would only mislead (Copilot review on PR #565).
 func TestServe_WarnsAtBootWhenATrustedIssuersTokensWillNotSurviveARestart(t *testing.T) {
 	door := newBootDoor(t)
 	key := bootSigningKeyPEM(t)
 	cases := map[string]struct {
-		issuer bool
-		key    string
-		warns  int
+		issuer       bool
+		partial      bool
+		publicSecret bool
+		key          string
+		warns        int
 	}{
 		"a trusted issuer with no signing key":   {issuer: true, key: "", warns: 1},
 		"a trusted issuer with a signing key":    {issuer: true, key: key, warns: 0},
 		"no trusted issuer and no signing key":   {issuer: false, key: "", warns: 0},
 		"a trusted issuer with an ephemeral key": {issuer: true, key: "auto", warns: 1},
+		"a partly configured trusted issuer with no signing key": {
+			issuer: true, partial: true, key: "", warns: 0,
+		},
+		"a trusted issuer on the public session secret with no signing key": {
+			issuer: true, publicSecret: true, key: "", warns: 0,
+		},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			cfg := config.Default()
 			cfg.SessionSecret = bootOwnSecret
+			if c.publicSecret {
+				cfg.SessionSecret = config.DefaultSessionSecret
+			}
 			if c.issuer {
 				cfg.TrustedIssuer = door.settings()
+			}
+			if c.partial {
+				cfg.TrustedIssuer.Audience = ""
 			}
 			cfg.OAuth.JWTSigningKey = c.key
 			logs := &bootLogCapture{}
