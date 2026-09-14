@@ -34,13 +34,17 @@ import (
 )
 
 // Refusal codes a client tells apart. The first three are pericarp's, written
-// by RequireAuth; the fourth is this package's, and it is the one an app
-// answers with "finish deleting your account".
+// by RequireAuth. The other two are this package's: account_erasure_pending is
+// the one an app answers with "finish deleting your account", and
+// account_gone, which only the bearer path gives, says the token's account no
+// longer exists — after a deletion the app shows that it is done, rather than
+// offering to sign in to an account that is gone (wm-sx2zx).
 const (
 	CodeUnscopedSession       = "unscoped_session"
 	CodeAccountAccessRevoked  = "account_access_revoked"
 	CodeAccountDeactivated    = "account_deactivated"
 	CodeAccountErasurePending = "account_erasure_pending"
+	CodeAccountGone           = "account_gone"
 )
 
 type erasureLockedKey struct{}
