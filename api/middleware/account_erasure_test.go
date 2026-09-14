@@ -402,6 +402,47 @@ func TestBearerOrSession_FailsClosedWhenTheMembershipCannotBeRead(t *testing.T) 
 	}
 }
 
+// wm-92vba: a token that names no account is refused as the session path
+// refuses a session that names none — 401 {"error":"not authenticated",
+// "code":"unscoped_session"} — with the challenge a refused token carries, on
+// the protected routes and on the deletion alike. Before, it was admitted with
+// an identity that named no account.
+func TestBearerOrSession_RefusesATokenThatNamesNoAccount(t *testing.T) {
+	unscoped := &authapp.PericarpClaims{AgentID: "ops"}
+	book := accountBook{
+		accounts: map[string]*authentities.Account{"acct-harbor": account(t, "acct-harbor", true)},
+		roles:    map[string]string{"ops|acct-harbor": authentities.RoleOwner},
+		members:  map[string][]*authentities.Account{"ops": {account(t, "acct-harbor", true)}},
+	}
+	noSession := func(next http.Handler) http.Handler { return next }
+	sessionAsked := false
+	bySession := func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error { sessionAsked = true; return next(c) }
+	}
+	for name, mw := range map[string]echo.MiddlewareFunc{
+		"BearerOrSession":           BearerOrSession(claimsFor{claims: unscoped}, noSession, "http://x", book, lockSet{}),
+		"BearerOrSessionForErasure": BearerOrSessionForErasure(claimsFor{claims: unscoped}, "http://x", book, lockSet{}, bySession),
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec, identity, _ := serve(mw, true, map[string]string{"Authorization": "Bearer t"})
+			if rec.Code != http.StatusUnauthorized || identity != nil || sessionAsked {
+				t.Fatalf("got %d %s (identity %+v, session asked %v), want 401 with no identity and no session asked",
+					rec.Code, rec.Body.String(), identity, sessionAsked)
+			}
+			var body map[string]string
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("body %q is not JSON: %v", rec.Body.String(), err)
+			}
+			if body["error"] != "not authenticated" || body["code"] != CodeUnscopedSession || len(body) != 2 {
+				t.Fatalf("body = %s, want the session path's {\"error\":\"not authenticated\",\"code\":%q}", rec.Body.String(), CodeUnscopedSession)
+			}
+			if !strings.Contains(rec.Header().Get("WWW-Authenticate"), `error="invalid_token"`) {
+				t.Errorf("challenge = %q, want invalid_token", rec.Header().Get("WWW-Authenticate"))
+			}
+		})
+	}
+}
+
 // wm-8i8ln: a token the OAuth token endpoint issued to a connector carries
 // token_use=oauth. A group that passed RefuseConnectorTokens refuses it with
 // 403 token_not_allowed and an insufficient_scope challenge; a group that did

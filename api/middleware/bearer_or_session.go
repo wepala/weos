@@ -35,7 +35,13 @@ import (
 // an auth.Identity is injected into context. When no Bearer token is present,
 // the request is passed through the sessionAuth middleware (pericarp RequireAuth).
 //
-// A valid token is not the whole answer: the token's account is looked up,
+// A valid token is not the whole answer. A token that names no account is
+// refused as the session path refuses a session that names none: 401
+// {"error":"not authenticated","code":"unscoped_session"} (wm-92vba). No
+// sign-in issues one, and an identity with no account would reach handlers
+// that assume one.
+//
+// The token's account is then looked up,
 // the one lookup the session path always made. A token issued before its
 // account was erased would otherwise authenticate until it expired, and a
 // write through it would recreate rows — and a per-account graph directory —
@@ -177,10 +183,11 @@ type tokenCheck struct {
 	refuseConnectorTokens bool
 }
 
-// authenticateToken is the token path: it validates token and, when the token
-// names an account, checks that the account exists, that the token's person
-// still belongs to it, and that it is active. It writes the refusal itself, or
-// puts the token's identity in the request's context and calls next.
+// authenticateToken is the token path: it validates token, refuses one that
+// names no account, and checks that the account exists, that the token's
+// person still belongs to it, and that it is active. It writes the refusal
+// itself, or puts the token's identity in the request's context and calls
+// next.
 func authenticateToken(c echo.Context, next echo.HandlerFunc, token string, check tokenCheck) error {
 	ctx := c.Request().Context()
 	claims, err := check.jwtService.ValidateToken(ctx, token)
@@ -188,38 +195,43 @@ func authenticateToken(c echo.Context, next echo.HandlerFunc, token string, chec
 		return refuseToken(c, check.challenge, "")
 	}
 
+	if claims.ActiveAccountID == "" {
+		// The session path's own 401 for a session that names no account, with
+		// the challenge a refused token carries (wm-92vba).
+		c.Response().Header().Set("WWW-Authenticate", check.challenge.invalidToken)
+		return refuse(c, CodeUnscopedSession)
+	}
+
+	state, err := stateOfAccount(ctx, claims.ActiveAccountID, check.accounts, check.locks)
+	if err != nil {
+		// Fail closed: the account's state could not be read, so the token is
+		// not known to be good.
+		return accountStateUnreadable(c)
+	}
+	if state == accountGone {
+		return refuseToken(c, check.challenge, "")
+	}
+	role, err := check.accounts.FindMemberRole(ctx, claims.ActiveAccountID, claims.AgentID)
+	if err != nil {
+		// Fail closed, as for an unreadable account state.
+		return accountStateUnreadable(c)
+	}
+	if role == "" {
+		// The session path's own 401, body and all — the identity read pins
+		// that shape for a token (wm-qqoq2) — with the challenge a refused
+		// token carries.
+		c.Response().Header().Set("WWW-Authenticate", check.challenge.invalidToken)
+		return refuse(c, CodeAccountAccessRevoked)
+	}
 	locked := false
-	if claims.ActiveAccountID != "" {
-		state, err := stateOfAccount(ctx, claims.ActiveAccountID, check.accounts, check.locks)
-		if err != nil {
-			// Fail closed: the account's state could not be read, so the
-			// token is not known to be good.
-			return accountStateUnreadable(c)
+	switch state {
+	case accountSuspended:
+		return refuseToken(c, check.challenge, CodeAccountDeactivated)
+	case accountErasurePending:
+		if !check.admitErasureLocked {
+			return refuseToken(c, check.challenge, CodeAccountErasurePending)
 		}
-		if state == accountGone {
-			return refuseToken(c, check.challenge, "")
-		}
-		role, err := check.accounts.FindMemberRole(ctx, claims.ActiveAccountID, claims.AgentID)
-		if err != nil {
-			// Fail closed, as for an unreadable account state.
-			return accountStateUnreadable(c)
-		}
-		if role == "" {
-			// The session path's own 401, body and all — the identity read
-			// pins that shape for a token (wm-qqoq2) — with the challenge a
-			// refused token carries.
-			c.Response().Header().Set("WWW-Authenticate", check.challenge.invalidToken)
-			return refuse(c, CodeAccountAccessRevoked)
-		}
-		switch state {
-		case accountSuspended:
-			return refuseToken(c, check.challenge, CodeAccountDeactivated)
-		case accountErasurePending:
-			if !check.admitErasureLocked {
-				return refuseToken(c, check.challenge, CodeAccountErasurePending)
-			}
-			locked = true
-		}
+		locked = true
 	}
 
 	if check.refuseConnectorTokens && weosoauth.IssuedToConnector(claims) {

@@ -327,3 +327,43 @@ func TestServe_ALockedAccountsTokenIsRefusedButMayFinishTheDeletion(t *testing.T
 		t.Fatalf("DELETE /api/account with a locked account's token answered %d %s, want 200 finishing the deletion", finish.status, finish.body)
 	}
 }
+
+// wm-92vba. A token that names no account is refused on every route that takes
+// a token — the protected API, the MCP group and the deletion — with the answer
+// the session path gives a session that names none, unscoped_session. No sign-in
+// issues such a token; this pins the refusal for any issuer that ever does.
+func TestServe_ATokenThatNamesNoAccountIsRefusedAsAnUnscopedSessionIs(t *testing.T) {
+	door := newBootDoor(t)
+	var jwtService authapp.JWTService
+	var agents authrepos.AgentRepository
+	srv := bootServe(t, trustedIssuerConfig(door), withProtectedPresetProbe(), fx.Populate(&jwtService, &agents))
+	owner := signInThroughTheDoor(t, srv, door, bootOwnerEmail, bootOwnerSubject, bootOwnerName)
+
+	ctx := context.Background()
+	agent, err := agents.FindByID(ctx, owner.agentID)
+	if err != nil || agent == nil {
+		t.Fatalf("read the person: %v", err)
+	}
+	unscoped, err := jwtService.IssueToken(ctx, agent, nil, "", nil, nil)
+	if err != nil {
+		t.Fatalf("issue a token that names no account: %v", err)
+	}
+
+	for _, call := range []struct{ method, path, body string }{
+		{http.MethodGet, "/api/resource-types", ""},
+		{http.MethodGet, "/api" + presetProbePath, ""},
+		{http.MethodDelete, "/api/account", confirmDeletion},
+	} {
+		got := serveRequest(t, srv, call.method, call.path, call.body, unscoped, nil)
+		if got.status != http.StatusUnauthorized || refusalCode(got.body) != "unscoped_session" {
+			t.Errorf("%s %s with a token that names no account answered %d %s, want 401 unscoped_session", call.method, call.path, got.status, got.body)
+		}
+	}
+	if got := bearerMCPCall(t, srv, unscoped); got.status != http.StatusUnauthorized || refusalCode(got.body) != "unscoped_session" {
+		t.Errorf("POST /api/mcp with a token that names no account answered %d %s, want 401 unscoped_session", got.status, got.body)
+	}
+	// The owner's own token, which names the account, is untouched.
+	if got := serveRequest(t, srv, http.MethodGet, "/api/resource-types", "", owner.token, nil); got.status != http.StatusOK {
+		t.Fatalf("GET /api/resource-types with the door's token answered %d %s, want 200", got.status, got.body)
+	}
+}
