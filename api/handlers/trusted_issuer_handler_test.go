@@ -534,11 +534,12 @@ func TestNewTrustedIssuerAssertionHandlerVerifiesAgainstTheSettings(t *testing.T
 	// proves the constructor hands deps.Now to the verifier.
 	now := time.Unix(1_789_000_000, 0)
 
-	cases := map[string]struct {
+	type assertCase struct {
 		mutate     func(c gojwt.MapClaims)
 		wantStatus int
 		wantCode   string
-	}{
+	}
+	cases := map[string]assertCase{
 		"an assertion the settings trust":       {func(gojwt.MapClaims) {}, http.StatusOK, ""},
 		"another issuer":                        {func(c gojwt.MapClaims) { c["iss"] = "https://door.cedarrealty.example" }, http.StatusUnauthorized, "iss"},
 		"another audience":                      {func(c gojwt.MapClaims) { c["aud"] = "9f8e7d6c" }, http.StatusUnauthorized, "aud"},
@@ -547,6 +548,19 @@ func TestNewTrustedIssuerAssertionHandlerVerifiesAgainstTheSettings(t *testing.T
 		"good by the real clock, not the given": {func(c gojwt.MapClaims) { c["iat"], c["exp"] = time.Now().Unix(), time.Now().Add(45*time.Second).Unix() }, http.StatusUnauthorized, "window"},
 		"an email the allowlist does not name":  {func(c gojwt.MapClaims) { c["email"] = "marcus.okafor@harborlegal.example" }, http.StatusUnauthorized, "allowlist"},
 		"the listed email in other capitals":    {func(c gojwt.MapClaims) { c["email"] = "Ops@HarborLegal.example" }, http.StatusOK, ""},
+		// The door signs identities it owns itself, an email and a password
+		// whose address it proved before it asserts. Its key is accepted, and
+		// with the unverified case below for the same key, the pair shows the
+		// email_verified check refuses it, not the provider check.
+		"the door's own provider, its email verified": {func(c gojwt.MapClaims) { c["provider"] = "door" }, http.StatusOK, ""},
+	}
+	// email_verified stays strict for every key the settings accept, the door's
+	// included.
+	for _, provider := range application.OAuthProviderKeys() {
+		cases["provider "+provider+", its email not verified"] = assertCase{
+			func(c gojwt.MapClaims) { c["provider"], c["email_verified"] = provider, false },
+			http.StatusUnauthorized, "claims",
+		}
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {

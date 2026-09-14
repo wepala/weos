@@ -55,6 +55,15 @@ Feature: Verifying a login assertion from a trusted issuer
     And "ops@harborlegal.example" holds an authenticated session
     And the answer names no refusal reason
 
+  @wm-x0l4m
+  Scenario: An assertion for a person who signed up to the door with an email and a password signs the person in
+    Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
+    And the issuer publishes only the signing key "door-2026-09"
+    When the door presents an assertion for "ops@harborlegal.example" naming the sign-in provider "door"
+    Then the sign-in succeeds
+    And "ops@harborlegal.example" holds an authenticated session
+    And the answer names no refusal reason
+
   @story-wm-63gg0.1
   Scenario: An assertion minted to live a full sixty seconds is accepted
     Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
@@ -99,6 +108,11 @@ Feature: Verifying a login assertion from a trusted issuer
       | whose email address is not marked verified              | claims    |
       | carrying no subject claim                               | claims    |
       | naming the sign-in provider "okta"                      | claims    |
+
+    @wm-x0l4m
+    Examples: The door's own sign-in provider still needs a verified email address
+      | flaw                                                                          | reason |
+      | naming the sign-in provider "door" but not marking the email address verified | claims |
 
   @story-wm-63gg0.1
   Scenario: An assertion 45 seconds past its expiry is outside the clock allowance
