@@ -110,10 +110,51 @@ func requireBothTokens(t *testing.T, s nativeSession, issuedAfter time.Time, wha
 	}
 }
 
+// withNativeSessionFlag adds "session":"native" to a sign-in's JSON body: the
+// field an app in a native shell sends to ask for a native session, and so for
+// a refresh token (wm-nybvk).
+func withNativeSessionFlag(t *testing.T, body string) string {
+	t.Helper()
+	var fields map[string]any
+	if err := json.Unmarshal([]byte(body), &fields); err != nil {
+		t.Fatalf("decode the sign-in body: %v", err)
+	}
+	fields["session"] = "native"
+	encoded, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatalf("encode the sign-in body: %v", err)
+	}
+	return string(encoded)
+}
+
 func signInNativelyThroughTheDoor(t *testing.T, srv *httptest.Server, door *bootDoor, email, subject, name string) nativeSession {
 	t.Helper()
-	answer := serveCall(t, srv, http.MethodPost, "/api/auth/assert", door.assertionBodyFor(t, email, subject, name), nil)
+	body := withNativeSessionFlag(t, door.assertionBodyFor(t, email, subject, name))
+	answer := serveCall(t, srv, http.MethodPost, "/api/auth/assert", body, nil)
 	return decodeNativeSession(t, answer, "POST /api/auth/assert for "+email)
+}
+
+// requireNoNativeSessionFields checks that a 200 sign-in answer carries a token
+// and none of the fields a native session adds.
+func requireNoNativeSessionFields(t *testing.T, answer serveAnswer, what string) {
+	t.Helper()
+	if answer.status != http.StatusOK && answer.status != http.StatusCreated {
+		t.Fatalf("%s answered %d code %q, want 200", what, answer.status, refusalCode(answer.body))
+	}
+	var decoded struct {
+		Data map[string]json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(answer.body), &decoded); err != nil {
+		t.Fatalf("decode %s: %v", what, err)
+	}
+	if _, ok := decoded.Data["token"]; !ok {
+		t.Fatalf("%s carries no token; a browser sign-in still gets one", what)
+	}
+	for _, field := range []string{"refresh_token", "refresh_token_expires_at", "token_expires_at"} {
+		if _, ok := decoded.Data[field]; ok {
+			t.Errorf("%s carries %s; only a sign-in that asks for a native session gets it", what, field)
+		}
+	}
 }
 
 // renewNativeSession presents refreshToken at the renewal route, as an app in a
@@ -158,8 +199,9 @@ func carriesTheConnectorMark(t *testing.T, token string) bool {
 	return marked
 }
 
-// Both native sign-ins hand back a refresh token beside the access token, with
-// the lifetime of each.
+// Every sign-in that asks for a native session — the door's assertion,
+// registration and the password — hands back a refresh token beside the access
+// token, with the lifetime of each.
 func TestServe_NativeSignInsHandBackARefreshTokenBesideTheToken(t *testing.T) {
 	door := newBootDoor(t)
 	srv := bootServe(t, connectorConfig(door))
@@ -168,15 +210,36 @@ func TestServe_NativeSignInsHandBackARefreshTokenBesideTheToken(t *testing.T) {
 	byDoor := signInNativelyThroughTheDoor(t, srv, door, bootOwnerEmail, bootOwnerSubject, bootOwnerName)
 	requireBothTokens(t, byDoor, start, "the door's sign-in")
 
-	registered := serveCall(t, srv, http.MethodPost, "/api/auth/register",
-		`{"email":"`+bootPasswordEmail+`","password":"`+bootPasswordSecret+`","display_name":"Rosa Calder"}`, nil)
-	if registered.status != http.StatusOK && registered.status != http.StatusCreated {
-		t.Fatalf("POST /api/auth/register answered %d code %q", registered.status, refusalCode(registered.body))
-	}
+	start = time.Now()
+	registered := decodeNativeSession(t, serveCall(t, srv, http.MethodPost, "/api/auth/register",
+		withNativeSessionFlag(t, `{"email":"`+bootPasswordEmail+`","password":"`+bootPasswordSecret+`","display_name":"Rosa Calder"}`), nil),
+		"the registration")
+	requireBothTokens(t, registered, start, "the registration")
+
 	start = time.Now()
 	byPassword := decodeNativeSession(t, serveCall(t, srv, http.MethodPost, "/api/auth/password-login",
-		`{"email":"`+bootPasswordEmail+`","password":"`+bootPasswordSecret+`"}`, nil), "the password sign-in")
+		withNativeSessionFlag(t, `{"email":"`+bootPasswordEmail+`","password":"`+bootPasswordSecret+`"}`), nil), "the password sign-in")
 	requireBothTokens(t, byPassword, start, "the password sign-in")
+}
+
+// A sign-in that does not ask for a native session — a browser's — answers as
+// it did before refresh tokens existed: a token, and no refresh token and
+// neither expiry that goes with one (wm-nybvk). A session value other than
+// "native" is a browser's too.
+func TestServe_ABrowserSignInHandsBackNoRefreshToken(t *testing.T) {
+	door := newBootDoor(t)
+	srv := bootServe(t, connectorConfig(door))
+
+	requireNoNativeSessionFields(t, serveCall(t, srv, http.MethodPost, "/api/auth/assert",
+		door.assertionBodyFor(t, bootOwnerEmail, bootOwnerSubject, bootOwnerName), nil), "the door's browser sign-in")
+	requireNoNativeSessionFields(t, serveCall(t, srv, http.MethodPost, "/api/auth/register",
+		`{"email":"`+bootPasswordEmail+`","password":"`+bootPasswordSecret+`","display_name":"Rosa Calder"}`, nil),
+		"a browser registration")
+	requireNoNativeSessionFields(t, serveCall(t, srv, http.MethodPost, "/api/auth/password-login",
+		`{"email":"`+bootPasswordEmail+`","password":"`+bootPasswordSecret+`"}`, nil), "a browser password sign-in")
+	requireNoNativeSessionFields(t, serveCall(t, srv, http.MethodPost, "/api/auth/password-login",
+		`{"email":"`+bootPasswordEmail+`","password":"`+bootPasswordSecret+`","session":"web"}`, nil),
+		"a password sign-in naming a session other than native")
 }
 
 // A renewal hands back a new access token for the same person and account, and

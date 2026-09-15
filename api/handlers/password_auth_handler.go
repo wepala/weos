@@ -137,15 +137,25 @@ func MountPasswordAuth(g *echo.Group, h *PasswordAuthHandler, routes PasswordAut
 	g.POST("/auth/password-login", h.Login)
 }
 
+// NativeSession is the value of a sign-in request's "session" field that asks
+// for a native session (wm-nybvk). An app in a native shell holds no cookie, so
+// only it gets a refresh token beside its token. Any other value, or none, is a
+// browser's sign-in, which answers as it always did: a browser renews through
+// its cookie session and must not hold a long-lived credential page script can
+// read.
+const NativeSession = "native"
+
 type registerRequest struct {
 	Email       string `json:"email"`
 	Password    string `json:"password"`
 	DisplayName string `json:"display_name"`
+	Session     string `json:"session"`
 }
 
 type loginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+	Session  string `json:"session"`
 }
 
 type authSuccessResponse struct {
@@ -160,8 +170,9 @@ type authSuccessResponse struct {
 	TokenExpiresAt time.Time `json:"token_expires_at,omitzero"`
 	// RefreshToken renews Token at POST /auth/refresh before it expires, and
 	// RefreshTokenExpiresAt is when it stops renewing (wm-lnimb). Present
-	// whenever Token is, on an instance that can renew; an instance that cannot
-	// answers with exactly the fields it always did.
+	// whenever Token is, on a sign-in that asked for a native session, on an
+	// instance that can renew. Any other sign-in answers with exactly the fields
+	// it always did (wm-nybvk).
 	RefreshToken          string    `json:"refresh_token,omitempty"`
 	RefreshTokenExpiresAt time.Time `json:"refresh_token_expires_at,omitzero"`
 	// ErasurePending says the session was scoped to an account whose
@@ -208,7 +219,7 @@ func (h *PasswordAuthHandler) Register(c echo.Context) error {
 		}
 	}
 
-	return h.completeAuth(c, agent, credential, account, email)
+	return h.completeAuth(c, agent, credential, account, email, req.Session == NativeSession)
 }
 
 func (h *PasswordAuthHandler) Login(c echo.Context) error {
@@ -236,7 +247,7 @@ func (h *PasswordAuthHandler) Login(c echo.Context) error {
 		}
 	}
 
-	return h.completeAuth(c, agent, credential, account, email)
+	return h.completeAuth(c, agent, credential, account, email, req.Session == NativeSession)
 }
 
 // Logout clears both the gorilla session cookie (delegated to pericarp's
@@ -277,8 +288,9 @@ func (h *PasswordAuthHandler) completeAuth(
 	credential *authentities.Credential,
 	account *authentities.Account,
 	email string,
+	native bool,
 ) error {
-	return h.completeAuthAs(c, agent, credential, account, email,
+	return h.completeAuthAs(c, agent, credential, account, email, native,
 		func(r authSuccessResponse) any { return r })
 }
 
@@ -286,13 +298,15 @@ func (h *PasswordAuthHandler) completeAuth(
 // session, the same cookies, the same fields — and lets the caller add to the
 // answer. shape receives the password sign-in's answer and returns what is
 // sent. A sign-in path that answers in this shape plus a field of its own
-// uses it, so the shared part cannot drift from password sign-in's.
+// uses it, so the shared part cannot drift from password sign-in's. native says
+// the request asked for a native session (see NativeSession).
 func (h *PasswordAuthHandler) completeAuthAs(
 	c echo.Context,
 	agent *authentities.Agent,
 	credential *authentities.Credential,
 	account *authentities.Account,
 	email string,
+	native bool,
 	shape func(authSuccessResponse) any,
 ) error {
 	ctx := c.Request().Context()
@@ -402,14 +416,16 @@ func (h *PasswordAuthHandler) completeAuthAs(
 		})
 	}
 
-	// A refresh token goes back wherever the token does (wm-lnimb): the token
-	// lasts an hour, and an app in a native shell holds nothing else to renew
-	// it with. The same rule as the token, so a locked account's owner gets one
-	// for the deletion too, and the renewal applies the same limit to it. Like
-	// the token it is best-effort: without it the app signs in again when the
-	// token expires, which is where it was before refresh tokens existed.
+	// A refresh token goes back wherever the token does on a sign-in that asked
+	// for a native session (wm-lnimb, wm-nybvk): the token lasts an hour, and an
+	// app in a native shell holds nothing else to renew it with. A browser's
+	// sign-in gets none; its cookie session is what it renews with. The same
+	// rule as the token, so a locked account's owner gets one for the deletion
+	// too, and the renewal applies the same limit to it. Like the token it is
+	// best-effort: without it the app signs in again when the token expires,
+	// which is where it was before refresh tokens existed.
 	var refresh weosoauth.NativeRefreshToken
-	if tokenString != "" && h.renews() {
+	if native && tokenString != "" && h.renews() {
 		var refreshErr error
 		refresh, refreshErr = weosoauth.IssueNativeRefreshToken(ctx, h.cfg.RefreshTokens, agent.GetID(), accountID)
 		if refreshErr != nil {
