@@ -174,3 +174,99 @@ func TestNewUserHandlerRefusesToBeBuiltWithoutAMemberDirectory(t *testing.T) {
 		t.Errorf("the construction failure says %q; want it to name the missing Members dependency", said)
 	}
 }
+
+// usersWarnings records every warning as one line: the message, then each key
+// and value, separated by spaces.
+type usersWarnings struct {
+	nopLogger
+	lines []string
+}
+
+func (l *usersWarnings) Warn(_ context.Context, msg string, keyvals ...any) {
+	l.lines = append(l.lines, strings.TrimSpace(fmt.Sprintln(append([]any{msg}, keyvals...)...)))
+}
+
+// asIdentity puts agentID, acting in accountID, on every request.
+func asIdentity(agentID, accountID string) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			ctx := auth.ContextWithAgent(c.Request().Context(), &auth.Identity{
+				AgentID: agentID, AccountIDs: []string{accountID}, ActiveAccountID: accountID,
+			})
+			c.SetRequest(c.Request().WithContext(ctx))
+			return next(c)
+		}
+	}
+}
+
+// wm-govvg. A plain member of an account is refused every users route by the
+// role check, and each refusal is recorded at warn with the caller and the
+// account, and with the person asked about on GET and PUT, the way every other
+// users-route refusal is. The line carries ids only, never an email address.
+func TestUserRoutesRecordTheRefusalOfAPlainMember(t *testing.T) {
+	accounts := &usersAccounts{
+		roles: map[string]string{"ops|acct-harbor": authentities.RoleOwner, "clerk|acct-harbor": authentities.RoleMember},
+	}
+	logs := &usersWarnings{}
+	h := handlers.NewUserHandler(handlers.UserHandlerConfig{
+		AgentRepo: usersAgents{agents: map[string]*authentities.Agent{
+			"ops":   usersPerson(t, "ops", "Harbor Operations"),
+			"clerk": usersPerson(t, "clerk", "Lantern Clerk"),
+		}},
+		CredentialRepo: usersCredentials{},
+		AccountRepo:    accounts,
+		Members:        usersDirectory{},
+		Logger:         logs,
+	})
+
+	e := echo.New()
+	clerk := asIdentity("clerk", "acct-harbor")
+	e.GET("/api/users", h.List, clerk)
+	e.GET("/api/users/:id", h.Get, clerk)
+	e.PUT("/api/users/:id", h.Update, clerk)
+
+	for _, tc := range []struct{ method, path, body, target string }{
+		{http.MethodGet, "/api/users", "", ""},
+		{http.MethodGet, "/api/users/ops", "", "ops"},
+		{http.MethodPut, "/api/users/ops", `{"role":"member"}`, "ops"},
+	} {
+		logs.lines = nil
+		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("a plain member's %s %s answered %d %s, want 403", tc.method, tc.path, rec.Code, rec.Body.String())
+			continue
+		}
+		want := []string{"caller_agent_id clerk", "account_id acct-harbor"}
+		if tc.target != "" {
+			want = append(want, "target_agent_id "+tc.target)
+		}
+		var recorded []string
+		for _, line := range logs.lines {
+			if strings.HasPrefix(line, "users request refused") {
+				recorded = append(recorded, line)
+			}
+		}
+		if len(recorded) != 1 {
+			t.Errorf("a plain member's %s %s recorded %d refusal warnings %q, want 1", tc.method, tc.path, len(recorded), logs.lines)
+			continue
+		}
+		for _, w := range want {
+			if !strings.Contains(recorded[0], w) {
+				t.Errorf("the refusal of %s %s was recorded as %q, which does not carry %q", tc.method, tc.path, recorded[0], w)
+			}
+		}
+		if tc.target == "" && strings.Contains(recorded[0], "target_agent_id") {
+			t.Errorf("the refusal of the list names a target: %q", recorded[0])
+		}
+		if strings.Contains(recorded[0], "@") {
+			t.Errorf("the refusal line carries an email address: %q", recorded[0])
+		}
+	}
+	if len(accounts.saved) != 0 {
+		t.Errorf("a plain member's requests saved roles %v; want none", accounts.saved)
+	}
+}

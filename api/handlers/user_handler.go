@@ -116,6 +116,13 @@ func (h *UserHandler) scope(c echo.Context) (*userScope, error) {
 		return nil, respondError(c, http.StatusInternalServerError, "authorization check failed")
 	}
 	if !isAdmin {
+		// Recorded like every other users-route refusal: ids only, and the
+		// person asked about when the route names one.
+		fields := []any{"caller_agent_id", identity.AgentID, "account_id", accountID}
+		if target := c.Param("id"); target != "" {
+			fields = append(fields, "target_agent_id", target)
+		}
+		h.logger.Warn(ctx, "users request refused: the caller is not an owner or admin of the account", fields...)
 		return nil, respondError(c, http.StatusForbidden, "admin role required")
 	}
 	return &userScope{callerID: identity.AgentID, accountID: accountID}, nil
