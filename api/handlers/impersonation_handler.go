@@ -142,7 +142,7 @@ func (h *ImpersonationHandler) Start(c echo.Context) error {
 			"admin_agent_id", caller.AgentID,
 			"account_id", accountID,
 			"target_agent_id", req.AgentID,
-			"ip", c.RealIP(),
+			"ip", apimw.ConnectionPeer(c.Request()),
 		)
 		return respondError(c, http.StatusForbidden, "admin role required")
 	}
@@ -173,7 +173,7 @@ func (h *ImpersonationHandler) Start(c echo.Context) error {
 			"account_id", accountID,
 			"admin_agent_id", caller.AgentID,
 			"target_agent_id", req.AgentID,
-			"ip", c.RealIP(),
+			"ip", apimw.ConnectionPeer(c.Request()),
 		)
 		// The code tells the admin the impersonation ended, and the admin then
 		// reads the identity again. An impersonation held while this start was
@@ -207,7 +207,7 @@ func (h *ImpersonationHandler) Start(c echo.Context) error {
 		"admin_agent_id", adminAgentID,
 		"account_id", accountID,
 		"target_agent_id", req.AgentID,
-		"ip", c.RealIP(),
+		"ip", apimw.ConnectionPeer(c.Request()),
 	)
 
 	name, email := h.resolveAgentInfo(ctx, req.AgentID)
@@ -261,7 +261,7 @@ func (h *ImpersonationHandler) Stop(c echo.Context) error {
 			"admin_agent_id", callerID,
 			"account_id", accountID,
 			"target_agent_id", targetAgentID,
-			"ip", c.RealIP(),
+			"ip", apimw.ConnectionPeer(c.Request()),
 		)
 	default:
 		h.logger.Warn(ctx, "impersonation cookie cleared: it was not started by the person signed in",
@@ -269,7 +269,7 @@ func (h *ImpersonationHandler) Stop(c echo.Context) error {
 			"account_id", accountID,
 			"cookie_admin_agent_id", realAgentID,
 			"target_agent_id", targetAgentID,
-			"ip", c.RealIP(),
+			"ip", apimw.ConnectionPeer(c.Request()),
 		)
 	}
 

@@ -167,3 +167,103 @@ func TestStart_AFailedLookupOfAMemberIsAFailureNotARefusal(t *testing.T) {
 			unknown.Code, unknown.Body.String(), outside.Code, outside.Body.String())
 	}
 }
+
+// auditedImpersonationRequest sends one start (for target) or stop through the
+// impersonation handler, signed in as caller acting in Harbor Legal, from the
+// peer 192.0.2.10 with forwarding headers that claim other addresses, as any
+// caller can write them. When heldBy is set the request carries an
+// impersonation of counsel that heldBy started.
+func auditedImpersonationRequest(t *testing.T, logger entities.Logger, caller string, stop bool, target, heldBy string) *httptest.ResponseRecorder {
+	t.Helper()
+	store := sessions.NewCookieStore([]byte("test-secret"))
+	h := handlers.NewImpersonationHandler(handlers.ImpersonationHandlerConfig{
+		Store: store,
+		AccountRepo: stubAccounts{roles: map[string]string{
+			"ops|acct-harbor":     authentities.RoleOwner,
+			"counsel|acct-harbor": authentities.RoleMember,
+			"broker|acct-cedar":   authentities.RoleMember,
+		}},
+		AgentRepo: stubAgents{},
+		CredRepo:  stubCreds{},
+		Logger:    logger,
+	})
+	signedIn := func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			ctx := auth.ContextWithAgent(c.Request().Context(), &auth.Identity{AgentID: caller, ActiveAccountID: "acct-harbor"})
+			c.SetRequest(c.Request().WithContext(ctx))
+			return next(c)
+		}
+	}
+	e := echo.New()
+	e.POST("/api/admin/impersonate", h.Start, signedIn)
+	e.POST("/api/admin/stop-impersonation", h.Stop, signedIn)
+	path, body := "/api/admin/impersonate", fmt.Sprintf(`{"agent_id":%q}`, target)
+	if stop {
+		path, body = "/api/admin/stop-impersonation", ""
+	}
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	if heldBy != "" {
+		minted := httptest.NewRecorder()
+		sess, err := store.New(req, apimw.ImpersonationSessionName)
+		if err != nil {
+			t.Fatalf("start the held impersonation session: %v", err)
+		}
+		sess.Values[apimw.KeyImpersonatedAgentID] = "counsel"
+		sess.Values[apimw.KeyRealAgentID] = heldBy
+		sess.Values[apimw.KeyRealAccountID] = "acct-harbor"
+		if err := sess.Save(req, minted); err != nil {
+			t.Fatalf("save the held impersonation session: %v", err)
+		}
+		for _, c := range minted.Result().Cookies() {
+			req.AddCookie(c)
+		}
+	}
+	req.RemoteAddr = "192.0.2.10:52814"
+	req.Header.Set("X-Forwarded-For", "203.0.113.9")
+	req.Header.Set("X-Real-IP", "198.51.100.7")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	return rec
+}
+
+// wm-ptcuk, Copilot review 5204289188. The handler's impersonation lines record
+// the address of the connection's peer, not an address a forwarding header
+// claims, so a caller cannot choose the address recorded against them.
+func TestImpersonationAudit_RecordsTheConnectionPeerNotAForwardedAddress(t *testing.T) {
+	cases := []struct {
+		name, caller string
+		stop         bool
+		target       string
+		heldBy       string
+		line         string
+	}{
+		{"a member asks to start", "counsel", false, "ops", "", "not an owner or admin"},
+		{"a start for a person outside the account", "ops", false, "broker", "", "is not a member of the caller's account"},
+		{"a stop", "ops", true, "", "ops", "impersonation stopped"},
+		{"a stop of another person's impersonation", "broker", true, "", "ops", "not started by the person signed in"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			logs := &startLog{}
+			auditedImpersonationRequest(t, logs, tc.caller, tc.stop, tc.target, tc.heldBy)
+			var lines []string
+			for _, line := range strings.Split(logs.text(), "\n") {
+				if strings.Contains(line, tc.line) {
+					lines = append(lines, line)
+				}
+			}
+			if len(lines) != 1 {
+				t.Fatalf("want one line mentioning %q, got:\n%s", tc.line, logs.text())
+			}
+			if !strings.Contains(lines[0], "ip 192.0.2.10") {
+				t.Errorf("the line %q does not record the connection's peer 192.0.2.10", lines[0])
+			}
+			for _, claimed := range []string{"203.0.113.9", "198.51.100.7"} {
+				if strings.Contains(lines[0], claimed) {
+					t.Errorf("the line %q records %s, an address a forwarding header claimed", lines[0], claimed)
+				}
+			}
+		})
+	}
+}
