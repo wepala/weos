@@ -76,7 +76,8 @@ export function isRefusalCode(value: unknown): value is RefusalCode {
  *
  * Exported because wrapping $fetch is NOT sufficient on its own: the agent
  * chat streams with native fetch (useAgentApi), so it never passes through
- * the interceptor. Any caller that bypasses $fetch has to call this itself,
+ * the interceptor. A caller that bypasses $fetch reaches this through
+ * applyRefusal (useRefusedResponse), which also ends a refused impersonation,
  * or its 401s arrive as raw status codes with no explanation and no redirect.
  *
  * Returns true when the refusal was coded and has been explained in place.

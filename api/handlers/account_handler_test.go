@@ -248,6 +248,7 @@ func TestAccountDelete_RefusesWhileImpersonating(t *testing.T) {
 	sess, _ := f.store.Get(req, apimw.ImpersonationSessionName)
 	sess.Values[apimw.KeyImpersonatedAgentID] = "counsel"
 	sess.Values[apimw.KeyRealAgentID] = "ops"
+	sess.Values[apimw.KeyRealAccountID] = "acct-harbor"
 	if err := sess.Save(req, rec); err != nil {
 		t.Fatal(err)
 	}
@@ -257,11 +258,107 @@ func TestAccountDelete_RefusesWhileImpersonating(t *testing.T) {
 	}
 
 	res := f.deleteAs("ops", "acct-harbor", `{"confirm":"DELETE"}`, cookies...)
-	if res.Code != http.StatusForbidden {
-		t.Fatalf("got %d %s, want 403", res.Code, res.Body.String())
+	if res.Code != http.StatusForbidden || strings.Contains(res.Body.String(), apimw.CodeImpersonationTargetNotMember) {
+		t.Fatalf("got %d %s, want 403 refusing the deletion", res.Code, res.Body.String())
 	}
 	if len(f.erasure.calls) != 0 {
 		t.Error("an impersonating administrator's request reached the erasure service")
+	}
+	for _, c := range res.Result().Cookies() {
+		if c.Name == apimw.ImpersonationSessionName {
+			t.Error("refusing the deletion wrote the cookie of an impersonation that still holds")
+		}
+	}
+}
+
+// wm-ptcuk, Copilot review 5204893848. A cookie the protected routes would
+// refuse — here its person is not a member of the account — is ended on the
+// deletion through the handler's own error envelope: the coded 403, the cookie
+// expired once, and the messages the request gathered on the way.
+func TestAccountDelete_EndsAStaleImpersonationWithTheErrorEnvelope(t *testing.T) {
+	f := newDeleteFixture(t)
+	mint := httptest.NewRequest(http.MethodPost, "/api/admin/impersonate", nil)
+	minted := httptest.NewRecorder()
+	sess, _ := f.store.Get(mint, apimw.ImpersonationSessionName)
+	sess.Values[apimw.KeyImpersonatedAgentID] = "broker"
+	sess.Values[apimw.KeyRealAgentID] = "ops"
+	sess.Values[apimw.KeyRealAccountID] = "acct-harbor"
+	if err := sess.Save(mint, minted); err != nil {
+		t.Fatal(err)
+	}
+
+	const note = "the account's recipes were exported an hour ago"
+	e := echo.New()
+	e.DELETE("/api/account", f.handler.Delete, func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			ctx := entities.ContextWithMessages(c.Request().Context())
+			entities.AddMessage(ctx, entities.Message{Type: "info", Text: note})
+			ctx = auth.ContextWithAgent(ctx, &auth.Identity{
+				AgentID: "ops", AccountIDs: []string{"acct-harbor"}, ActiveAccountID: "acct-harbor",
+			})
+			c.SetRequest(c.Request().WithContext(ctx))
+			return next(c)
+		}
+	})
+	req := httptest.NewRequest(http.MethodDelete, "/api/account", strings.NewReader(`{"confirm":"DELETE"}`))
+	req.Header.Set("Content-Type", "application/json")
+	for _, c := range minted.Result().Cookies() {
+		req.AddCookie(c)
+	}
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	var body handlers.ErrorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("the refusal is not JSON: %v", err)
+	}
+	if rec.Code != http.StatusForbidden || body.Code != apimw.CodeImpersonationTargetNotMember {
+		t.Fatalf("got %d %s, want 403 %s", rec.Code, rec.Body.String(), apimw.CodeImpersonationTargetNotMember)
+	}
+	if len(body.Messages) != 1 || body.Messages[0].Text != note {
+		t.Fatalf("the refusal dropped the request's messages: %s", rec.Body.String())
+	}
+	expired := 0
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == apimw.ImpersonationSessionName && c.MaxAge < 0 {
+			expired++
+		}
+	}
+	if expired != 1 {
+		t.Fatalf("the refusal expired the impersonation cookie %d times, want once", expired)
+	}
+	if len(f.erasure.calls) != 0 {
+		t.Error("a request carrying a stale impersonation reached the erasure service")
+	}
+}
+
+// wm-ptcuk: a cookie another person started is no impersonation by the person
+// signed in. The deletion expires it, as the protected routes do, and goes on
+// as the person signed in.
+func TestAccountDelete_ExpiresACookieAnotherPersonStartedAndDeletes(t *testing.T) {
+	f := newDeleteFixture(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/impersonate", nil)
+	rec := httptest.NewRecorder()
+	sess, _ := f.store.Get(req, apimw.ImpersonationSessionName)
+	sess.Values[apimw.KeyImpersonatedAgentID] = "counsel"
+	sess.Values[apimw.KeyRealAgentID] = "broker"
+	sess.Values[apimw.KeyRealAccountID] = "acct-harbor"
+	if err := sess.Save(req, rec); err != nil {
+		t.Fatal(err)
+	}
+
+	res := f.deleteAs("ops", "acct-harbor", `{"confirm":"DELETE"}`, rec.Result().Cookies()...)
+	if res.Code != http.StatusOK || len(f.erasure.calls) != 1 {
+		t.Fatalf("got %d %s with %d erasures, want 200 and one erasure", res.Code, res.Body.String(), len(f.erasure.calls))
+	}
+	expired := false
+	for _, c := range res.Result().Cookies() {
+		if c.Name == apimw.ImpersonationSessionName && c.MaxAge < 0 {
+			expired = true
+		}
+	}
+	if !expired {
+		t.Error("the deletion did not expire the cookie another person started")
 	}
 }
 

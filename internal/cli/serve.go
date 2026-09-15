@@ -678,8 +678,33 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	featuresGroup.GET("/features", featureHandler.List)
 
 	protected.POST("/admin/impersonate", impersonationHandler.Start)
-	protected.POST("/admin/stop-impersonation", impersonationHandler.Stop)
 	protected.GET("/admin/impersonation-status", impersonationHandler.Status)
+	// Stopping takes the protected group's session checks but not its
+	// Impersonation middleware. That middleware refuses a cookie it no longer
+	// allows, and the request that ends such an impersonation must not be
+	// refused with it (wm-1yjuv). The checks are per-route middleware, not a
+	// new group, so no group's not-found catch-all moves (see featuresGroup).
+	// EndHeldImpersonation runs first: those checks refuse a session whose
+	// account is suspended, locked for deletion or no longer the caller's
+	// before Stop is reached, and that refusal must still end the impersonation.
+	// The checks take a native sign-in's bearer token and refuse a connector's,
+	// exactly as the protected group does, so an app that started an
+	// impersonation with its token can also end it (wm-ptcuk).
+	var stopGuards []echo.MiddlewareFunc
+	if appCfg.AuthEnabled() {
+		stopGuards = []echo.MiddlewareFunc{
+			apimw.EndHeldImpersonation(),
+			apimw.ErasureGuard(sessionManager, erasureLocks, logger, apimw.DeferToBearer()),
+			apimw.BearerOrSession(jwtService, authhttp.RequireAuth(sessionManager, authService), baseURL,
+				accountRepo, erasureLocks, apimw.RefuseConnectorTokens()),
+		}
+	} else {
+		stopGuards = []echo.MiddlewareFunc{
+			apimw.EndHeldImpersonation(),
+			apimw.SoftAuth(credentialRepo, agentRepo, accountRepo, logger),
+		}
+	}
+	api.POST("/admin/stop-impersonation", impersonationHandler.Stop, stopGuards...)
 
 	// File upload routes — registered before dynamic catch-all
 	uploadHandler := handlers.NewUploadHandler(fileService, logger, appCfg.Storage.MaxUploadBytes)

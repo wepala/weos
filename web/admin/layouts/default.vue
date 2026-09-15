@@ -127,6 +127,7 @@
 <script setup lang="ts">
 import { MenuOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
+import { impersonationErrorText } from '~/composables/impersonationRefusal'
 
 interface MenuItem {
   key: string
@@ -141,7 +142,7 @@ async function handleStopImpersonation() {
   try {
     await stopImpersonation()
   } catch (err: any) {
-    message.error(err?.data?.error || 'Failed to stop impersonation')
+    message.error(impersonationErrorText(err, 'Failed to stop impersonation'))
   }
 }
 const isAdminOrOwner = computed(() => {
