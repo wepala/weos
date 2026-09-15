@@ -15,7 +15,13 @@
 
 package gorm
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
+)
 
 // wm-govvg. A read-only command opens a SQLite file as a read-only file: URI,
 // because the driver reads mode only from a file: URI, and with no parameter
@@ -47,9 +53,42 @@ func TestSQLiteReadOnlyDSN(t *testing.T) {
 		{"file:/var/lib/weos/mode=memory.db?cache=shared", "file:/var/lib/weos/mode=memory.db?cache=shared&mode=ro"},
 		{"/data/:memory:.db", "file:/data/:memory:.db?mode=ro"},
 		{"weos.db?mode=memory", "file:weos.db?mode=ro"},
+		{"file:/var/lib/weos/weos.db#top", "file:/var/lib/weos/weos.db?mode=ro"},
+		{"file:/var/lib/weos/weos.db?cache=shared#top", "file:/var/lib/weos/weos.db?cache=shared&mode=ro"},
+		{"file::memory:#top", "file::memory:#top"},
 	} {
 		if got := sqliteReadOnlyDSN(tc.dsn); got != tc.want {
 			t.Errorf("sqliteReadOnlyDSN(%q) = %q, want %q", tc.dsn, got, tc.want)
+		}
+	}
+}
+
+// wm-govvg, Copilot review 5205459650. SQLite ignores everything after a file:
+// URI's #, so a mode=ro written after a fragment would open the file writable.
+// A file: DSN with a fragment is opened read-only, and a write through it fails.
+func TestReadOnlyDialectorRefusesAWriteThroughAFileURIWithAFragment(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "weos.db")
+	writable, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writable.Exec("CREATE TABLE notes (body TEXT)").Error; err != nil {
+		t.Fatal(err)
+	}
+	if db, err := writable.DB(); err == nil {
+		_ = db.Close()
+	}
+
+	for _, dsn := range []string{"file:" + path + "#top", "file:" + path + "?cache=shared#top"} {
+		db, err := gorm.Open(ReadOnlyDialectorForDSN(dsn), &gorm.Config{})
+		if err != nil {
+			t.Fatalf("opening %q read-only: %v", dsn, err)
+		}
+		if err := db.Exec("INSERT INTO notes (body) VALUES ('written')").Error; err == nil {
+			t.Errorf("a write through the read-only DSN of %q succeeded, want it refused", dsn)
+		}
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
 		}
 	}
 }

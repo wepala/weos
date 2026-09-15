@@ -167,16 +167,19 @@ func ReadOnlyDialectorForDSN(dsn string) gorm.Dialector {
 // the name is exactly ":memory:", plain or as the path of a file: URI, or dsn
 // is a file: URI whose query sets mode=memory. The driver cuts the query off a
 // plain path before it opens the file, so a mode parameter there names nothing.
-// A file whose name only contains either text is a file.
+// A file whose name only contains either text is a file. A file: URI's fragment
+// names nothing, so it is ignored.
 func IsSQLiteMemoryDSN(dsn string) bool {
-	name, query, _ := strings.Cut(dsn, "?")
-	if strings.TrimPrefix(name, "file:") == ":memory:" {
+	uri, isURI := strings.CutPrefix(dsn, "file:")
+	if !isURI {
+		name, _, _ := strings.Cut(dsn, "?")
+		return name == ":memory:"
+	}
+	uri, _, _ = strings.Cut(uri, "#")
+	path, query, _ := strings.Cut(uri, "?")
+	if path == ":memory:" {
 		return true
 	}
-	if !strings.HasPrefix(name, "file:") {
-		return false
-	}
-	query, _, _ = strings.Cut(query, "#")
 	for _, param := range strings.Split(query, "&") {
 		key, value, _ := strings.Cut(param, "=")
 		if sqliteURIUnescape(key) == "mode" && sqliteURIUnescape(value) == "memory" {
@@ -239,11 +242,15 @@ var sqliteURIPathEscaper = strings.NewReplacer("%", "%25", "#", "%23")
 // sqliteReadOnlyDSN rewrites a file-based SQLite DSN as a read-only file: URI.
 // The driver reads URI parameters such as mode only from a file: URI, so a
 // plain path is rewritten as one. A mode, a _txlock or a journal_mode pragma
-// the DSN already names is dropped; every other parameter is kept. In-memory
-// databases are left untouched.
+// the DSN already names is dropped; every other parameter is kept. A file: URI's
+// fragment is dropped too: SQLite ignores everything after the #, so a mode
+// written after it would not apply. In-memory databases are left untouched.
 func sqliteReadOnlyDSN(dsn string) string {
 	if IsSQLiteMemoryDSN(dsn) {
 		return dsn
+	}
+	if strings.HasPrefix(dsn, "file:") {
+		dsn, _, _ = strings.Cut(dsn, "#")
 	}
 	name, query, _ := strings.Cut(dsn, "?")
 	if !strings.HasPrefix(name, "file:") {
