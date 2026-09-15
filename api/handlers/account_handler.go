@@ -118,8 +118,11 @@ func (h *AccountHandler) Delete(c echo.Context) error {
 		return respondError(c, http.StatusForbidden, "account deletion is not available while impersonating")
 	case apimw.ImpersonationStale:
 		// A cookie the protected routes would refuse is ended here with their
-		// refusal, rather than kept as if it still held (wm-ptcuk).
-		return apimw.RefuseImpersonation(c)
+		// refusal's code, rather than kept as if it still held (wm-ptcuk). It is
+		// answered through the handler envelope, so the request's messages
+		// travel with it.
+		apimw.ExpireImpersonationCookie(c.Response())
+		return respondErrorCode(c, http.StatusForbidden, "impersonation not allowed", apimw.CodeImpersonationTargetNotMember)
 	case apimw.ImpersonationNotHeld:
 	}
 	if !readsConfirmation(c.Request()) {
