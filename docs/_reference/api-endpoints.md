@@ -166,6 +166,12 @@ never choose one of the caller's accounts for them.
 the only owner, the caller included — with `400` and the code `last_owner_required`. Nothing in the
 request is saved, the name included. Add a second owner first, then change the first one's role.
 
+**Upgrading an existing instance.** Before these routes were scoped to the caller's account, a role
+change made by an owner or admin of any account was saved into the instance's first account, and
+those memberships are still honored. Run `weos account audit-members` against the server's
+database to list them; see [CLI Commands](cli.md#weos-account-audit-members) for what it lists and
+how to remove a row. The command changes nothing.
+
 `GET /api/users` is paginated. A page holds 100 members unless `limit` names another size, and never
 more than 500; a larger `limit` is cut to 500. Members are ordered by id. The response carries
 `cursor` and `has_more`: while `has_more` is `true`, send `cursor` back as `?cursor=` to get the next
