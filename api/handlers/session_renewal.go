@@ -195,8 +195,10 @@ func (h *PasswordAuthHandler) Refresh(c echo.Context) error {
 	// AccountAlreadyVerified is safe here for the reason it is safe at sign-in:
 	// the membership and the account's state were read from the store in this
 	// same request, just above. The token is issued exactly as a sign-in issues
-	// one, so it carries no connector mark and the protected API takes it.
-	token, err := h.cfg.AuthService.IssueIdentityToken(ctx, agent, stored.AccountID, authapp.AccountAlreadyVerified())
+	// one, so it carries no connector mark and the protected API takes it, and
+	// it names the session it renews, so a sign-out with it ends that session.
+	token, err := h.cfg.AuthService.IssueIdentityToken(weosoauth.WithNativeSession(ctx, stored.FamilyID),
+		agent, stored.AccountID, authapp.AccountAlreadyVerified())
 	if err != nil || token == "" {
 		h.cfg.Logger.Error(ctx, "session renewal: access token issuance failed", "agent", stored.AgentID, "error", err)
 		return respondError(c, http.StatusInternalServerError, "failed to renew the session")
@@ -227,41 +229,71 @@ func (h *PasswordAuthHandler) Refresh(c echo.Context) error {
 	return respond(c, http.StatusOK, answer)
 }
 
-// endNativeSessions revokes every native refresh token of the person a sign-out
-// names: by the bearer token the request carries, when it validates and is not
-// a connector's, and by the refresh token in its JSON body, when it is a native
-// one. Either one ends the person's native sessions on every device. A request
-// that names nobody — a browser's, with only its cookie — revokes nothing.
+// nativeSessionBody is what a renewal's or a native sign-out's JSON body may
+// carry. Everywhere is read by sign-out only.
+type nativeSessionBody struct {
+	RefreshToken string `json:"refresh_token"`
+	Everywhere   bool   `json:"everywhere"`
+}
+
+// endNativeSessions ends the native sessions a sign-out names (wm-utb5c).
+//
+// By default that is one session, the device's own: the refresh token family
+// of the refresh token in the JSON body, when it is a native one, and the
+// family the bearer token names, when it validates and is not a connector's.
+// A refresh token that can no longer renew — spent, revoked or expired — still
+// ends its own family, as a renewal with a spent one does, and nothing else.
+//
+// {"everywhere":true} ends every native session of the person, on every device
+// and in every account, and only with a live credential: a refresh token that
+// can still renew, or a bearer token that validates. Otherwise it ends only
+// what the default would. A request that names nothing — a browser's, with
+// only its cookie — ends nothing.
 func (h *PasswordAuthHandler) endNativeSessions(c echo.Context) error {
 	if h.cfg.RefreshTokens == nil {
 		return nil
 	}
 	ctx := c.Request().Context()
-	people := map[string]struct{}{}
+	body, _ := readNativeSessionBody(c)
+	families := map[string]struct{}{}
+	everywhere := map[string]struct{}{}
 
 	if token := bearerToken(c.Request()); token != "" && h.cfg.JWTService != nil {
-		// A token that does not validate names nobody, and sign-out still ends
-		// what it can. A connector's token is not the app's: it does not sign the
-		// person out of their app.
+		// A token that does not validate names nothing here, and sign-out still
+		// ends what it can. A connector's token is not the app's: it does not
+		// sign the person out of their app.
 		claims, err := h.cfg.JWTService.ValidateToken(ctx, token)
 		if err == nil && claims.AgentID != "" && !weosoauth.IssuedToConnector(claims) {
-			people[claims.AgentID] = struct{}{}
+			if family := weosoauth.NativeSessionOf(claims); family != "" {
+				families[family] = struct{}{}
+			}
+			if body.Everywhere {
+				everywhere[claims.AgentID] = struct{}{}
+			}
 		}
 	}
-	if raw, _ := readRefreshToken(c); raw != "" {
-		stored, err := h.cfg.RefreshTokens.FindByTokenHash(ctx, weosoauth.HashToken(raw))
+	if body.RefreshToken != "" {
+		stored, err := h.cfg.RefreshTokens.FindByTokenHash(ctx, weosoauth.HashToken(body.RefreshToken))
 		switch {
 		case err == nil:
 			if weosoauth.IsNativeRefreshToken(stored) {
-				people[stored.AgentID] = struct{}{}
+				families[stored.FamilyID] = struct{}{}
+				if body.Everywhere && !stored.Revoked && time.Now().Before(stored.ExpiresAt) {
+					everywhere[stored.AgentID] = struct{}{}
+				}
 			}
 		case !errors.Is(err, weosoauth.ErrNotFound):
 			return err
 		}
 	}
 
-	for agentID := range people {
+	for agentID := range everywhere {
 		if err := h.cfg.RefreshTokens.RevokeForAgent(ctx, agentID, weosoauth.NativeClientID); err != nil {
+			return err
+		}
+	}
+	for family := range families {
+		if err := h.cfg.RefreshTokens.RevokeFamily(ctx, family); err != nil {
 			return err
 		}
 	}
@@ -272,29 +304,36 @@ func (h *PasswordAuthHandler) endNativeSessions(c echo.Context) error {
 // RefreshBodyLimit bytes. It answers "" for a body that carries none, and
 // tooLarge for a body over the limit.
 func readRefreshToken(c echo.Context) (raw string, tooLarge bool) {
+	body, tooLarge := readNativeSessionBody(c)
+	return body.RefreshToken, tooLarge
+}
+
+// readNativeSessionBody reads a JSON request body of at most RefreshBodyLimit
+// bytes. A body that is empty or not JSON carries nothing; tooLarge reports a
+// body over the limit.
+func readNativeSessionBody(c echo.Context) (_ nativeSessionBody, tooLarge bool) {
 	r := c.Request()
 	if r.Body == nil {
-		return "", false
+		return nativeSessionBody{}, false
 	}
 	if r.ContentLength > RefreshBodyLimit {
-		return "", true
+		return nativeSessionBody{}, true
 	}
-	body, err := io.ReadAll(http.MaxBytesReader(c.Response(), r.Body, RefreshBodyLimit))
+	raw, err := io.ReadAll(http.MaxBytesReader(c.Response(), r.Body, RefreshBodyLimit))
 	if err != nil {
 		var over *http.MaxBytesError
-		return "", errors.As(err, &over)
+		return nativeSessionBody{}, errors.As(err, &over)
 	}
-	if len(bytes.TrimSpace(body)) == 0 {
-		return "", false
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nativeSessionBody{}, false
 	}
-	var req struct {
-		RefreshToken string `json:"refresh_token"`
+	var body nativeSessionBody
+	if err := json.Unmarshal(raw, &body); err != nil {
+		// A body that is not JSON carries nothing.
+		return nativeSessionBody{}, false
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
-		// A body that is not JSON carries no refresh token.
-		return "", false
-	}
-	return strings.TrimSpace(req.RefreshToken), false
+	body.RefreshToken = strings.TrimSpace(body.RefreshToken)
+	return body, false
 }
 
 // bearerToken is the token in the request's Authorization header, or "".

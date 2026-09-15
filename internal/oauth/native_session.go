@@ -19,6 +19,10 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
+	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
+	"github.com/segmentio/ksuid"
 )
 
 // A native sign-in — password or the trusted issuer's assertion — hands an app
@@ -55,16 +59,63 @@ func IsNativeRefreshToken(token *OAuthRefreshToken) bool {
 	return token != nil && token.ClientID == NativeClientID
 }
 
-// IssueNativeRefreshToken starts a new family of native refresh tokens for the
-// person in the account.
+// NativeSessionClaim is the claim on a native session's access token that names
+// the session's refresh token family (wm-utb5c). A sign-out that presents only
+// the access token ends that family, and no other session of the person. The
+// family id is a row id, not a secret: it renews nothing.
+const NativeSessionClaim = "native_session"
+
+type nativeSessionCtxKey struct{}
+
+// WithNativeSession marks ctx as issuing the access token of the native session
+// whose refresh token family is familyID, so NativeSessionClaims names it.
+func WithNativeSession(ctx context.Context, familyID string) context.Context {
+	return context.WithValue(ctx, nativeSessionCtxKey{}, familyID)
+}
+
+// NewNativeSessionID is the id of a new native session: the family id of its
+// refresh tokens, and the id of the first one. It is chosen before the access
+// token is issued, so the token can name it.
+func NewNativeSessionID() string {
+	return ksuid.New().String()
+}
+
+// NativeSessionClaims is the authentication service's claims enricher: it adds
+// NativeSessionClaim to an access token issued with a ctx from
+// WithNativeSession, and nothing to any other token.
+func NativeSessionClaims(
+	ctx context.Context, _ *authentities.Agent, _ []*authentities.Account, _ string,
+) (map[string]any, error) {
+	familyID, _ := ctx.Value(nativeSessionCtxKey{}).(string)
+	if familyID == "" {
+		return nil, nil
+	}
+	return map[string]any{NativeSessionClaim: familyID}, nil
+}
+
+// NativeSessionOf is the refresh token family an access token's claims name, or
+// "" when they name none.
+func NativeSessionOf(claims *authapp.PericarpClaims) string {
+	if claims == nil {
+		return ""
+	}
+	familyID, _ := claims.Extras[NativeSessionClaim].(string)
+	return familyID
+}
+
+// IssueNativeRefreshToken starts the family of native refresh tokens sessionID
+// names (see NewNativeSessionID), for the person in the account. An empty
+// sessionID starts a family with a new id.
 func IssueNativeRefreshToken(
-	ctx context.Context, repo RefreshTokenRepository, agentID, accountID string,
+	ctx context.Context, repo RefreshTokenRepository, agentID, accountID, sessionID string,
 ) (NativeRefreshToken, error) {
 	raw, err := GenerateRefreshToken()
 	if err != nil {
 		return NativeRefreshToken{}, fmt.Errorf("native refresh token: generate: %w", err)
 	}
 	token := &OAuthRefreshToken{
+		ID:        sessionID,
+		FamilyID:  sessionID,
 		AgentID:   agentID,
 		AccountID: accountID,
 		ClientID:  NativeClientID,

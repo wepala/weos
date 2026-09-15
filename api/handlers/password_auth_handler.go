@@ -257,10 +257,11 @@ func (h *PasswordAuthHandler) Login(c echo.Context) error {
 // invalidates the session would leave a still-presentable JWT.
 //
 // An app in a native shell signs out with the token it holds, or with
-// {"refresh_token":"..."} in the body when its token has expired. Either one
-// revokes every native refresh token of that person, so no device of theirs
-// renews afterwards (wm-lnimb). The access token itself is stateless and lasts
-// out its hour. A revocation that cannot be written answers 503 before
+// {"refresh_token":"..."} in the body. Either one ends that device's session —
+// its refresh token family — and no other; {"everywhere":true} with a live
+// credential ends every native session of the person (wm-lnimb, wm-utb5c; see
+// endNativeSessions). The access token itself is stateless and lasts out its
+// hour. A revocation that cannot be written answers 503 before
 // anything is cleared, so the app signs out again rather than keep a refresh
 // token it believes is gone.
 func (h *PasswordAuthHandler) Logout(c echo.Context, oauthLogout http.HandlerFunc) error {
@@ -393,11 +394,23 @@ func (h *PasswordAuthHandler) completeAuthAs(
 	// that and nothing else: the bearer path refuses it with
 	// account_erasure_pending on every route except DELETE /api/account, which
 	// admits it as it admits a session scoped to the locked account.
+	//
+	// A native session's id is chosen before its token is issued, so the token
+	// names the session (weosoauth.NativeSessionClaim) and a sign-out with only
+	// the token can end that session and no other (wm-utb5c).
+	nativeSessionID := ""
+	if native && accountID != "" && h.renews() {
+		nativeSessionID = weosoauth.NewNativeSessionID()
+	}
 	var tokenString string
 	if accountID != "" {
+		tokenCtx := ctx
+		if nativeSessionID != "" {
+			tokenCtx = weosoauth.WithNativeSession(ctx, nativeSessionID)
+		}
 		var issueErr error
 		tokenString, issueErr = h.cfg.AuthService.IssueIdentityToken(
-			ctx, agent, accountID, authapp.AccountAlreadyVerified(),
+			tokenCtx, agent, accountID, authapp.AccountAlreadyVerified(),
 		)
 		if issueErr != nil {
 			h.cfg.Logger.Warn(ctx, "password auth: failed to issue identity token", "error", issueErr)
@@ -425,9 +438,9 @@ func (h *PasswordAuthHandler) completeAuthAs(
 	// best-effort: without it the app signs in again when the token expires,
 	// which is where it was before refresh tokens existed.
 	var refresh weosoauth.NativeRefreshToken
-	if native && tokenString != "" && h.renews() {
+	if nativeSessionID != "" && tokenString != "" {
 		var refreshErr error
-		refresh, refreshErr = weosoauth.IssueNativeRefreshToken(ctx, h.cfg.RefreshTokens, agent.GetID(), accountID)
+		refresh, refreshErr = weosoauth.IssueNativeRefreshToken(ctx, h.cfg.RefreshTokens, agent.GetID(), accountID, nativeSessionID)
 		if refreshErr != nil {
 			h.cfg.Logger.Warn(ctx, "password auth: failed to issue a refresh token; the app signs in again when the token expires",
 				"error", refreshErr)

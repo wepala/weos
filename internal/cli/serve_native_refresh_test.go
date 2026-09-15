@@ -27,10 +27,12 @@ import (
 	"time"
 
 	"github.com/wepala/weos/v3/domain/repositories"
+	weosoauth "github.com/wepala/weos/v3/internal/oauth"
 
 	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
 	"go.uber.org/fx"
+	"gorm.io/gorm"
 )
 
 // wm-lnimb. A native sign-in's access token lasts an hour, and an app in a
@@ -407,36 +409,123 @@ func TestServe_ARenewalRefusesWhatTheTokenPathRefuses(t *testing.T) {
 	})
 }
 
-// A native app signs out with the token it holds, or with its refresh token in
-// the body. Either ends every native refresh token the person holds, so no
-// device of theirs renews afterwards. The access token itself is stateless and
-// lasts out its hour (see TestServe_SignOutDoesNotEndTheTokenTheSignInIssued).
-func TestServe_ANativeSignOutEndsThePersonsRefreshTokens(t *testing.T) {
-	door := newBootDoor(t)
-	srv := bootServe(t, trustedIssuerConfig(door))
-
-	t.Run("with the access token", func(t *testing.T) {
-		phone := signInNativelyThroughTheDoor(t, srv, door, bootOwnerEmail, bootOwnerSubject, bootOwnerName)
-		tablet := signInNativelyThroughTheDoor(t, srv, door, bootOwnerEmail, bootOwnerSubject, bootOwnerName)
-		if got := serveRequest(t, srv, http.MethodPost, "/api/auth/logout", "", phone.token, nil); got.status != http.StatusOK {
-			t.Fatalf("POST /api/auth/logout with the token answered %d, want 200", got.status)
-		}
-		requireRenewalRefused(t, renewNativeSession(t, srv, phone.refreshToken), "invalid_refresh_token",
-			"a renewal after the app signed out with its token")
-		requireRenewalRefused(t, renewNativeSession(t, srv, tablet.refreshToken), "invalid_refresh_token",
-			"a renewal on the person's other device after they signed out")
-	})
-
-	t.Run("with the refresh token", func(t *testing.T) {
-		app := signInNativelyThroughTheDoor(t, srv, door, bootMemberEmail, bootMemberSubject, bootMemberName)
-		body, err := json.Marshal(map[string]string{"refresh_token": app.refreshToken})
+// signOutNatively posts a sign-out as an app in a native shell does: body as
+// JSON when there is one, token as its bearer when there is one, and no cookie.
+func signOutNatively(t *testing.T, srv *httptest.Server, token string, body map[string]any) serveAnswer {
+	t.Helper()
+	encoded := ""
+	if body != nil {
+		raw, err := json.Marshal(body)
 		if err != nil {
 			t.Fatalf("encode the sign-out: %v", err)
 		}
-		if got := serveCall(t, srv, http.MethodPost, "/api/auth/logout", string(body), nil); got.status != http.StatusOK {
-			t.Fatalf("POST /api/auth/logout with the refresh token answered %d, want 200", got.status)
-		}
-		requireRenewalRefused(t, renewNativeSession(t, srv, app.refreshToken), "invalid_refresh_token",
-			"a renewal after the app signed out with its refresh token")
+		encoded = string(raw)
+	}
+	answer := serveRequest(t, srv, http.MethodPost, "/api/auth/logout", encoded, token, nil)
+	if answer.status != http.StatusOK {
+		t.Fatalf("POST /api/auth/logout answered %d code %q, want 200", answer.status, refusalCode(answer.body))
+	}
+	return answer
+}
+
+// expireNativeRefreshToken moves a stored refresh token's expiry a minute into
+// the past.
+func expireNativeRefreshToken(t *testing.T, db *gorm.DB, raw string) {
+	t.Helper()
+	result := db.Model(&weosoauth.OAuthRefreshToken{}).
+		Where("token_hash = ?", weosoauth.HashToken(raw)).
+		Update("expires_at", time.Now().Add(-time.Minute))
+	if result.Error != nil || result.RowsAffected != 1 {
+		t.Fatalf("expire the refresh token: %d rows, error %v", result.RowsAffected, result.Error)
+	}
+}
+
+// A native sign-out ends the session of the device that signs out and no other
+// (wm-utb5c): the refresh token family its refresh token belongs to, or that
+// its access token names. A refresh token that can no longer renew — spent or
+// expired — ends only its own family, as a renewal with a spent one does, and
+// never counts as the live credential that ending every session needs. The
+// access token itself is stateless and lasts out its hour (see
+// TestServe_SignOutDoesNotEndTheTokenTheSignInIssued).
+func TestServe_ANativeSignOutEndsOnlyThePresentingDevice(t *testing.T) {
+	door := newBootDoor(t)
+	var db *gorm.DB
+	srv := bootServe(t, trustedIssuerConfig(door), fx.Populate(&db))
+	twoDevices := func(t *testing.T) (phone, tablet nativeSession) {
+		t.Helper()
+		return signInNativelyThroughTheDoor(t, srv, door, bootOwnerEmail, bootOwnerSubject, bootOwnerName),
+			signInNativelyThroughTheDoor(t, srv, door, bootOwnerEmail, bootOwnerSubject, bootOwnerName)
+	}
+
+	t.Run("with its live refresh token", func(t *testing.T) {
+		phone, tablet := twoDevices(t)
+		signOutNatively(t, srv, "", map[string]any{"refresh_token": phone.refreshToken})
+		requireRenewalRefused(t, renewNativeSession(t, srv, phone.refreshToken), "invalid_refresh_token",
+			"the phone's renewal after the phone signed out with its refresh token")
+		decodeNativeSession(t, renewNativeSession(t, srv, tablet.refreshToken), "the tablet's renewal after the phone signed out")
 	})
+
+	t.Run("with its access token", func(t *testing.T) {
+		phone, tablet := twoDevices(t)
+		signOutNatively(t, srv, phone.token, nil)
+		requireRenewalRefused(t, renewNativeSession(t, srv, phone.refreshToken), "invalid_refresh_token",
+			"the phone's renewal after the phone signed out with its access token")
+		decodeNativeSession(t, renewNativeSession(t, srv, tablet.refreshToken), "the tablet's renewal after the phone signed out")
+	})
+
+	t.Run("with a renewed access token", func(t *testing.T) {
+		phone, tablet := twoDevices(t)
+		renewed := decodeNativeSession(t, renewNativeSession(t, srv, phone.refreshToken), "the phone's renewal")
+		signOutNatively(t, srv, renewed.token, nil)
+		requireRenewalRefused(t, renewNativeSession(t, srv, renewed.refreshToken), "invalid_refresh_token",
+			"the phone's renewal after it signed out with its renewed access token")
+		decodeNativeSession(t, renewNativeSession(t, srv, tablet.refreshToken), "the tablet's renewal after the phone signed out")
+	})
+
+	t.Run("with a spent refresh token, even asking to end every session", func(t *testing.T) {
+		phone, tablet := twoDevices(t)
+		renewed := decodeNativeSession(t, renewNativeSession(t, srv, phone.refreshToken), "the phone's renewal")
+		signOutNatively(t, srv, "", map[string]any{"refresh_token": phone.refreshToken, "everywhere": true})
+		requireRenewalRefused(t, renewNativeSession(t, srv, renewed.refreshToken), "invalid_refresh_token",
+			"the phone's newest refresh token after a sign-out with the one it replaced")
+		decodeNativeSession(t, renewNativeSession(t, srv, tablet.refreshToken),
+			"the tablet's renewal after a sign-out with the phone's spent refresh token")
+	})
+
+	t.Run("with an expired refresh token, even asking to end every session", func(t *testing.T) {
+		phone, tablet := twoDevices(t)
+		expireNativeRefreshToken(t, db, phone.refreshToken)
+		signOutNatively(t, srv, "", map[string]any{"refresh_token": phone.refreshToken, "everywhere": true})
+		decodeNativeSession(t, renewNativeSession(t, srv, tablet.refreshToken),
+			"the tablet's renewal after a sign-out with the phone's expired refresh token")
+	})
+}
+
+// Ending every native session of a person is asked for explicitly, with
+// "everywhere":true, and needs a live credential: a refresh token that still
+// renews, or an access token that still validates (wm-utb5c). Another person's
+// sessions are untouched.
+func TestServe_ANativeSignOutEverywhereEndsEveryNativeSessionOfThePerson(t *testing.T) {
+	door := newBootDoor(t)
+	srv := bootServe(t, trustedIssuerConfig(door))
+
+	for _, credential := range []string{"refresh token", "access token"} {
+		t.Run("with a live "+credential, func(t *testing.T) {
+			phone := signInNativelyThroughTheDoor(t, srv, door, bootOwnerEmail, bootOwnerSubject, bootOwnerName)
+			tablet := signInNativelyThroughTheDoor(t, srv, door, bootOwnerEmail, bootOwnerSubject, bootOwnerName)
+			someoneElse := signInNativelyThroughTheDoor(t, srv, door, bootMemberEmail, bootMemberSubject, bootMemberName)
+
+			if credential == "refresh token" {
+				signOutNatively(t, srv, "", map[string]any{"refresh_token": phone.refreshToken, "everywhere": true})
+			} else {
+				signOutNatively(t, srv, phone.token, map[string]any{"everywhere": true})
+			}
+			requireRenewalRefused(t, renewNativeSession(t, srv, phone.refreshToken), "invalid_refresh_token",
+				"the phone's renewal after signing out everywhere")
+			requireRenewalRefused(t, renewNativeSession(t, srv, tablet.refreshToken), "invalid_refresh_token",
+				"the tablet's renewal after signing out everywhere on the phone")
+			decodeNativeSession(t, renewNativeSession(t, srv, someoneElse.refreshToken),
+				"another person's renewal after the first signed out everywhere")
+		})
+	}
 }

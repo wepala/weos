@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
 	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
 	"github.com/labstack/echo/v4"
 )
@@ -46,7 +47,7 @@ func TestIssueNativeRefreshToken_KeepsOnlyTheHashUnderTheNativeClient(t *testing
 	ctx := context.Background()
 
 	before := time.Now()
-	issued, err := IssueNativeRefreshToken(ctx, repo, "agent-ops", "acct-harbor")
+	issued, err := IssueNativeRefreshToken(ctx, repo, "agent-ops", "acct-harbor", "")
 	mustNoErr(t, err, "issue a native refresh token")
 	after := time.Now()
 	if issued.Raw == "" {
@@ -146,6 +147,32 @@ func TestRefreshTokenRepo_RevokeForAgent_RevokesOnlyThatPersonsTokensForThatClie
 	}
 }
 
+// A native session's access token names its refresh token family, so a
+// sign-out with that token can end that session and no other (wm-utb5c). The
+// claim is added only for a native session: every other token is as it was.
+func TestNativeSessionClaims_NameTheFamilyOnlyForANativeSession(t *testing.T) {
+	ctx := context.Background()
+
+	extras, err := NativeSessionClaims(ctx, nil, nil, "acct-harbor")
+	mustNoErr(t, err, "claims for a token issued outside a native session")
+	if len(extras) != 0 {
+		t.Fatalf("a token issued outside a native session gets extra claims %v, want none", extras)
+	}
+
+	extras, err = NativeSessionClaims(WithNativeSession(ctx, "family-phone"), nil, nil, "acct-harbor")
+	mustNoErr(t, err, "claims for a native session's token")
+	if got, _ := extras[NativeSessionClaim].(string); got != "family-phone" {
+		t.Fatalf("a native session's token names family %q, want family-phone", got)
+	}
+
+	if got := NativeSessionOf(&authapp.PericarpClaims{Extras: map[string]any{NativeSessionClaim: "family-phone"}}); got != "family-phone" {
+		t.Fatalf("NativeSessionOf read %q, want family-phone", got)
+	}
+	if NativeSessionOf(&authapp.PericarpClaims{}) != "" || NativeSessionOf(nil) != "" {
+		t.Fatal("NativeSessionOf names a family for a token that carries none")
+	}
+}
+
 // A native refresh token presented at /oauth/token is refused, and left as it
 // was: the token endpoint issues connector tokens, and a native session renews
 // only through the native route.
@@ -153,7 +180,7 @@ func TestTokenHandler_RefreshToken_RefusesANativeRefreshToken(t *testing.T) {
 	db := setupTestDB(t)
 	repo := NewRefreshTokenRepository(db)
 	ctx := context.Background()
-	issued, err := IssueNativeRefreshToken(ctx, repo, "agent-ops", "acct-harbor")
+	issued, err := IssueNativeRefreshToken(ctx, repo, "agent-ops", "acct-harbor", "")
 	mustNoErr(t, err, "issue a native refresh token")
 
 	agent, err := (&authentities.Agent{}).With("agent-ops", "Dana Whitfield", authentities.AgentTypePerson)
