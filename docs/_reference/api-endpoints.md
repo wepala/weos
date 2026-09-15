@@ -158,7 +158,9 @@ The `name` field is auto-computed from `given_name` + `family_name`.
 | GET | `/api/users/:id` | Get a member of the caller's account (404 for anyone else) | |
 | PUT | `/api/users/:id` | Update a member of the caller's account (name, role in that account; 404 for anyone else) | `{name?, role?}` |
 
-All three routes require the owner or admin role in the account the caller acts in.
+All three routes require the owner or admin role in the account the caller acts in. A session or
+token that names no active account is refused with `401` and the code `unscoped_session`; the routes
+never choose one of the caller's accounts for them.
 
 `GET /api/users` is paginated. A page holds 100 members unless `limit` names another size, and never
 more than 500; a larger `limit` is cut to 500. Members are ordered by id. The response carries

@@ -90,27 +90,30 @@ type userScope struct {
 	accountID string
 }
 
-// scope resolves the account the caller acts in and requires the owner or
-// admin role there. When the request stops, scope returns nil and the value of
-// the response it has already written.
+// scope takes the account the caller's session or token names and requires the
+// owner or admin role there. When the request stops, scope returns nil and the
+// value of the response it has already written.
 func (h *UserHandler) scope(c echo.Context) (*userScope, error) {
 	ctx := c.Request().Context()
 	identity := auth.AgentFromCtx(ctx)
 	if identity == nil {
 		return nil, respondError(c, http.StatusForbidden, "admin role required")
 	}
-	accountID, err := apimw.CallerAccountID(ctx, h.accountRepo)
-	if err != nil {
-		h.logger.Error(ctx, "failed to resolve the caller's account", "error", err)
-		return nil, respondError(c, http.StatusInternalServerError, "authorization check failed")
+	// The routes act only in the account the caller names (wm-8uq74). A caller
+	// who names none is refused with the code the auth middleware gives an
+	// unscoped session, not matched to one of their accounts: for a person in
+	// several accounts, that match may not be the account they mean, and a
+	// role change would land in the wrong one.
+	accountID := identity.ActiveAccountID
+	if accountID == "" {
+		h.logger.Warn(ctx, "users request refused: the caller names no active account",
+			"caller_agent_id", identity.AgentID)
+		return nil, respondErrorCode(c, http.StatusUnauthorized, "not authenticated", apimw.CodeUnscopedSession)
 	}
-	isAdmin := false
-	if accountID != "" {
-		isAdmin, err = apimw.IsOwnerOrAdmin(ctx, h.accountRepo, accountID, identity.AgentID)
-		if err != nil {
-			h.logger.Error(ctx, "failed to check admin status", "error", err)
-			return nil, respondError(c, http.StatusInternalServerError, "authorization check failed")
-		}
+	isAdmin, err := apimw.IsOwnerOrAdmin(ctx, h.accountRepo, accountID, identity.AgentID)
+	if err != nil {
+		h.logger.Error(ctx, "failed to check admin status", "error", err)
+		return nil, respondError(c, http.StatusInternalServerError, "authorization check failed")
 	}
 	if !isAdmin {
 		return nil, respondError(c, http.StatusForbidden, "admin role required")

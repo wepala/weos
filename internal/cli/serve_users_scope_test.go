@@ -420,6 +420,44 @@ func TestServe_UsersRoutesStillServeAnOwnerForTheMembersOfTheirAccount(t *testin
 	}
 }
 
+// refusalCode is the stable code on a refusal body, or "" when it carries none.
+func refusalCode(t *testing.T, answer serveAnswer) string {
+	t.Helper()
+	var refusal struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal([]byte(answer.body), &refusal); err != nil {
+		t.Fatalf("decode the refusal %q: %v", answer.body, err)
+	}
+	return refusal.Code
+}
+
+// wm-8uq74. A session that names no account the person acts in is refused on
+// every users route with unscoped_session, and changes nothing, even though
+// the person owns an account and could be matched to it.
+func TestServe_UsersRoutesRefuseASessionWithNoActiveAccount(t *testing.T) {
+	s := newUsersScope(t)
+	legacy := usersSessionIn(t, s.authService, s.sessions, s.credentials, s.owner.agentID, "")
+
+	for _, req := range []struct{ method, path, body string }{
+		{http.MethodGet, "/api/users", ""},
+		{http.MethodGet, "/api/users/" + s.member.agentID, ""},
+		{http.MethodPut, "/api/users/" + s.member.agentID, `{"name":"Renamed Without An Account","role":"admin"}`},
+	} {
+		answer := serveCall(t, s.srv, req.method, req.path, req.body, legacy)
+		if answer.status != http.StatusUnauthorized || refusalCode(t, answer) != "unscoped_session" {
+			t.Errorf("%s %s from a session with no account answered %d %s; want 401 unscoped_session",
+				req.method, req.path, answer.status, answer.body)
+		}
+	}
+	if role := s.roleIn(t, s.owner.accountID, s.member.agentID); role != authentities.RoleMember {
+		t.Errorf("after the refused requests the member holds %q, want member", role)
+	}
+	if name := s.nameOf(t, s.member.agentID); name == "Renamed Without An Account" {
+		t.Error("a refused request renamed the member")
+	}
+}
+
 // usersDefaultPage is how many people a users list holds when the client names
 // no limit (wm-g7284).
 const usersDefaultPage = 100
