@@ -36,14 +36,16 @@ import (
 )
 
 // busyNativeRenewalStore is a refresh token store whose rotation fails the way a
-// locked database does. The presented token reads live the first time, and as
-// afterFailure when the renewal reads it again; any later read finds nothing.
+// locked database does, or with rotateErr when it is set. The presented token
+// reads live the first time, and as afterFailure when the renewal reads it
+// again; any later read finds nothing.
 type busyNativeRenewalStore struct {
 	weosoauth.RefreshTokenRepository
 	mu            sync.Mutex
 	reads         int
 	live          weosoauth.OAuthRefreshToken
 	afterFailure  weosoauth.OAuthRefreshToken
+	rotateErr     error
 	revocations   int
 	familyRevoked bool
 }
@@ -65,6 +67,9 @@ func (s *busyNativeRenewalStore) FindByTokenHash(context.Context, string) (*weos
 }
 
 func (s *busyNativeRenewalStore) Rotate(context.Context, string, *weosoauth.OAuthRefreshToken, string) error {
+	if s.rotateErr != nil {
+		return s.rotateErr
+	}
 	return errors.New("database is locked")
 }
 
@@ -130,21 +135,28 @@ func TestPasswordAuthHandler_Refresh_ARotationThatFailsNeverAnswers500(t *testin
 	spentByAnother.Revoked = true
 	spentByAnother.SuccessorID = "rt-phone-next"
 	spentByAnother.RotatedAt = &now
+	expiredMeanwhile := live
+	expiredMeanwhile.ExpiresAt = now.Add(-time.Second)
 
 	cases := []struct {
 		name              string
+		rotateErr         error
 		afterFailure      weosoauth.OAuthRefreshToken
 		wantStatus        int
 		wantCode          string
 		wantFamilyRevoked bool
 	}{
-		{"another renewal spent the token meanwhile, outside the grace window", spentByAnother,
+		{"another renewal spent the token meanwhile, outside the grace window", nil, spentByAnother,
 			http.StatusUnauthorized, handlers.CodeInvalidRefreshToken, true},
-		{"nobody spent the token", live, http.StatusServiceUnavailable, "", false},
+		{"nobody spent the token", nil, live, http.StatusServiceUnavailable, "", false},
+		// The rotation refused a token that expired while it waited. Nothing was
+		// spent, and nothing will renew with it: sending it again cannot help.
+		{"the token expired while its rotation waited", weosoauth.ErrNotFound, expiredMeanwhile,
+			http.StatusUnauthorized, handlers.CodeInvalidRefreshToken, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			store := &busyNativeRenewalStore{live: live, afterFailure: tc.afterFailure}
+			store := &busyNativeRenewalStore{live: live, afterFailure: tc.afterFailure, rotateErr: tc.rotateErr}
 			h := handlers.NewPasswordAuthHandler(handlers.PasswordAuthHandlerConfig{
 				AuthService:         &fakeAuthService{tokenString: "renewed-access-token"},
 				SessionManager:      &fakeSessionManager{},

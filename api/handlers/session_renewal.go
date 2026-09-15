@@ -224,13 +224,18 @@ func (h *PasswordAuthHandler) Refresh(c echo.Context) error {
 			h.purgeNativeRefreshTokens(ctx)
 		} else {
 			// The rotation did not spend the token for this renewal: another
-			// renewal with the same token spent it a moment ago, or the store
-			// failed — a busy or locked database — and rolled back. The token is
-			// read again to tell which, and the answer is never 500, which an app
-			// would retry with a token it cannot tell was spent (wm-tu180).
+			// renewal with the same token spent it a moment ago, the token
+			// expired while the rotation waited, or the store failed — a busy or
+			// locked database — and rolled back. The token is read again to tell
+			// which, and the answer is never 500, which an app would retry with a
+			// token it cannot tell was spent (wm-tu180).
 			again, lookupErr := tokens.FindByTokenHash(ctx, weosoauth.HashToken(raw))
 			switch {
 			case errors.Is(lookupErr, weosoauth.ErrNotFound):
+				return refuseRenewal(c, CodeInvalidRefreshToken)
+			case lookupErr == nil && !again.Revoked && !time.Now().Before(again.ExpiresAt):
+				// Nothing was spent, and the token will never renew: sending the
+				// same renewal again cannot help.
 				return refuseRenewal(c, CodeInvalidRefreshToken)
 			case lookupErr == nil && !again.Revoked:
 				// Nobody spent it, so nothing was spent: the same renewal can be

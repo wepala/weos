@@ -163,8 +163,9 @@ type RefreshTokenRepository interface {
 	PurgeExpired(ctx context.Context, clientID string, before time.Time) (int64, error)
 	// Rotate atomically revokes the old token (only if active) and creates
 	// the new token in a single transaction. If the old token is already
-	// revoked, returns ErrNotFound (token reuse). If the new token cannot
-	// be created, the old token is NOT revoked (transaction rollback).
+	// revoked, or has expired by the clock read inside that transaction,
+	// returns ErrNotFound. If the new token cannot be created, the old token
+	// is NOT revoked (transaction rollback).
 	Rotate(
 		ctx context.Context,
 		oldID string,
@@ -173,10 +174,14 @@ type RefreshTokenRepository interface {
 	) error
 }
 
-type gormRefreshTokenRepo struct{ db *gorm.DB }
+type gormRefreshTokenRepo struct {
+	db *gorm.DB
+	// now is the clock a rotation checks the spent token's expiry against.
+	now func() time.Time
+}
 
 func NewRefreshTokenRepository(db *gorm.DB) RefreshTokenRepository {
-	return &gormRefreshTokenRepo{db: db}
+	return &gormRefreshTokenRepo{db: db, now: time.Now}
 }
 
 func (r *gormRefreshTokenRepo) Create(
@@ -267,22 +272,33 @@ func (r *gormRefreshTokenRepo) Rotate(
 	}
 	newToken.TokenHash = HashToken(newRawToken)
 	if newToken.ExpiresAt.IsZero() {
-		newToken.ExpiresAt = time.Now().Add(30 * 24 * time.Hour)
+		newToken.ExpiresAt = r.now().Add(30 * 24 * time.Hour)
 	}
 
-	rotatedAt := time.Now()
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// Conditional revoke — fails if token is already revoked. The spent
-		// token records its successor's id and when it was spent, so a native
-		// renewal repeated inside the grace window can be answered that
-		// successor (wm-3dgs0).
+		// Conditional revoke — fails if the token is already revoked or has
+		// expired. The spent token records its successor's id and when it was
+		// spent, so a native renewal repeated inside the grace window can be
+		// answered that successor (wm-3dgs0).
+		rotatedAt := r.now()
 		result := tx.Model(&OAuthRefreshToken{}).
-			Where("id = ? AND revoked = ?", oldID, false).
+			Where("id = ? AND revoked = ? AND expires_at > ?", oldID, false, rotatedAt).
 			Updates(map[string]any{"revoked": true, "successor_id": newToken.ID, "rotated_at": rotatedAt})
 		if result.Error != nil {
 			return result.Error
 		}
 		if result.RowsAffected == 0 {
+			return ErrNotFound
+		}
+		// The update can wait on the row's lock long enough for the token to
+		// expire, so the clock is read again now that this transaction holds it.
+		var unexpired int64
+		if err := tx.Model(&OAuthRefreshToken{}).
+			Where("id = ? AND expires_at > ?", oldID, r.now()).
+			Count(&unexpired).Error; err != nil {
+			return err
+		}
+		if unexpired == 0 {
 			return ErrNotFound
 		}
 		// Persist new token in the same transaction. If this fails,
