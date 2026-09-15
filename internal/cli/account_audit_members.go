@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -146,10 +145,8 @@ func sqliteFileMissing(dsn string) (string, bool) {
 	if config.IsPostgresDSN(dsn) || gormdb.IsSQLiteMemoryDSN(dsn) {
 		return "", false
 	}
-	path := strings.TrimPrefix(dsn, "file:")
-	if i := strings.Index(path, "?"); i >= 0 {
-		path = path[:i]
-	}
+	// The file SQLite opens: a file: URI's path is decoded first.
+	path := gormdb.SQLiteFileName(dsn)
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 		return path, true
 	}

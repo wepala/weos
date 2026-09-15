@@ -186,6 +186,20 @@ func IsSQLiteMemoryDSN(dsn string) bool {
 	return false
 }
 
+// SQLiteFileName is the file a SQLite DSN names, as the driver and SQLite read
+// it. A plain path's query is cut off. A file: URI's path ends at its query or
+// fragment, and its %HH escapes are decoded, so file:/data/my%20db.sqlite names
+// "/data/my db.sqlite".
+func SQLiteFileName(dsn string) string {
+	name, _, _ := strings.Cut(dsn, "?")
+	path, isURI := strings.CutPrefix(name, "file:")
+	if !isURI {
+		return name
+	}
+	path, _, _ = strings.Cut(path, "#")
+	return sqliteURIUnescape(path)
+}
+
 // sqliteURIUnescape decodes the %HH escapes in part of a SQLite URI the way
 // SQLite does: a % not followed by two hex digits is kept as it is.
 func sqliteURIUnescape(s string) string {

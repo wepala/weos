@@ -16,6 +16,7 @@
 package cli
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -27,6 +28,11 @@ import (
 // only contains ":memory:" or "mode=memory" is a file, and can be missing.
 func TestAuditSQLiteFileMissing(t *testing.T) {
 	dir := t.TempDir()
+	for _, name := range []string{"my db.sqlite", "100%20.db"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+	}
 	for _, tc := range []struct {
 		name        string
 		dsn         string
@@ -52,6 +58,15 @@ func TestAuditSQLiteFileMissing(t *testing.T) {
 			filepath.Join(dir, ":memory:.db"),
 			filepath.Join(dir, ":memory:.db"), true,
 		},
+		// SQLite decodes %HH in a file: URI's path, so the file the preflight
+		// looks for is the decoded one.
+		{"an existing file URI with an encoded space", "file:" + dir + "/my%20db.sqlite?mode=ro", "", false},
+		{
+			"a missing file URI with an encoded space",
+			"file:" + dir + "/gone%20db.sqlite",
+			filepath.Join(dir, "gone db.sqlite"), true,
+		},
+		{"an existing plain path with a literal %20", filepath.Join(dir, "100%20.db"), "", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path, missing := sqliteFileMissing(tc.dsn)
