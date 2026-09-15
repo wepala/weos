@@ -100,15 +100,23 @@ func (d *bootDoor) settings() config.TrustedIssuerConfig {
 // for email.
 func (d *bootDoor) assertionBody(t *testing.T, email string) string {
 	t.Helper()
+	return d.assertionBodyFor(t, email, "108234567890", "Dana Whitfield")
+}
+
+// assertionBodyFor is assertionBody for the person the provider knows by
+// subject and name, so a test can sign in a second person whose credential is
+// not the first one's.
+func (d *bootDoor) assertionBodyFor(t *testing.T, email, subject, name string) string {
+	t.Helper()
 	now := time.Now()
 	token := gojwt.NewWithClaims(gojwt.SigningMethodES256, gojwt.MapClaims{
 		"iss":            bootDoorIssuer,
 		"aud":            bootDoorAudience,
-		"sub":            "108234567890",
+		"sub":            subject,
 		"email":          email,
 		"email_verified": true,
 		"provider":       "google",
-		"name":           "Dana Whitfield",
+		"name":           name,
 		"jti":            fmt.Sprintf("boot-%d", now.UnixNano()),
 		"iat":            now.Unix(),
 		"exp":            now.Add(60 * time.Second).Unix(),
@@ -151,6 +159,7 @@ type serveAnswer struct {
 	status  int
 	body    string
 	cookies []*http.Cookie
+	header  http.Header
 }
 
 func serveCall(t *testing.T, srv *httptest.Server, method, path, body string, cookies []*http.Cookie) serveAnswer {
@@ -203,7 +212,7 @@ func serveSend(t *testing.T, req *http.Request) serveAnswer {
 	if err != nil {
 		t.Fatalf("read %s %s: %v", method, path, err)
 	}
-	return serveAnswer{status: resp.StatusCode, body: strings.TrimSpace(string(raw)), cookies: resp.Cookies()}
+	return serveAnswer{status: resp.StatusCode, body: strings.TrimSpace(string(raw)), cookies: resp.Cookies(), header: resp.Header}
 }
 
 // offersTheDoor reports whether GET /api/auth/providers lists the issuer.
