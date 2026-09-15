@@ -180,7 +180,7 @@ func (h *ImpersonationHandler) Start(c echo.Context) error {
 		// asked for is ended here, or that read would bring its banner back.
 		// Whether one is held depends on the request, never on the person asked
 		// for, so the answer stays identical for an unknown person.
-		expireHeldImpersonationCookie(c)
+		apimw.ExpireHeldImpersonationCookie(c)
 		return respondErrorCode(c, http.StatusForbidden, "impersonation not allowed", apimw.CodeImpersonationTargetNotMember)
 	}
 	if target.Status() != "active" {
@@ -224,7 +224,9 @@ func (h *ImpersonationHandler) Start(c echo.Context) error {
 // the cookie. serve.go mounts it beside the protected group rather than in it,
 // so the impersonation middleware cannot refuse the one request that ends an
 // impersonation it no longer allows. The person recorded as stopping it is the
-// person signed in, never the person the cookie names (wm-1yjuv).
+// person signed in, never the person the cookie names (wm-1yjuv). A request the
+// session checks refuse never reaches it; apimw.EndHeldImpersonation, mounted in
+// front of those checks, expires the cookie for that request (wm-ptcuk).
 func (h *ImpersonationHandler) Stop(c echo.Context) error {
 	ctx := c.Request().Context()
 	// Where the middleware did run and applied the impersonation, the person
@@ -284,7 +286,7 @@ func (h *ImpersonationHandler) Status(c echo.Context) error {
 	ctx := c.Request().Context()
 	impersonated := auth.AgentFromCtx(ctx)
 	if apimw.ImpersonatorFromCtx(ctx) == nil || impersonated == nil {
-		expireHeldImpersonationCookie(c)
+		apimw.ExpireHeldImpersonationCookie(c)
 		return respond(c, http.StatusOK, map[string]any{"active": false})
 	}
 
@@ -297,17 +299,6 @@ func (h *ImpersonationHandler) Status(c echo.Context) error {
 			"email": email,
 		},
 	})
-}
-
-// expireHeldImpersonationCookie expires the impersonation cookie when the
-// request carries one. It looks only for the cookie by name and reads none of
-// its values, so a request that holds no impersonation gets no cookie written.
-func expireHeldImpersonationCookie(c echo.Context) {
-	if _, err := c.Request().Cookie(apimw.ImpersonationSessionName); err != nil {
-		// http.ErrNoCookie: there is nothing to expire.
-		return
-	}
-	apimw.ExpireImpersonationCookie(c.Response())
 }
 
 // Me wraps pericarp's AuthHandlers.Me to return impersonated user info when active,

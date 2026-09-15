@@ -651,14 +651,21 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	// allows, and the request that ends such an impersonation must not be
 	// refused with it (wm-1yjuv). The checks are per-route middleware, not a
 	// new group, so no group's not-found catch-all moves (see featuresGroup).
+	// EndHeldImpersonation runs first: those checks refuse a session whose
+	// account is suspended, locked for deletion or no longer the caller's
+	// before Stop is reached, and that refusal must still end the impersonation.
 	var stopGuards []echo.MiddlewareFunc
 	if appCfg.AuthEnabled() {
 		stopGuards = []echo.MiddlewareFunc{
+			apimw.EndHeldImpersonation(),
 			apimw.ErasureGuard(sessionManager, erasureLocks, logger),
 			echo.WrapMiddleware(authhttp.RequireAuth(sessionManager, authService)),
 		}
 	} else {
-		stopGuards = []echo.MiddlewareFunc{apimw.SoftAuth(credentialRepo, agentRepo, accountRepo, logger)}
+		stopGuards = []echo.MiddlewareFunc{
+			apimw.EndHeldImpersonation(),
+			apimw.SoftAuth(credentialRepo, agentRepo, accountRepo, logger),
+		}
 	}
 	api.POST("/admin/stop-impersonation", impersonationHandler.Stop, stopGuards...)
 

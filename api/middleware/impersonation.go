@@ -254,6 +254,33 @@ func ExpireImpersonationCookie(w http.ResponseWriter) {
 	http.SetCookie(w, cookie)
 }
 
+// ExpireHeldImpersonationCookie expires the impersonation cookie when the
+// request carries one. It looks only for the cookie by name and reads none of
+// its values, so a request that holds no impersonation gets no cookie written.
+func ExpireHeldImpersonationCookie(c echo.Context) {
+	if _, err := c.Request().Cookie(ImpersonationSessionName); err != nil {
+		// http.ErrNoCookie: there is nothing to expire.
+		return
+	}
+	ExpireImpersonationCookie(c.Response())
+}
+
+// EndHeldImpersonation expires the impersonation cookie a request carries
+// before anything below it runs. The stop route mounts it in front of its
+// session checks, which refuse a session whose account is suspended, locked for
+// deletion, or no longer the caller's before the stop handler is reached; the
+// refusal then still ends the impersonation, so the cookie does not outlive the
+// session that started it (wm-ptcuk). Ending an impersonation grants nothing,
+// so it needs no identity first.
+func EndHeldImpersonation() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			ExpireHeldImpersonationCookie(c)
+			return next(c)
+		}
+	}
+}
+
 // unreadableAccountState fails closed when the roles or state of the account
 // could not be read, with the answer the bearer path gives.
 func unreadableAccountState(c echo.Context) error {

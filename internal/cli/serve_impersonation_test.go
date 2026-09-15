@@ -27,6 +27,7 @@ import (
 
 	apimw "github.com/wepala/weos/v3/api/middleware"
 	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
 	"github.com/wepala/weos/v3/internal/config"
 
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
@@ -609,5 +610,90 @@ func TestServe_AnImpersonationCookieForAPersonOutsideTheAccountIsNotHonored(t *t
 	answer, acting := actingAccount(t, srv, ops.cookies)
 	if answer.status != http.StatusOK || acting != ops.accountID {
 		t.Fatalf("with the cookie cleared the export answered %d for account %q, want the caller's own", answer.status, acting)
+	}
+}
+
+// wm-ptcuk, Copilot review 5204289188. The stop route runs behind the session
+// checks, and they refuse a session whose account is suspended, locked for
+// deletion, or no longer the caller's before Stop runs. That refusal still ends
+// the impersonation the request holds, so the cookie does not outlive the
+// session that started it. A refused stop that holds no impersonation gets no
+// impersonation cookie written.
+func TestServe_ARefusedStopStillEndsTheImpersonationHeld(t *testing.T) {
+	type refusal func(t *testing.T, accounts authrepos.AccountRepository, locks repositories.AccountErasureLocks, ops signedUpPerson)
+	suspend := func(t *testing.T, accounts authrepos.AccountRepository, _ repositories.AccountErasureLocks, ops signedUpPerson) {
+		t.Helper()
+		account, err := accounts.FindByID(context.Background(), ops.accountID)
+		if err != nil || account == nil {
+			t.Fatalf("read the caller's account: %v", err)
+		}
+		if err := account.Deactivate(); err != nil {
+			t.Fatalf("suspend the caller's account: %v", err)
+		}
+		if err := accounts.Save(context.Background(), account); err != nil {
+			t.Fatalf("save the suspended account: %v", err)
+		}
+	}
+	cases := []struct {
+		name     string
+		refuse   refusal
+		wantCode string
+	}{
+		{"the account is suspended", suspend, apimw.CodeAccountDeactivated},
+		{"the account is locked for deletion", func(t *testing.T, accounts authrepos.AccountRepository, locks repositories.AccountErasureLocks, ops signedUpPerson) {
+			t.Helper()
+			suspend(t, accounts, locks, ops)
+			if err := locks.Lock(context.Background(), ops.accountID, ops.agentID); err != nil {
+				t.Fatalf("lock the caller's account for deletion: %v", err)
+			}
+		}, apimw.CodeAccountErasurePending},
+		{"the caller was removed from the account", func(t *testing.T, accounts authrepos.AccountRepository, _ repositories.AccountErasureLocks, ops signedUpPerson) {
+			t.Helper()
+			if err := accounts.RemoveMember(context.Background(), ops.accountID, ops.agentID); err != nil {
+				t.Fatalf("remove the caller from the account: %v", err)
+			}
+		}, apimw.CodeAccountAccessRevoked},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var accounts authrepos.AccountRepository
+			var locks repositories.AccountErasureLocks
+			srv := passwordInstance(t, fx.Populate(&accounts, &locks))
+			ops := signUp(t, srv, "ops@harborlegal.example")
+			counsel := signUp(t, srv, "counsel@cedarrealty.example")
+			if err := accounts.SaveMember(context.Background(), ops.accountID, counsel.agentID, authentities.RoleMember); err != nil {
+				t.Fatalf("add counsel to the caller's account: %v", err)
+			}
+			started := startImpersonation(t, srv, ops, counsel.agentID)
+			if started.status != http.StatusOK {
+				t.Fatalf("starting an impersonation of a member answered %d %s, want 200", started.status, started.body)
+			}
+			tc.refuse(t, accounts, locks, ops)
+
+			stopped := serveCall(t, srv, http.MethodPost, "/api/admin/stop-impersonation", "", withCookies(ops.cookies, started.cookies))
+			if stopped.status != http.StatusUnauthorized || errorCode(t, stopped) != tc.wantCode {
+				t.Fatalf("the stop answered %d %s, want the session refused with 401 %s", stopped.status, stopped.body, tc.wantCode)
+			}
+			if !impersonationCleared(stopped) {
+				t.Fatalf("the refused stop left the impersonation cookie in place")
+			}
+			written := 0
+			for _, c := range stopped.cookies {
+				if c.Name == apimw.ImpersonationSessionName {
+					written++
+				}
+			}
+			if written != 1 {
+				t.Fatalf("the refused stop wrote the impersonation cookie %d times, want once", written)
+			}
+
+			bare := serveCall(t, srv, http.MethodPost, "/api/admin/stop-impersonation", "", ops.cookies)
+			if bare.status != http.StatusUnauthorized {
+				t.Fatalf("a stop holding no impersonation answered %d %s, want the session refused", bare.status, bare.body)
+			}
+			if impersonationCookieIn(bare.cookies) != nil {
+				t.Fatalf("a refused stop that holds no impersonation wrote an impersonation cookie")
+			}
+		})
 	}
 }
