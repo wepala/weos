@@ -471,11 +471,14 @@ func (h *ImpersonationHandler) validatedSession(c echo.Context) (info *authapp.S
 }
 
 // answerToken is the identity read's answer for a bearer token's person.
-// BearerWhenPresent has checked the token and the state of the account it
-// names. The session path's ValidateSession also checks that the person still
-// belongs to that account, and refuses a session that names no account, so
-// this does the same with the same codes and body (wm-qqoq2): a person removed
-// from a household must not still see themselves in it on their phone.
+// BearerWhenPresent has checked the token, the state of the account it names
+// and, since wm-jwojd, that the person still belongs to it, refusing a removed
+// member with the cookie path's code and body. The session path also refuses
+// a session that names no account, so this does the same with the same code
+// and body (wm-qqoq2). Its own membership read gives the role it answers with,
+// and refuses a removed member the same way should nothing check it first: a
+// person removed from a household must not still see themselves in it on
+// their phone.
 func (h *ImpersonationHandler) answerToken(c echo.Context, identity *auth.Identity) error {
 	ctx := c.Request().Context()
 	if identity.ActiveAccountID == "" {

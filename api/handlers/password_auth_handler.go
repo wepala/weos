@@ -342,10 +342,15 @@ func (h *PasswordAuthHandler) completeAuthAs(
 	// only ever be useful on a path that does not make the same check, which
 	// is the hole rather than the feature.
 	//
-	// A locked account gets no token either: the bearer path refuses one for
-	// an inactive account, so it could serve nothing.
+	// A locked account's owner or admin — the only person erasurePending is
+	// set for — does get a token, scoped to the locked account (wm-xsvas). An
+	// app in a native shell holds no cookie, only a token, so without one it
+	// could never finish a deletion that failed part-way. The token serves
+	// that and nothing else: the bearer path refuses it with
+	// account_erasure_pending on every route except DELETE /api/account, which
+	// admits it as it admits a session scoped to the locked account.
 	var tokenString string
-	if accountID != "" && !erasurePending {
+	if accountID != "" {
 		var issueErr error
 		tokenString, issueErr = h.cfg.AuthService.IssueIdentityToken(
 			ctx, agent, accountID, authapp.AccountAlreadyVerified(),

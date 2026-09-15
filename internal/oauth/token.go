@@ -173,6 +173,28 @@ func handleAuthCodeGrant(
 		})
 	}
 
+	// The person must still belong to the account at exchange time, not only
+	// when they authorized (wm-aj2eb). A person removed in between gets no
+	// token pair: a refresh token kept now would outlive the removal and mint
+	// access again if they were added back, without a new authorization. The
+	// code is already claimed, so a refused exchange cannot be retried. A
+	// membership that cannot be read issues nothing.
+	role, err := accountRepo.FindMemberRole(ctx, authCode.AccountID, authCode.AgentID)
+	if err != nil {
+		logger.Error(ctx, "oauth token: membership lookup failed",
+			"agent", authCode.AgentID, "account", authCode.AccountID, "error", err)
+		return c.JSON(http.StatusInternalServerError, tokenErrorResponse{
+			Error: "server_error",
+		})
+	}
+	if role == "" {
+		logger.Warn(ctx, "oauth token: agent is no longer a member of the authorized account — issuing nothing",
+			"agent", authCode.AgentID, "account", authCode.AccountID, "client", authCode.ClientID)
+		return c.JSON(http.StatusBadRequest, tokenErrorResponse{
+			Error: "invalid_grant",
+		})
+	}
+
 	agent, err := agentRepo.FindByID(ctx, authCode.AgentID)
 	if err != nil {
 		logger.Error(ctx, "oauth token: agent lookup failed",
@@ -191,7 +213,7 @@ func handleAuthCodeGrant(
 	}
 
 	accessToken, err := jwtService.IssueToken(
-		ctx, agent, accounts, authCode.AccountID, nil, nil)
+		ctx, agent, accounts, authCode.AccountID, nil, connectorClaims())
 	if err != nil {
 		logger.Error(ctx, "oauth token: JWT issuance failed", "error", err)
 		return c.JSON(http.StatusInternalServerError, tokenErrorResponse{
@@ -293,6 +315,39 @@ func handleRefreshGrant(
 		})
 	}
 
+	// The person must still belong to the account the connector was authorized
+	// for (wm-mo1bp). A removed member's access token is refused on every route
+	// with invalid_token, so a conformant connector refreshes; issuing it
+	// another token for the same account would only repeat that forever. The
+	// refresh token is revoked, so it stays refused if the person is added
+	// back — a new authorization is the way in. A membership that cannot be
+	// read issues nothing.
+	role, err := accountRepo.FindMemberRole(ctx, stored.AccountID, stored.AgentID)
+	if err != nil {
+		logger.Error(ctx, "oauth refresh: membership lookup failed",
+			"agent", stored.AgentID, "account", stored.AccountID, "error", err)
+		return c.JSON(http.StatusInternalServerError, tokenErrorResponse{
+			Error: "server_error",
+		})
+	}
+	if role == "" {
+		logger.Warn(ctx, "oauth refresh: agent is no longer a member of the account — revoking the refresh token",
+			"token", stored.ID, "agent", stored.AgentID, "account", stored.AccountID, "client", stored.ClientID)
+		// invalid_grant is final, so say it only once the token is revoked. A
+		// revocation that could not be written leaves the token live; answer
+		// server_error so the client retries and the revocation is tried again.
+		if err := refreshRepo.Revoke(ctx, stored.ID); err != nil {
+			logger.Error(ctx, "oauth refresh: revoking a removed member's refresh token failed",
+				"token", stored.ID, "error", err)
+			return c.JSON(http.StatusInternalServerError, tokenErrorResponse{
+				Error: "server_error",
+			})
+		}
+		return c.JSON(http.StatusBadRequest, tokenErrorResponse{
+			Error: "invalid_grant",
+		})
+	}
+
 	agent, err := agentRepo.FindByID(ctx, stored.AgentID)
 	if err != nil {
 		logger.Error(ctx, "oauth refresh: agent lookup failed",
@@ -311,7 +366,7 @@ func handleRefreshGrant(
 	}
 
 	accessToken, err := jwtService.IssueToken(
-		ctx, agent, accounts, stored.AccountID, nil, nil)
+		ctx, agent, accounts, stored.AccountID, nil, connectorClaims())
 	if err != nil {
 		logger.Error(ctx, "oauth refresh: JWT issuance failed", "error", err)
 		return c.JSON(http.StatusInternalServerError, tokenErrorResponse{
