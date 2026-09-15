@@ -431,6 +431,14 @@ session.
   expired refresh token ends only its own family.
 - `{"everywhere":true}` ends every native session of the person, and only with a live
   credential: a refresh token that still renews, or an access token that still validates.
+  Either one counts only while a renewal for that person in its account would go ahead
+  now. A removed member's or a suspended account's credential ends its own session, and
+  the answer carries `sign_out_everywhere_refused`.
+- A sign-out and a rotation of the same family can overlap. The sign-out reports success
+  only after a fresh read of the family finds no live token, so a successor committed
+  mid-sign-out is revoked too.
+- A rotation spends a refresh token only if it is still unexpired when the rotation
+  holds the row. A renewal that waited past the expiry is refused.
 - A sign-out that presents a credential adds `app_session` to pericarp's
   `{"status":"logged out"}`: `ended`, `ended_everywhere`, `not_identified` or `not_ended`.
   When it did not do all it was asked, it also adds `code`: `app_session_not_identified`,
