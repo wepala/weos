@@ -176,11 +176,20 @@ func (a *AccountMembershipAudit) UnexplainedMemberships(
 	}
 	emailRole := map[string]string{}
 	if len(byEmail) > 0 && len(invitedEmail) > 0 {
+		// Read in batches: one IN list with a parameter per member would pass
+		// SQLite's and Postgres's parameter limits on a large account.
 		var credentials []credentialEmailRow
-		if err := db.Table("credentials").
-			Select("agent_id, email").
-			Where("agent_id IN ?", byEmail).
-			Scan(&credentials).Error; err != nil {
+		if err := forEachChunk(byEmail, func(chunk []string) error {
+			var batch []credentialEmailRow
+			if err := db.Table("credentials").
+				Select("agent_id, email").
+				Where("agent_id IN ?", chunk).
+				Scan(&batch).Error; err != nil {
+				return err
+			}
+			credentials = append(credentials, batch...)
+			return nil
+		}); err != nil {
 			return nil, fmt.Errorf("failed to read the credentials of the members of account %q: %w", accountID, err)
 		}
 		// A person with credentials for several invited addresses takes the

@@ -321,3 +321,44 @@ func TestAccountMembershipAuditTakesTheLaterInviteAcrossAPersonsAddresses(t *tes
 		t.Fatalf("the audit listed %+v; want nothing, since each admin role is the role of the later invite", report.Unexplained)
 	}
 }
+
+// wm-govvg, Copilot review 5205110975. The credentials of the members nothing
+// else explains are read in batches, not in one IN list with a parameter per
+// member: an account larger than SQLite's limit of 32766 parameters would make
+// the audit fail instead of report. Two people whose credentials name an
+// invited address sit in the first batch and in the last, so every batch's
+// credentials must reach the analysis.
+func TestAccountMembershipAuditReadsTheCredentialsOfALargeAccountInBatches(t *testing.T) {
+	ctx := context.Background()
+	s := newAuditStore(t)
+	const members = 33000
+	writtenAt := time.Date(2026, 8, 3, 9, 0, 0, 0, time.UTC)
+
+	s.account("acct-1harbor")
+	rows := make([]authmodels.AccountMemberModel, 0, members)
+	for i := range members {
+		rows = append(rows, authmodels.AccountMemberModel{
+			AccountID: "acct-1harbor", AgentID: fmt.Sprintf("agent-%05d", i), RoleID: authentities.RoleMember, CreatedAt: writtenAt,
+		})
+	}
+	if err := s.db.CreateInBatches(rows, 500).Error; err != nil {
+		t.Fatalf("seed %d memberships: %v", members, err)
+	}
+	s.invite("invite-1", "acct-1harbor", "counsel@cedarrealty.example", "", authentities.RoleMember)
+	first, last := "agent-00000", fmt.Sprintf("agent-%05d", members-1)
+	s.namedCredential("cred-first", first, "counsel@cedarrealty.example")
+	s.namedCredential("cred-last", last, "counsel@cedarrealty.example")
+
+	report, err := ProvideAccountMembershipAudit(s.db).UnexplainedMemberships(ctx, "acct-1harbor")
+	if err != nil {
+		t.Fatalf("UnexplainedMemberships over %d members: %v", members, err)
+	}
+	if len(report.Unexplained) != members-2 {
+		t.Fatalf("the audit listed %d memberships; want %d, all but the two an invited address explains", len(report.Unexplained), members-2)
+	}
+	for _, m := range report.Unexplained {
+		if m.AgentID == first || m.AgentID == last {
+			t.Errorf("the audit listed %s, whose credential names the invited address", m.AgentID)
+		}
+	}
+}
