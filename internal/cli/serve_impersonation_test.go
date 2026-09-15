@@ -712,6 +712,50 @@ func TestServe_AccountDeletionJudgesTheImpersonationAsTheProtectedRoutesDo(t *te
 	})
 }
 
+// wm-ptcuk, Copilot review 5204893848. The protected group takes a native
+// sign-in's bearer token, so an app in a native shell can start an
+// impersonation with one. The stop route takes the same token, or that app could
+// start an impersonation it cannot end. A connector's token is refused there as
+// on the protected group, and that refusal still ends the impersonation the
+// request holds. No failure message prints a token or a cookie.
+func TestServe_StoppingTakesTheTokenTheStartTook(t *testing.T) {
+	door := newBootDoor(t)
+	var accounts authrepos.AccountRepository
+	logs, capture := capturedLogs()
+	srv := bootServe(t, connectorConfig(door), fx.Populate(&accounts), capture)
+	owner := signInThroughTheDoor(t, srv, door, bootOwnerEmail, bootOwnerSubject, bootOwnerName)
+	member := signInThroughTheDoor(t, srv, door, bootMemberEmail, bootMemberSubject, bootMemberName)
+	if err := accounts.SaveMember(context.Background(), owner.accountID, member.agentID, authentities.RoleMember); err != nil {
+		t.Fatalf("add the member to the owner's account: %v", err)
+	}
+
+	start := fmt.Sprintf(`{"agent_id":%q}`, member.agentID)
+	started := serveRequest(t, srv, http.MethodPost, "/api/admin/impersonate", start, owner.token, nil)
+	if started.status != http.StatusOK || impersonationCookieIn(started.cookies) == nil {
+		t.Fatalf("starting an impersonation with the owner's token answered %d code %q, want 200 and a cookie",
+			started.status, refusalCode(started.body))
+	}
+
+	stopped := serveRequest(t, srv, http.MethodPost, "/api/admin/stop-impersonation", "", owner.token, started.cookies)
+	if stopped.status != http.StatusOK || !impersonationCleared(stopped) {
+		t.Fatalf("stopping with the token that started it answered %d code %q cleared=%v, want 200 and the cookie cleared",
+			stopped.status, refusalCode(stopped.body), impersonationCleared(stopped))
+	}
+	if lines := logs.mentioning("impersonation stopped"); len(lines) != 1 || !strings.Contains(lines[0], "admin_agent_id "+owner.agentID) {
+		t.Fatalf("want one stop line naming the owner, got:\n%s", strings.Join(lines, "\n"))
+	}
+
+	connector := connectThroughOAuth(t, srv, owner.cookies)
+	refused := serveRequest(t, srv, http.MethodPost, "/api/admin/stop-impersonation", "", connector.accessToken, started.cookies)
+	if refused.status != http.StatusForbidden || refusalCode(refused.body) != apimw.CodeTokenNotAllowed {
+		t.Errorf("stopping with a connector's token answered %d code %q, want 403 %s",
+			refused.status, refusalCode(refused.body), apimw.CodeTokenNotAllowed)
+	}
+	if !impersonationCleared(refused) {
+		t.Errorf("the refused stop left the impersonation cookie in place")
+	}
+}
+
 // wm-ptcuk, Copilot review 5204289188. The stop route runs behind the session
 // checks, and they refuse a session whose account is suspended, locked for
 // deletion, or no longer the caller's before Stop runs. That refusal still ends
