@@ -93,6 +93,10 @@ func initTrustedIssuerAccountScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the instance has since been restarted with no allowlist$`, func() error { return w.allowlist() })
 	sc.Step(`^password sign-in is also enabled on that instance$`, w.passwordSignInEnabled)
 	sc.Step(`^the account "([^"]*)", whose owner "([^"]*)" signs in with password "([^"]*)"$`, w.accountWithOwner)
+	sc.Step(`^the instance does not let a password prove who owns an email$`, w.passwordsProveNoOwner)
+	sc.Step(`^the operator created "([^"]*)" with the password "([^"]*)"$`, func(email, password string) error {
+		return w.createPasswordOwner(email, email, password)
+	})
 
 	// Sign-ins
 	sc.Step(`^the door presents an assertion for "([^"]*)" from "([^"]*)" with the subject "([^"]*)"$`,
@@ -123,6 +127,8 @@ func initTrustedIssuerAccountScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the sign-in reports no account$`, w.reportsNoAccount)
 	sc.Step(`^the sign-in hands back no token$`, w.handsBackNoToken)
 	sc.Step(`^no token cookie is set$`, w.noTokenCookie)
+	sc.Step(`^the sign-in is refused with the reason "([^"]*)"$`, w.refusedWithReason)
+	sc.Step(`^the refusal tells the person to contact the operator of the instance$`, w.refusalSaysContactOperator)
 }
 
 // --- answers ---
@@ -132,8 +138,9 @@ type taAnswer struct {
 	body    string
 	cookies []*http.Cookie
 	fields  map[string]json.RawMessage
-	// code is a refusal's machine-readable reason; "" on any other answer.
-	code string
+	// code is a refusal's machine-readable reason, and errorText the words a
+	// person reads beside it; both "" on any other answer.
+	code, errorText string
 
 	agentID, agentName, agentEmail string
 	accountID, accountName         string
@@ -172,10 +179,11 @@ func readTaAnswer(resp *http.Response) (*taAnswer, error) {
 	}
 	a := &taAnswer{status: resp.StatusCode, body: strings.TrimSpace(string(raw)), cookies: resp.Cookies()}
 	var refusal struct {
-		Code string `json:"code"`
+		Code  string `json:"code"`
+		Error string `json:"error"`
 	}
 	_ = json.Unmarshal(raw, &refusal) // only a refusal carries a code; any other answer leaves it ""
-	a.code = refusal.Code
+	a.code, a.errorText = refusal.Code, refusal.Error
 	var envelope struct {
 		Data map[string]json.RawMessage `json:"data"`
 	}
@@ -430,6 +438,13 @@ func (w *taWorld) createPasswordOwner(name, email, password string) error {
 	}
 	w.accounts[name] = account.GetID()
 	return nil
+}
+
+// passwordsProveNoOwner restarts the instance with the operator's opt-in
+// stated off, so a password credential proves nothing about who owns its email.
+func (w *taWorld) passwordsProveNoOwner() error {
+	w.setEnv(config.EnvTrustedIssuerLinkPasswordOwners, ptr("false"))
+	return w.boot()
 }
 
 func (w *taWorld) personalAccountDeactivated() error {
@@ -945,6 +960,36 @@ func (w *taWorld) reportsNoAccount() error {
 func (w *taWorld) handsBackNoToken() error {
 	if last := w.last(); last == nil || last.token != "" {
 		return fmt.Errorf("the sign-in handed back a token for a person with no account to act in")
+	}
+	return nil
+}
+
+// refusedWithReason requires the last sign-in to be refused as a conflict over
+// who owns the email, naming reason, and to leave the browser holding nothing.
+func (w *taWorld) refusedWithReason(reason string) error {
+	last := w.last()
+	if last == nil {
+		return fmt.Errorf("no sign-in has been attempted")
+	}
+	if last.status != http.StatusConflict {
+		return fmt.Errorf("expected the sign-in to be refused (409), got %d: %s", last.status, last.body)
+	}
+	if last.code != reason {
+		return fmt.Errorf("expected the refusal to name %q, it named %q: %s", reason, last.code, last.body)
+	}
+	if len(last.cookies) != 0 {
+		return fmt.Errorf("a refused sign-in set cookies: %v", last.cookies)
+	}
+	return nil
+}
+
+func (w *taWorld) refusalSaysContactOperator() error {
+	last := w.last()
+	if last == nil {
+		return fmt.Errorf("no sign-in has been attempted")
+	}
+	if !strings.Contains(strings.ToLower(last.errorText), "contact the operator") {
+		return fmt.Errorf("the refusal does not tell the person to contact the operator: %s", last.body)
 	}
 	return nil
 }

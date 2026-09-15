@@ -43,8 +43,10 @@ func TestMountTrustedIssuerAssertionRefusesAnIssuerTheSignInAddressCannotBeBuilt
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
+			// LinkPasswordOwners keeps the owner-proof warning, which
+			// TestMountTrustedIssuerAssertion covers, out of the lines counted here.
 			cfg := config.Config{SessionSecret: instanceSessionSecret, TrustedIssuer: config.TrustedIssuerConfig{
-				Issuer: c.issuer, JWKSURL: doorKeyList, Audience: doorAudience,
+				Issuer: c.issuer, JWKSURL: doorKeyList, Audience: doorAudience, LinkPasswordOwners: true,
 			}}
 			logs := &assertionLogCapture{}
 			mounted := handlers.MountTrustedIssuerAssertion(context.Background(), echo.New().Group("/api"), cfg, logs, refusingHandler)
@@ -86,7 +88,9 @@ func TestMountTrustedIssuerAssertionRefusesAnIssuerTheSignInAddressCannotBeBuilt
 func TestEveryTrustedIssuerBootLineSaysTheAPIIsLocked(t *testing.T) {
 	all3 := config.TrustedIssuerConfig{Issuer: doorIssuer, JWKSURL: doorKeyList, Audience: doorAudience}
 	cases := map[string]config.Config{
-		"mounted":              {SessionSecret: instanceSessionSecret, TrustedIssuer: all3},
+		// The opt-in leaves the owner-proof warning out: that line is about who
+		// may sign in, not about the lock, and TestMountTrustedIssuerAssertion covers it.
+		"mounted":              {SessionSecret: instanceSessionSecret, TrustedIssuer: config.TrustedIssuerConfig{Issuer: doorIssuer, JWKSURL: doorKeyList, Audience: doorAudience, LinkPasswordOwners: true}},
 		"partly configured":    {SessionSecret: instanceSessionSecret, TrustedIssuer: config.TrustedIssuerConfig{Issuer: doorIssuer}},
 		"an unusable issuer":   {SessionSecret: instanceSessionSecret, TrustedIssuer: config.TrustedIssuerConfig{Issuer: "http://door.example", JWKSURL: doorKeyList, Audience: doorAudience}},
 		"an unusable key list": {SessionSecret: instanceSessionSecret, TrustedIssuer: config.TrustedIssuerConfig{Issuer: doorIssuer, JWKSURL: "http://door.example/jwks.json", Audience: doorAudience}},

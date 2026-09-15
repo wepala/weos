@@ -28,6 +28,12 @@ Feature: Signing a person in to their own account from a trusted issuer's assert
   directly, so a door identity and a Google or Apple identity with the same email are one
   person, in either order. Two door identities with the same email are not one person.
 
+  A link needs a credential that proves who owns the email. When credentials hold the email but
+  none of them proves it, such as a password on an instance whose operator has not said that a
+  password proves an owner, the instance neither links nor creates. It refuses the sign-in with
+  the reason unproven-owner and tells the person to contact the operator of the instance, because
+  only the operator can make the owner provable.
+
   The answer is a password sign-in's answer, field for field and cookie for cookie, because the
   browser makes this request itself through the door and must be left holding exactly what a
   password sign-in leaves it holding. It adds one field, new_account, which is true only when
@@ -148,6 +154,17 @@ Feature: Signing a person in to their own account from a trusted issuer's assert
     Then the sign-in succeeds
     And the sign-in reports that it created a new account
     And the person the sign-in names is not the one "dana.whitfield@harborlegal.example" signed in as earlier
+
+  @wm-am5ly
+  Scenario: A sign-in for an email only a password holds is refused and tells the person to contact the operator
+    Given a WeOS instance that trusts login assertions from "https://money.weos.cloud" for the audience "a1b2c3d4"
+    And the instance has no allowlist
+    And the instance does not let a password prove who owns an email
+    And the operator created "ops@harborlegal.example" with the password "correct-horse-battery-staple"
+    When the door presents an assertion for "ops@harborlegal.example" from "google" with the subject "117590246813570924368"
+    Then the sign-in is refused with the reason "unproven-owner"
+    And the refusal tells the person to contact the operator of the instance
+    And the store holds exactly one account for "ops@harborlegal.example"
 
   # --- A door sign-in and a Google or Apple sign-in with the same email are one person ---
 

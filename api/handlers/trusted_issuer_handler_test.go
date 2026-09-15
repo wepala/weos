@@ -470,9 +470,11 @@ func TestAssertAnswersAConflictWhenMoreThanOnePersonHoldsTheEmail(t *testing.T) 
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want 409 (%s)", rec.Code, rec.Body.String())
 	}
-	if code := readAssertAnswer(t, rec).Code; code != handlers.CodeAmbiguousOwner {
-		t.Fatalf("answer code = %q, want %q", code, handlers.CodeAmbiguousOwner)
+	answer := readAssertAnswer(t, rec)
+	if answer.Code != handlers.CodeAmbiguousOwner {
+		t.Fatalf("answer code = %q, want %q", answer.Code, handlers.CodeAmbiguousOwner)
 	}
+	requireContactTheOperator(t, answer)
 	if sm.createCalls != 0 || len(rec.Header().Values("Set-Cookie")) != 0 {
 		t.Fatalf("an ambiguous owner was signed in")
 	}
@@ -496,14 +498,49 @@ func TestAssertAnswersAConflictWhenNothingProvesWhoOwnsTheEmail(t *testing.T) {
 	if handlers.CodeUnprovenOwner != "unproven-owner" {
 		t.Fatalf("CodeUnprovenOwner = %q, want unproven-owner", handlers.CodeUnprovenOwner)
 	}
-	if code := readAssertAnswer(t, rec).Code; code != handlers.CodeUnprovenOwner {
-		t.Fatalf("answer code = %q, want %q", code, handlers.CodeUnprovenOwner)
+	answer := readAssertAnswer(t, rec)
+	if answer.Code != handlers.CodeUnprovenOwner {
+		t.Fatalf("answer code = %q, want %q", answer.Code, handlers.CodeUnprovenOwner)
 	}
+	requireContactTheOperator(t, answer)
 	if sm.createCalls != 0 || len(rec.Header().Values("Set-Cookie")) != 0 {
 		t.Fatalf("an unproven owner was signed in")
 	}
 	if logged := logs.text(); logged != "" {
 		t.Fatalf("the handler logged the conflict a second time:\n%s", logged)
+	}
+}
+
+// requireContactTheOperator checks that an owner conflict tells the person
+// what to do next. Only the instance's operator can clear one, and the person
+// who meets it cannot see the log line that names the people involved.
+func requireContactTheOperator(t *testing.T, answer assertAnswer) {
+	t.Helper()
+	if !strings.Contains(answer.Error, "contact the operator of this instance") {
+		t.Fatalf("answer error = %q, want it to tell the person to contact the operator of this instance", answer.Error)
+	}
+}
+
+// requireOwnerProofWarning checks the warning a mounted route adds when the
+// instance has no allowlist and TRUSTED_ISSUER_LINK_PASSWORD_OWNERS is off: it
+// names the setting, gives it as the remedy, and says what the refusal is.
+func requireOwnerProofWarning(t *testing.T, logs *assertionLogCapture) {
+	t.Helper()
+	warns := logs.atLevel("warn")
+	if len(warns) != 1 || !strings.Contains(warns[0].msg, config.EnvTrustedIssuerLinkPasswordOwners) {
+		t.Fatalf("expected one boot warning naming %s, got:\n%s", config.EnvTrustedIssuerLinkPasswordOwners, logs.text())
+	}
+	if remedy, _ := field(warns[0], "remedy"); !strings.Contains(fmt.Sprint(remedy), config.EnvTrustedIssuerLinkPasswordOwners+"=true") {
+		t.Fatalf("the warning's remedy = %v, want it to say %s=true", remedy, config.EnvTrustedIssuerLinkPasswordOwners)
+	}
+	consequence, _ := field(warns[0], "consequence")
+	for _, want := range []string{"409", handlers.CodeUnprovenOwner} {
+		if !strings.Contains(fmt.Sprint(consequence), want) {
+			t.Fatalf("the warning's consequence = %v, want it to name %q", consequence, want)
+		}
+	}
+	if len(logs.atLevel("info")) != 1 {
+		t.Fatalf("expected the mounted route's info line beside the warning, got:\n%s", logs.text())
 	}
 }
 
@@ -674,19 +711,28 @@ func TestMountTrustedIssuerAssertion(t *testing.T) {
 		// wantSecretError is true when boot must log one error naming
 		// SESSION_SECRET instead of mounting.
 		wantSecretError bool
+		// allowlist is OAUTH_ALLOWED_EMAILS; nil for none.
+		allowlist []string
+		// wantOwnerProofWarning is true when a mounted route must also log one
+		// warning naming TRUSTED_ISSUER_LINK_PASSWORD_OWNERS.
+		wantOwnerProofWarning bool
 	}{
-		"nothing configured":  {settings: config.TrustedIssuerConfig{}},
-		"all three":           {settings: all3, wantMounted: true},
-		"no audience":         {settings: config.TrustedIssuerConfig{Issuer: iss, JWKSURL: url}, wantWarning: "TRUSTED_ISSUER_AUDIENCE"},
-		"no key list":         {settings: config.TrustedIssuerConfig{Issuer: iss, Audience: aud}, wantWarning: "TRUSTED_ISSUER_JWKS_URL"},
-		"no issuer":           {settings: config.TrustedIssuerConfig{JWKSURL: url, Audience: aud}, wantWarning: "TRUSTED_ISSUER"},
-		"only the issuer":     {settings: config.TrustedIssuerConfig{Issuer: iss}, wantWarning: "TRUSTED_ISSUER_JWKS_URL, TRUSTED_ISSUER_AUDIENCE"},
-		"only the key list":   {settings: config.TrustedIssuerConfig{JWKSURL: url}, wantWarning: "TRUSTED_ISSUER, TRUSTED_ISSUER_AUDIENCE"},
-		"only the audience":   {settings: config.TrustedIssuerConfig{Audience: aud}, wantWarning: "TRUSTED_ISSUER, TRUSTED_ISSUER_JWKS_URL"},
-		"key list over http":  {settings: config.TrustedIssuerConfig{Issuer: iss, JWKSURL: "http://money.weos.cloud/door/jwks.json", Audience: aud}, wantWarning: "-"},
-		"loopback key list":   {settings: config.TrustedIssuerConfig{Issuer: iss, JWKSURL: "http://127.0.0.1:9000/jwks.json", Audience: aud}, wantMounted: true},
-		"not a key-list URL":  {settings: config.TrustedIssuerConfig{Issuer: iss, JWKSURL: "jwks.json", Audience: aud}, wantWarning: "-"},
-		"whitespace audience": {settings: config.TrustedIssuerConfig{Issuer: iss, JWKSURL: url, Audience: "  "}, wantWarning: "TRUSTED_ISSUER_AUDIENCE"},
+		"nothing configured": {settings: config.TrustedIssuerConfig{}},
+		"all three":          {settings: all3, wantMounted: true, wantOwnerProofWarning: true},
+		// The warning is for an instance with no allowlist whose operator has
+		// not let a password prove who owns its email.
+		"all three, an allowlist":           {settings: all3, allowlist: []string{"ops@harborlegal.example"}, wantMounted: true},
+		"all three, password owners proven": {settings: config.TrustedIssuerConfig{Issuer: iss, JWKSURL: url, Audience: aud, LinkPasswordOwners: true}, wantMounted: true},
+		"no audience":                       {settings: config.TrustedIssuerConfig{Issuer: iss, JWKSURL: url}, wantWarning: "TRUSTED_ISSUER_AUDIENCE"},
+		"no key list":                       {settings: config.TrustedIssuerConfig{Issuer: iss, Audience: aud}, wantWarning: "TRUSTED_ISSUER_JWKS_URL"},
+		"no issuer":                         {settings: config.TrustedIssuerConfig{JWKSURL: url, Audience: aud}, wantWarning: "TRUSTED_ISSUER"},
+		"only the issuer":                   {settings: config.TrustedIssuerConfig{Issuer: iss}, wantWarning: "TRUSTED_ISSUER_JWKS_URL, TRUSTED_ISSUER_AUDIENCE"},
+		"only the key list":                 {settings: config.TrustedIssuerConfig{JWKSURL: url}, wantWarning: "TRUSTED_ISSUER, TRUSTED_ISSUER_AUDIENCE"},
+		"only the audience":                 {settings: config.TrustedIssuerConfig{Audience: aud}, wantWarning: "TRUSTED_ISSUER, TRUSTED_ISSUER_JWKS_URL"},
+		"key list over http":                {settings: config.TrustedIssuerConfig{Issuer: iss, JWKSURL: "http://money.weos.cloud/door/jwks.json", Audience: aud}, wantWarning: "-"},
+		"loopback key list":                 {settings: config.TrustedIssuerConfig{Issuer: iss, JWKSURL: "http://127.0.0.1:9000/jwks.json", Audience: aud}, wantMounted: true, wantOwnerProofWarning: true},
+		"not a key-list URL":                {settings: config.TrustedIssuerConfig{Issuer: iss, JWKSURL: "jwks.json", Audience: aud}, wantWarning: "-"},
+		"whitespace audience":               {settings: config.TrustedIssuerConfig{Issuer: iss, JWKSURL: url, Audience: "  "}, wantWarning: "TRUSTED_ISSUER_AUDIENCE"},
 		// Core's default secret is public: a session the route issued under it
 		// could be forged, so the route fails closed and says why.
 		"all three, default session secret": {settings: all3, secret: config.DefaultSessionSecret, wantSecretError: true},
@@ -703,7 +749,8 @@ func TestMountTrustedIssuerAssertion(t *testing.T) {
 			builds := 0
 			e := echo.New()
 			api := e.Group("/api")
-			cfg := config.Config{SessionSecret: instanceSessionSecret, TrustedIssuer: c.settings}
+			cfg := config.Config{SessionSecret: instanceSessionSecret, TrustedIssuer: c.settings,
+				OAuth: config.OAuthConfig{AllowedEmails: c.allowlist}}
 			if c.secret != "" {
 				cfg.SessionSecret = c.secret
 			}
@@ -758,6 +805,10 @@ func TestMountTrustedIssuerAssertion(t *testing.T) {
 			}
 
 			warns := logs.atLevel("warn")
+			if c.wantOwnerProofWarning {
+				requireOwnerProofWarning(t, logs)
+				return
+			}
 			switch c.wantWarning {
 			case "":
 				if len(warns) != 0 {
