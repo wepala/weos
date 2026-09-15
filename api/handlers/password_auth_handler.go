@@ -154,12 +154,14 @@ type authSuccessResponse struct {
 	Token     string               `json:"token,omitempty"`
 	ExpiresAt time.Time            `json:"expires_at"`
 	// TokenExpiresAt is when Token stops being accepted, an hour after the
-	// sign-in. ExpiresAt is the browser session's, which an app in a native
-	// shell does not hold.
+	// sign-in, so an app knows when to renew. ExpiresAt is the browser
+	// session's, which an app in a native shell does not hold. Present only
+	// beside RefreshToken.
 	TokenExpiresAt time.Time `json:"token_expires_at,omitzero"`
 	// RefreshToken renews Token at POST /auth/refresh before it expires, and
 	// RefreshTokenExpiresAt is when it stops renewing (wm-lnimb). Present
-	// whenever Token is, on an instance that can renew.
+	// whenever Token is, on an instance that can renew; an instance that cannot
+	// answers with exactly the fields it always did.
 	RefreshToken          string    `json:"refresh_token,omitempty"`
 	RefreshTokenExpiresAt time.Time `json:"refresh_token_expires_at,omitzero"`
 	// ErasurePending says the session was scoped to an account whose
@@ -426,9 +428,13 @@ func (h *PasswordAuthHandler) completeAuthAs(
 		Account:               accountResp,
 		Token:                 tokenString,
 		ExpiresAt:             authSession.ExpiresAt(),
-		TokenExpiresAt:        tokenExpiry(tokenString),
 		RefreshToken:          refresh.Raw,
 		RefreshTokenExpiresAt: refresh.ExpiresAt,
+	}
+	if refresh.Raw != "" {
+		// When to renew goes with what renews it: an instance that hands back no
+		// refresh token answers with exactly the fields it always did.
+		response.TokenExpiresAt = tokenExpiry(tokenString)
 	}
 	if erasurePending {
 		response.ErasurePending = true
