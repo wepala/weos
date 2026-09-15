@@ -156,6 +156,31 @@ func TestServe_BearerTokenIssuedBeforeARestartStillWorksWithTheSameSigningKey(t 
 	}
 }
 
+// wm-lnimb. With no JWT_SIGNING_KEY a restart ends a native app's access token
+// but not its session: the refresh token is stored, hashed, so the app renews
+// after the restart and the new access token is accepted. This is what the
+// boot warning about JWT_SIGNING_KEY tells the operator.
+func TestServe_ANativeSessionRenewsAfterARestartWithNoSigningKey(t *testing.T) {
+	door := newBootDoor(t)
+	cfg := trustedIssuerConfig(door)
+	cfg.OAuth.JWTSigningKey = ""
+	dir := t.TempDir()
+
+	first := bootServeOn(t, cfg, dir)
+	signIn := signInNativelyThroughTheDoor(t, first.srv, door, bootOwnerEmail, bootOwnerSubject, bootOwnerName)
+	first.stop(t)
+
+	second := bootServeOn(t, cfg, dir)
+	if me := serveRequest(t, second.srv, http.MethodGet, "/api/auth/me", "", signIn.token, nil); me.status != http.StatusUnauthorized {
+		t.Fatalf("GET /api/auth/me with an access token from before the restart answered %d, want 401", me.status)
+	}
+	renewed := decodeNativeSession(t, renewNativeSession(t, second.srv, signIn.refreshToken), "a renewal after the restart")
+	if me := serveRequest(t, second.srv, http.MethodGet, "/api/auth/me", "", renewed.token, nil); me.status != http.StatusOK ||
+		!strings.Contains(me.body, bootOwnerEmail) {
+		t.Fatalf("GET /api/auth/me with the token renewed after the restart answered %d, want 200 naming %s", me.status, bootOwnerEmail)
+	}
+}
+
 // issueBearerTokenThroughTheDoor signs a person in with the door's assertion
 // and issues the bearer token serve's authorization server would give that
 // person's MCP connector, from serve's own JWT service.

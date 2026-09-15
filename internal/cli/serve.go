@@ -375,14 +375,17 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 		})
 	// A trusted issuer's sign-in hands a native app a bearer token, and the app
 	// reads its account with it (wm-hg3xf). With no JWT_SIGNING_KEY that token
-	// is signed by a key made at boot, so every restart or deploy signs the app
-	// out. Say so once at boot (wm-a6xb6). The key itself is never logged.
+	// is signed by a key made at boot, so every restart or deploy ends it. The
+	// refresh token beside it is stored, so the app renews after the restart
+	// (wm-lnimb), but a renewal repeated across the restart is taken as reuse,
+	// because the grace window needs the same key. Say so once at boot
+	// (wm-a6xb6). The key itself is never logged.
 	// Only when the assert route is mounted: a partly configured issuer, or one
 	// on core's public session secret, issues no such token, and the mount has
 	// already logged why.
 	if assertMounted && weosoauth.TokensDieOnRestart(appCfg) {
 		logger.Warn(context.Background(),
-			"JWT_SIGNING_KEY is empty or auto, so native bearer tokens will not survive a restart: each boot signs tokens with a new key, and an app holding one is signed out after every restart or deploy",
+			"JWT_SIGNING_KEY is empty or auto, so native bearer tokens will not survive a restart: each boot signs tokens with a new key, so after every restart or deploy an app must renew its access token with its refresh token, and a renewal repeated across the restart counts as reuse and signs the app out",
 			"remedy", "set JWT_SIGNING_KEY to a PEM-encoded RSA private key that stays the same across restarts and on every instance")
 	}
 

@@ -501,9 +501,10 @@ func bootSigningKeyPEM(t *testing.T) string {
 
 // wm-a6xb6. With no JWT_SIGNING_KEY, every boot signs tokens with a key made
 // at boot, so a restart or a deploy ends every bearer token a native app
-// holds and signs the app out. An operator who turns on a trusted issuer is
-// told so at boot: one warning that names JWT_SIGNING_KEY and says the tokens
-// will not survive a restart. The key itself is never logged.
+// holds. An operator who turns on a trusted issuer is told so at boot: one
+// warning that names JWT_SIGNING_KEY, says the tokens will not survive a
+// restart, and says the app renews with its refresh token, which a restart
+// does not end (wm-lnimb). The key itself is never logged.
 //
 // The warning is about tokens the door's sign-in hands out, so it is given only
 // when POST /api/auth/assert is mounted. A partly configured issuer, or one on
@@ -558,6 +559,11 @@ func TestServe_WarnsAtBootWhenATrustedIssuersTokensWillNotSurviveARestart(t *tes
 				}
 				if !strings.Contains(lines[0], "bearer token") || !strings.Contains(lines[0], "restart") {
 					t.Fatalf("the warning %q does not say bearer tokens will not survive a restart", lines[0])
+				}
+				// The refresh token is stored, so a restart ends the access token,
+				// not the native session (wm-lnimb).
+				if !strings.Contains(lines[0], "refresh token") || strings.Contains(lines[0], "signed out after every restart") {
+					t.Fatalf("the warning %q does not say the app renews with its refresh token after a restart", lines[0])
 				}
 			}
 			logged := logs.text()

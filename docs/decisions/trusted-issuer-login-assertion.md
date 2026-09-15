@@ -387,8 +387,9 @@ others; no existing field changed. A registry provider's entry carries neither
 `wm-ehtnq`, `wm-3dgs0`, `wm-sa7wv`, `wm-5rziu`): renewing and ending a native session.*
 A native session (see "Response") renews without the door.
 
-`POST /api/auth/refresh` takes `{"refresh_token":"..."}`: JSON, at most 16 KiB, with no
-cookie and no bearer token. Every answer carries `Cache-Control: no-store`.
+`POST /api/auth/refresh` takes `{"refresh_token":"..."}`: JSON, at most 16 KiB. The refresh
+token is the only credential it reads; it needs no cookie and no bearer token, and ignores
+either when a request carries one. Every answer carries `Cache-Control: no-store`.
 
 - **200** `{"data":{"account":{"id","name"},"token","token_expires_at","refresh_token","refresh_token_expires_at"}}`.
   An owner or admin of an account whose deletion did not finish also gets
