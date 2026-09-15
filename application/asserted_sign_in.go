@@ -137,9 +137,11 @@ type AssertedSignInConfig struct {
 	CredentialRows repositories.CredentialRowDeleter
 	// Lock serializes the sign-ins for one identity, and for one email, across
 	// every process that shares the database, from the owner look-up through the
-	// link or the create. Optional; without it they are serialized in process
-	// only, and two replicas that both find no holder for an email each create a
-	// person.
+	// link or the create. The application's AuthenticationService holds the same
+	// lock around the OAuth callbacks' FindOrCreateAgent (see
+	// newAccountSignalService). Optional; without it assertions are serialized
+	// in process only, and two replicas that both find no holder for an email
+	// each create a person.
 	Lock repositories.SignInLock
 	// Allowlisted says the instance has an identity allowlist
 	// (OAUTH_ALLOWED_EMAILS). The allowlist is enforced before SignIn runs.
@@ -237,10 +239,7 @@ func (s *AssertedSignIn) SignIn(ctx context.Context, id AssertedIdentity) (Asser
 		defer s.emails.lock(email)()
 	}
 	if s.cfg.Lock != nil {
-		keys := []string{"identity\x00" + id.Provider + "\x00" + id.Subject}
-		if email != "" {
-			keys = append(keys, "email\x00"+email)
-		}
+		keys := signInLockKeys(id.Provider, id.Subject, email)
 		// Held until SignIn returns, so another replica reads the owner look-up
 		// only after this sign-in's link or create is written.
 		release, err := s.cfg.Lock.Hold(ctx, keys...)
@@ -248,6 +247,10 @@ func (s *AssertedSignIn) SignIn(ctx context.Context, id AssertedIdentity) (Asser
 			return AssertedSignInResult{}, fmt.Errorf("hold the sign-in lock: %w", err)
 		}
 		defer release()
+		// The application's AuthenticationService takes the same keys around
+		// FindOrCreateAgent for the OAuth callbacks; below, it must not wait on
+		// the keys this sign-in already holds.
+		ctx = withSignInKeysHeld(ctx, keys)
 	}
 
 	existing, err := s.cfg.Credentials.FindByProvider(ctx, id.Provider, id.Subject)
@@ -301,6 +304,48 @@ func (s *AssertedSignIn) SignIn(ctx context.Context, id AssertedIdentity) (Asser
 		// nothing is followed by FindOrCreateAgent's create.
 		NewAccount: !known,
 	}, nil
+}
+
+// signInLockKeys are the keys a sign-in for an identity holds on the SignInLock:
+// the identity first and the folded email second, the one order every holder
+// takes them in, so two sign-ins never wait on each other in a circle.
+func signInLockKeys(provider, subject, foldedEmail string) []string {
+	keys := []string{"identity\x00" + provider + "\x00" + subject}
+	if foldedEmail != "" {
+		keys = append(keys, "email\x00"+foldedEmail)
+	}
+	return keys
+}
+
+// heldSignInKeysCtxKey is the context key under which a holder of the SignInLock
+// records the keys it holds.
+type heldSignInKeysCtxKey struct{}
+
+// withSignInKeysHeld returns a context recording that its caller holds keys on
+// the SignInLock.
+func withSignInKeysHeld(ctx context.Context, keys []string) context.Context {
+	held := map[string]bool{}
+	if outer, ok := ctx.Value(heldSignInKeysCtxKey{}).(map[string]bool); ok {
+		for key := range outer {
+			held[key] = true
+		}
+	}
+	for _, key := range keys {
+		held[key] = true
+	}
+	return context.WithValue(ctx, heldSignInKeysCtxKey{}, held)
+}
+
+// signInKeysHeld reports whether ctx records that its caller holds every one of
+// keys on the SignInLock.
+func signInKeysHeld(ctx context.Context, keys []string) bool {
+	held, _ := ctx.Value(heldSignInKeysCtxKey{}).(map[string]bool)
+	for _, key := range keys {
+		if !held[key] {
+			return false
+		}
+	}
+	return true
 }
 
 // ownerOf returns the one person holding a credential for email, "" when no

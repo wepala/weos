@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/wepala/weos/v3/domain/repositories"
 	"github.com/wepala/weos/v3/internal/config"
 	weosoauth "github.com/wepala/weos/v3/internal/oauth"
 
@@ -171,6 +172,7 @@ func ProvideAuthenticationService(params struct {
 	EventStore          esdomain.EventStore       `optional:"true"`
 	EventDispatcher     *esdomain.EventDispatcher `optional:"true"`
 	JWTService          authapp.JWTService        `optional:"true"`
+	SignInLock          repositories.SignInLock   `optional:"true"`
 }) authapp.AuthenticationService {
 	opts := []authapp.AuthServiceOption{
 		authapp.WithAuthorizationChecker(params.AuthzChecker),
@@ -202,11 +204,12 @@ func ProvideAuthenticationService(params struct {
 		opts...,
 	)
 	// Decorate so the OAuth callback can tell first-time signups from returning
-	// logins (see new_account_signal.go). FindOrCreateAgent is only ever called
-	// from the OAuth callback path, and the decorator is additionally inert
-	// unless a caller installs a flag pointer in the request context — so
-	// password and MCP login flows are entirely unaffected.
-	return &newAccountSignalService{AuthenticationService: svc, credentials: params.Credentials}
+	// logins, and so every FindOrCreateAgent holds the sign-in lock owner
+	// binding holds (see new_account_signal.go). FindOrCreateAgent is called by
+	// the two OAuth callbacks, asserted sign-in (which already holds the lock)
+	// and seeding; the new-account signal stays inert unless a caller installs
+	// a flag pointer in the request context, and password login never calls it.
+	return &newAccountSignalService{AuthenticationService: svc, credentials: params.Credentials, lock: params.SignInLock}
 }
 
 func ProvideSessionManager(params struct {

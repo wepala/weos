@@ -2,6 +2,9 @@ package application
 
 import (
 	"context"
+	"fmt"
+
+	"github.com/wepala/weos/v3/domain/repositories"
 
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
 	"github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
@@ -31,25 +34,47 @@ func NewAccountFlagFromContext(ctx context.Context) *bool {
 }
 
 // newAccountSignalService decorates an AuthenticationService so the OAuth
-// callback can distinguish a freshly created account from a returning login.
-// It embeds the wrapped service and overrides only FindOrCreateAgent; every
-// other method passes straight through.
+// callback can distinguish a freshly created account from a returning login,
+// and so every FindOrCreateAgent holds the sign-in lock. It embeds the wrapped
+// service and overrides only FindOrCreateAgent; every other method passes
+// straight through.
 type newAccountSignalService struct {
 	authapp.AuthenticationService
 	credentials authrepos.CredentialRepository
+	// lock is the SignInLock owner binding holds. Both OAuth callbacks — core's
+	// /oauth/callback and pericarp's /api/auth/callback — write google and apple
+	// credentials through FindOrCreateAgent, and binding trusts those
+	// credentials' emails, so a callback holds the same identity and email keys
+	// as an asserted sign-in. Otherwise an assertion that read "nobody holds this
+	// email" while a callback wrote the first credential for it would create a
+	// second person. Optional; without it FindOrCreateAgent holds nothing.
+	lock repositories.SignInLock
 }
 
-// FindOrCreateAgent pre-checks whether a credential already exists for the
-// incoming identity. The check is the same lookup FindOrCreateAgent does
-// internally as its first step, so a fresh row means this call is about to
-// create the account. Only the credential's existence determines the signal;
-// the lookup error is discarded because the wrapped call immediately repeats
-// the same query and will surface any real DB error itself (failing the login
-// before the flag is ever consumed on the redirect path).
+// FindOrCreateAgent holds the sign-in lock for the identity and its email,
+// unless its caller already holds those keys (an asserted sign-in does), and
+// then pre-checks whether a credential already exists for the incoming
+// identity. The check is the same lookup FindOrCreateAgent does internally as
+// its first step, so a fresh row means this call is about to create the
+// account. Only the credential's existence determines the signal; the lookup
+// error is discarded because the wrapped call immediately repeats the same
+// query and will surface any real DB error itself (failing the login before
+// the flag is ever consumed on the redirect path).
 //
 // The pre-check only runs when a caller installed a flag via WithNewAccountFlag,
 // keeping password and MCP login paths free of the extra query.
 func (s *newAccountSignalService) FindOrCreateAgent(ctx context.Context, userInfo authapp.UserInfo) (*entities.Agent, *entities.Credential, *entities.Account, error) {
+	if s.lock != nil {
+		keys := signInLockKeys(userInfo.Provider, userInfo.ProviderUserID, repositories.FoldCredentialEmail(userInfo.Email))
+		if !signInKeysHeld(ctx, keys) {
+			release, err := s.lock.Hold(ctx, keys...)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("hold the sign-in lock: %w", err)
+			}
+			defer release()
+			ctx = withSignInKeysHeld(ctx, keys)
+		}
+	}
 	if flag := NewAccountFlagFromContext(ctx); flag != nil {
 		existing, _ := s.credentials.FindByProvider(ctx, userInfo.Provider, userInfo.ProviderUserID)
 		*flag = existing == nil

@@ -155,6 +155,10 @@ func Callback(
 			}
 		}
 
+		// The application's AuthenticationService holds the sign-in lock for the
+		// identity and its email around this call, the keys owner binding holds,
+		// so a trusted-issuer assertion for the same email never reads "nobody
+		// holds it" while this writes the first credential for it.
 		agent, _, account, err := authService.FindOrCreateAgent(
 			ctx, authResult.UserInfo)
 		if err != nil {

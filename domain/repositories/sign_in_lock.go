@@ -17,19 +17,22 @@ package repositories
 
 import "context"
 
-// SignInLock serializes owner binding across every process that shares one
-// database.
+// SignInLock serializes the sign-ins that write a credential, in one process
+// and across every process that shares one database.
 //
 // Owner binding looks up who holds an email and then links or creates a
 // person. Two replicas that both find no holder would each create a person, and
 // the two proving credentials that leaves make every later sign-in for the
-// email ambiguous. pericarp's FindOrCreateAgent writes its rows outside any
-// transaction core can join, so the look-up and the create cannot share one;
-// a lock held across both is what keeps the second replica from reading before
-// the first one's rows are written.
+// email ambiguous. The OAuth callbacks write google and apple credentials
+// through FindOrCreateAgent, which binding reads, so they hold the same keys.
+// pericarp's FindOrCreateAgent writes its rows outside any transaction core can
+// join, so the look-up and the create cannot share one; a lock held across both
+// is what keeps the second sign-in from reading before the first one's rows are
+// written.
 type SignInLock interface {
 	// Hold blocks until this process holds every key, taken in the order given,
-	// and returns the function that releases them all. It returns an error, and
-	// holds nothing, when a key cannot be taken, for example because ctx ended.
+	// and returns the function that releases them all. The keys must differ from
+	// each other. It returns an error, and holds nothing, when a key cannot be
+	// taken, for example because ctx ended: every wait ends with ctx.
 	Hold(ctx context.Context, keys ...string) (release func(), err error)
 }

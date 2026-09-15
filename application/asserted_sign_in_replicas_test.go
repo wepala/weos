@@ -91,26 +91,41 @@ func (l *sharedSignInLock) recordedHolds() [][]string {
 	return append([][]string(nil), l.holds...)
 }
 
-// pausingEmails answers the owner look-up, then waits for proceed before it
-// returns, once: a replica that has read "nobody holds this email" and not yet
-// created anyone.
-type pausingEmails struct {
-	repositories.CredentialEmailQuery
+// pausePoint pauses one sign-in, once, where a test puts it, until proceed
+// closes.
+type pausePoint struct {
 	once    sync.Once
 	paused  chan struct{}
 	proceed chan struct{}
 }
 
+func newPausePoint() *pausePoint {
+	return &pausePoint{paused: make(chan struct{}), proceed: make(chan struct{})}
+}
+
+// hold pauses its first caller until proceed closes, and returns at once for
+// every later one.
+func (p *pausePoint) hold() {
+	p.once.Do(func() {
+		close(p.paused)
+		<-p.proceed
+	})
+}
+
+// pausingEmails answers the owner look-up, then pauses, once: a replica that
+// has read "nobody holds this email" and not yet created anyone.
+type pausingEmails struct {
+	repositories.CredentialEmailQuery
+	*pausePoint
+}
+
 func newPausingEmails(inner repositories.CredentialEmailQuery) *pausingEmails {
-	return &pausingEmails{CredentialEmailQuery: inner, paused: make(chan struct{}), proceed: make(chan struct{})}
+	return &pausingEmails{CredentialEmailQuery: inner, pausePoint: newPausePoint()}
 }
 
 func (q *pausingEmails) CredentialsByEmail(ctx context.Context, email string) ([]repositories.CredentialEmailMatch, error) {
 	matches, err := q.CredentialEmailQuery.CredentialsByEmail(ctx, email)
-	q.once.Do(func() {
-		close(q.paused)
-		<-q.proceed
-	})
+	q.hold()
 	return matches, err
 }
 
@@ -119,12 +134,12 @@ type signInOutcome struct {
 	err    error
 }
 
-// interleaveReplicas runs the first replica's sign-in until it has read that
-// nobody holds the email, starts the second replica's sign-in, waits for
-// waited to report that the second waits on the first, and only then lets the
-// first go on. It fails the test when the second replica finishes, or never
-// waits, while the first is paused.
-func interleaveReplicas(ctx context.Context, t *testing.T, paused *pausingEmails,
+// interleaveReplicas runs the first sign-in until it pauses at paused, having
+// read that nobody holds the email or the identity and created nobody, starts
+// the second sign-in, waits for waited to report that the second waits on the
+// first, and only then lets the first go on. It fails the test when the second
+// sign-in finishes, or never waits, while the first is paused.
+func interleaveReplicas(ctx context.Context, t *testing.T, paused *pausePoint,
 	first, second func() (AssertedSignInResult, error), waited func(context.Context),
 ) (AssertedSignInResult, AssertedSignInResult) {
 	t.Helper()
@@ -139,9 +154,9 @@ func interleaveReplicas(ctx context.Context, t *testing.T, paused *pausingEmails
 	select {
 	case <-paused.paused:
 	case o := <-firstDone:
-		t.Fatalf("the first replica finished (%v) before it read the owner look-up", o.err)
+		t.Fatalf("the first sign-in finished (%v) before it reached its pause", o.err)
 	case <-ctx.Done():
-		t.Fatal("the first replica never reached the owner look-up")
+		t.Fatal("the first sign-in never reached its pause")
 	}
 
 	go func() {
@@ -159,7 +174,7 @@ func interleaveReplicas(ctx context.Context, t *testing.T, paused *pausingEmails
 	case o := <-secondDone:
 		cancelWait()
 		<-waitReturned
-		t.Fatalf("the second replica finished (reached %v, err %v) while the first had read that nobody holds the email and created nobody yet: replicas sharing a database each create a person",
+		t.Fatalf("the second sign-in finished (reached %v, err %v) while the first had read that nobody holds the email and created nobody yet: two sign-ins for one email each create a person",
 			agentIDOf(o.result), o.err)
 	}
 	cancelWait()
@@ -205,7 +220,7 @@ func TestAssertedSignInReplicasSharingALockLeaveOnePerson(t *testing.T) {
 	})
 	second := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) { cfg.Lock = lock })
 
-	a, b := interleaveReplicas(ctx, t, paused,
+	a, b := interleaveReplicas(ctx, t, paused.pausePoint,
 		func() (AssertedSignInResult, error) { return first.SignIn(ctx, dana("google", googleSub)) },
 		func() (AssertedSignInResult, error) { return second.SignIn(ctx, dana("apple", appleSub)) },
 		func(ctx context.Context) {
@@ -324,7 +339,7 @@ func TestAssertedSignInReplicasSharingPostgresLeaveOnePerson_Postgres(t *testing
 		return AssertedIdentity{Provider: provider, Subject: provider + "-" + suffix, Email: email, Name: "Dana Whitfield"}
 	}
 
-	a, b := interleaveReplicas(ctx, t, paused,
+	a, b := interleaveReplicas(ctx, t, paused.pausePoint,
 		func() (AssertedSignInResult, error) { return first.SignIn(ctx, identity(OAuthProviderGoogle)) },
 		func() (AssertedSignInResult, error) { return second.SignIn(ctx, identity(OAuthProviderApple)) },
 		func(ctx context.Context) { waitForAnAdvisoryWait(ctx, t, firstDB) })
