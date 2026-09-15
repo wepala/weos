@@ -168,6 +168,27 @@ func TestStart_AFailedLookupOfAMemberIsAFailureNotARefusal(t *testing.T) {
 	}
 }
 
+// wm-ptcuk, Copilot review 5204893848. When the person is a member of the
+// caller's account but the agent store finds no record for them, the membership
+// and the store disagree. That is a failure to answer — a 500, logged as an
+// error — and not the refusal a person outside the account gets.
+func TestStart_AMemberWithNoRecordIsAFailureNotARefusal(t *testing.T) {
+	logs := &startLog{}
+	rec := startImpersonationAs(t, stubAgents{}, logs, "counsel")
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("a member with no agent record got %d %s, want 500", rec.Code, rec.Body.String())
+	}
+	if code := meCode(t, rec); code == apimw.CodeImpersonationTargetNotMember {
+		t.Fatalf("a member with no agent record was answered with %s", code)
+	}
+	if !strings.Contains(logs.text(), "error: ") {
+		t.Fatalf("the missing record was not logged as an error:\n%s", logs.text())
+	}
+	if strings.Contains(logs.text(), "not a member of the caller's account") {
+		t.Fatalf("the missing record was recorded as the refusal of a person outside the account:\n%s", logs.text())
+	}
+}
+
 // auditedImpersonationRequest sends one start (for target) or stop through the
 // impersonation handler, signed in as caller acting in Harbor Legal, from the
 // peer 192.0.2.10 with forwarding headers that claim other addresses, as any

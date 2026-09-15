@@ -167,6 +167,14 @@ func (h *ImpersonationHandler) Start(c echo.Context) error {
 				"account_id", accountID, "agent_id", req.AgentID, "error", err)
 			return respondError(c, http.StatusInternalServerError, "authorization check failed")
 		}
+		if target == nil {
+			// The membership names a person the agent store has no record of.
+			// The two disagree, so the start cannot be answered; it is not the
+			// refusal a person outside the account gets.
+			h.logger.Error(ctx, "a member of the account has no agent record",
+				"account_id", accountID, "agent_id", req.AgentID)
+			return respondError(c, http.StatusInternalServerError, "authorization check failed")
+		}
 	}
 	if target == nil {
 		h.logger.Warn(ctx, "impersonation refused: the person is not a member of the caller's account",
