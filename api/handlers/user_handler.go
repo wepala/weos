@@ -18,20 +18,27 @@ package handlers
 import (
 	"context"
 	"net/http"
+	"strconv"
 
 	apimw "github.com/wepala/weos/v3/api/middleware"
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
 
+	"github.com/akeemphilbert/pericarp/pkg/auth"
 	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
 	"github.com/labstack/echo/v4"
 )
 
+// UserHandler serves the users routes. Every route acts in the account the
+// caller acts in, and only for the members of that account (wm-govvg): every
+// person owns the account their first sign-in created, so an owner or admin
+// role in one account says nothing about anybody outside it.
 type UserHandler struct {
 	agentRepo      authrepos.AgentRepository
 	credentialRepo authrepos.CredentialRepository
 	accountRepo    authrepos.AccountRepository
+	members        repositories.AccountMemberDirectory
 	features       repositories.FeatureCacheInvalidator
 	logger         entities.Logger
 }
@@ -40,6 +47,9 @@ type UserHandlerConfig struct {
 	AgentRepo      authrepos.AgentRepository
 	CredentialRepo authrepos.CredentialRepository
 	AccountRepo    authrepos.AccountRepository
+	// Members lists the people of the caller's account. Required:
+	// NewUserHandler panics without one.
+	Members repositories.AccountMemberDirectory
 	// Features drops a member's resolved feature set when their role changes.
 	// Optional: a handler constructed without one simply does not invalidate,
 	// which keeps existing test constructions working.
@@ -47,11 +57,20 @@ type UserHandlerConfig struct {
 	Logger   entities.Logger
 }
 
+// NewUserHandler builds the users handler. It panics when cfg.Members is nil
+// (wm-ii1hz): the list route cannot answer without it, and a handler built
+// that way would fail on its first request instead of when it is wired, where
+// the missing dependency is a mistake in code, not in a request.
 func NewUserHandler(cfg UserHandlerConfig) *UserHandler {
+	if cfg.Members == nil {
+		panic("handlers.NewUserHandler: UserHandlerConfig.Members is required " +
+			"(a repositories.AccountMemberDirectory, such as gorm.ProvideAccountMemberDirectory)")
+	}
 	return &UserHandler{
 		agentRepo:      cfg.AgentRepo,
 		credentialRepo: cfg.CredentialRepo,
 		accountRepo:    cfg.AccountRepo,
+		members:        cfg.Members,
 		features:       cfg.Features,
 		logger:         cfg.Logger,
 	}
@@ -65,74 +84,177 @@ type UserResponse struct {
 	Role   string `json:"role,omitempty"`
 }
 
-func (h *UserHandler) List(c echo.Context) error {
-	ctx := c.Request().Context()
+// userScope is an owner or admin of an account, and that account.
+type userScope struct {
+	callerID  string
+	accountID string
+}
 
-	isAdmin, err := apimw.IsAdmin(ctx, h.accountRepo)
+// scope takes the account the caller's session or token names and requires the
+// owner or admin role there. When the request stops, scope returns nil and the
+// value of the response it has already written.
+func (h *UserHandler) scope(c echo.Context) (*userScope, error) {
+	ctx := c.Request().Context()
+	identity := auth.AgentFromCtx(ctx)
+	if identity == nil {
+		// Reached when no authentication is configured and SoftAuth lets an
+		// anonymous request through. Recorded like every other users-route
+		// refusal, with no fields: there is nobody to name.
+		h.logger.Warn(ctx, "users request refused: the request carries no identity")
+		return nil, respondError(c, http.StatusForbidden, "admin role required")
+	}
+	// The routes act only in the account the caller names (wm-8uq74). A caller
+	// who names none is refused with the code the auth middleware gives an
+	// unscoped session, not matched to one of their accounts: for a person in
+	// several accounts, that match may not be the account they mean, and a
+	// role change would land in the wrong one.
+	accountID := identity.ActiveAccountID
+	if accountID == "" {
+		h.logger.Warn(ctx, "users request refused: the caller names no active account",
+			withUsersTarget(c, "caller_agent_id", identity.AgentID)...)
+		return nil, respondErrorCode(c, http.StatusUnauthorized, "not authenticated", apimw.CodeUnscopedSession)
+	}
+	isAdmin, err := apimw.IsOwnerOrAdmin(ctx, h.accountRepo, accountID, identity.AgentID)
 	if err != nil {
 		h.logger.Error(ctx, "failed to check admin status", "error", err)
-		return respondError(c, http.StatusInternalServerError, "authorization check failed")
+		return nil, respondError(c, http.StatusInternalServerError, "authorization check failed")
 	}
 	if !isAdmin {
-		return respondError(c, http.StatusForbidden, "admin role required")
+		// Recorded like every other users-route refusal: ids only, and the
+		// person asked about when the route names one.
+		h.logger.Warn(ctx, "users request refused: the caller is not an owner or admin of the account",
+			withUsersTarget(c, "caller_agent_id", identity.AgentID, "account_id", accountID)...)
+		return nil, respondError(c, http.StatusForbidden, "admin role required")
 	}
+	return &userScope{callerID: identity.AgentID, accountID: accountID}, nil
+}
 
-	agents, err := h.agentRepo.FindAll(ctx, "", 100)
+// withUsersTarget returns a users-route refusal's log fields, with the person
+// the route names added when it names one (GET and PUT /users/:id).
+func withUsersTarget(c echo.Context, fields ...any) []any {
+	if target := c.Param("id"); target != "" {
+		fields = append(fields, "target_agent_id", target)
+	}
+	return fields
+}
+
+// member returns the person id and the role they hold in the scope's account.
+// A person who is not a member of that account gets the 404 a person who does
+// not exist gets, so the answer says nothing about who exists elsewhere on the
+// instance, and the refusal is logged. When the request stops, member returns
+// a nil agent and the value of the response it has already written.
+func (h *UserHandler) member(c echo.Context, s *userScope, id string) (*authentities.Agent, string, error) {
+	ctx := c.Request().Context()
+	role, err := h.accountRepo.FindMemberRole(ctx, s.accountID, id)
 	if err != nil {
-		h.logger.Error(ctx, "failed to list users", "error", err)
+		h.logger.Error(ctx, "failed to check the person's membership", "account_id", s.accountID, "error", err)
+		return nil, "", respondError(c, http.StatusInternalServerError, "authorization check failed")
+	}
+	if role == "" {
+		h.logger.Warn(ctx, "users request refused: the person is not a member of the caller's account",
+			"caller_agent_id", s.callerID,
+			"account_id", s.accountID,
+			"target_agent_id", id,
+		)
+		return nil, "", respondError(c, http.StatusNotFound, "user not found")
+	}
+	agent, err := h.agentRepo.FindByID(ctx, id)
+	if err != nil {
+		h.logger.Error(ctx, "failed to find a member's record", "account_id", s.accountID, "agent_id", id, "error", err)
+		return nil, "", respondError(c, http.StatusInternalServerError, "failed to load user")
+	}
+	if agent == nil {
+		h.logger.Warn(ctx, "users request refused: a member of the account has no person record",
+			"caller_agent_id", s.callerID,
+			"account_id", s.accountID,
+			"target_agent_id", id,
+		)
+		return nil, "", respondError(c, http.StatusNotFound, "user not found")
+	}
+	return agent, role, nil
+}
+
+// List returns one page of the members of the caller's account, each with the
+// role they hold in it. Owner or admin of that account only.
+//
+// The page holds repositories.DefaultMemberPageSize people unless the client
+// names a limit, and never more than repositories.MaxMemberPageSize. A client
+// asks for the next page by sending the response's cursor back as ?cursor=,
+// until has_more is false (wm-g7284).
+func (h *UserHandler) List(c echo.Context) error {
+	s, err := h.scope(c)
+	if s == nil {
+		return err
+	}
+	ctx := c.Request().Context()
+
+	// A missing or unreadable limit is 0, which the directory reads as its
+	// default page size.
+	limit, _ := strconv.Atoi(c.QueryParam("limit"))
+	page, err := h.members.ListMembers(ctx, s.accountID, c.QueryParam("cursor"), limit)
+	if err != nil {
+		h.logger.Error(ctx, "failed to list users", "account_id", s.accountID, "error", err)
 		return respondError(c, http.StatusInternalServerError, "failed to list users")
 	}
 
-	accountID := h.defaultAccountID(ctx)
-
-	users := make([]UserResponse, 0, len(agents.Data))
-	for _, agent := range agents.Data {
-		users = append(users, h.buildUserResponse(ctx, agent, accountID))
+	users := make([]UserResponse, 0, len(page.Members))
+	for _, m := range page.Members {
+		if !m.HasRecord {
+			// A membership whose person record is gone has nobody to show or
+			// manage; listing it would render an empty row.
+			h.logger.Warn(ctx, "a member of the account has no person record", "account_id", s.accountID, "agent_id", m.AgentID)
+			continue
+		}
+		email := m.Email
+		if email == "" {
+			email = m.Name
+		}
+		users = append(users, UserResponse{ID: m.AgentID, Name: m.Name, Email: email, Status: m.Status, Role: m.RoleID})
 	}
 
-	return respond(c, http.StatusOK, users)
+	return respondPaginated(c, http.StatusOK, users, page.Cursor, page.HasMore)
 }
 
-// Get returns a single user by ID. Admin-only.
+// Get returns one member of the caller's account. Owner or admin of that
+// account only.
 func (h *UserHandler) Get(c echo.Context) error {
-	id := c.Param("id")
-	ctx := c.Request().Context()
-
-	isAdmin, err := apimw.IsAdmin(ctx, h.accountRepo)
-	if err != nil {
-		h.logger.Error(ctx, "failed to check admin status", "error", err)
-		return respondError(c, http.StatusInternalServerError, "authorization check failed")
+	s, err := h.scope(c)
+	if s == nil {
+		return err
 	}
-	if !isAdmin {
-		return respondError(c, http.StatusForbidden, "admin role required")
+	agent, role, err := h.member(c, s, c.Param("id"))
+	if agent == nil {
+		return err
 	}
-
-	agent, err := h.agentRepo.FindByID(ctx, id)
-	if err != nil || agent == nil {
-		return respondError(c, http.StatusNotFound, "user not found")
-	}
-
-	accountID := h.defaultAccountID(ctx)
-	return respond(c, http.StatusOK, h.buildUserResponse(ctx, agent, accountID))
+	return respond(c, http.StatusOK, h.buildUserResponse(c.Request().Context(), agent, role))
 }
+
+// CodeLastOwnerRequired is the code on the refusal of a role change that would
+// leave an account with no owner.
+const CodeLastOwnerRequired = "last_owner_required"
 
 type UpdateUserRequest struct {
 	Name string `json:"name"`
 	Role string `json:"role"`
 }
 
-// Update modifies a user's name and/or role. Admin-only.
+// Update changes the name and/or the role of a member of the caller's account.
+// The role is saved in that account and no other. Owner or admin of that
+// account only.
 func (h *UserHandler) Update(c echo.Context) error {
+	s, err := h.scope(c)
+	if s == nil {
+		return err
+	}
 	id := c.Param("id")
 	ctx := c.Request().Context()
 
-	isAdmin, err := apimw.IsAdmin(ctx, h.accountRepo)
-	if err != nil {
-		h.logger.Error(ctx, "failed to check admin status", "error", err)
-		return respondError(c, http.StatusInternalServerError, "authorization check failed")
-	}
-	if !isAdmin {
-		return respondError(c, http.StatusForbidden, "admin role required")
+	// The person is resolved before the body is read, so a PUT about anyone
+	// outside the account gets the 404 an unknown person gets, and is recorded,
+	// whatever its body holds.
+	agent, role, err := h.member(c, s, id)
+	if agent == nil {
+		return err
 	}
 
 	var req UpdateUserRequest
@@ -140,9 +262,25 @@ func (h *UserHandler) Update(c echo.Context) error {
 		return respondError(c, http.StatusBadRequest, "invalid request")
 	}
 
-	agent, err := h.agentRepo.FindByID(ctx, id)
-	if err != nil || agent == nil {
-		return respondError(c, http.StatusNotFound, "user not found")
+	// An account keeps at least one owner (wm-qhda1): with none, nobody can
+	// manage its people or invites again. Checked before anything is written,
+	// so a refused request changes nothing, the name included. Two owners
+	// demoting each other at the same moment can still both pass; the count
+	// and the write are not one transaction.
+	if req.Role != "" && role == authentities.RoleOwner && req.Role != authentities.RoleOwner {
+		owners, err := h.members.CountMembersWithRole(ctx, s.accountID, authentities.RoleOwner)
+		if err != nil {
+			h.logger.Error(ctx, "failed to count the owners of the account", "account_id", s.accountID, "error", err)
+			return respondError(c, http.StatusInternalServerError, "failed to update user role")
+		}
+		if owners <= 1 {
+			h.logger.Warn(ctx, "users request refused: the change would leave the account with no owner",
+				"caller_agent_id", s.callerID,
+				"account_id", s.accountID,
+				"target_agent_id", id,
+			)
+			return respondErrorCode(c, http.StatusBadRequest, "an account must keep at least one owner", CodeLastOwnerRequired)
+		}
 	}
 
 	if req.Name != "" && req.Name != agent.Name() {
@@ -156,9 +294,8 @@ func (h *UserHandler) Update(c echo.Context) error {
 		}
 	}
 
-	accountID := h.defaultAccountID(ctx)
-	if req.Role != "" && accountID != "" {
-		if err := h.accountRepo.SaveMember(ctx, accountID, id, req.Role); err != nil {
+	if req.Role != "" {
+		if err := h.accountRepo.SaveMember(ctx, s.accountID, id, req.Role); err != nil {
 			h.logger.Error(ctx, "failed to save user role", "error", err, "user_id", id)
 			return respondError(c, http.StatusInternalServerError, "failed to update user role")
 		}
@@ -170,43 +307,24 @@ func (h *UserHandler) Update(c echo.Context) error {
 		// out. Dropping their resolved set does not sign them out; their next
 		// evaluation costs one database read.
 		if h.features != nil {
-			h.features.InvalidateAgents(ctx, accountID, id)
+			h.features.InvalidateAgents(ctx, s.accountID, id)
 		}
+		role = req.Role
 	}
 
-	return respond(c, http.StatusOK, h.buildUserResponse(ctx, agent, accountID))
-}
-
-func (h *UserHandler) defaultAccountID(ctx context.Context) string {
-	accounts, err := h.accountRepo.FindAll(ctx, "", 1)
-	if err != nil || len(accounts.Data) == 0 {
-		return ""
-	}
-	return accounts.Data[0].GetID()
+	return respond(c, http.StatusOK, h.buildUserResponse(ctx, agent, role))
 }
 
 func (h *UserHandler) buildUserResponse(
-	ctx context.Context, agent *authentities.Agent, accountID string,
+	ctx context.Context, agent *authentities.Agent, role string,
 ) UserResponse {
-	email := ""
 	creds, credErr := h.credentialRepo.FindByAgent(ctx, agent.GetID())
 	if credErr != nil {
 		h.logger.Warn(ctx, "failed to load credentials for user", "agent_id", agent.GetID(), "error", credErr)
 	}
-	if len(creds) > 0 {
-		email = creds[0].Email()
-	}
+	email := earliestCredentialEmail(creds)
 	if email == "" {
 		email = agent.Name()
-	}
-
-	role := ""
-	if accountID != "" {
-		var roleErr error
-		role, roleErr = h.accountRepo.FindMemberRole(ctx, accountID, agent.GetID())
-		if roleErr != nil {
-			h.logger.Warn(ctx, "failed to load role for user", "agent_id", agent.GetID(), "error", roleErr)
-		}
 	}
 
 	return UserResponse{
@@ -216,4 +334,25 @@ func (h *UserHandler) buildUserResponse(
 		Status: agent.Status(),
 		Role:   role,
 	}
+}
+
+// earliestCredentialEmail is the email of the earliest credential that has one,
+// by creation time and then id — the one the member directory names a person by
+// on the list, so GET and PUT name them the same way. It does not depend on the
+// order the repository reads the credentials back in. "" when none has an email.
+func earliestCredentialEmail(creds []*authentities.Credential) string {
+	var earliest *authentities.Credential
+	for _, cred := range creds {
+		if cred == nil || cred.Email() == "" {
+			continue
+		}
+		if earliest == nil || cred.CreatedAt().Before(earliest.CreatedAt()) ||
+			(cred.CreatedAt().Equal(earliest.CreatedAt()) && cred.GetID() < earliest.GetID()) {
+			earliest = cred
+		}
+	}
+	if earliest == nil {
+		return ""
+	}
+	return earliest.Email()
 }

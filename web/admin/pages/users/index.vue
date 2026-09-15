@@ -53,6 +53,9 @@
         </template>
       </template>
     </a-table>
+    <div v-if="usersHasMore" style="margin-top: 12px; text-align: center">
+      <a-button :loading="loading" @click="fetchUsers(true)">Load more</a-button>
+    </div>
 
     <!-- Pending Invites -->
     <div v-if="invites.length > 0" style="margin-top: 32px">
@@ -159,6 +162,8 @@ const { user, startImpersonation } = useAuth()
 const router = useRouter()
 const loading = ref(true)
 const users = ref<any[]>([])
+const usersCursor = ref('')
+const usersHasMore = ref(false)
 const invites = ref<any[]>([])
 const availableRoles = ref<string[]>([])
 const showEditModal = ref(false)
@@ -221,11 +226,19 @@ async function fetchRoles() {
   }
 }
 
-async function fetchUsers() {
+// The users list comes a page at a time: `more` appends the page after the
+// last one loaded, and anything else starts again from the first page.
+async function fetchUsers(more = false) {
   loading.value = true
   try {
-    const raw = await $fetch<unknown>('/api/users')
-    users.value = unwrapEnvelope<any[]>(raw) || []
+    const query: Record<string, string> = {}
+    if (more && usersCursor.value) query.cursor = usersCursor.value
+    const raw = await $fetch<any>('/api/users', { query })
+    forwardMessages(raw)
+    const page: any[] = Array.isArray(raw?.data) ? raw.data : []
+    users.value = more ? [...users.value, ...page] : page
+    usersCursor.value = typeof raw?.cursor === 'string' ? raw.cursor : ''
+    usersHasMore.value = raw?.has_more === true
   } catch (err: any) {
     if (err?.data) forwardMessages(err.data)
     message.error('Failed to load users')
