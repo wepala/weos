@@ -57,8 +57,16 @@ func (l *startLog) text() string {
 // the owner of Harbor Legal, where counsel is a member and broker is not.
 func startImpersonationAs(t *testing.T, agents authrepos.AgentRepository, logger entities.Logger, target string) *httptest.ResponseRecorder {
 	t.Helper()
+	return startImpersonationHolding(t, agents, logger, target, false)
+}
+
+// startImpersonationHolding is startImpersonationAs sent, when holding is set,
+// with the cookie of an impersonation of counsel that ops already holds.
+func startImpersonationHolding(t *testing.T, agents authrepos.AgentRepository, logger entities.Logger, target string, holding bool) *httptest.ResponseRecorder {
+	t.Helper()
+	store := sessions.NewCookieStore([]byte("test-secret"))
 	h := handlers.NewImpersonationHandler(handlers.ImpersonationHandlerConfig{
-		Store: sessions.NewCookieStore([]byte("test-secret")),
+		Store: store,
 		AccountRepo: stubAccounts{roles: map[string]string{
 			"ops|acct-harbor":     authentities.RoleOwner,
 			"counsel|acct-harbor": authentities.RoleMember,
@@ -79,9 +87,55 @@ func startImpersonationAs(t *testing.T, agents authrepos.AgentRepository, logger
 	e.POST("/api/admin/impersonate", h.Start, signedIn)
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/impersonate", strings.NewReader(fmt.Sprintf(`{"agent_id":%q}`, target)))
 	req.Header.Set("Content-Type", "application/json")
+	if holding {
+		minted := httptest.NewRecorder()
+		sess, err := store.New(req, apimw.ImpersonationSessionName)
+		if err != nil {
+			t.Fatalf("start the held impersonation session: %v", err)
+		}
+		sess.Values[apimw.KeyImpersonatedAgentID] = "counsel"
+		sess.Values[apimw.KeyRealAgentID] = "ops"
+		sess.Values[apimw.KeyRealAccountID] = "acct-harbor"
+		if err := sess.Save(req, minted); err != nil {
+			t.Fatalf("save the held impersonation session: %v", err)
+		}
+		for _, c := range minted.Result().Cookies() {
+			req.AddCookie(c)
+		}
+	}
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	return rec
+}
+
+// wm-ptcuk, Copilot review 5203947880. The refusal code tells the admin the
+// impersonation ended, and the admin then reads the identity again. A start
+// refused with that code while an impersonation is held therefore ends the held
+// one, or the identity read would put its banner back. A person outside the
+// account and a person who does not exist still get one identical answer.
+func TestStart_ARefusalWithTheCodeEndsTheImpersonationHeld(t *testing.T) {
+	outside := startImpersonationHolding(t, stubAgents{}, nopLogger{}, "broker", true)
+	if outside.Code != http.StatusForbidden || meCode(t, outside) != apimw.CodeImpersonationTargetNotMember {
+		t.Fatalf("a person outside the account got %d %s, want 403 %s",
+			outside.Code, outside.Body.String(), apimw.CodeImpersonationTargetNotMember)
+	}
+	if !statusCookieCleared(outside) {
+		t.Fatal("the refused start left the held impersonation cookie in place")
+	}
+	unknown := startImpersonationHolding(t, stubAgents{}, nopLogger{}, "nobody", true)
+	if unknown.Code != outside.Code || unknown.Body.String() != outside.Body.String() ||
+		unknown.Header().Get("Set-Cookie") != outside.Header().Get("Set-Cookie") {
+		t.Fatalf("an unknown person got %d %s %q; a person outside the account got %d %s %q",
+			unknown.Code, unknown.Body.String(), unknown.Header().Get("Set-Cookie"),
+			outside.Code, outside.Body.String(), outside.Header().Get("Set-Cookie"))
+	}
+
+	// With no impersonation held, the refusal writes no cookie.
+	plain := startImpersonationAs(t, stubAgents{}, nopLogger{}, "broker")
+	if plain.Code != http.StatusForbidden || plain.Header().Get("Set-Cookie") != "" {
+		t.Fatalf("a refused start with no impersonation held answered %d and set %q, want 403 and no cookie",
+			plain.Code, plain.Header().Get("Set-Cookie"))
+	}
 }
 
 // wm-ljypy. When the person is a member of the caller's account but their

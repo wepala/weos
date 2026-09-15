@@ -249,6 +249,41 @@ func TestServe_ImpersonationOfAMemberOfTheCallersAccountStillWorks(t *testing.T)
 	}
 }
 
+// wm-ptcuk, Copilot review 5203947880. A start refused with the impersonation
+// code while an impersonation is held ends the held one: the admin reads that
+// code as "the impersonation ended" and reads the identity again, which must
+// not put the old banner back.
+func TestServe_ARefusedStartEndsTheImpersonationHeld(t *testing.T) {
+	var accounts authrepos.AccountRepository
+	srv := passwordInstance(t, fx.Populate(&accounts))
+	ops := signUp(t, srv, "ops@harborlegal.example")
+	counsel := signUp(t, srv, "counsel@cedarrealty.example")
+	broker := signUp(t, srv, "broker@lanternhomes.example")
+	if err := accounts.SaveMember(context.Background(), ops.accountID, counsel.agentID, authentities.RoleMember); err != nil {
+		t.Fatalf("add counsel to the caller's account: %v", err)
+	}
+	started := startImpersonation(t, srv, ops, counsel.agentID)
+	if started.status != http.StatusOK {
+		t.Fatalf("starting an impersonation of a member answered %d %s, want 200", started.status, started.body)
+	}
+	holding := ops
+	holding.cookies = withCookies(ops.cookies, started.cookies)
+
+	refused := startImpersonation(t, srv, holding, broker.agentID)
+	if refused.status != http.StatusForbidden || errorCode(t, refused) != apimw.CodeImpersonationTargetNotMember {
+		t.Fatalf("starting an impersonation of a person outside the account answered %d %s, want 403 %s",
+			refused.status, refused.body, apimw.CodeImpersonationTargetNotMember)
+	}
+	if !impersonationCleared(refused) {
+		t.Fatalf("the refused start left the held impersonation cookie in place")
+	}
+	// The browser drops the expired cookie, so the next identity read carries
+	// only the session.
+	if id, active := meAs(t, srv, ops.cookies); id != ops.agentID || active {
+		t.Fatalf("after the refusal the identity read answered for %q impersonating=%v, want ops, not impersonating", id, active)
+	}
+}
+
 // wm-1yjuv. A cookie that names another person than the one signed in — left
 // on a shared browser, or made by hand — is never reported as an
 // impersonation, and the status, identity and stop routes each end it. The

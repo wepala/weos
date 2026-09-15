@@ -175,6 +175,12 @@ func (h *ImpersonationHandler) Start(c echo.Context) error {
 			"target_agent_id", req.AgentID,
 			"ip", c.RealIP(),
 		)
+		// The code tells the admin the impersonation ended, and the admin then
+		// reads the identity again. An impersonation held while this start was
+		// asked for is ended here, or that read would bring its banner back.
+		// Whether one is held depends on the request, never on the person asked
+		// for, so the answer stays identical for an unknown person.
+		expireHeldImpersonationCookie(c)
 		return respondErrorCode(c, http.StatusForbidden, "impersonation not allowed", apimw.CodeImpersonationTargetNotMember)
 	}
 	if target.Status() != "active" {
