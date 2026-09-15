@@ -7,7 +7,7 @@ nav_order: 2
 
 # ADR: Trusted-Issuer Login Assertion (`POST /auth/assert`)
 
-**Status:** Proposed (revised 2026-09-12 after design premortem; amended 2026-09-12 after the story `wm-63gg0.1` review: clock leeway, audience uniqueness, key-list throttle and backoff, `keys-unreachable`; amended 2026-09-12 after the story `wm-63gg0.2` review: what owner binding never links to, how emails compare, the 409, what binding logs, a 2-second first backoff; amended 2026-09-12 after the PR 563 Copilot review: the route refuses to mount under core's public `SESSION_SECRET`, and any trusted-issuer setting makes the API require a sign-in; amended 2026-09-13 for bead `wm-x0l4m`: the door may post the assertion server-side, and the door's own provider key `door` is accepted, still needs a verified email and never proves an owner; amended 2026-09-14 after the `wm-x0l4m` review: an upgrade note for an instance that already has people, what an unseen identity whose email only a `door` credential holds meets today, and the `issuer` providers entry lists the provider keys an assertion may name)
+**Status:** Proposed (revised 2026-09-12 after design premortem; amended 2026-09-12 after the story `wm-63gg0.1` review: clock leeway, audience uniqueness, key-list throttle and backoff, `keys-unreachable`; amended 2026-09-12 after the story `wm-63gg0.2` review: what owner binding never links to, how emails compare, the 409, what binding logs, a 2-second first backoff; amended 2026-09-12 after the PR 563 Copilot review: the route refuses to mount under core's public `SESSION_SECRET`, and any trusted-issuer setting makes the API require a sign-in; amended 2026-09-13 for bead `wm-x0l4m`: the door may post the assertion server-side, and the door's own provider key `door` is accepted, still needs a verified email and never proves an owner; amended 2026-09-14 after the `wm-x0l4m` review: an upgrade note for an instance that already has people, what an unseen identity whose email only a `door` credential holds meets today, and the `issuer` providers entry lists the provider keys an assertion may name; amended 2026-09-15 for bead `wm-lnimb` and its review: a sign-in that asks for a native session gets a refresh token and two expiries, `POST /api/auth/refresh` renews it with a 30-second grace window for a repeated renewal, a native sign-out ends one session unless it asks for every one, and native refresh token rows are purged 7 days past expiry)
 **Date:** 2026-09-12
 **Ticket:** bead `wm-63gg0` (mirror: wepala/mini-me-weos#530)
 **Base:** `v3` (the integration branch the `v3.0.1-beta.*` tags are cut from; `main` is the old line)
@@ -353,6 +353,25 @@ plus the JWT session cookie — with one added boolean, `new_account`, true when
 created the agent. (The OAuth callback signals the same fact as a `?new_account=1`
 redirect query; a JSON caller has no redirect, hence the field.)
 
+*Amended 2026-09-15 for bead `wm-lnimb` and its review (`wm-nybvk`, `wm-ehtnq`): the
+native session.* An app in a native shell holds no cookie, only the token, and the token
+lasts one hour. So a sign-in may ask for a **native session** with `"session":"native"` in
+its request body, on `/auth/assert`, `/auth/password-login` and `/auth/register`. That
+answer adds three fields beside `token`:
+
+- `refresh_token`: renews the session at `POST /api/auth/refresh` (see "Renewal").
+- `refresh_token_expires_at`: when the refresh token stops renewing, 30 days after it was
+  issued. Every renewal hands back a new one with a full 30 days.
+- `token_expires_at`: when `token` expires, one hour after it was issued.
+
+Any other `session` value, or none, is a browser's sign-in, and its answer is exactly the
+shape above with none of the three fields: a browser renews through its cookie session,
+and must not hold a long-lived credential that page script can read. An instance that
+cannot renew answers a native sign-in without them too. A native session's access token
+carries a `native_session` claim naming its refresh token family, so a sign-out with only
+that token can end that session. The door relays this answer to the app, so it must pass
+the three fields through unchanged (door bead `wm-4suse`).
+
 **Renewal.** When a session expires on an instance whose only sign-in is a trusted
 issuer, `/api/auth/providers` answers `[]` today and the SPA shows buttons that do
 nothing. In fleet mode the instance publishes `TRUSTED_ISSUER` as its provider entry
@@ -363,6 +382,66 @@ name on this instance (`application.OAuthProviderKeys()`), so the issuer can che
 instance before it sends a person there (see "Request"). The field was added beside the
 others; no existing field changed. A registry provider's entry carries neither
 `login_url` nor `accepted_provider_keys`.
+
+*Amended 2026-09-15 for bead `wm-lnimb` and its review (`wm-utb5c`, `wm-tu180`,
+`wm-ehtnq`, `wm-3dgs0`, `wm-sa7wv`, `wm-5rziu`): renewing and ending a native session.*
+A native session (see "Response") renews without the door.
+
+`POST /api/auth/refresh` takes `{"refresh_token":"..."}`: JSON, at most 16 KiB, with no
+cookie and no bearer token. Every answer carries `Cache-Control: no-store`.
+
+- **200** `{"data":{"account":{"id","name"},"token","token_expires_at","refresh_token","refresh_token_expires_at"}}`.
+  An owner or admin of an account whose deletion did not finish also gets
+  `"erasure_pending":true` and `"code":"account_erasure_pending"`, and the token serves only
+  `DELETE /api/account`. The presented refresh token is spent, and the new one replaces it
+  in the same family. The new token carries no `token_use` mark.
+- **400** `invalid_request` when the body has no refresh token. **413** when the body is too
+  large.
+- **401** with a `code`:
+  - `invalid_refresh_token`: unknown, expired, spent, revoked, a connector's refresh token,
+    or an account that is gone.
+  - `account_access_revoked`: the person was removed from the account. The refresh token is
+    revoked too.
+  - `account_deactivated`: the account is suspended. The refresh token is not revoked.
+  - `account_erasure_pending`: the account's deletion did not finish, and the person is not
+    an owner or admin.
+- **503** with `Retry-After: 5` when the store cannot be read, or a rotation failed and
+  nothing was spent. A failed rotation never answers 500.
+
+A native refresh token is refused at `/oauth/token`, and a connector's is refused here.
+
+**Reuse and the grace window.** A spent refresh token presented again revokes its whole
+family, because someone else holds a copy. There is one exception: an exact repeat within
+**30 seconds** of the rotation, while the successor that rotation made is still live. That
+repeat is a renewal whose answer was lost, or several renewals at once. It gets the same
+successor and a new access token. A repeat after the window, a repeat whose successor was
+already spent, and any token of a revoked family get 401 and no successor. The successor
+is derived: an HMAC-SHA256 of the spent row's id and the presented token, under a key
+derived from `JWT_SIGNING_KEY`. So the store keeps only hashes, and names the successor on
+the spent row by row id (`successor_id`, `rotated_at`). Without a signing key the key is
+random per process, and a repeat that reaches another process is reuse.
+
+**Sign-out.** `POST /api/auth/logout` still clears the cookie and the browser session. A
+native app also ends its session there, with its refresh token in the body or its access
+token as the bearer. An expired access token this instance signed still names its
+session.
+
+- By default only that one session, its refresh token family, ends. A spent, revoked or
+  expired refresh token ends only its own family.
+- `{"everywhere":true}` ends every native session of the person, and only with a live
+  credential: a refresh token that still renews, or an access token that still validates.
+- A sign-out that presents a credential adds `app_session` to pericarp's
+  `{"status":"logged out"}`: `ended`, `ended_everywhere`, `not_identified` or `not_ended`.
+  When it did not do all it was asked, it also adds `code`: `app_session_not_identified`,
+  `sign_out_everywhere_refused` or `app_session_not_ended`.
+- A cookie-only sign-out answers as before.
+- A store failure never blocks the browser's sign-out: the answer is 200 with
+  `app_session_not_ended`, and the app signs out again.
+
+**Storage.** Native refresh tokens share the OAuth refresh token table under the reserved
+client id `weos-native`, hashed at rest. A row more than **7 days** past its expiry is
+purged, at most once an hour per process, when a native refresh token is issued or
+rotated. Until then a spent row stays, so presenting it is still caught as reuse.
 
 **Session secret.** A fleet instance must run with a per-instance `SESSION_SECRET`,
 and the route refuses to mount without one. Core's default value is public, so a
