@@ -151,12 +151,24 @@ type RefreshTokenRepository interface {
 	RevokeIfActive(ctx context.Context, id string) error
 	// RevokeFamily revokes all active tokens in the given family. Used as
 	// a compromise response when a previously-revoked token is presented
-	// (signals theft of an earlier rotation).
+	// (signals theft of an earlier rotation). It returns nil only once no
+	// token of the family is active, a successor a concurrent rotation
+	// committed meanwhile included.
 	RevokeFamily(ctx context.Context, familyID string) error
+	// RevokeForAgent revokes every active token the agent holds for clientID,
+	// in every account and family. A native app's sign-out uses it to end the
+	// person's native sessions on every device (wm-lnimb). It returns nil
+	// only once none is active, as RevokeFamily does.
+	RevokeForAgent(ctx context.Context, agentID, clientID string) error
+	// PurgeExpired deletes the tokens held for clientID that expired before
+	// before, revoked or not, and answers how many (wm-sa7wv; see
+	// NativeRefreshTokenPurger).
+	PurgeExpired(ctx context.Context, clientID string, before time.Time) (int64, error)
 	// Rotate atomically revokes the old token (only if active) and creates
 	// the new token in a single transaction. If the old token is already
-	// revoked, returns ErrNotFound (token reuse). If the new token cannot
-	// be created, the old token is NOT revoked (transaction rollback).
+	// revoked, or has expired by the clock read inside that transaction,
+	// returns ErrNotFound. If the new token cannot be created, the old token
+	// is NOT revoked (transaction rollback).
 	Rotate(
 		ctx context.Context,
 		oldID string,
@@ -165,10 +177,14 @@ type RefreshTokenRepository interface {
 	) error
 }
 
-type gormRefreshTokenRepo struct{ db *gorm.DB }
+type gormRefreshTokenRepo struct {
+	db *gorm.DB
+	// now is the clock a rotation checks the spent token's expiry against.
+	now func() time.Time
+}
 
 func NewRefreshTokenRepository(db *gorm.DB) RefreshTokenRepository {
-	return &gormRefreshTokenRepo{db: db}
+	return &gormRefreshTokenRepo{db: db, now: time.Now}
 }
 
 func (r *gormRefreshTokenRepo) Create(
@@ -218,10 +234,47 @@ func (r *gormRefreshTokenRepo) RevokeFamily(ctx context.Context, familyID string
 	if familyID == "" {
 		return nil
 	}
-	return r.db.WithContext(ctx).
-		Model(&OAuthRefreshToken{}).
-		Where("family_id = ? AND revoked = ?", familyID, false).
-		Update("revoked", true).Error
+	return r.revokeUntilNoneActive(ctx, "family_id = ?", familyID)
+}
+
+func (r *gormRefreshTokenRepo) RevokeForAgent(ctx context.Context, agentID, clientID string) error {
+	if agentID == "" || clientID == "" {
+		return nil
+	}
+	return r.revokeUntilNoneActive(ctx, "agent_id = ? AND client_id = ?", agentID, clientID)
+}
+
+// revokePasses bounds revokeUntilNoneActive. A pass after the first is needed
+// only when a rotation committed a successor during the pass before.
+const revokePasses = 5
+
+// errStillRotating is what a revocation answers when rotations kept committing
+// active successors through every pass.
+var errStillRotating = errors.New("oauth: refresh tokens were still being rotated while they were revoked")
+
+// revokeUntilNoneActive revokes the active tokens matching query, then counts
+// them, until a count finds none. The update and the count must stay separate
+// statements outside a transaction. On PostgreSQL an update that waits on the
+// row a rotation is spending never sees the successor that rotation commits; a
+// later statement does, and until the rotation commits, the row it spends still
+// counts as active.
+func (r *gormRefreshTokenRepo) revokeUntilNoneActive(ctx context.Context, query string, args ...any) error {
+	db := r.db.WithContext(ctx)
+	for range revokePasses {
+		if err := db.Model(&OAuthRefreshToken{}).Where(query, args...).Where("revoked = ?", false).
+			Update("revoked", true).Error; err != nil {
+			return err
+		}
+		var active int64
+		if err := db.Model(&OAuthRefreshToken{}).Where(query, args...).Where("revoked = ?", false).
+			Count(&active).Error; err != nil {
+			return err
+		}
+		if active == 0 {
+			return nil
+		}
+	}
+	return errStillRotating
 }
 
 func (r *gormRefreshTokenRepo) RevokeIfActive(ctx context.Context, id string) error {
@@ -249,18 +302,33 @@ func (r *gormRefreshTokenRepo) Rotate(
 	}
 	newToken.TokenHash = HashToken(newRawToken)
 	if newToken.ExpiresAt.IsZero() {
-		newToken.ExpiresAt = time.Now().Add(30 * 24 * time.Hour)
+		newToken.ExpiresAt = r.now().Add(30 * 24 * time.Hour)
 	}
 
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// Conditional revoke — fails if token is already revoked.
+		// Conditional revoke — fails if the token is already revoked or has
+		// expired. The spent token records its successor's id and when it was
+		// spent, so a native renewal repeated inside the grace window can be
+		// answered that successor (wm-3dgs0).
+		rotatedAt := r.now()
 		result := tx.Model(&OAuthRefreshToken{}).
-			Where("id = ? AND revoked = ?", oldID, false).
-			Update("revoked", true)
+			Where("id = ? AND revoked = ? AND expires_at > ?", oldID, false, rotatedAt).
+			Updates(map[string]any{"revoked": true, "successor_id": newToken.ID, "rotated_at": rotatedAt})
 		if result.Error != nil {
 			return result.Error
 		}
 		if result.RowsAffected == 0 {
+			return ErrNotFound
+		}
+		// The update can wait on the row's lock long enough for the token to
+		// expire, so the clock is read again now that this transaction holds it.
+		var unexpired int64
+		if err := tx.Model(&OAuthRefreshToken{}).
+			Where("id = ? AND expires_at > ?", oldID, r.now()).
+			Count(&unexpired).Error; err != nil {
+			return err
+		}
+		if unexpired == 0 {
 			return ErrNotFound
 		}
 		// Persist new token in the same transaction. If this fails,

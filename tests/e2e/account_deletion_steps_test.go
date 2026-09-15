@@ -478,6 +478,32 @@ func (w *deletionWorld) readsWhoTheyAreOnSecondDevice() error {
 	return err
 }
 
+// readsWhoTheyAreByToken reads the identity the way an app in a native shell
+// does (wm-hg3xf): with the token its last sign-in handed back and no cookie,
+// because the app's web view holds none for the instance.
+func (w *deletionWorld) readsWhoTheyAreByToken() error {
+	p, err := w.current()
+	if err != nil {
+		return err
+	}
+	if p.token == "" {
+		return fmt.Errorf("no sign-in handed %q a token", p.email)
+	}
+	req, err := http.NewRequest(http.MethodGet, w.server.URL+mePath, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+p.token)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer res.Body.Close()
+	raw, _ := io.ReadAll(res.Body)
+	p.lastAnswer = &capturedAnswer{status: res.StatusCode, body: string(raw), code: refusalCode(raw)}
+	return nil
+}
+
 func (w *deletionWorld) projectsSeenInclude(email, name string) error {
 	p, err := w.personNamed(email)
 	if err != nil {

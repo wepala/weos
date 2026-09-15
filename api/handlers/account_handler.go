@@ -107,10 +107,23 @@ func (h *AccountHandler) Delete(c echo.Context) error {
 	if identity == nil || identity.ActiveAccountID == "" {
 		return respondError(c, http.StatusUnauthorized, "not authenticated")
 	}
-	if h.impersonating(c) {
+	held, err := h.heldImpersonation(c, identity)
+	if err != nil {
+		return respondError(c, http.StatusServiceUnavailable, "could not read the account's state")
+	}
+	switch held.Verdict {
+	case apimw.ImpersonationHolds:
 		// An administrator acting as somebody must not be able to end that
 		// person's account through their identity.
 		return respondError(c, http.StatusForbidden, "account deletion is not available while impersonating")
+	case apimw.ImpersonationStale:
+		// A cookie the protected routes would refuse is ended here with their
+		// refusal's code, rather than kept as if it still held (wm-ptcuk). It is
+		// answered through the handler envelope, so the request's messages
+		// travel with it.
+		apimw.ExpireImpersonationCookie(c.Response())
+		return respondErrorCode(c, http.StatusForbidden, "impersonation not allowed", apimw.CodeImpersonationTargetNotMember)
+	case apimw.ImpersonationNotHeld:
 	}
 	if !readsConfirmation(c.Request()) {
 		return respondError(c, http.StatusBadRequest,
@@ -200,18 +213,16 @@ func readsConfirmation(r *http.Request) bool {
 	return confirm == deleteConfirmation
 }
 
-// impersonating reports whether the request carries an active impersonation
-// session — the same cookie the Impersonation middleware reads.
-func (h *AccountHandler) impersonating(c echo.Context) bool {
+// heldImpersonation judges the impersonation cookie the request carries with
+// the Impersonation middleware's own checks — the account it started in, the
+// caller's role there and the person's membership — so the deletion refuses
+// exactly the impersonation the protected routes would apply, and ends one
+// they would refuse (wm-ptcuk).
+func (h *AccountHandler) heldImpersonation(c echo.Context, identity *auth.Identity) (apimw.HeldImpersonation, error) {
 	if h.cfg.Store == nil {
-		return false
+		return apimw.HeldImpersonation{}, nil
 	}
-	sess, err := h.cfg.Store.Get(c.Request(), apimw.ImpersonationSessionName)
-	if err != nil || sess == nil {
-		return false
-	}
-	impersonated, _ := sess.Values[apimw.KeyImpersonatedAgentID].(string)
-	return impersonated != ""
+	return apimw.JudgeImpersonation(c, h.cfg.Store, h.cfg.Accounts, identity, h.cfg.Logger)
 }
 
 // signOut clears the session cookie and the JWT cookie, the way Logout does.

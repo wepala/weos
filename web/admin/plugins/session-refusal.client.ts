@@ -13,10 +13,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { applyRefusedResponse } from '../composables/useSessionRefusal'
+import { applyRefusal } from '../composables/useRefusedResponse'
 
 /**
- * Decides what a 401 means, for every call the admin makes.
+ * Decides what a refused request means, for every call the admin makes.
  *
  * This lives in a $fetch interceptor rather than in useApi because not every
  * caller goes through useApi: usePersonApi, for one, calls $fetch directly.
@@ -24,9 +24,9 @@ import { applyRefusedResponse } from '../composables/useSessionRefusal'
  * silently ignored.
  *
  * It still does not cover literally every call. The agent chat streams with
- * native fetch, which no $fetch interceptor can see, so it calls
- * applyRefusedResponse itself. Any future caller that reaches past $fetch has
- * to do the same.
+ * native fetch, which no $fetch interceptor can see, so it hands its failed
+ * responses to the same applyRefusal through applyStreamRefusal (wm-ptcuk).
+ * Any future caller that reaches past $fetch has to do the same.
  *
  * A coded refusal is explained where the person is standing and explicitly
  * does NOT redirect: for two of the three codes a fresh sign-in cannot help,
@@ -45,8 +45,8 @@ export default defineNuxtPlugin(() => {
     // page that genuinely cannot load. Recovery is handled where it actually
     // happens instead — "try again" reloads, and a reload starts with no
     // refusal because the state is held in memory by design.
-    onResponseError({ response }) {
-      applyRefusedResponse(response?.status, response?._data)
+    onResponseError({ request, response }) {
+      applyRefusal(request, response?.status, response?._data)
     },
   })
 })

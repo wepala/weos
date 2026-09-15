@@ -147,6 +147,7 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	var erasureService *application.AccountErasureService
 	var erasureLocks repositories.AccountErasureLocks
 	var memberQuery repositories.AccountMemberQuery
+	var memberDirectory repositories.AccountMemberDirectory
 	var resourceRepo repositories.ResourceRepository
 
 	registry := presets.NewDefaultRegistry()
@@ -186,7 +187,7 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 		fx.Populate(&db),
 		fx.Populate(&presetHandlers),
 		fx.Populate(&notificationService),
-		fx.Populate(&erasureService, &erasureLocks, &memberQuery, &resourceRepo),
+		fx.Populate(&erasureService, &erasureLocks, &memberQuery, &memberDirectory, &resourceRepo),
 	}
 	fxOpts = append(fxOpts, extra...)
 	app := fx.New(fxOpts...)
@@ -278,11 +279,6 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	callback := authCallbackHandler(authHandlers.Callback)
 	api.GET("/auth/callback", callback)
 	api.POST("/auth/callback", callback)
-	if appCfg.AuthEnabled() {
-		api.GET("/auth/me", impersonationHandler.Me(authHandlers))
-	} else {
-		api.GET("/auth/me", handlers.DevMe(credentialRepo, agentRepo, accountRepo, logger))
-	}
 	// Provider discovery for the sign-in screen. Reads the registry
 	// /auth/login resolves against, and sits with /auth/login and
 	// /auth/callback outside the protected group — the caller is anonymous
@@ -296,6 +292,9 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	// SESSION_SECRET is unset) so the JWT cookie is accepted in plain-HTTP
 	// local dev and stays Secure in any real deployment.
 	secureCookies := appCfg.SessionSecret != config.DefaultSessionSecret
+	// One refresh token store for connectors and native apps: a native sign-in's
+	// refresh token is kept, rotated and revoked there too (wm-lnimb).
+	refreshRepo := weosoauth.NewRefreshTokenRepository(db)
 	passwordAuthHandlers := handlers.NewPasswordAuthHandler(handlers.PasswordAuthHandlerConfig{
 		AuthService:    authService,
 		SessionManager: sessionManager,
@@ -303,6 +302,9 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 		Logger:         logger,
 		AccountRepo:    accountRepo,
 		ErasureLocks:   erasureLocks,
+		RefreshTokens:  refreshRepo,
+		AgentRepo:      agentRepo,
+		JWTService:     jwtService,
 	})
 	handlers.MountPasswordAuth(api, passwordAuthHandlers, handlers.PasswordAuthRoutes{
 		SignIn:       appCfg.PasswordAuthEnabled,
@@ -340,6 +342,20 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 		baseURL = "http://" + hostPort
 	}
 
+	// The identity read sits outside the protected group: it checks the
+	// session its cookie names itself (see ImpersonationHandler.Me). A request
+	// that carries a bearer token is checked by BearerOrSession's bearer path
+	// instead, so an app in a native shell — whose web view holds no cookie for
+	// the instance, only the token its sign-in handed back — can read the
+	// account it signed in to (wm-hg3xf). The protected group below takes a
+	// token too (wm-aj2eb).
+	if appCfg.AuthEnabled() {
+		api.GET("/auth/me", impersonationHandler.Me(authHandlers),
+			apimw.BearerWhenPresent(jwtService, baseURL, accountRepo, erasureLocks))
+	} else {
+		api.GET("/auth/me", handlers.DevMe(credentialRepo, agentRepo, accountRepo, logger))
+	}
+
 	// Login asserted by a trusted issuer — a fleet's front door that has
 	// already verified the person. Public for the same reason as the password
 	// routes: the caller has no session yet. Mounted only when
@@ -349,7 +365,7 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	// and mounts nothing. A browser may post to it only from the trusted
 	// issuer's origin or this instance's (baseURL). See
 	// docs/decisions/trusted-issuer-login-assertion.md.
-	handlers.MountTrustedIssuerAssertion(context.Background(), api, appCfg, logger,
+	assertMounted := handlers.MountTrustedIssuerAssertion(context.Background(), api, appCfg, logger,
 		func() *handlers.TrustedIssuerHandler {
 			return handlers.NewTrustedIssuerAssertionHandler(appCfg.TrustedIssuer, appCfg.OAuth.AllowedEmails, handlers.TrustedIssuerAssertionDeps{
 				SignIn:        assertedSignIn,
@@ -358,6 +374,29 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 				PublicBaseURL: baseURL,
 			})
 		})
+	// A trusted issuer's sign-in hands a native app a bearer token, and the app
+	// reads its account with it (wm-hg3xf). With no JWT_SIGNING_KEY that token
+	// is signed by a key made at boot, so every restart or deploy ends it. The
+	// refresh token beside it is stored, so the app renews after the restart
+	// (wm-lnimb), but a renewal repeated across the restart is taken as reuse,
+	// because the grace window needs the same key. Say so once at boot
+	// (wm-a6xb6). The key itself is never logged.
+	// Only when the assert route is mounted: a partly configured issuer, or one
+	// on core's public session secret, issues no such token, and the mount has
+	// already logged why.
+	if assertMounted && weosoauth.TokensDieOnRestart(appCfg) {
+		logger.Warn(context.Background(),
+			"JWT_SIGNING_KEY is empty or auto, so native bearer tokens will not survive a restart: each boot signs tokens with a new key, so after every restart or deploy an app must renew its access token with its refresh token, and a renewal repeated across the restart counts as reuse and signs the app out",
+			"remedy", "set JWT_SIGNING_KEY to a PEM-encoded RSA private key that stays the same across restarts and on every instance")
+	}
+
+	// A native sign-in's access token lasts an hour, and an app in a native
+	// shell holds nothing else, so the refresh token handed back beside it
+	// renews it here (wm-lnimb). Public, like the sign-ins: the caller's access
+	// token may already have expired. Mounted wherever a native sign-in is.
+	if appCfg.PasswordAuthEnabled || assertMounted {
+		handlers.MountSessionRenewal(api, passwordAuthHandlers)
+	}
 
 	// Logout must clear BOTH the gorilla session (pericarp Logout) AND the
 	// JWT cookie issued by the password and OAuth flows. Routing through
@@ -380,7 +419,6 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	if appCfg.AuthEnabled() {
 		clientRepo := weosoauth.NewClientRepository(db)
 		codeRepo := weosoauth.NewAuthCodeRepository(db)
-		refreshRepo := weosoauth.NewRefreshTokenRepository(db)
 
 		const mcpResourcePath = "/api/mcp"
 		var defaultResource string
@@ -430,13 +468,27 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	// from its first setting, mounted or not: see config.Config.AuthEnabled.
 	protected := api.Group("")
 	if appCfg.AuthEnabled() {
-		// The erasure guard goes first, around RequireAuth: an account whose
-		// deletion began and did not finish is refused everywhere with the
-		// code that says so, where RequireAuth alone would call it merely
-		// deactivated. The one route a locked account may still use is
+		// The group takes a bearer token as well as a session, the way the MCP
+		// group does (wm-aj2eb): an app in a native shell holds no cookie for
+		// the instance, only the token its sign-in handed back. A token wins
+		// over a cookie beside it. Preset handlers mounted Protected inherit
+		// this.
+		//
+		// It takes a native sign-in's token only. A token a third-party
+		// connector got from /oauth/token is refused here (wm-8i8ln): a person
+		// connecting a client agrees to the MCP and agent routes, not to roles,
+		// invites, impersonation or the account itself.
+		//
+		// The erasure guard goes first, around the session auth: an account
+		// whose deletion began and did not finish is refused everywhere with
+		// the code that says so, where RequireAuth alone would call it merely
+		// deactivated. It defers to the token path, which checks the token's
+		// account itself. The one route a locked account may still use is
 		// mounted on its own group below.
-		protected.Use(apimw.ErasureGuard(sessionManager, erasureLocks, logger))
-		protected.Use(echo.WrapMiddleware(authhttp.RequireAuth(sessionManager, authService)))
+		sessionAuth := authhttp.RequireAuth(sessionManager, authService)
+		protected.Use(apimw.ErasureGuard(sessionManager, erasureLocks, logger, apimw.DeferToBearer()))
+		protected.Use(apimw.BearerOrSession(jwtService, sessionAuth, baseURL, accountRepo, erasureLocks,
+			apimw.RefuseConnectorTokens()))
 		protected.Use(apimw.Impersonation(sessionStore, accountRepo, erasureLocks, logger))
 		protected.Use(apimw.AuthorizeResource(authzChecker, accountRepo, logger))
 	} else {
@@ -444,10 +496,14 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	}
 
 	// The account routes (story wm-kb6sg.3). The export is an ordinary
-	// protected read. The deletion has its own group: its session auth admits
-	// an erasure-locked account for this one purpose, and it takes no
+	// protected read. The deletion has its own group: its auth admits an
+	// erasure-locked account for this one purpose, and it takes no
 	// Impersonation middleware because it refuses while one is active rather
-	// than act as the impersonated person.
+	// than act as the impersonated person. It takes a bearer token as the
+	// protected group does (wm-aj2eb), so an app in a native shell can offer
+	// the in-app deletion; a token scoped to a locked account is admitted here
+	// as a session scoped to one is. A connector's token is refused, as on the
+	// protected group (wm-8i8ln).
 	accountHandler := handlers.NewAccountHandler(handlers.AccountHandlerConfig{
 		Erasure:        erasureService,
 		Accounts:       accountRepo,
@@ -461,7 +517,9 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	protected.GET("/account/export", accountHandler.Export)
 	accountGroup := api.Group("")
 	if appCfg.AuthEnabled() {
-		accountGroup.Use(apimw.SessionAuthForErasure(sessionManager, authService, accountRepo, erasureLocks, logger))
+		accountGroup.Use(apimw.BearerOrSessionForErasure(jwtService, baseURL, accountRepo, erasureLocks,
+			apimw.SessionAuthForErasure(sessionManager, authService, accountRepo, erasureLocks, logger),
+			apimw.RefuseConnectorTokens()))
 	} else {
 		accountGroup.Use(apimw.SoftAuth(credentialRepo, agentRepo, accountRepo, logger))
 	}
@@ -532,6 +590,7 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 		AgentRepo:      agentRepo,
 		CredentialRepo: credentialRepo,
 		AccountRepo:    accountRepo,
+		Members:        memberDirectory,
 		Features:       featureInvalidator,
 		Logger:         logger,
 	})
@@ -624,8 +683,33 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	featuresGroup.GET("/features", featureHandler.List)
 
 	protected.POST("/admin/impersonate", impersonationHandler.Start)
-	protected.POST("/admin/stop-impersonation", impersonationHandler.Stop)
 	protected.GET("/admin/impersonation-status", impersonationHandler.Status)
+	// Stopping takes the protected group's session checks but not its
+	// Impersonation middleware. That middleware refuses a cookie it no longer
+	// allows, and the request that ends such an impersonation must not be
+	// refused with it (wm-1yjuv). The checks are per-route middleware, not a
+	// new group, so no group's not-found catch-all moves (see featuresGroup).
+	// EndHeldImpersonation runs first: those checks refuse a session whose
+	// account is suspended, locked for deletion or no longer the caller's
+	// before Stop is reached, and that refusal must still end the impersonation.
+	// The checks take a native sign-in's bearer token and refuse a connector's,
+	// exactly as the protected group does, so an app that started an
+	// impersonation with its token can also end it (wm-ptcuk).
+	var stopGuards []echo.MiddlewareFunc
+	if appCfg.AuthEnabled() {
+		stopGuards = []echo.MiddlewareFunc{
+			apimw.EndHeldImpersonation(),
+			apimw.ErasureGuard(sessionManager, erasureLocks, logger, apimw.DeferToBearer()),
+			apimw.BearerOrSession(jwtService, authhttp.RequireAuth(sessionManager, authService), baseURL,
+				accountRepo, erasureLocks, apimw.RefuseConnectorTokens()),
+		}
+	} else {
+		stopGuards = []echo.MiddlewareFunc{
+			apimw.EndHeldImpersonation(),
+			apimw.SoftAuth(credentialRepo, agentRepo, accountRepo, logger),
+		}
+	}
+	api.POST("/admin/stop-impersonation", impersonationHandler.Stop, stopGuards...)
 
 	// File upload routes — registered before dynamic catch-all
 	uploadHandler := handlers.NewUploadHandler(fileService, logger, appCfg.Storage.MaxUploadBytes)
@@ -639,7 +723,8 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 
 	// MCP + in-app agent routes — registered before dynamic catch-all. Both
 	// share one auth stack (BearerOrSession under OAuth or a trusted issuer,
-	// SoftAuth otherwise; see sessionStack).
+	// SoftAuth otherwise; see sessionStack). This is the group a connector's
+	// token is for, so it takes one; the protected group does not.
 	mcpGroup := api.Group("")
 	if sessionStack {
 		sessionAuth := authhttp.RequireAuth(sessionManager, authService)

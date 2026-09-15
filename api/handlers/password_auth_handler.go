@@ -25,6 +25,7 @@ import (
 	apimw "github.com/wepala/weos/v3/api/middleware"
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
+	weosoauth "github.com/wepala/weos/v3/internal/oauth"
 
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
 	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
@@ -54,13 +55,46 @@ type PasswordAuthHandlerConfig struct {
 	// either missing, such a sign-in stays unscoped, as it always was.
 	AccountRepo  authrepos.AccountRepository
 	ErasureLocks repositories.AccountErasureLocks
+	// RefreshTokens and AgentRepo let an app in a native shell keep its session
+	// past the access token's hour (wm-lnimb). With both set, and AccountRepo
+	// and ErasureLocks, a sign-in that hands back a token hands back a refresh
+	// token beside it, and Refresh renews with it. Optional: without them a
+	// sign-in answers as it always did.
+	RefreshTokens weosoauth.RefreshTokenRepository
+	AgentRepo     authrepos.AgentRepository
+	// JWTService reads the bearer token a native app signs out with, so the
+	// sign-out can end that person's refresh tokens. Optional.
+	JWTService authapp.JWTService
+	// RefreshSuccessorKey derives a native refresh token's successor, so a
+	// renewal repeated inside the grace window gets the same one (wm-3dgs0).
+	// Optional: it defaults to weosoauth.NativeRefreshSuccessorKey(JWTService).
+	RefreshSuccessorKey []byte
 }
 
 type PasswordAuthHandler struct {
 	cfg PasswordAuthHandlerConfig
+	// purger removes native refresh token rows past the purge horizon when a
+	// native refresh token is written (wm-sa7wv). Nil without RefreshTokens.
+	purger *weosoauth.NativeRefreshTokenPurger
+}
+
+// purgeNativeRefreshTokens runs the native refresh token purge when it is due.
+// It never fails the request that runs it.
+func (h *PasswordAuthHandler) purgeNativeRefreshTokens(ctx context.Context) {
+	ran, purged, err := h.purger.MaybePurge(ctx)
+	if err != nil {
+		h.cfg.Logger.Warn(ctx, "native refresh tokens: purge failed; it runs again after the interval", "error", err)
+		return
+	}
+	if ran && purged > 0 {
+		h.cfg.Logger.Info(ctx, "native refresh tokens: purged rows past the horizon", "rows", purged)
+	}
 }
 
 func NewPasswordAuthHandler(cfg PasswordAuthHandlerConfig) *PasswordAuthHandler {
+	if len(cfg.RefreshSuccessorKey) == 0 {
+		cfg.RefreshSuccessorKey = weosoauth.NativeRefreshSuccessorKey(cfg.JWTService)
+	}
 	if cfg.SessionDuration == 0 {
 		cfg.SessionDuration = 24 * time.Hour
 	}
@@ -74,7 +108,11 @@ func NewPasswordAuthHandler(cfg PasswordAuthHandlerConfig) *PasswordAuthHandler 
 	if cfg.JWTCookieMaxAge == 0 {
 		cfg.JWTCookieMaxAge = int(cfg.SessionDuration.Seconds())
 	}
-	return &PasswordAuthHandler{cfg: cfg}
+	h := &PasswordAuthHandler{cfg: cfg}
+	if cfg.RefreshTokens != nil {
+		h.purger = weosoauth.NewNativeRefreshTokenPurger(cfg.RefreshTokens, nil)
+	}
+	return h
 }
 
 // DefaultDisplayName picks the name to register an account under. Registration
@@ -126,15 +164,25 @@ func MountPasswordAuth(g *echo.Group, h *PasswordAuthHandler, routes PasswordAut
 	g.POST("/auth/password-login", h.Login)
 }
 
+// NativeSession is the value of a sign-in request's "session" field that asks
+// for a native session (wm-nybvk). An app in a native shell holds no cookie, so
+// only it gets a refresh token beside its token. Any other value, or none, is a
+// browser's sign-in, which answers as it always did: a browser renews through
+// its cookie session and must not hold a long-lived credential page script can
+// read.
+const NativeSession = "native"
+
 type registerRequest struct {
 	Email       string `json:"email"`
 	Password    string `json:"password"`
 	DisplayName string `json:"display_name"`
+	Session     string `json:"session"`
 }
 
 type loginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+	Session  string `json:"session"`
 }
 
 type authSuccessResponse struct {
@@ -142,6 +190,18 @@ type authSuccessResponse struct {
 	Account   *authAccountResponse `json:"account,omitempty"`
 	Token     string               `json:"token,omitempty"`
 	ExpiresAt time.Time            `json:"expires_at"`
+	// TokenExpiresAt is when Token stops being accepted, an hour after the
+	// sign-in, so an app knows when to renew. ExpiresAt is the browser
+	// session's, which an app in a native shell does not hold. Present only
+	// beside RefreshToken.
+	TokenExpiresAt time.Time `json:"token_expires_at,omitzero"`
+	// RefreshToken renews Token at POST /auth/refresh before it expires, and
+	// RefreshTokenExpiresAt is when it stops renewing (wm-lnimb). Present
+	// whenever Token is, on a sign-in that asked for a native session, on an
+	// instance that can renew. Any other sign-in answers with exactly the fields
+	// it always did (wm-nybvk).
+	RefreshToken          string    `json:"refresh_token,omitempty"`
+	RefreshTokenExpiresAt time.Time `json:"refresh_token_expires_at,omitzero"`
 	// ErasurePending says the session was scoped to an account whose
 	// deletion began and did not finish. The session serves exactly one
 	// request, DELETE /api/account, and the app should offer that.
@@ -186,7 +246,7 @@ func (h *PasswordAuthHandler) Register(c echo.Context) error {
 		}
 	}
 
-	return h.completeAuth(c, agent, credential, account, email)
+	return h.completeAuth(c, agent, credential, account, email, req.Session == NativeSession)
 }
 
 func (h *PasswordAuthHandler) Login(c echo.Context) error {
@@ -214,7 +274,7 @@ func (h *PasswordAuthHandler) Login(c echo.Context) error {
 		}
 	}
 
-	return h.completeAuth(c, agent, credential, account, email)
+	return h.completeAuth(c, agent, credential, account, email, req.Session == NativeSession)
 }
 
 // Logout clears both the gorilla session cookie (delegated to pericarp's
@@ -222,7 +282,33 @@ func (h *PasswordAuthHandler) Login(c echo.Context) error {
 // is currently informational on the server side (no middleware reads it)
 // but a SPA may attach it as a Bearer token, so an endpoint that only
 // invalidates the session would leave a still-presentable JWT.
+//
+// An app in a native shell signs out with the token it holds, or with
+// {"refresh_token":"..."} in the body. Either one ends that device's session —
+// its refresh token family — and no other; {"everywhere":true} with a live
+// credential ends every native session of the person (wm-lnimb, wm-utb5c; see
+// endNativeSessions). The access token itself is stateless and lasts out its
+// hour. The cookie and the browser session are cleared whether or not the app's
+// session could be ended: a store that cannot be read or written is answered
+// 200 with app_session not_ended and code app_session_not_ended, so the app
+// keeps its refresh token and signs out again (wm-5rziu).
+//
+// A sign-out that presents a bearer token, a refresh token or "everywhere"
+// says in its answer what it did to the app's sessions: app_session is ended,
+// ended_everywhere or not_identified, and code says what it did not do
+// (wm-ehtnq). A cookie-only sign-out answers exactly as it always did.
 func (h *PasswordAuthHandler) Logout(c echo.Context, oauthLogout http.HandlerFunc) error {
+	did, err := h.endNativeSessions(c)
+	if err != nil {
+		// The browser's sign-out never waits on the refresh token store: the
+		// cookie and the browser session are cleared below whatever happened
+		// here, and the answer tells the app its session was not ended, so it
+		// keeps its refresh token and signs out again (wm-5rziu).
+		h.cfg.Logger.Error(c.Request().Context(),
+			"sign-out: could not end the app's native session; the browser session is ended and the app is told to sign out again",
+			"error", err)
+		did = nativeSignOut{AppSession: appSessionNotEnded, Code: CodeAppSessionNotEnded}
+	}
 	w := c.Response().Writer
 	http.SetCookie(w, &http.Cookie{
 		Name:     h.cfg.JWTCookieName,
@@ -233,8 +319,19 @@ func (h *PasswordAuthHandler) Logout(c echo.Context, oauthLogout http.HandlerFun
 		Secure:   h.cfg.SecureCookies,
 		SameSite: http.SameSiteLaxMode,
 	})
-	oauthLogout(w, c.Request())
-	return nil
+	// An impersonation belongs to the session that started it, so it ends
+	// with that session. Otherwise the next person to sign in on this browser
+	// is handed the cookie (wm-1yjuv). It is written before the answer is
+	// chosen, so a native sign-out clears it exactly as a cookie-only one does:
+	// the recorder below shares w's headers.
+	apimw.ExpireImpersonationCookie(w)
+	if did.AppSession == "" {
+		oauthLogout(w, c.Request())
+		return nil
+	}
+	recorded := &signOutRecorder{header: w.Header()}
+	oauthLogout(recorded, c.Request())
+	return answerNativeSignOut(c, recorded, did)
 }
 
 func (h *PasswordAuthHandler) completeAuth(
@@ -243,8 +340,9 @@ func (h *PasswordAuthHandler) completeAuth(
 	credential *authentities.Credential,
 	account *authentities.Account,
 	email string,
+	native bool,
 ) error {
-	return h.completeAuthAs(c, agent, credential, account, email,
+	return h.completeAuthAs(c, agent, credential, account, email, native,
 		func(r authSuccessResponse) any { return r })
 }
 
@@ -252,13 +350,15 @@ func (h *PasswordAuthHandler) completeAuth(
 // session, the same cookies, the same fields — and lets the caller add to the
 // answer. shape receives the password sign-in's answer and returns what is
 // sent. A sign-in path that answers in this shape plus a field of its own
-// uses it, so the shared part cannot drift from password sign-in's.
+// uses it, so the shared part cannot drift from password sign-in's. native says
+// the request asked for a native session (see NativeSession).
 func (h *PasswordAuthHandler) completeAuthAs(
 	c echo.Context,
 	agent *authentities.Agent,
 	credential *authentities.Credential,
 	account *authentities.Account,
 	email string,
+	native bool,
 	shape func(authSuccessResponse) any,
 ) error {
 	ctx := c.Request().Context()
@@ -338,13 +438,30 @@ func (h *PasswordAuthHandler) completeAuthAs(
 	// only ever be useful on a path that does not make the same check, which
 	// is the hole rather than the feature.
 	//
-	// A locked account gets no token either: the bearer path refuses one for
-	// an inactive account, so it could serve nothing.
+	// A locked account's owner or admin — the only person erasurePending is
+	// set for — does get a token, scoped to the locked account (wm-xsvas). An
+	// app in a native shell holds no cookie, only a token, so without one it
+	// could never finish a deletion that failed part-way. The token serves
+	// that and nothing else: the bearer path refuses it with
+	// account_erasure_pending on every route except DELETE /api/account, which
+	// admits it as it admits a session scoped to the locked account.
+	//
+	// A native session's id is chosen before its token is issued, so the token
+	// names the session (weosoauth.NativeSessionClaim) and a sign-out with only
+	// the token can end that session and no other (wm-utb5c).
+	nativeSessionID := ""
+	if native && accountID != "" && h.renews() {
+		nativeSessionID = weosoauth.NewNativeSessionID()
+	}
 	var tokenString string
-	if accountID != "" && !erasurePending {
+	if accountID != "" {
+		tokenCtx := ctx
+		if nativeSessionID != "" {
+			tokenCtx = weosoauth.WithNativeSession(ctx, nativeSessionID)
+		}
 		var issueErr error
 		tokenString, issueErr = h.cfg.AuthService.IssueIdentityToken(
-			ctx, agent, accountID, authapp.AccountAlreadyVerified(),
+			tokenCtx, agent, accountID, authapp.AccountAlreadyVerified(),
 		)
 		if issueErr != nil {
 			h.cfg.Logger.Warn(ctx, "password auth: failed to issue identity token", "error", issueErr)
@@ -363,15 +480,43 @@ func (h *PasswordAuthHandler) completeAuthAs(
 		})
 	}
 
+	// A refresh token goes back wherever the token does on a sign-in that asked
+	// for a native session (wm-lnimb, wm-nybvk): the token lasts an hour, and an
+	// app in a native shell holds nothing else to renew it with. A browser's
+	// sign-in gets none; its cookie session is what it renews with. The same
+	// rule as the token, so a locked account's owner gets one for the deletion
+	// too, and the renewal applies the same limit to it. Like the token it is
+	// best-effort: without it the app signs in again when the token expires,
+	// which is where it was before refresh tokens existed.
+	var refresh weosoauth.NativeRefreshToken
+	if nativeSessionID != "" && tokenString != "" {
+		var refreshErr error
+		refresh, refreshErr = weosoauth.IssueNativeRefreshToken(ctx, h.cfg.RefreshTokens, agent.GetID(), accountID, nativeSessionID)
+		if refreshErr != nil {
+			h.cfg.Logger.Warn(ctx, "password auth: failed to issue a refresh token; the app signs in again when the token expires",
+				"error", refreshErr)
+			refresh = weosoauth.NativeRefreshToken{}
+		} else {
+			h.purgeNativeRefreshTokens(ctx)
+		}
+	}
+
 	response := authSuccessResponse{
 		Agent: authAgentResponse{
 			ID:    agent.GetID(),
 			Name:  agent.Name(),
 			Email: email,
 		},
-		Account:   accountResp,
-		Token:     tokenString,
-		ExpiresAt: authSession.ExpiresAt(),
+		Account:               accountResp,
+		Token:                 tokenString,
+		ExpiresAt:             authSession.ExpiresAt(),
+		RefreshToken:          refresh.Raw,
+		RefreshTokenExpiresAt: refresh.ExpiresAt,
+	}
+	if refresh.Raw != "" {
+		// When to renew goes with what renews it: an instance that hands back no
+		// refresh token answers with exactly the fields it always did.
+		response.TokenExpiresAt = tokenExpiry(tokenString)
 	}
 	if erasurePending {
 		response.ErasurePending = true

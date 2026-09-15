@@ -77,15 +77,33 @@ func ProvideJWTService(cfg config.Config) (authapp.JWTService, error) {
 	// Normalize to match discovery handlers (which trim trailing slashes).
 	issuer = strings.TrimRight(issuer, "/")
 
-	return authjwt.NewRSAJWTService(
-		authjwt.WithSigningKey(key),
-		authjwt.WithTokenTTL(defaultAccessTokenTTL),
-		authjwt.WithIssuer(issuer),
-	), nil
+	// The public key is kept beside the service so a sign-out can read an
+	// expired token this instance signed (see SignedClaimsIgnoringExpiry).
+	return &instanceJWTService{
+		RSAJWTService: authjwt.NewRSAJWTService(
+			authjwt.WithSigningKey(key),
+			authjwt.WithTokenTTL(defaultAccessTokenTTL),
+			authjwt.WithIssuer(issuer),
+		),
+		publicKey:    &key.PublicKey,
+		successorKey: nativeSuccessorKeyFor(key),
+	}, nil
+}
+
+// TokensDieOnRestart reports whether the service ProvideJWTService builds for
+// cfg signs with a key made when the process starts, so that no token it
+// issues is valid after a restart, an idle-stop wake or on another replica.
+func TokensDieOnRestart(cfg config.Config) bool {
+	return !cfg.AuthEnabled() || ephemeralKey(cfg.OAuth.JWTSigningKey)
+}
+
+// ephemeralKey reports whether keyConfig asks for a key generated at boot.
+func ephemeralKey(keyConfig string) bool {
+	return keyConfig == "" || keyConfig == "auto"
 }
 
 func loadOrGenerateKey(keyConfig string) (*rsa.PrivateKey, error) {
-	if keyConfig == "" || keyConfig == "auto" {
+	if ephemeralKey(keyConfig) {
 		return rsa.GenerateKey(rand.Reader, rsaKeyBits)
 	}
 	return parseRSAPrivateKeyPEM([]byte(keyConfig))

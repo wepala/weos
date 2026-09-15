@@ -81,8 +81,9 @@ func DeferToBearer() ErasureGuardOption {
 // account and asks the lock repository whether the deletion is what made it
 // inactive; a locked account's refusal is rewritten with the erasure code
 // before it is sent. Every other response passes through untouched, streams
-// included. A lock that cannot be read answers 503: a request into an
-// account that may be half-deleted must not be let through on a guess.
+// included. A lock that cannot be read answers 503 with Retry-After: a
+// request into an account that may be half-deleted must not be let through on
+// a guess.
 //
 // Because it judges RequireAuth's refusal rather than the request, a bearer
 // header beside the cookie changes nothing on a group that authenticates by
@@ -120,6 +121,7 @@ func ErasureGuard(
 					if lockErr != nil {
 						logger.Error(ctx, "could not read the erasure lock", "account_id", data.AccountID, "error", lockErr)
 						real.Header().Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+						real.Header().Set("Retry-After", accountStateRetryAfter)
 						real.WriteHeader(http.StatusServiceUnavailable)
 						_, _ = real.Write([]byte(`{"error":"could not read the account's state"}`))
 						return err
@@ -246,7 +248,7 @@ func SessionAuthForErasure(
 					locked, lockErr := locks.IsLocked(ctx, data.AccountID)
 					if lockErr != nil {
 						logger.Error(ctx, "could not read the erasure lock", "account_id", data.AccountID, "error", lockErr)
-						return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "could not read the account's state"})
+						return accountStateUnreadable(c)
 					}
 					if !locked {
 						return refuse(c, CodeAccountDeactivated)

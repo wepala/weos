@@ -151,6 +151,126 @@ func DialectorForDSN(dsn string) gorm.Dialector {
 	return newGatedSQLiteDialector(augmented, dsn)
 }
 
+// ReadOnlyDialectorForDSN detects the driver the way DialectorForDSN does, for a
+// command that only reads. PostgreSQL DSNs get the postgres driver untouched.
+// A SQLite DSN is opened read-only (mode=ro) with none of the worker pragmas and
+// no write gate: the server's journal_mode(WAL) pragma rewrites the header of a
+// file in rollback journal mode, and a read-only connection refuses it.
+func ReadOnlyDialectorForDSN(dsn string) gorm.Dialector {
+	if config.IsPostgresDSN(dsn) {
+		return postgres.Open(dsn)
+	}
+	return sqlite.Open(sqliteReadOnlyDSN(dsn))
+}
+
+// IsSQLiteMemoryDSN reports whether SQLite opens dsn as an in-memory database:
+// the name is exactly ":memory:", plain or as the path of a file: URI, or dsn
+// is a file: URI whose query sets mode=memory. The driver cuts the query off a
+// plain path before it opens the file, so a mode parameter there names nothing.
+// A file whose name only contains either text is a file. A file: URI's fragment
+// names nothing, so it is ignored.
+func IsSQLiteMemoryDSN(dsn string) bool {
+	uri, isURI := strings.CutPrefix(dsn, "file:")
+	if !isURI {
+		name, _, _ := strings.Cut(dsn, "?")
+		return name == ":memory:"
+	}
+	uri, _, _ = strings.Cut(uri, "#")
+	path, query, _ := strings.Cut(uri, "?")
+	if path == ":memory:" {
+		return true
+	}
+	for _, param := range strings.Split(query, "&") {
+		key, value, _ := strings.Cut(param, "=")
+		if sqliteURIUnescape(key) == "mode" && sqliteURIUnescape(value) == "memory" {
+			return true
+		}
+	}
+	return false
+}
+
+// SQLiteFileName is the file a SQLite DSN names, as the driver and SQLite read
+// it. A plain path's query is cut off. A file: URI's path ends at its query or
+// fragment, and its %HH escapes are decoded, so file:/data/my%20db.sqlite names
+// "/data/my db.sqlite".
+func SQLiteFileName(dsn string) string {
+	name, _, _ := strings.Cut(dsn, "?")
+	path, isURI := strings.CutPrefix(name, "file:")
+	if !isURI {
+		return name
+	}
+	path, _, _ = strings.Cut(path, "#")
+	return sqliteURIUnescape(path)
+}
+
+// sqliteURIUnescape decodes the %HH escapes in part of a SQLite URI the way
+// SQLite does: a % not followed by two hex digits is kept as it is.
+func sqliteURIUnescape(s string) string {
+	if !strings.Contains(s, "%") {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '%' && i+2 < len(s) && isHexDigit(s[i+1]) && isHexDigit(s[i+2]) {
+			b.WriteByte(hexValue(s[i+1])<<4 | hexValue(s[i+2]))
+			i += 2
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+func isHexDigit(c byte) bool {
+	return ('0' <= c && c <= '9') || ('a' <= c && c <= 'f') || ('A' <= c && c <= 'F')
+}
+
+func hexValue(c byte) byte {
+	switch {
+	case c >= 'a':
+		return c - 'a' + 10
+	case c >= 'A':
+		return c - 'A' + 10
+	default:
+		return c - '0'
+	}
+}
+
+// sqliteURIPathEscaper escapes the characters a SQLite URI path gives meaning to.
+var sqliteURIPathEscaper = strings.NewReplacer("%", "%25", "#", "%23")
+
+// sqliteReadOnlyDSN rewrites a file-based SQLite DSN as a read-only file: URI.
+// The driver reads URI parameters such as mode only from a file: URI, so a
+// plain path is rewritten as one. A mode, a _txlock or a journal_mode pragma
+// the DSN already names is dropped; every other parameter is kept. A file: URI's
+// fragment is dropped too: SQLite ignores everything after the #, so a mode
+// written after it would not apply. In-memory databases are left untouched.
+func sqliteReadOnlyDSN(dsn string) string {
+	if IsSQLiteMemoryDSN(dsn) {
+		return dsn
+	}
+	if strings.HasPrefix(dsn, "file:") {
+		dsn, _, _ = strings.Cut(dsn, "#")
+	}
+	name, query, _ := strings.Cut(dsn, "?")
+	if !strings.HasPrefix(name, "file:") {
+		name = "file:" + sqliteURIPathEscaper.Replace(name)
+	}
+	var params []string
+	for _, param := range strings.Split(query, "&") {
+		key, value, _ := strings.Cut(param, "=")
+		switch {
+		case param == "", key == "mode", key == "_txlock":
+			continue
+		case key == "_pragma" && strings.HasPrefix(strings.ToLower(value), "journal_mode"):
+			continue
+		}
+		params = append(params, param)
+	}
+	params = append(params, "mode=ro")
+	return name + "?" + strings.Join(params, "&")
+}
+
 // sqliteDSNWithWorkerPragmas augments a file-based SQLite DSN with the pragmas
 // the background subscriber runtime needs to coexist with the synchronous write
 // path. Background workers add concurrent writers (batch transactions plus the

@@ -231,6 +231,59 @@ weos seed
 
 ---
 
+## `weos account audit-members`
+
+List the memberships of an account that nothing on record explains. The command only reads: it
+changes nothing and never removes a row. It reads the store directly and needs no running server.
+
+```bash
+weos account audit-members --database-dsn <dsn> [--account <id>]
+```
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--account` | string | No | Account to audit. Default: the instance's first account, the one with the lowest id |
+
+**Why to run it after upgrading.** Earlier versions saved a role change made on the Users page into
+the instance's first account, whatever account the owner or admin who made it acted in. Those
+memberships are still there, and a person holding `owner` or `admin` through one of them can manage
+the first account's people.
+
+**What it lists.** A membership is listed when:
+
+- the account's history does not record the person joining it, and no invite in the account names
+  them, by the person or by an address on one of their credentials — `no sign-up or invite in this
+  account`; or
+- the membership's role is not the role their joining recorded — `role differs from the recorded
+  <role>`.
+
+A role an owner or admin of the account changed on the Users page since is listed as well, because
+that change is not recorded either. Check each row with the account's owners before you act on it.
+
+**Output.** One line per membership: `AGENT ID`, `ROLE`, `WRITTEN AT` and `WHY LISTED`. `WRITTEN AT` is
+the membership's `created_at`, which every role save rewrites, so it is when the row was last
+written. The command prints no email address or name. A warning on standard error says when the
+account has no recorded history, because every membership no invite explains is then listed.
+
+**Removing a row.** Back up the database, then run this against the same database, with the account id
+and the agent id the command printed:
+
+```sql
+DELETE FROM account_members WHERE account_id = '<account id>' AND agent_id = '<agent id>';
+```
+
+To put back the role the person's joining recorded instead:
+
+```sql
+UPDATE account_members SET role_id = '<recorded role>' WHERE account_id = '<account id>' AND agent_id = '<agent id>';
+```
+
+The person keeps every other account they belong to. A browser session they hold in the account is
+refused on its next request, and the features they resolved in it expire within
+`FEATURE_CACHE_MAX_AGE_SECONDS`. No restart is needed.
+
+---
+
 ## Make Targets
 
 For convenience, the Makefile provides shortcuts:

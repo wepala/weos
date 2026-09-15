@@ -156,6 +156,9 @@ func (h *TrustedIssuerHandler) Verifier() AssertionVerifier { return h.cfg.Verif
 
 type assertRequest struct {
 	Assertion string `json:"assertion"`
+	// Session is "native" when the sign-in is for an app in a native shell,
+	// which then gets a refresh token too (see NativeSession).
+	Session string `json:"session"`
 }
 
 // AssertBodyLimit is the largest request body POST /auth/assert reads, 16 KiB.
@@ -229,6 +232,7 @@ func (h *TrustedIssuerHandler) Assert(c echo.Context) error {
 		return respondError(c, http.StatusInternalServerError, "failed to sign in")
 	}
 	return h.cfg.Sessions.completeAuthAs(c, result.Agent, result.Credential, result.Account, identity.Email,
+		req.Session == NativeSession,
 		func(answer authSuccessResponse) any {
 			return assertSuccessResponse{authSuccessResponse: answer, NewAccount: result.NewAccount}
 		})
