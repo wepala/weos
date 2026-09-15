@@ -164,7 +164,11 @@ func (h *UserHandler) member(c echo.Context, s *userScope, id string) (*authenti
 		return nil, "", respondError(c, http.StatusInternalServerError, "failed to load user")
 	}
 	if agent == nil {
-		h.logger.Warn(ctx, "a member of the account has no person record", "account_id", s.accountID, "agent_id", id)
+		h.logger.Warn(ctx, "users request refused: a member of the account has no person record",
+			"caller_agent_id", s.callerID,
+			"account_id", s.accountID,
+			"target_agent_id", id,
+		)
 		return nil, "", respondError(c, http.StatusNotFound, "user not found")
 	}
 	return agent, role, nil

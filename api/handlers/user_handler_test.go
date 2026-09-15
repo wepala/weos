@@ -332,6 +332,67 @@ func TestUserRoutesRecordTheRefusalOfAPlainMember(t *testing.T) {
 	}
 }
 
+// wm-govvg, Copilot review 5205459650. A membership whose person record is gone
+// gets the same 404 as a person outside the account, and the refusal is recorded
+// the same way: the caller, the account and the person asked about, ids only.
+func TestUserRoutesRecordTheRefusalOfAMemberWithNoPersonRecord(t *testing.T) {
+	accounts := &usersAccounts{
+		roles: map[string]string{"ops|acct-harbor": authentities.RoleOwner, "ghost|acct-harbor": authentities.RoleMember},
+	}
+	logs := &usersWarnings{}
+	h := handlers.NewUserHandler(handlers.UserHandlerConfig{
+		AgentRepo: usersAgents{agents: map[string]*authentities.Agent{
+			"ops": usersPerson(t, "ops", "Harbor Operations"),
+		}},
+		CredentialRepo: usersCredentials{},
+		AccountRepo:    accounts,
+		Members:        usersDirectory{},
+		Logger:         logs,
+	})
+
+	e := echo.New()
+	ops := asIdentity("ops", "acct-harbor")
+	e.GET("/api/users/:id", h.Get, ops)
+	e.PUT("/api/users/:id", h.Update, ops)
+
+	for _, tc := range []struct{ method, body string }{
+		{http.MethodGet, ""},
+		{http.MethodPut, `{"role":"admin"}`},
+	} {
+		logs.lines = nil
+		req := httptest.NewRequest(tc.method, "/api/users/ghost", strings.NewReader(tc.body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("%s /api/users/ghost answered %d %s, want 404", tc.method, rec.Code, rec.Body.String())
+			continue
+		}
+		var recorded []string
+		for _, line := range logs.lines {
+			if strings.HasPrefix(line, "users request refused") {
+				recorded = append(recorded, line)
+			}
+		}
+		if len(recorded) != 1 {
+			t.Errorf("%s /api/users/ghost recorded %d refusal warnings %q, want 1", tc.method, len(recorded), logs.lines)
+			continue
+		}
+		for _, w := range []string{"caller_agent_id ops", "account_id acct-harbor", "target_agent_id ghost"} {
+			if !strings.Contains(recorded[0], w) {
+				t.Errorf("the refusal of %s /api/users/ghost was recorded as %q, which does not carry %q", tc.method, recorded[0], w)
+			}
+		}
+		if strings.Contains(recorded[0], "@") {
+			t.Errorf("the refusal line carries an email address: %q", recorded[0])
+		}
+	}
+	if len(accounts.saved) != 0 {
+		t.Errorf("requests about a member with no person record saved roles %v; want none", accounts.saved)
+	}
+}
+
 // wm-govvg. With no authentication configured, SoftAuth lets a request with no
 // identity through to the users routes. Each one is refused 403 and recorded at
 // warn like every other users-route refusal. With nobody to name, the line
