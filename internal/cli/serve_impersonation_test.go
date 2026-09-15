@@ -276,6 +276,9 @@ func TestServe_AnImpersonationCookieStartedByAnotherPersonIsNeitherReportedNorKe
 	if _, named := data["user"]; named || strings.Contains(status.body, counsel.agentID) {
 		t.Fatalf("the status for another person's cookie names a person: %s", status.body)
 	}
+	if !impersonationCleared(status) {
+		t.Fatalf("the status for another person's cookie did not clear it")
+	}
 
 	me := serveCall(t, srv, http.MethodGet, "/api/auth/me", "", left)
 	var identity struct {

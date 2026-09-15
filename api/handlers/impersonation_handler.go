@@ -272,11 +272,13 @@ func (h *ImpersonationHandler) Stop(c echo.Context) error {
 // this request. It reads nothing from the cookie: a cookie the middleware did
 // not apply, because another person started it or because it is no longer
 // allowed, is no impersonation. Naming its person would tell the caller about
-// somebody outside their account (wm-1yjuv).
+// somebody outside their account (wm-1yjuv). Such a cookie is expired here too,
+// so the browser does not send it on every request that follows (wm-ptcuk).
 func (h *ImpersonationHandler) Status(c echo.Context) error {
 	ctx := c.Request().Context()
 	impersonated := auth.AgentFromCtx(ctx)
 	if apimw.ImpersonatorFromCtx(ctx) == nil || impersonated == nil {
+		expireHeldImpersonationCookie(c)
 		return respond(c, http.StatusOK, map[string]any{"active": false})
 	}
 
@@ -289,6 +291,17 @@ func (h *ImpersonationHandler) Status(c echo.Context) error {
 			"email": email,
 		},
 	})
+}
+
+// expireHeldImpersonationCookie expires the impersonation cookie when the
+// request carries one. It looks only for the cookie by name and reads none of
+// its values, so a request that holds no impersonation gets no cookie written.
+func expireHeldImpersonationCookie(c echo.Context) {
+	if _, err := c.Request().Cookie(apimw.ImpersonationSessionName); err != nil {
+		// http.ErrNoCookie: there is nothing to expire.
+		return
+	}
+	apimw.ExpireImpersonationCookie(c.Response())
 }
 
 // Me wraps pericarp's AuthHandlers.Me to return impersonated user info when active,
