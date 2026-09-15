@@ -622,3 +622,81 @@ func TestServe_UsersRoutesRefuseAPlainMemberOfTheAccount(t *testing.T) {
 		t.Errorf("after the member's requests the member holds %q, want member", role)
 	}
 }
+
+// usersSignInToken signs person in with their password and returns the token
+// the sign-in hands back, the one an app in a native shell holds instead of a
+// cookie.
+func usersSignInToken(t *testing.T, srv *httptest.Server, person usersPerson) string {
+	t.Helper()
+	body := fmt.Sprintf(`{"email":%q,"password":"correct-horse-battery-staple"}`, person.email)
+	answer := serveCall(t, srv, http.MethodPost, "/api/auth/password-login", body, nil)
+	if answer.status != http.StatusOK {
+		t.Fatalf("signing in %s answered %d", person.agentID, answer.status)
+	}
+	var envelope struct {
+		Data struct {
+			Token   string `json:"token"`
+			Account *struct {
+				ID string `json:"id"`
+			} `json:"account"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(answer.body), &envelope); err != nil {
+		t.Fatalf("decode the sign-in of %s: %v", person.agentID, err)
+	}
+	if envelope.Data.Token == "" || envelope.Data.Account == nil || envelope.Data.Account.ID != person.accountID {
+		t.Fatalf("the sign-in of %s carries no token for the account %s", person.agentID, person.accountID)
+	}
+	return envelope.Data.Token
+}
+
+// wm-govvg, after wm-aj2eb. The protected group takes a native sign-in's
+// bearer token, so the users routes see one. They act in the account the token
+// names, exactly as for a session: the owner's token lists, fetches and changes
+// the members of the owner's account, refuses a person outside it with the 404
+// an unknown person gets, and a token beside another person's cookie is judged
+// by the token's account, not the cookie's. No failure message prints a token.
+func TestServe_UsersRoutesActInTheAccountANativeBearerTokenNames(t *testing.T) {
+	s := newUsersScope(t)
+	ownerToken := usersSignInToken(t, s.srv, s.owner)
+	outsiderToken := usersSignInToken(t, s.srv, s.outsider)
+
+	listed := serveRequest(t, s.srv, http.MethodGet, "/api/users", "", ownerToken, nil)
+	if listed.status != http.StatusOK {
+		t.Fatalf("GET /api/users with the owner's token answered %d %s, want 200", listed.status, listed.body)
+	}
+	rows := usersListed(t, listed)
+	roles := map[string]string{}
+	for _, r := range rows {
+		roles[r.ID] = r.Role
+	}
+	if len(rows) != 2 || roles[s.owner.agentID] != authentities.RoleOwner || roles[s.member.agentID] != authentities.RoleMember {
+		t.Errorf("the owner's token listed %s; want the owner as owner and the member as member", s.describe(rows))
+	}
+
+	outside := serveRequest(t, s.srv, http.MethodGet, "/api/users/"+s.outsider.agentID, "", ownerToken, nil)
+	unknown := serveRequest(t, s.srv, http.MethodGet, "/api/users/"+usersUnknownID, "", ownerToken, nil)
+	if outside.status != http.StatusNotFound || unknown.status != outside.status || unknown.body != outside.body {
+		t.Errorf("with the owner's token a person outside the account answered %d %s and an unknown person %d %s; want the same 404",
+			outside.status, outside.body, unknown.status, unknown.body)
+	}
+
+	put := serveRequest(t, s.srv, http.MethodPut, "/api/users/"+s.member.agentID, `{"role":"admin"}`, ownerToken, nil)
+	if put.status != http.StatusOK {
+		t.Fatalf("PUT /api/users/:id with the owner's token answered %d %s, want 200", put.status, put.body)
+	}
+	if role := s.roleIn(t, s.owner.accountID, s.member.agentID); role != authentities.RoleAdmin {
+		t.Errorf("after the token's change the member holds %q in the owner's account, want admin", role)
+	}
+	if role := s.roleIn(t, s.member.ownAccountID, s.member.agentID); role != authentities.RoleOwner {
+		t.Errorf("after the token's change the member holds %q in their own account, want owner (unchanged)", role)
+	}
+
+	beside := serveRequest(t, s.srv, http.MethodGet, "/api/users", "", outsiderToken, s.owner.cookies)
+	if beside.status != http.StatusOK {
+		t.Fatalf("GET /api/users with the outsider's token beside the owner's cookie answered %d %s, want 200", beside.status, beside.body)
+	}
+	if rows := usersListed(t, beside); len(rows) != 1 || rows[0].ID != s.outsider.agentID {
+		t.Errorf("the outsider's token beside the owner's cookie listed %s; want only the outsider", s.describe(rows))
+	}
+}
