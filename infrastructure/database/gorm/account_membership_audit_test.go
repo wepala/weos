@@ -232,3 +232,38 @@ func TestAccountMembershipAuditReportsAMissingAccount(t *testing.T) {
 		t.Errorf("a missing account reported found=%v listed=%+v", report.AccountFound, report.Unexplained)
 	}
 }
+
+// wm-govvg. The audit compares an invite's email to a member's credential under
+// owner binding's one rule, repositories.FoldCredentialEmail: spaces trimmed and
+// ASCII capitals lower-cased, nothing else. A Unicode fold is looser than any
+// path that writes a membership, so it would count as explained a membership
+// whose address only folds to the invited one — U+212A KELVIN SIGN lower-cases
+// to "k" — and leave it off the list a person reviews.
+func TestAccountMembershipAuditFoldsEmailsTheWayOwnerBindingDoes(t *testing.T) {
+	ctx := context.Background()
+	s := newAuditStore(t)
+	base := time.Date(2026, 8, 3, 9, 0, 0, 0, time.UTC)
+	at := func(hours int) time.Time { return base.Add(time.Duration(hours) * time.Hour) }
+
+	s.account("acct-1harbor")
+	s.event("acct-1harbor", 1, authentities.EventTypeAccountCreated, "", "")
+	s.event("acct-1harbor", 2, authentities.EventTypeAccountMemberAdded, "agent-ops", authentities.RoleOwner)
+
+	s.row("acct-1harbor", "agent-ops", authentities.RoleOwner, at(0))
+	s.row("acct-1harbor", "agent-kelvin", authentities.RoleMember, at(1)) // folds to the invite only under Unicode
+	s.row("acct-1harbor", "agent-spaced", authentities.RoleMember, at(2)) // differs in ASCII case and spaces
+
+	s.credential("agent-kelvin", "\u212Aim@harborlegal.example")
+	s.credential("agent-spaced", "  Spaced@HarborLegal.example ")
+	s.invite("invite-kim", "acct-1harbor", "kim@harborlegal.example", "", authentities.RoleMember)
+	s.invite("invite-spaced", "acct-1harbor", "spaced@harborlegal.example", "", authentities.RoleMember)
+
+	report, err := ProvideAccountMembershipAudit(s.db).UnexplainedMemberships(ctx, "acct-1harbor")
+	if err != nil {
+		t.Fatalf("UnexplainedMemberships: %v", err)
+	}
+	if len(report.Unexplained) != 1 || report.Unexplained[0].AgentID != "agent-kelvin" ||
+		report.Unexplained[0].RoleID != authentities.RoleMember || !report.Unexplained[0].WrittenAt.Equal(at(1)) {
+		t.Fatalf("the audit listed %+v; want only agent-kelvin, as member, written at %v", report.Unexplained, at(1))
+	}
+}

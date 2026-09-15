@@ -19,7 +19,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
@@ -206,8 +205,10 @@ func (a *AccountMembershipAudit) UnexplainedMemberships(
 	return report, nil
 }
 
-// auditEmailKey is an address as the audit compares it: without surrounding
-// space and without case.
+// auditEmailKey is an address as the audit compares it: under owner binding's
+// one rule, repositories.FoldCredentialEmail. A Unicode fold is looser than any
+// path that writes a membership, so it would count as explained a membership
+// whose address only folds to the invited one.
 func auditEmailKey(email string) string {
-	return strings.ToLower(strings.TrimSpace(email))
+	return repositories.FoldCredentialEmail(email)
 }
