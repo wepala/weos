@@ -23,6 +23,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wepala/weos/v3/api/handlers"
 	"github.com/wepala/weos/v3/domain/repositories"
@@ -268,5 +269,75 @@ func TestUserRoutesRecordTheRefusalOfAPlainMember(t *testing.T) {
 	}
 	if len(accounts.saved) != 0 {
 		t.Errorf("a plain member's requests saved roles %v; want none", accounts.saved)
+	}
+}
+
+// usersCredentialsOf hands back the same credentials, in the order given, for
+// any person.
+type usersCredentialsOf struct {
+	authrepos.CredentialRepository
+	creds []*authentities.Credential
+}
+
+func (r usersCredentialsOf) FindByAgent(context.Context, string) ([]*authentities.Credential, error) {
+	return r.creds, nil
+}
+
+func usersCredential(t *testing.T, id, email string, createdAt time.Time) *authentities.Credential {
+	t.Helper()
+	cred := &authentities.Credential{}
+	if err := cred.Restore(id, "clerk", "password", id, email, "", true, createdAt, createdAt); err != nil {
+		t.Fatal(err)
+	}
+	return cred
+}
+
+// wm-govvg. The list names a member by the earliest of their credentials that
+// has an email. GET and PUT name them the same way, so all three routes agree
+// when the first credential has no email, and whatever order the credentials
+// are read back in.
+func TestUserRoutesNameAMemberByTheirEarliestCredentialWithAnEmail(t *testing.T) {
+	base := time.Date(2026, 8, 3, 9, 0, 0, 0, time.UTC)
+	h := handlers.NewUserHandler(handlers.UserHandlerConfig{
+		AgentRepo: usersAgents{agents: map[string]*authentities.Agent{
+			"ops":   usersPerson(t, "ops", "Harbor Operations"),
+			"clerk": usersPerson(t, "clerk", "Lantern Clerk"),
+		}},
+		CredentialRepo: usersCredentialsOf{creds: []*authentities.Credential{
+			usersCredential(t, "cred-later", "clerk.desk@lanternhomes.example", base.Add(2*time.Hour)),
+			usersCredential(t, "cred-first", "", base),
+			usersCredential(t, "cred-earliest-email", "clerk@lanternhomes.example", base.Add(time.Hour)),
+		}},
+		AccountRepo: &usersAccounts{
+			roles: map[string]string{"ops|acct-harbor": authentities.RoleOwner, "clerk|acct-harbor": authentities.RoleMember},
+		},
+		Members: usersDirectory{},
+		Logger:  nopLogger{},
+	})
+
+	e := echo.New()
+	ops := asIdentity("ops", "acct-harbor")
+	e.GET("/api/users/:id", h.Get, ops)
+	e.PUT("/api/users/:id", h.Update, ops)
+
+	for _, tc := range []struct{ method, body string }{
+		{http.MethodGet, ""},
+		{http.MethodPut, `{"name":"Lantern Front Desk"}`},
+	} {
+		req := httptest.NewRequest(tc.method, "/api/users/clerk", strings.NewReader(tc.body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+
+		var envelope struct {
+			Data handlers.UserResponse `json:"data"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil || rec.Code != http.StatusOK {
+			t.Fatalf("%s /api/users/clerk answered %d %s, want 200", tc.method, rec.Code, rec.Body.String())
+		}
+		if envelope.Data.Email != "clerk@lanternhomes.example" {
+			t.Errorf("%s /api/users/clerk named the member %q, want clerk@lanternhomes.example, "+
+				"the earliest credential that has an email", tc.method, envelope.Data.Email)
+		}
 	}
 }

@@ -301,14 +301,11 @@ func (h *UserHandler) Update(c echo.Context) error {
 func (h *UserHandler) buildUserResponse(
 	ctx context.Context, agent *authentities.Agent, role string,
 ) UserResponse {
-	email := ""
 	creds, credErr := h.credentialRepo.FindByAgent(ctx, agent.GetID())
 	if credErr != nil {
 		h.logger.Warn(ctx, "failed to load credentials for user", "agent_id", agent.GetID(), "error", credErr)
 	}
-	if len(creds) > 0 {
-		email = creds[0].Email()
-	}
+	email := earliestCredentialEmail(creds)
 	if email == "" {
 		email = agent.Name()
 	}
@@ -320,4 +317,25 @@ func (h *UserHandler) buildUserResponse(
 		Status: agent.Status(),
 		Role:   role,
 	}
+}
+
+// earliestCredentialEmail is the email of the earliest credential that has one,
+// by creation time and then id — the one the member directory names a person by
+// on the list, so GET and PUT name them the same way. It does not depend on the
+// order the repository reads the credentials back in. "" when none has an email.
+func earliestCredentialEmail(creds []*authentities.Credential) string {
+	var earliest *authentities.Credential
+	for _, cred := range creds {
+		if cred == nil || cred.Email() == "" {
+			continue
+		}
+		if earliest == nil || cred.CreatedAt().Before(earliest.CreatedAt()) ||
+			(cred.CreatedAt().Equal(earliest.CreatedAt()) && cred.GetID() < earliest.GetID()) {
+			earliest = cred
+		}
+	}
+	if earliest == nil {
+		return ""
+	}
+	return earliest.Email()
 }
