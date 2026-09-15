@@ -230,13 +230,22 @@ func (s *AssertedSignIn) SignIn(ctx context.Context, id AssertedIdentity) (Asser
 	// Always the identity lock first and the email lock second, and never more
 	// than one of each, so two sign-ins can never wait on each other in a
 	// circle. The in-process locks come before the cross-process ones, which
-	// take the same keys in the same order.
-	defer s.identities.lock(id.Provider + "\x00" + id.Subject)()
+	// take the same keys in the same order. A request that ends while it waits
+	// holds nothing and never reaches the owner look-up.
+	unlockIdentity, err := s.identities.lock(ctx, id.Provider+"\x00"+id.Subject)
+	if err != nil {
+		return AssertedSignInResult{}, fmt.Errorf("wait for the sign-in lock: %w", err)
+	}
+	defer unlockIdentity()
 	// The same fold the credential query compares under, so the email lock
 	// serializes exactly the sign-ins that could reach one owner.
 	email := repositories.FoldCredentialEmail(id.Email)
 	if email != "" {
-		defer s.emails.lock(email)()
+		unlockEmail, err := s.emails.lock(ctx, email)
+		if err != nil {
+			return AssertedSignInResult{}, fmt.Errorf("wait for the sign-in lock: %w", err)
+		}
+		defer unlockEmail()
 	}
 	if s.cfg.Lock != nil {
 		keys := signInLockKeys(id.Provider, id.Subject, email)
@@ -634,40 +643,58 @@ func (s *AssertedSignIn) takeBackLink(ctx context.Context, ownerID string, id As
 		"delete_error", deleteErr.Error())
 }
 
-// keyedMutex serializes work per key. An entry lives only while someone holds
-// or waits for its key, so the map does not grow with every identity seen.
+// keyedMutex serializes work per key. A wait for a key ends with ctx. An entry
+// lives only while someone holds or waits for its key, so the map does not grow
+// with every identity seen.
 type keyedMutex struct {
 	mu    sync.Mutex
 	locks map[string]*keyedLock
 }
 
 type keyedLock struct {
-	mu      sync.Mutex
-	waiters int
+	held  chan struct{}
+	users int
 }
 
-// lock blocks until key is free and returns the function that frees it.
-func (k *keyedMutex) lock(key string) func() {
+// lock blocks until key is free and returns the function that frees it. When
+// ctx ends first, or has ended by the time the key is free, it holds nothing
+// and returns ctx's error.
+func (k *keyedMutex) lock(ctx context.Context, key string) (func(), error) {
 	k.mu.Lock()
 	if k.locks == nil {
 		k.locks = map[string]*keyedLock{}
 	}
 	l, ok := k.locks[key]
 	if !ok {
-		l = &keyedLock{}
+		l = &keyedLock{held: make(chan struct{}, 1)}
 		k.locks[key] = l
 	}
-	l.waiters++
+	l.users++
 	k.mu.Unlock()
 
-	l.mu.Lock()
-	return func() {
-		l.mu.Unlock()
+	leave := func() {
 		k.mu.Lock()
-		l.waiters--
-		if l.waiters == 0 {
+		defer k.mu.Unlock()
+		l.users--
+		if l.users == 0 {
 			delete(k.locks, key)
 		}
-		k.mu.Unlock()
 	}
+	select {
+	case l.held <- struct{}{}:
+	case <-ctx.Done():
+		leave()
+		return nil, ctx.Err()
+	}
+	unlock := func() {
+		<-l.held
+		leave()
+	}
+	// A free key and an ended ctx are both ready, and select picks either. A
+	// caller whose request has ended must not go on to write.
+	if err := ctx.Err(); err != nil {
+		unlock()
+		return nil, err
+	}
+	return unlock, nil
 }

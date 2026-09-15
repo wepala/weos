@@ -861,6 +861,95 @@ func TestAssertedSignInConcurrentFirstSignInsFromTwoProvidersLeaveOneOwner(t *te
 	}
 }
 
+// A request queued behind a slow sign-in for the same identity or the same email
+// must not stay blocked after it ends, and must create nobody.
+func TestAssertedSignInQueuedBehindAHeldKeyEndsWithItsRequest(t *testing.T) {
+	for name, queued := range map[string]AssertedIdentity{
+		"the identity key": dana("google", googleSub),
+		"the email key":    dana("apple", appleSub),
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := newMemoryAuthStore()
+			emails := newPausingEmails(storeEmails{s: s})
+			svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) { cfg.Emails = emails })
+			proceed := sync.OnceFunc(func() { close(emails.proceed) })
+			t.Cleanup(proceed)
+
+			firstDone := make(chan signInOutcome, 1)
+			go func() {
+				r, err := svc.SignIn(context.Background(), dana("google", googleSub))
+				firstDone <- signInOutcome{r, err}
+			}()
+			select {
+			case <-emails.paused:
+			case o := <-firstDone:
+				t.Fatalf("the first sign-in finished (%v) before it reached its pause", o.err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("the first sign-in never reached its pause")
+			}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			queuedDone := make(chan signInOutcome, 1)
+			go func() {
+				r, err := svc.SignIn(ctx, queued)
+				queuedDone <- signInOutcome{r, err}
+			}()
+			// Time to join the queue. A cancel that lands before it does must
+			// give the same answer, so this only makes the test exercise the wait.
+			time.Sleep(20 * time.Millisecond)
+			cancel()
+
+			select {
+			case o := <-queuedDone:
+				if !errors.Is(o.err, context.Canceled) {
+					t.Fatalf("the queued sign-in returned (reached %s, err %v), want its request's cancellation", agentIDOf(o.result), o.err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("the queued sign-in still waits behind the held key after its request ended")
+			}
+
+			proceed()
+			select {
+			case o := <-firstDone:
+				if o.err != nil {
+					t.Fatalf("the first sign-in: %v", o.err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("the first sign-in never finished, so the queued one left a key held")
+			}
+			if s.createCount() != 1 {
+				t.Fatalf("created %d people, want only the first sign-in's person", s.createCount())
+			}
+			if s.credentialFor("apple", appleSub) != nil {
+				t.Fatal("the ended sign-in linked its identity")
+			}
+		})
+	}
+}
+
+// A request that has already ended holds nothing and creates nobody, even when
+// every key is free.
+func TestAssertedSignInForAnEndedRequestCreatesNobody(t *testing.T) {
+	s := newMemoryAuthStore()
+	svc := newTestAssertedSignIn(s, false)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := svc.SignIn(ctx, dana("google", googleSub))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want the request's cancellation", err)
+	}
+	if s.createCount() != 0 {
+		t.Fatalf("created %d people for an ended request, want 0", s.createCount())
+	}
+	// The keys are free again: the next sign-in for the same identity and email
+	// goes through.
+	if _, err := svc.SignIn(context.Background(), dana("google", googleSub)); err != nil {
+		t.Fatalf("a sign-in after the ended one: %v", err)
+	}
+}
+
 func runTogether(t *testing.T, n int, identity func(int) AssertedIdentity, svc *AssertedSignIn) []AssertedSignInResult {
 	t.Helper()
 	results := make([]AssertedSignInResult, n)
