@@ -97,6 +97,10 @@ func (h *UserHandler) scope(c echo.Context) (*userScope, error) {
 	ctx := c.Request().Context()
 	identity := auth.AgentFromCtx(ctx)
 	if identity == nil {
+		// Reached when no authentication is configured and SoftAuth lets an
+		// anonymous request through. Recorded like every other users-route
+		// refusal, with no fields: there is nobody to name.
+		h.logger.Warn(ctx, "users request refused: the request carries no identity")
 		return nil, respondError(c, http.StatusForbidden, "admin role required")
 	}
 	// The routes act only in the account the caller names (wm-8uq74). A caller

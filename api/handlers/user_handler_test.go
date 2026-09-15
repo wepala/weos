@@ -272,6 +272,66 @@ func TestUserRoutesRecordTheRefusalOfAPlainMember(t *testing.T) {
 	}
 }
 
+// wm-govvg. With no authentication configured, SoftAuth lets a request with no
+// identity through to the users routes. Each one is refused 403 and recorded at
+// warn like every other users-route refusal. With nobody to name, the line
+// carries no caller, account or target field.
+func TestUserRoutesRecordTheRefusalOfARequestWithNoIdentity(t *testing.T) {
+	accounts := &usersAccounts{
+		roles: map[string]string{"ops|acct-harbor": authentities.RoleOwner},
+	}
+	logs := &usersWarnings{}
+	h := handlers.NewUserHandler(handlers.UserHandlerConfig{
+		AgentRepo: usersAgents{agents: map[string]*authentities.Agent{
+			"ops": usersPerson(t, "ops", "Harbor Operations"),
+		}},
+		CredentialRepo: usersCredentials{},
+		AccountRepo:    accounts,
+		Members:        usersDirectory{},
+		Logger:         logs,
+	})
+
+	e := echo.New()
+	e.GET("/api/users", h.List)
+	e.GET("/api/users/:id", h.Get)
+	e.PUT("/api/users/:id", h.Update)
+
+	for _, tc := range []struct{ method, path, body string }{
+		{http.MethodGet, "/api/users", ""},
+		{http.MethodGet, "/api/users/ops", ""},
+		{http.MethodPut, "/api/users/ops", `{"role":"member"}`},
+	} {
+		logs.lines = nil
+		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("an anonymous %s %s answered %d %s, want 403", tc.method, tc.path, rec.Code, rec.Body.String())
+			continue
+		}
+		var recorded []string
+		for _, line := range logs.lines {
+			if strings.HasPrefix(line, "users request refused") {
+				recorded = append(recorded, line)
+			}
+		}
+		if len(recorded) != 1 {
+			t.Errorf("an anonymous %s %s recorded %d refusal warnings %q, want 1", tc.method, tc.path, len(recorded), logs.lines)
+			continue
+		}
+		for _, field := range []string{"caller_agent_id", "account_id", "target_agent_id", "@"} {
+			if strings.Contains(recorded[0], field) {
+				t.Errorf("the refusal of an anonymous %s %s carries %q: %q", tc.method, tc.path, field, recorded[0])
+			}
+		}
+	}
+	if len(accounts.saved) != 0 {
+		t.Errorf("anonymous requests saved roles %v; want none", accounts.saved)
+	}
+}
+
 // usersCredentialsOf hands back the same credentials, in the order given, for
 // any person.
 type usersCredentialsOf struct {
