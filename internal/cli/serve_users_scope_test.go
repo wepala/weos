@@ -420,8 +420,8 @@ func TestServe_UsersRoutesStillServeAnOwnerForTheMembersOfTheirAccount(t *testin
 	}
 }
 
-// refusalCode is the stable code on a refusal body, or "" when it carries none.
-func refusalCode(t *testing.T, answer serveAnswer) string {
+// usersRefusalCode is the stable code on a refusal body, or "" when it carries none.
+func usersRefusalCode(t *testing.T, answer serveAnswer) string {
 	t.Helper()
 	var refusal struct {
 		Code string `json:"code"`
@@ -445,7 +445,7 @@ func TestServe_UsersRoutesRefuseASessionWithNoActiveAccount(t *testing.T) {
 		{http.MethodPut, "/api/users/" + s.member.agentID, `{"name":"Renamed Without An Account","role":"admin"}`},
 	} {
 		answer := serveCall(t, s.srv, req.method, req.path, req.body, legacy)
-		if answer.status != http.StatusUnauthorized || refusalCode(t, answer) != "unscoped_session" {
+		if answer.status != http.StatusUnauthorized || usersRefusalCode(t, answer) != "unscoped_session" {
 			t.Errorf("%s %s from a session with no account answered %d %s; want 401 unscoped_session",
 				req.method, req.path, answer.status, answer.body)
 		}

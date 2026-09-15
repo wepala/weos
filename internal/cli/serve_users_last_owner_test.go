@@ -38,7 +38,7 @@ func TestServe_UsersUpdateRefusesToDemoteTheOnlyOwnerOfTheirOwnAccount(t *testin
 
 	answer := s.call(t, http.MethodPut, "/api/users/"+s.owner.agentID,
 		`{"name":"Harbor Former Owner","role":"member"}`, s.owner)
-	if answer.status != http.StatusBadRequest || refusalCode(t, answer) != lastOwnerRequired {
+	if answer.status != http.StatusBadRequest || usersRefusalCode(t, answer) != lastOwnerRequired {
 		t.Errorf("the only owner demoting themselves answered %d %s; want 400 %s", answer.status, answer.body, lastOwnerRequired)
 	}
 	if role := s.roleIn(t, s.owner.accountID, s.owner.agentID); role != authentities.RoleOwner {
@@ -57,7 +57,7 @@ func TestServe_UsersUpdateRefusesToDemoteAnotherOnlyOwner(t *testing.T) {
 	}
 
 	answer := s.call(t, http.MethodPut, "/api/users/"+s.owner.agentID, `{"role":"admin"}`, s.member)
-	if answer.status != http.StatusBadRequest || refusalCode(t, answer) != lastOwnerRequired {
+	if answer.status != http.StatusBadRequest || usersRefusalCode(t, answer) != lastOwnerRequired {
 		t.Errorf("an admin demoting the only owner answered %d %s; want 400 %s", answer.status, answer.body, lastOwnerRequired)
 	}
 	if role := s.roleIn(t, s.owner.accountID, s.owner.agentID); role != authentities.RoleOwner {
