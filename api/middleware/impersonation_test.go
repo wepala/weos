@@ -193,12 +193,28 @@ func TestImpersonation_RefusesInAnInactiveAccountWithTheCode(t *testing.T) {
 }
 
 // A cookie started by somebody else is not applied: the request is served as
-// the person signed in.
+// the person signed in. It is expired as well (wm-ptcuk, Copilot review
+// 5203947880), so it is not kept in the browser until the person who started it
+// signs in there again and finds it applied.
 func TestImpersonation_ACookieStartedByAnotherPersonIsIgnored(t *testing.T) {
 	book := harborBook(t, map[string]string{"counsel|acct-harbor": authentities.RoleMember})
 	got := impersonateAs(t, "broker", book, lockSet{})
 	if got.rec.Code != http.StatusOK || got.seen == nil || got.seen.AgentID != "broker" || got.impersonator != nil {
 		t.Fatalf("got %d identity %+v impersonator %+v, want broker served as broker", got.rec.Code, got.seen, got.impersonator)
+	}
+	if !impersonationCookieCleared(got.rec) {
+		t.Fatal("a cookie started by another person was served past but not expired")
+	}
+}
+
+// Expiring the cookie twice on one answer — the middleware, then a handler that
+// ends the impersonation too — writes one Set-Cookie, not two.
+func TestExpireImpersonationCookie_WritesOneCookieWhenCalledTwice(t *testing.T) {
+	rec := httptest.NewRecorder()
+	ExpireImpersonationCookie(rec)
+	ExpireImpersonationCookie(rec)
+	if got := rec.Header().Values("Set-Cookie"); len(got) != 1 {
+		t.Fatalf("Set-Cookie written %d times, want once: %q", len(got), got)
 	}
 }
 

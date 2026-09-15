@@ -147,8 +147,16 @@ func Impersonation(
 				return next(c)
 			}
 
-			// Only apply impersonation if the real session matches the admin who started it.
+			// Only apply impersonation if the real session matches the admin who
+			// started it. A cookie another person started is expired rather than
+			// kept, so it does not wait in the browser for that person to sign in
+			// there again (wm-ptcuk). The request is still served as the person
+			// signed in.
 			if currentIdentity.AgentID != realAgentID {
+				logger.Warn(c.Request().Context(), "impersonation cookie expired: another person is signed in",
+					"agent_id", currentIdentity.AgentID, "cookie_admin_agent_id", realAgentID,
+					"target_agent_id", impersonatedAgentID, "ip", c.RealIP())
+				ExpireImpersonationCookie(c.Response())
 				return next(c)
 			}
 
@@ -227,14 +235,23 @@ func refuseImpersonation(c echo.Context) error {
 // the same cookie the session store writes for an ended session, so it needs
 // no store and cannot fail. Every path that ends an impersonation uses it: a
 // refusal here, the stop route, the identity read, and sign-out (wm-1yjuv).
+// Called twice on one answer — here, then a handler that ends it too — it
+// writes the cookie once.
 func ExpireImpersonationCookie(w http.ResponseWriter) {
-	http.SetCookie(w, sessions.NewCookie(ImpersonationSessionName, "", &sessions.Options{
+	cookie := sessions.NewCookie(ImpersonationSessionName, "", &sessions.Options{
 		MaxAge:   -1,
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
-	}))
+	})
+	line := cookie.String()
+	for _, written := range w.Header().Values("Set-Cookie") {
+		if written == line {
+			return
+		}
+	}
+	http.SetCookie(w, cookie)
 }
 
 // unreadableAccountState fails closed when the roles or state of the account
