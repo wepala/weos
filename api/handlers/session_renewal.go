@@ -143,12 +143,14 @@ func (h *PasswordAuthHandler) Refresh(c echo.Context) error {
 		return refuseRenewal(c, CodeInvalidRefreshToken)
 	}
 
-	account, err := h.cfg.AccountRepo.FindByID(ctx, stored.AccountID)
+	standing, err := h.sessionStandingOf(c, stored.AgentID, stored.AccountID)
 	if err != nil {
-		h.cfg.Logger.Error(ctx, "session renewal: account lookup failed", "account", stored.AccountID, "error", err)
-		return renewalUnavailable(c, "could not read the account's state")
+		h.cfg.Logger.Error(ctx, "session renewal: the person's place in the account could not be read",
+			"agent", stored.AgentID, "account", stored.AccountID, "error", err)
+		return renewalUnavailable(c, standingUnreadable(err))
 	}
-	if account == nil {
+	switch {
+	case standing.accountGone:
 		// A finished deletion removes the account's refresh tokens with it; one
 		// that is left names nothing any more.
 		if err := tokens.Revoke(ctx, stored.ID); err != nil {
@@ -156,15 +158,7 @@ func (h *PasswordAuthHandler) Refresh(c echo.Context) error {
 				"token", stored.ID, "error", err)
 		}
 		return refuseRenewal(c, CodeInvalidRefreshToken)
-	}
-
-	role, err := h.cfg.AccountRepo.FindMemberRole(ctx, stored.AccountID, stored.AgentID)
-	if err != nil {
-		h.cfg.Logger.Error(ctx, "session renewal: membership lookup failed",
-			"agent", stored.AgentID, "account", stored.AccountID, "error", err)
-		return renewalUnavailable(c, "could not read the account's state")
-	}
-	if role == "" {
+	case standing.removed:
 		// Revoked before the refusal is final, as the refresh grant does: a
 		// token left live would renew again if the person were added back.
 		if err := tokens.Revoke(ctx, stored.ID); err != nil {
@@ -175,34 +169,10 @@ func (h *PasswordAuthHandler) Refresh(c echo.Context) error {
 		h.cfg.Logger.Warn(ctx, "session renewal: the person is no longer a member of the account — refresh token revoked",
 			"agent", stored.AgentID, "account", stored.AccountID)
 		return refuseRenewal(c, apimw.CodeAccountAccessRevoked)
+	case standing.refusal != "":
+		return refuseRenewal(c, standing.refusal)
 	}
-
-	erasurePending := false
-	if !account.Active() {
-		locked, err := h.cfg.ErasureLocks.IsLocked(ctx, stored.AccountID)
-		if err != nil {
-			h.cfg.Logger.Error(ctx, "session renewal: erasure lock lookup failed", "account", stored.AccountID, "error", err)
-			return renewalUnavailable(c, "could not read the account's state")
-		}
-		if !locked {
-			return refuseRenewal(c, apimw.CodeAccountDeactivated)
-		}
-		// The rule a sign-in to a locked account applies (apimw.LockedAccountFor):
-		// only a person who may finish the deletion keeps a token for it.
-		if role != authentities.RoleOwner && role != authentities.RoleAdmin {
-			return refuseRenewal(c, apimw.CodeAccountErasurePending)
-		}
-		erasurePending = true
-	}
-
-	agent, err := h.cfg.AgentRepo.FindByID(ctx, stored.AgentID)
-	if err != nil {
-		h.cfg.Logger.Error(ctx, "session renewal: agent lookup failed", "agent", stored.AgentID, "error", err)
-		return renewalUnavailable(c, "could not read the person")
-	}
-	if agent == nil {
-		return refuseRenewal(c, CodeInvalidRefreshToken)
-	}
+	account, agent, erasurePending := standing.account, standing.agent, standing.erasurePending
 
 	// AccountAlreadyVerified is safe here for the reason it is safe at sign-in:
 	// the membership and the account's state were read from the store in this
@@ -338,6 +308,106 @@ type nativeSignOut struct {
 	Code       string
 }
 
+// sessionStanding is what the store says now of a person's place in the account
+// a native credential names: what a renewal refuses, and what ending every
+// native session of the person needs (wm-lnimb).
+type sessionStanding struct {
+	account        *authentities.Account
+	agent          *authentities.Agent
+	erasurePending bool
+	// refusal is the code a renewal is refused with, "" when the person may
+	// renew. accountGone and removed are the refusals whose refresh token a
+	// renewal also revokes.
+	refusal     string
+	accountGone bool
+	removed     bool
+}
+
+// standingReadError is a store that could not be read for a sessionStanding.
+// what is what a 503 answer says could not be read.
+type standingReadError struct {
+	what string
+	err  error
+}
+
+func (e *standingReadError) Error() string { return e.what + ": " + e.err.Error() }
+
+func (e *standingReadError) Unwrap() error { return e.err }
+
+// standingUnreadable is what a 503 answer says could not be read, for an error
+// from sessionStandingOf.
+func standingUnreadable(err error) string {
+	var readErr *standingReadError
+	if errors.As(err, &readErr) {
+		return readErr.what
+	}
+	return "could not read the account's state"
+}
+
+// sessionStandingOf reads what a renewal checks of agentID in accountID, in the
+// order a renewal refuses on: the account, the membership, the account's state,
+// then the person. It stops at the first refusal.
+func (h *PasswordAuthHandler) sessionStandingOf(c echo.Context, agentID, accountID string) (sessionStanding, error) {
+	ctx := c.Request().Context()
+	account, err := h.cfg.AccountRepo.FindByID(ctx, accountID)
+	if err != nil {
+		return sessionStanding{}, &standingReadError{what: "could not read the account's state", err: err}
+	}
+	if account == nil {
+		return sessionStanding{refusal: CodeInvalidRefreshToken, accountGone: true}, nil
+	}
+	role, err := h.cfg.AccountRepo.FindMemberRole(ctx, accountID, agentID)
+	if err != nil {
+		return sessionStanding{}, &standingReadError{what: "could not read the account's state", err: err}
+	}
+	if role == "" {
+		return sessionStanding{account: account, refusal: apimw.CodeAccountAccessRevoked, removed: true}, nil
+	}
+
+	standing := sessionStanding{account: account}
+	if !account.Active() {
+		locked, err := h.cfg.ErasureLocks.IsLocked(ctx, accountID)
+		if err != nil {
+			return sessionStanding{}, &standingReadError{what: "could not read the account's state", err: err}
+		}
+		if !locked {
+			standing.refusal = apimw.CodeAccountDeactivated
+			return standing, nil
+		}
+		// The rule a sign-in to a locked account applies (apimw.LockedAccountFor):
+		// only a person who may finish the deletion keeps a token for it.
+		if role != authentities.RoleOwner && role != authentities.RoleAdmin {
+			standing.refusal = apimw.CodeAccountErasurePending
+			return standing, nil
+		}
+		standing.erasurePending = true
+	}
+
+	agent, err := h.cfg.AgentRepo.FindByID(ctx, agentID)
+	if err != nil {
+		return sessionStanding{}, &standingReadError{what: "could not read the person", err: err}
+	}
+	if agent == nil {
+		standing.refusal = CodeInvalidRefreshToken
+		return standing, nil
+	}
+	standing.agent = agent
+	return standing, nil
+}
+
+// mayStillRenew reports whether a renewal for agentID in accountID would go
+// ahead now. A handler that cannot renew answers false.
+func (h *PasswordAuthHandler) mayStillRenew(c echo.Context, agentID, accountID string) (bool, error) {
+	if !h.renews() || agentID == "" || accountID == "" {
+		return false, nil
+	}
+	standing, err := h.sessionStandingOf(c, agentID, accountID)
+	if err != nil {
+		return false, err
+	}
+	return standing.refusal == "", nil
+}
+
 // endNativeSessions ends the native sessions a sign-out names (wm-utb5c).
 //
 // By default that is one session, the device's own: the refresh token family
@@ -349,10 +419,12 @@ type nativeSignOut struct {
 //
 // {"everywhere":true} ends every native session of the person, on every device
 // and in every account, and only with a live credential: a refresh token that
-// can still renew, or a bearer token that validates now. Otherwise it ends only
-// what the default would, and says everywhere was refused. A request that
-// presents no credential — a browser's, with only its cookie — ends nothing and
-// says nothing.
+// can still renew, or a bearer token that validates now. Either one counts only
+// while a renewal for its person in its account would go ahead, so a removed
+// member's or a suspended account's credential does not (wm-lnimb). Otherwise
+// it ends only what the default would, and says everywhere was refused. A
+// request that presents no credential — a browser's, with only its cookie —
+// ends nothing and says nothing.
 func (h *PasswordAuthHandler) endNativeSessions(c echo.Context) (nativeSignOut, error) {
 	body, _ := readNativeSessionBody(c)
 	bearer := bearerToken(c.Request())
@@ -362,6 +434,13 @@ func (h *PasswordAuthHandler) endNativeSessions(c echo.Context) (nativeSignOut, 
 	ctx := c.Request().Context()
 	families := map[string]struct{}{}
 	everywhere := map[string]struct{}{}
+	endEverywhereIfTheyMayRenew := func(agentID, accountID string) error {
+		mayRenew, err := h.mayStillRenew(c, agentID, accountID)
+		if mayRenew {
+			everywhere[agentID] = struct{}{}
+		}
+		return err
+	}
 
 	if bearer != "" {
 		if claims, live := h.signOutBearer(c, bearer); claims != nil {
@@ -369,7 +448,9 @@ func (h *PasswordAuthHandler) endNativeSessions(c echo.Context) (nativeSignOut, 
 				families[family] = struct{}{}
 			}
 			if body.Everywhere && live {
-				everywhere[claims.AgentID] = struct{}{}
+				if err := endEverywhereIfTheyMayRenew(claims.AgentID, claims.ActiveAccountID); err != nil {
+					return nativeSignOut{}, err
+				}
 			}
 		}
 	}
@@ -380,7 +461,9 @@ func (h *PasswordAuthHandler) endNativeSessions(c echo.Context) (nativeSignOut, 
 			if weosoauth.IsNativeRefreshToken(stored) {
 				families[stored.FamilyID] = struct{}{}
 				if body.Everywhere && !stored.Revoked && time.Now().Before(stored.ExpiresAt) {
-					everywhere[stored.AgentID] = struct{}{}
+					if err := endEverywhereIfTheyMayRenew(stored.AgentID, stored.AccountID); err != nil {
+						return nativeSignOut{}, err
+					}
 				}
 			}
 		case !errors.Is(err, weosoauth.ErrNotFound):

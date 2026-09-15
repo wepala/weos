@@ -529,3 +529,91 @@ func TestServe_ANativeSignOutEverywhereEndsEveryNativeSessionOfThePerson(t *test
 		})
 	}
 }
+
+// Ending every native session needs a credential whose person may still renew
+// in the account it names (wm-lnimb). A removed member's or a suspended
+// account's refresh token or access token, though unexpired, ends only its own
+// session and says everywhere was refused: the person's other device renews
+// again once they are added back or the account is reactivated.
+func TestServe_ANativeSignOutEverywhereNeedsAPersonWhoMayStillRenew(t *testing.T) {
+	door := newBootDoor(t)
+	var accounts authrepos.AccountRepository
+	srv := bootServe(t, connectorConfig(door), fx.Populate(&accounts))
+	ctx := context.Background()
+
+	setAccountActive := func(t *testing.T, accountID string, active bool) {
+		t.Helper()
+		account, err := accounts.FindByID(ctx, accountID)
+		if err != nil || account == nil {
+			t.Fatalf("read the account: %v", err)
+		}
+		change := account.Deactivate
+		if active {
+			change = account.Activate
+		}
+		if err := change(); err != nil {
+			t.Fatalf("change the account's state: %v", err)
+		}
+		if err := accounts.Save(ctx, account); err != nil {
+			t.Fatalf("save the account's state: %v", err)
+		}
+	}
+	situations := []struct {
+		name           string
+		strip, restore func(t *testing.T, p nativeSession)
+	}{
+		{"a person removed from the account",
+			func(t *testing.T, p nativeSession) {
+				t.Helper()
+				if err := accounts.RemoveMember(ctx, p.accountID, p.agentID); err != nil {
+					t.Fatalf("remove the person: %v", err)
+				}
+			},
+			func(t *testing.T, p nativeSession) {
+				t.Helper()
+				if err := accounts.SaveMember(ctx, p.accountID, p.agentID, authentities.RoleOwner); err != nil {
+					t.Fatalf("add the person back: %v", err)
+				}
+			}},
+		{"a suspended account",
+			func(t *testing.T, p nativeSession) { t.Helper(); setAccountActive(t, p.accountID, false) },
+			func(t *testing.T, p nativeSession) { t.Helper(); setAccountActive(t, p.accountID, true) }},
+	}
+	people := []struct{ email, subject, name string }{
+		{"mateo.silva@harborlegal.example", "301234567811", "Mateo Silva"},
+		{"priya.nair@harborlegal.example", "301234567812", "Priya Nair"},
+		{"oskar.lind@harborlegal.example", "301234567813", "Oskar Lind"},
+		{"hana.sato@harborlegal.example", "301234567814", "Hana Sato"},
+	}
+
+	next := 0
+	for _, situation := range situations {
+		for _, credential := range []string{"refresh token", "access token"} {
+			person := people[next]
+			next++
+			t.Run(situation.name+", with its "+credential, func(t *testing.T) {
+				phone := signInNativelyThroughTheDoor(t, srv, door, person.email, person.subject, person.name)
+				tablet := signInNativelyThroughTheDoor(t, srv, door, person.email, person.subject, person.name)
+				situation.strip(t, phone)
+
+				body, token := map[string]any{"everywhere": true}, ""
+				if credential == "refresh token" {
+					body["refresh_token"] = phone.refreshToken
+				} else {
+					token = phone.token
+				}
+				appSession, code := nativeSignOutAppSession(t, signOutNatively(t, srv, token, body))
+				if appSession != "ended" || code != "sign_out_everywhere_refused" {
+					t.Fatalf("the sign-out says app_session %q code %q, want ended and sign_out_everywhere_refused",
+						appSession, code)
+				}
+
+				situation.restore(t, phone)
+				requireRenewalRefused(t, renewNativeSession(t, srv, phone.refreshToken), "invalid_refresh_token",
+					"the phone's renewal after it signed out")
+				decodeNativeSession(t, renewNativeSession(t, srv, tablet.refreshToken),
+					"the tablet's renewal once the person may renew again")
+			})
+		}
+	}
+}
