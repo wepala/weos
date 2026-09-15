@@ -151,6 +151,49 @@ func DialectorForDSN(dsn string) gorm.Dialector {
 	return newGatedSQLiteDialector(augmented, dsn)
 }
 
+// ReadOnlyDialectorForDSN detects the driver the way DialectorForDSN does, for a
+// command that only reads. PostgreSQL DSNs get the postgres driver untouched.
+// A SQLite DSN is opened read-only (mode=ro) with none of the worker pragmas and
+// no write gate: the server's journal_mode(WAL) pragma rewrites the header of a
+// file in rollback journal mode, and a read-only connection refuses it.
+func ReadOnlyDialectorForDSN(dsn string) gorm.Dialector {
+	if config.IsPostgresDSN(dsn) {
+		return postgres.Open(dsn)
+	}
+	return sqlite.Open(sqliteReadOnlyDSN(dsn))
+}
+
+// sqliteURIPathEscaper escapes the characters a SQLite URI path gives meaning to.
+var sqliteURIPathEscaper = strings.NewReplacer("%", "%25", "#", "%23")
+
+// sqliteReadOnlyDSN rewrites a file-based SQLite DSN as a read-only file: URI.
+// The driver reads URI parameters such as mode only from a file: URI, so a
+// plain path is rewritten as one. A mode, a _txlock or a journal_mode pragma
+// the DSN already names is dropped; every other parameter is kept. In-memory
+// databases are left untouched.
+func sqliteReadOnlyDSN(dsn string) string {
+	if strings.Contains(dsn, ":memory:") || strings.Contains(dsn, "mode=memory") {
+		return dsn
+	}
+	name, query, _ := strings.Cut(dsn, "?")
+	if !strings.HasPrefix(name, "file:") {
+		name = "file:" + sqliteURIPathEscaper.Replace(name)
+	}
+	var params []string
+	for _, param := range strings.Split(query, "&") {
+		key, value, _ := strings.Cut(param, "=")
+		switch {
+		case param == "", key == "mode", key == "_txlock":
+			continue
+		case key == "_pragma" && strings.HasPrefix(strings.ToLower(value), "journal_mode"):
+			continue
+		}
+		params = append(params, param)
+	}
+	params = append(params, "mode=ro")
+	return name + "?" + strings.Join(params, "&")
+}
+
 // sqliteDSNWithWorkerPragmas augments a file-based SQLite DSN with the pragmas
 // the background subscriber runtime needs to coexist with the synchronous write
 // path. Background workers add concurrent writers (batch transactions plus the

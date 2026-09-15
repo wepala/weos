@@ -16,6 +16,7 @@
 package cli
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -100,10 +101,11 @@ func runAccountAuditMembers(cmd *cobra.Command, _ []string) error {
 
 	// Opened on its own, not through the application module: starting the
 	// module runs migrations, installs presets and starts background writers,
-	// and a command that changes nothing must do none of that. It is the
-	// dialector the server opens the same database with, so it sets nothing on
-	// the store that the server does not.
-	db, err := gormlib.Open(gormdb.DialectorForDSN(dsn), &gormlib.Config{
+	// and a command that changes nothing must do none of that. It is not the
+	// server's dialector either: the server's SQLite pragmas switch the file to
+	// WAL journal mode, which writes to it. A SQLite file is opened read-only
+	// with no pragma.
+	db, err := gormlib.Open(gormdb.ReadOnlyDialectorForDSN(dsn), &gormlib.Config{
 		Logger: gormlogger.Default.LogMode(gormlogger.Silent),
 	})
 	if err != nil {
@@ -119,7 +121,18 @@ func runAccountAuditMembers(cmd *cobra.Command, _ []string) error {
 		_ = sqlDB.Close()
 	}()
 
-	if err := printMembershipAudit(cmd, gormdb.ProvideAccountMembershipAudit(db), auditMembersAccount); err != nil {
+	// Every read runs in one read-only transaction: Postgres refuses a write
+	// inside it, and the audit reads one consistent view of the tables.
+	tx := db.WithContext(cmd.Context()).Begin(&sql.TxOptions{ReadOnly: true})
+	if tx.Error != nil {
+		return fmt.Errorf("failed to open the database (check DATABASE_DSN): %s", redactDSN(rootCause(tx.Error).Error(), dsn))
+	}
+	defer func() {
+		// The transaction only read, so rolling it back discards nothing.
+		_ = tx.Rollback()
+	}()
+
+	if err := printMembershipAudit(cmd, gormdb.ProvideAccountMembershipAudit(tx), auditMembersAccount); err != nil {
 		return errors.New(redactDSN(err.Error(), dsn))
 	}
 	return nil
