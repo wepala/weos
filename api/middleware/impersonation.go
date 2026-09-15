@@ -102,6 +102,110 @@ func MayImpersonate(ctx context.Context, accounts authrepos.AccountRepository, a
 	return IsMember(ctx, accounts, accountID, targetID)
 }
 
+// ImpersonationVerdict is what JudgeImpersonation found in the impersonation
+// cookie a request carries.
+type ImpersonationVerdict int
+
+const (
+	// ImpersonationNotHeld means the request carries no cookie that names a
+	// person, has no identity to judge one against, or carries a cookie
+	// another person started, which JudgeImpersonation has expired. The
+	// request is served as the person signed in.
+	ImpersonationNotHeld ImpersonationVerdict = iota
+	// ImpersonationHolds means the cookie passes every check: the caller acts
+	// as its person, in the account it started in.
+	ImpersonationHolds
+	// ImpersonationStale means the cookie no longer passes: it records no
+	// account, its caller now acts in another account, or the caller's role or
+	// the person's membership there no longer allows it. The request is
+	// refused with RefuseImpersonation, which ends the impersonation.
+	ImpersonationStale
+)
+
+// HeldImpersonation is JudgeImpersonation's answer.
+type HeldImpersonation struct {
+	Verdict ImpersonationVerdict
+	// TargetAgentID is the person the cookie names.
+	TargetAgentID string
+	// AccountID is the account the impersonation started in and acts in. It is
+	// set only when Verdict is ImpersonationHolds.
+	AccountID string
+}
+
+// JudgeImpersonation judges the impersonation cookie a request from caller
+// carries, the way Impersonation does before it applies one. It is exported so
+// a route mounted without that middleware judges a cookie the same way: the
+// account deletion refuses while an impersonation is active rather than act as
+// its person, and must neither take a stale cookie for an active impersonation
+// nor leave it in place (wm-ptcuk).
+//
+// A cookie another person started is expired here, and not held. A cookie the
+// store cannot read is not held either. An error means the caller's account or
+// the roles in it could not be read, and the caller fails closed.
+func JudgeImpersonation(
+	c echo.Context,
+	store sessions.Store,
+	accountRepo authrepos.AccountRepository,
+	caller *auth.Identity,
+	logger entities.Logger,
+) (HeldImpersonation, error) {
+	ctx := c.Request().Context()
+	sess, err := store.Get(c.Request(), ImpersonationSessionName)
+	if err != nil {
+		logger.Warn(ctx, "impersonation session read error, passing through", "error", err)
+		return HeldImpersonation{}, nil
+	}
+
+	impersonatedAgentID, ok := sess.Values[KeyImpersonatedAgentID].(string)
+	if !ok || impersonatedAgentID == "" || caller == nil {
+		return HeldImpersonation{}, nil
+	}
+	realAgentID, _ := sess.Values[KeyRealAgentID].(string)
+	startedIn, _ := sess.Values[KeyRealAccountID].(string)
+	stale := HeldImpersonation{Verdict: ImpersonationStale, TargetAgentID: impersonatedAgentID}
+
+	// Only apply impersonation if the real session matches the admin who
+	// started it. A cookie another person started is expired rather than
+	// kept, so it does not wait in the browser for that person to sign in
+	// there again (wm-ptcuk). The request is still served as the person
+	// signed in.
+	if caller.AgentID != realAgentID {
+		logger.Warn(ctx, "impersonation cookie expired: another person is signed in",
+			"agent_id", caller.AgentID, "cookie_admin_agent_id", realAgentID,
+			"target_agent_id", impersonatedAgentID, "ip", ConnectionPeer(c.Request()))
+		ExpireImpersonationCookie(c.Response())
+		return HeldImpersonation{}, nil
+	}
+
+	accountID, err := ImpersonationAccount(ctx, accountRepo, caller)
+	if err != nil {
+		logger.Error(ctx, "impersonation: could not resolve the caller's account", "agent_id", realAgentID, "error", err)
+		return HeldImpersonation{}, err
+	}
+	// The account the caller acts in now must be the one the impersonation
+	// started in. A second tab or a new sign-in in another account does not
+	// take the impersonation along, even where the same rule would hold there
+	// too (wm-dpzo5).
+	if startedIn == "" || accountID != startedIn {
+		logger.Warn(ctx, "impersonation refused: the caller acts in another account than the one the impersonation started in",
+			"account_id", accountID, "started_in_account_id", startedIn,
+			"admin_agent_id", realAgentID, "target_agent_id", impersonatedAgentID, "ip", ConnectionPeer(c.Request()))
+		return stale, nil
+	}
+	allowed, err := MayImpersonate(ctx, accountRepo, startedIn, realAgentID, impersonatedAgentID)
+	if err != nil {
+		logger.Error(ctx, "impersonation: could not read the roles in the caller's account",
+			"account_id", startedIn, "admin_agent_id", realAgentID, "target_agent_id", impersonatedAgentID, "error", err)
+		return HeldImpersonation{}, err
+	}
+	if !allowed {
+		logger.Warn(ctx, "impersonation refused: the person is not a member of the caller's account, or the caller's role there does not allow it",
+			"account_id", startedIn, "admin_agent_id", realAgentID, "target_agent_id", impersonatedAgentID, "ip", ConnectionPeer(c.Request()))
+		return stale, nil
+	}
+	return HeldImpersonation{Verdict: ImpersonationHolds, TargetAgentID: impersonatedAgentID, AccountID: startedIn}, nil
+}
+
 // Impersonation returns Echo middleware that checks for an active impersonation
 // session and, if present, replaces the auth.Identity in the request context
 // with the impersonated person's identity, acting in the caller's account.
@@ -116,7 +220,7 @@ func MayImpersonate(ctx context.Context, accounts authrepos.AccountRepository, a
 // further. A cookie that no longer passes — one that records no account, whose
 // caller now acts elsewhere, or whose person has since left the account — is
 // cleared and the request refused with CodeImpersonationTargetNotMember,
-// rather than served as either person.
+// rather than served as either person. JudgeImpersonation makes those checks.
 //
 // The account is refused with the code that says why when it is not active,
 // so an impersonation never opens an account locked for deletion or a
@@ -129,65 +233,21 @@ func Impersonation(
 ) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			sess, err := store.Get(c.Request(), ImpersonationSessionName)
-			if err != nil {
-				logger.Warn(c.Request().Context(), "impersonation session read error, passing through", "error", err)
-				return next(c)
-			}
-
-			impersonatedAgentID, ok := sess.Values[KeyImpersonatedAgentID].(string)
-			if !ok || impersonatedAgentID == "" {
-				return next(c)
-			}
-
-			realAgentID, _ := sess.Values[KeyRealAgentID].(string)
-			startedIn, _ := sess.Values[KeyRealAccountID].(string)
-
-			currentIdentity := auth.AgentFromCtx(c.Request().Context())
-			if currentIdentity == nil {
-				return next(c)
-			}
-
-			// Only apply impersonation if the real session matches the admin who
-			// started it. A cookie another person started is expired rather than
-			// kept, so it does not wait in the browser for that person to sign in
-			// there again (wm-ptcuk). The request is still served as the person
-			// signed in.
-			if currentIdentity.AgentID != realAgentID {
-				logger.Warn(c.Request().Context(), "impersonation cookie expired: another person is signed in",
-					"agent_id", currentIdentity.AgentID, "cookie_admin_agent_id", realAgentID,
-					"target_agent_id", impersonatedAgentID, "ip", ConnectionPeer(c.Request()))
-				ExpireImpersonationCookie(c.Response())
-				return next(c)
-			}
-
 			ctx := c.Request().Context()
-			accountID, err := ImpersonationAccount(ctx, accountRepo, currentIdentity)
+			currentIdentity := auth.AgentFromCtx(ctx)
+			held, err := JudgeImpersonation(c, store, accountRepo, currentIdentity, logger)
 			if err != nil {
-				logger.Error(ctx, "impersonation: could not resolve the caller's account", "agent_id", realAgentID, "error", err)
 				return unreadableAccountState(c)
 			}
-			// The account the caller acts in now must be the one the
-			// impersonation started in. A second tab or a new sign-in in
-			// another account does not take the impersonation along, even
-			// where the same rule would hold there too (wm-dpzo5).
-			if startedIn == "" || accountID != startedIn {
-				logger.Warn(ctx, "impersonation refused: the caller acts in another account than the one the impersonation started in",
-					"account_id", accountID, "started_in_account_id", startedIn,
-					"admin_agent_id", realAgentID, "target_agent_id", impersonatedAgentID, "ip", ConnectionPeer(c.Request()))
-				return refuseImpersonation(c)
+			switch held.Verdict {
+			case ImpersonationNotHeld:
+				return next(c)
+			case ImpersonationStale:
+				return RefuseImpersonation(c)
+			case ImpersonationHolds:
 			}
-			allowed, err := MayImpersonate(ctx, accountRepo, startedIn, realAgentID, impersonatedAgentID)
-			if err != nil {
-				logger.Error(ctx, "impersonation: could not read the roles in the caller's account",
-					"account_id", startedIn, "admin_agent_id", realAgentID, "target_agent_id", impersonatedAgentID, "error", err)
-				return unreadableAccountState(c)
-			}
-			if !allowed {
-				logger.Warn(ctx, "impersonation refused: the person is not a member of the caller's account, or the caller's role there does not allow it",
-					"account_id", startedIn, "admin_agent_id", realAgentID, "target_agent_id", impersonatedAgentID, "ip", ConnectionPeer(c.Request()))
-				return refuseImpersonation(c)
-			}
+			accountID := held.AccountID
+			impersonatedAgentID := held.TargetAgentID
 
 			state, err := stateOfAccount(ctx, accountID, accountRepo, locks)
 			if err != nil {
@@ -220,11 +280,11 @@ func Impersonation(
 	}
 }
 
-// refuseImpersonation ends the impersonation and refuses the request with
+// RefuseImpersonation ends the impersonation and refuses the request with
 // CodeImpersonationTargetNotMember, the code an app reads as "the
 // impersonation ended", so a refused cookie does not refuse every request
-// that follows it.
-func refuseImpersonation(c echo.Context) error {
+// that follows it. It is the answer to an ImpersonationStale verdict.
+func RefuseImpersonation(c echo.Context) error {
 	ExpireImpersonationCookie(c.Response())
 	return c.JSON(http.StatusForbidden, map[string]string{
 		"error": "impersonation not allowed",

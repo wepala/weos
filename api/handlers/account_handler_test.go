@@ -248,6 +248,7 @@ func TestAccountDelete_RefusesWhileImpersonating(t *testing.T) {
 	sess, _ := f.store.Get(req, apimw.ImpersonationSessionName)
 	sess.Values[apimw.KeyImpersonatedAgentID] = "counsel"
 	sess.Values[apimw.KeyRealAgentID] = "ops"
+	sess.Values[apimw.KeyRealAccountID] = "acct-harbor"
 	if err := sess.Save(req, rec); err != nil {
 		t.Fatal(err)
 	}
@@ -257,11 +258,46 @@ func TestAccountDelete_RefusesWhileImpersonating(t *testing.T) {
 	}
 
 	res := f.deleteAs("ops", "acct-harbor", `{"confirm":"DELETE"}`, cookies...)
-	if res.Code != http.StatusForbidden {
-		t.Fatalf("got %d %s, want 403", res.Code, res.Body.String())
+	if res.Code != http.StatusForbidden || strings.Contains(res.Body.String(), apimw.CodeImpersonationTargetNotMember) {
+		t.Fatalf("got %d %s, want 403 refusing the deletion", res.Code, res.Body.String())
 	}
 	if len(f.erasure.calls) != 0 {
 		t.Error("an impersonating administrator's request reached the erasure service")
+	}
+	for _, c := range res.Result().Cookies() {
+		if c.Name == apimw.ImpersonationSessionName {
+			t.Error("refusing the deletion wrote the cookie of an impersonation that still holds")
+		}
+	}
+}
+
+// wm-ptcuk: a cookie another person started is no impersonation by the person
+// signed in. The deletion expires it, as the protected routes do, and goes on
+// as the person signed in.
+func TestAccountDelete_ExpiresACookieAnotherPersonStartedAndDeletes(t *testing.T) {
+	f := newDeleteFixture(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/impersonate", nil)
+	rec := httptest.NewRecorder()
+	sess, _ := f.store.Get(req, apimw.ImpersonationSessionName)
+	sess.Values[apimw.KeyImpersonatedAgentID] = "counsel"
+	sess.Values[apimw.KeyRealAgentID] = "broker"
+	sess.Values[apimw.KeyRealAccountID] = "acct-harbor"
+	if err := sess.Save(req, rec); err != nil {
+		t.Fatal(err)
+	}
+
+	res := f.deleteAs("ops", "acct-harbor", `{"confirm":"DELETE"}`, rec.Result().Cookies()...)
+	if res.Code != http.StatusOK || len(f.erasure.calls) != 1 {
+		t.Fatalf("got %d %s with %d erasures, want 200 and one erasure", res.Code, res.Body.String(), len(f.erasure.calls))
+	}
+	expired := false
+	for _, c := range res.Result().Cookies() {
+		if c.Name == apimw.ImpersonationSessionName && c.MaxAge < 0 {
+			expired = true
+		}
+	}
+	if !expired {
+		t.Error("the deletion did not expire the cookie another person started")
 	}
 }
 

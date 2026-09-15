@@ -613,6 +613,105 @@ func TestServe_AnImpersonationCookieForAPersonOutsideTheAccountIsNotHonored(t *t
 	}
 }
 
+// wm-ptcuk, Copilot review 5204696106. The deletion route mounts no
+// Impersonation middleware, because it refuses while an impersonation is active
+// rather than act as the person impersonated. It still judges the cookie the
+// way the protected routes do. A valid impersonation is refused and nothing is
+// deleted. A cookie the protected routes would refuse — its person has left the
+// account, or its caller now acts in another account — is ended with the same
+// coded refusal, so it does not block the deletion that follows.
+func TestServe_AccountDeletionJudgesTheImpersonationAsTheProtectedRoutesDo(t *testing.T) {
+	type world struct {
+		srv            *httptest.Server
+		accounts       authrepos.AccountRepository
+		credentials    authrepos.CredentialRepository
+		authService    authapp.AuthenticationService
+		sessionManager session.SessionManager
+		ops, counsel   signedUpPerson
+		started        serveAnswer
+	}
+	setUp := func(t *testing.T) world {
+		t.Helper()
+		var w world
+		w.srv = passwordInstance(t, fx.Populate(&w.accounts, &w.credentials, &w.authService, &w.sessionManager))
+		w.ops = signUp(t, w.srv, "ops@harborlegal.example")
+		w.counsel = signUp(t, w.srv, "counsel@cedarrealty.example")
+		if err := w.accounts.SaveMember(context.Background(), w.ops.accountID, w.counsel.agentID, authentities.RoleMember); err != nil {
+			t.Fatalf("add counsel to the caller's account: %v", err)
+		}
+		w.started = startImpersonation(t, w.srv, w.ops, w.counsel.agentID)
+		if w.started.status != http.StatusOK {
+			t.Fatalf("starting an impersonation of a member answered %d %s, want 200", w.started.status, w.started.body)
+		}
+		return w
+	}
+	stillThere := func(t *testing.T, w world, cookies []*http.Cookie, accountID string) {
+		t.Helper()
+		if answer, acting := actingAccount(t, w.srv, cookies); answer.status != http.StatusOK || acting != accountID {
+			t.Fatalf("after the refused deletion the export answered %d %s for %q, want account %s still there",
+				answer.status, answer.body, acting, accountID)
+		}
+	}
+
+	t.Run("a valid impersonation is refused and nothing is deleted", func(t *testing.T) {
+		w := setUp(t)
+		refused := serveCall(t, w.srv, http.MethodDelete, "/api/account", confirmDeletion, withCookies(w.ops.cookies, w.started.cookies))
+		if refused.status != http.StatusForbidden || errorCode(t, refused) == apimw.CodeImpersonationTargetNotMember {
+			t.Fatalf("deleting while impersonating answered %d %s, want 403 refusing the deletion", refused.status, refused.body)
+		}
+		if impersonationCookieIn(refused.cookies) != nil {
+			t.Fatalf("refusing the deletion wrote the impersonation cookie of a valid impersonation")
+		}
+		stillThere(t, w, w.ops.cookies, w.ops.accountID)
+	})
+
+	t.Run("the person impersonated has left the account", func(t *testing.T) {
+		w := setUp(t)
+		if err := w.accounts.RemoveMember(context.Background(), w.ops.accountID, w.counsel.agentID); err != nil {
+			t.Fatalf("remove counsel from the caller's account: %v", err)
+		}
+		refused := serveCall(t, w.srv, http.MethodDelete, "/api/account", confirmDeletion, withCookies(w.ops.cookies, w.started.cookies))
+		if refused.status != http.StatusForbidden || errorCode(t, refused) != apimw.CodeImpersonationTargetNotMember {
+			t.Fatalf("deleting with a stale impersonation answered %d %s, want 403 %s",
+				refused.status, refused.body, apimw.CodeImpersonationTargetNotMember)
+		}
+		if !impersonationCleared(refused) {
+			t.Fatalf("the refusal did not clear the stale impersonation cookie")
+		}
+		stillThere(t, w, w.ops.cookies, w.ops.accountID)
+
+		// The browser drops the expired cookie, so the deletion asked again
+		// carries only the session, and goes through.
+		if again := serveCall(t, w.srv, http.MethodDelete, "/api/account", confirmDeletion, w.ops.cookies); again.status != http.StatusOK {
+			t.Fatalf("the deletion asked again without the cookie answered %d %s, want 200", again.status, again.body)
+		}
+	})
+
+	t.Run("the caller now acts in another account", func(t *testing.T) {
+		w := setUp(t)
+		broker := signUp(t, w.srv, "broker@lanternhomes.example")
+		for _, m := range []struct{ agent, role string }{
+			{w.counsel.agentID, authentities.RoleMember},
+			{w.ops.agentID, authentities.RoleAdmin},
+		} {
+			if err := w.accounts.SaveMember(context.Background(), broker.accountID, m.agent, m.role); err != nil {
+				t.Fatalf("add %s to the other account as %s: %v", m.agent, m.role, err)
+			}
+		}
+		inOtherAccount := sessionIn(t, w.authService, w.sessionManager, w.credentials, w.ops, broker.accountID)
+
+		refused := serveCall(t, w.srv, http.MethodDelete, "/api/account", confirmDeletion, withCookies(inOtherAccount, w.started.cookies))
+		if refused.status != http.StatusForbidden || errorCode(t, refused) != apimw.CodeImpersonationTargetNotMember {
+			t.Fatalf("deleting the other account with the impersonation answered %d %s, want 403 %s",
+				refused.status, refused.body, apimw.CodeImpersonationTargetNotMember)
+		}
+		if !impersonationCleared(refused) {
+			t.Fatalf("the refusal did not clear the impersonation cookie")
+		}
+		stillThere(t, w, inOtherAccount, broker.accountID)
+	})
+}
+
 // wm-ptcuk, Copilot review 5204289188. The stop route runs behind the session
 // checks, and they refuse a session whose account is suspended, locked for
 // deletion, or no longer the caller's before Stop runs. That refusal still ends
