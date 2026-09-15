@@ -415,6 +415,12 @@ func TestAssertedSignInRefusesAnUnprovenEmailWithoutTheAllowlistToo(t *testing.T
 // provideOver builds the AssertedSignIn the application wires, from cfg, over
 // the memory store.
 func provideOver(s *memoryAuthStore, cfg config.Config) *AssertedSignIn {
+	return provideOverWithLock(s, cfg, nil)
+}
+
+// provideOverWithLock is provideOver with the sign-in lock the application
+// wires beside it.
+func provideOverWithLock(s *memoryAuthStore, cfg config.Config, lock repositories.SignInLock) *AssertedSignIn {
 	return ProvideAssertedSignIn(struct {
 		fx.In
 		Config         config.Config
@@ -425,10 +431,11 @@ func provideOver(s *memoryAuthStore, cfg config.Config) *AssertedSignIn {
 		EventStore     esdomain.EventStore               `optional:"true"`
 		Dispatcher     *esdomain.EventDispatcher         `optional:"true"`
 		CredentialRows repositories.CredentialRowDeleter `optional:"true"`
+		Lock           repositories.SignInLock           `optional:"true"`
 		Logger         weosentities.Logger               `optional:"true"`
 	}{
 		Config: cfg, Auth: storeAuth{s: s}, Credentials: storeCredentials{s: s},
-		Agents: storeAgents{s: s}, Emails: storeEmails{s: s},
+		Agents: storeAgents{s: s}, Emails: storeEmails{s: s}, Lock: lock,
 	})
 }
 

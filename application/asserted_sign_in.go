@@ -135,6 +135,12 @@ type AssertedSignInConfig struct {
 	// event could not be committed (see link). Optional; without it such a row
 	// is left behind, and a repair line names it.
 	CredentialRows repositories.CredentialRowDeleter
+	// Lock serializes the sign-ins for one identity, and for one email, across
+	// every process that shares the database, from the owner look-up through the
+	// link or the create. Optional; without it they are serialized in process
+	// only, and two replicas that both find no holder for an email each create a
+	// person.
+	Lock repositories.SignInLock
 	// Allowlisted says the instance has an identity allowlist
 	// (OAUTH_ALLOWED_EMAILS). The allowlist is enforced before SignIn runs.
 	// Owner binding runs whether or not it is set: only a credential whose
@@ -168,10 +174,9 @@ type AssertedSignInConfig struct {
 // binding".
 //
 // It is safe for concurrent use. Sign-ins for one identity, and sign-ins for
-// one email, are serialized in process, so two first sign-ins arriving
-// together leave one person. The locks are held per process: replicas sharing
-// a database still race, and the store's unique (provider, provider_user_id)
-// index is what stops a second credential there.
+// one email, are serialized in process, and across the processes sharing the
+// database when a Lock is configured, so two first sign-ins arriving together
+// leave one person, on one replica or on two.
 type AssertedSignIn struct {
 	cfg        AssertedSignInConfig
 	identities keyedMutex
@@ -200,6 +205,7 @@ func ProvideAssertedSignIn(params struct {
 	EventStore     esdomain.EventStore               `optional:"true"`
 	Dispatcher     *esdomain.EventDispatcher         `optional:"true"`
 	CredentialRows repositories.CredentialRowDeleter `optional:"true"`
+	Lock           repositories.SignInLock           `optional:"true"`
 	Logger         weosentities.Logger               `optional:"true"`
 }) *AssertedSignIn {
 	return NewAssertedSignIn(AssertedSignInConfig{
@@ -210,6 +216,7 @@ func ProvideAssertedSignIn(params struct {
 		EventStore:           params.EventStore,
 		Dispatcher:           params.Dispatcher,
 		CredentialRows:       params.CredentialRows,
+		Lock:                 params.Lock,
 		Logger:               params.Logger,
 		Allowlisted:          len(params.Config.OAuth.AllowedEmails) > 0,
 		PasswordOwnersProven: params.Config.TrustedIssuer.LinkPasswordOwners,
@@ -220,13 +227,27 @@ func ProvideAssertedSignIn(params struct {
 func (s *AssertedSignIn) SignIn(ctx context.Context, id AssertedIdentity) (AssertedSignInResult, error) {
 	// Always the identity lock first and the email lock second, and never more
 	// than one of each, so two sign-ins can never wait on each other in a
-	// circle.
+	// circle. The in-process locks come before the cross-process ones, which
+	// take the same keys in the same order.
 	defer s.identities.lock(id.Provider + "\x00" + id.Subject)()
 	// The same fold the credential query compares under, so the email lock
 	// serializes exactly the sign-ins that could reach one owner.
 	email := repositories.FoldCredentialEmail(id.Email)
 	if email != "" {
 		defer s.emails.lock(email)()
+	}
+	if s.cfg.Lock != nil {
+		keys := []string{"identity\x00" + id.Provider + "\x00" + id.Subject}
+		if email != "" {
+			keys = append(keys, "email\x00"+email)
+		}
+		// Held until SignIn returns, so another replica reads the owner look-up
+		// only after this sign-in's link or create is written.
+		release, err := s.cfg.Lock.Hold(ctx, keys...)
+		if err != nil {
+			return AssertedSignInResult{}, fmt.Errorf("hold the sign-in lock: %w", err)
+		}
+		defer release()
 	}
 
 	existing, err := s.cfg.Credentials.FindByProvider(ctx, id.Provider, id.Subject)

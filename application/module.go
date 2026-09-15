@@ -100,6 +100,7 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		// instance has an allowlist.
 		fx.Provide(gorm.ProvideCredentialEmailQuery),
 		fx.Provide(gorm.ProvideCredentialRowDeleter),
+		fx.Provide(gorm.ProvideSignInLock),
 		fx.Provide(ProvideAssertedSignIn),
 		fx.Provide(auth.ProvideInviteTokenService),
 		fx.Provide(func(

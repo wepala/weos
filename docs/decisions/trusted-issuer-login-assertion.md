@@ -7,7 +7,7 @@ nav_order: 2
 
 # ADR: Trusted-Issuer Login Assertion (`POST /auth/assert`)
 
-**Status:** Proposed (revised 2026-09-12 after design premortem; amended 2026-09-12 after the story `wm-63gg0.1` review: clock leeway, audience uniqueness, key-list throttle and backoff, `keys-unreachable`; amended 2026-09-12 after the story `wm-63gg0.2` review: what owner binding never links to, how emails compare, the 409, what binding logs, a 2-second first backoff; amended 2026-09-12 after the PR 563 Copilot review: the route refuses to mount under core's public `SESSION_SECRET`, and any trusted-issuer setting makes the API require a sign-in; amended 2026-09-13 for bead `wm-x0l4m`: the door may post the assertion server-side, and the door's own provider key `door` is accepted, still needs a verified email and never proves an owner; amended 2026-09-14 after the `wm-x0l4m` review: an upgrade note for an instance that already has people, what an unseen identity whose email only a `door` credential holds meets today, and the `issuer` providers entry lists the provider keys an assertion may name; amended 2026-09-14 for bead `wm-6lx6z`, on decision `wm-vvi6t`: owner binding runs with or without `OAUTH_ALLOWED_EMAILS`, and a `door` credential proves who owns its email for a `google` or `apple` identity, so a door password identity and a Google or Apple identity with the same email are one person, in either order; amended 2026-09-14 after the `wm-6lx6z` review: a second `door` subject is refused while an active `door` credential of an active person holds the email, whatever else that person holds; a `door` credential is the issuer's word on the email, and an issuer writes one only for an address it controls or has proved; the `issuer` providers entry says `joins_door_and_google_apple_by_email`; the upgrade note says what a new identity meets for an owner an older core split into two people, and gives a query that finds them; amended 2026-09-15 for bead `wm-lnimb` and its review: a sign-in that asks for a native session gets a refresh token and two expiries, `POST /api/auth/refresh` renews it with a 30-second grace window for a repeated renewal, a native sign-out ends one session unless it asks for every one, and native refresh token rows are purged 7 days past expiry; amended 2026-09-15 for bead `wm-gxebp`: a `google` or `apple` credential proves its email only because both instance paths that write one refuse an email the provider has not verified, and credentials written before that are not checked again)
+**Status:** Proposed (revised 2026-09-12 after design premortem; amended 2026-09-12 after the story `wm-63gg0.1` review: clock leeway, audience uniqueness, key-list throttle and backoff, `keys-unreachable`; amended 2026-09-12 after the story `wm-63gg0.2` review: what owner binding never links to, how emails compare, the 409, what binding logs, a 2-second first backoff; amended 2026-09-12 after the PR 563 Copilot review: the route refuses to mount under core's public `SESSION_SECRET`, and any trusted-issuer setting makes the API require a sign-in; amended 2026-09-13 for bead `wm-x0l4m`: the door may post the assertion server-side, and the door's own provider key `door` is accepted, still needs a verified email and never proves an owner; amended 2026-09-14 after the `wm-x0l4m` review: an upgrade note for an instance that already has people, what an unseen identity whose email only a `door` credential holds meets today, and the `issuer` providers entry lists the provider keys an assertion may name; amended 2026-09-14 for bead `wm-6lx6z`, on decision `wm-vvi6t`: owner binding runs with or without `OAUTH_ALLOWED_EMAILS`, and a `door` credential proves who owns its email for a `google` or `apple` identity, so a door password identity and a Google or Apple identity with the same email are one person, in either order; amended 2026-09-14 after the `wm-6lx6z` review: a second `door` subject is refused while an active `door` credential of an active person holds the email, whatever else that person holds; a `door` credential is the issuer's word on the email, and an issuer writes one only for an address it controls or has proved; the `issuer` providers entry says `joins_door_and_google_apple_by_email`; the upgrade note says what a new identity meets for an owner an older core split into two people, and gives a query that finds them; amended 2026-09-15 for bead `wm-lnimb` and its review: a sign-in that asks for a native session gets a refresh token and two expiries, `POST /api/auth/refresh` renews it with a 30-second grace window for a repeated renewal, a native sign-out ends one session unless it asks for every one, and native refresh token rows are purged 7 days past expiry; amended 2026-09-15 for bead `wm-gxebp`: a `google` or `apple` credential proves its email only because both instance paths that write one refuse an email the provider has not verified, and credentials written before that are not checked again; amended 2026-09-15 after the PR 570 Copilot review: on PostgreSQL, sign-ins for one identity and for one email are also serialized across replicas, with transaction-scoped advisory locks held from the owner look-up through the link or the create)
 **Date:** 2026-09-12
 **Ticket:** bead `wm-63gg0` (mirror: wepala/mini-me-weos#530)
 **Base:** `v3` (the integration branch the `v3.0.1-beta.*` tags are cut from; `main` is the old line)
@@ -299,12 +299,25 @@ A person the assertion gives no name is named after the email's local part.
   identity to whoever wrote that email. Creating could leave the owner in a second, empty
   account, which the owner reports as lost data. An operator decides (see "Clearing
   `ambiguous-owner` and `unproven-owner`").
-- **Races.** Sign-ins for one identity, and sign-ins for one email, are serialized in
-  process, so two first sign-ins that arrive together leave one person. The locks are per
-  process. Replicas that share a database still race, and the
-  store's unique `(provider, provider_user_id)` index is what stops a second credential
-  there. A link saves the credential row first and records `Credential.Created` only
-  after the row is saved, so a link that loses that race records no event.
+- **Races.** Sign-ins for one identity, and sign-ins for one email, are serialized from the
+  owner look-up through the link or the create, so two first sign-ins that arrive together
+  leave one person. In process, two locks do this. On PostgreSQL, the one database core
+  runs with replicas (the Cloud Run module scales to `cloud_run_max_instances`), the same
+  two keys are also taken as transaction-scoped advisory locks (`pg_advisory_xact_lock`)
+  on the shared database. So a replica that arrives second reads who holds the email only
+  after the first replica's person or link is written. Without that, two replicas could
+  both find no holder and create two people, and each person's proving credential would
+  make every later sign-in for the email `ambiguous-owner`. The advisory locks are held
+  in a transaction that writes nothing. pericarp's `FindOrCreateAgent` writes outside any
+  transaction core can join, so the look-up and the create cannot share one. The server
+  releases the locks when the transaction ends, or when the connection or the replica
+  dies. Each sign-in in progress keeps one pooled connection for the lock, and so does
+  each sign-in that waits on the same email. SQLite takes no advisory lock: one process
+  serves a SQLite database, and a transaction held there would take the write gate and
+  stall the writes it protects. The store's unique `(provider, provider_user_id)` index
+  still stops a second credential for one identity. A link saves the credential row
+  first and records `Credential.Created` only after the row is saved, so a link that
+  loses that race records no event.
 - **A link whose event cannot be recorded is taken back.** The row and its event are not
   written in one transaction: pericarp's UnitOfWork carries events only, and its event
   store joins an outer transaction only from inside a subscription batch. So when the
