@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -231,13 +230,6 @@ func TestExpireImpersonationCookie_WritesOneCookieWhenCalledTwice(t *testing.T) 
 	if got := rec.Header().Values("Set-Cookie"); len(got) != 1 {
 		t.Fatalf("Set-Cookie written %d times, want once: %q", len(got), got)
 	}
-}
-
-// rolesThatCannotBeRead is an account book whose role read fails.
-type rolesThatCannotBeRead struct{ accountBook }
-
-func (rolesThatCannotBeRead) FindMemberRole(context.Context, string, string) (string, error) {
-	return "", errors.New("database unavailable")
 }
 
 // Fail closed: roles that cannot be read are not known to allow anything.
