@@ -13,36 +13,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { message } from 'ant-design-vue'
-import { clearImpersonation, impersonationRefusalOutcome } from '../composables/impersonationRefusal'
-import { applyRefusedResponse } from '../composables/useSessionRefusal'
-
-// One identity read at a time. A page issues several calls, and every one the
-// server refuses would otherwise start its own read.
-let identityRead: Promise<void> | null = null
+import { applyRefusal } from '../composables/useRefusedResponse'
 
 /**
- * Ends the impersonation the admin shows when the server refused a request
- * with the impersonation code (wm-669nf). The server has already expired the
- * cookie, so the banner goes at once and the identity is read again for the
- * person really signed in. The impersonation start route answers the same
- * code, and its page explains that refusal itself.
- */
-function applyImpersonationRefusal(request: unknown, status: number | undefined, body: unknown) {
-  const { user, fetchUser } = useAuth()
-  const { ended, notice } = impersonationRefusalOutcome(status, body, request, !!user.value?.impersonating)
-  if (!ended) return
-  user.value = clearImpersonation(user.value)
-  if (notice) message.warning(notice)
-  if (!identityRead) {
-    identityRead = fetchUser().finally(() => {
-      identityRead = null
-    })
-  }
-}
-
-/**
- * Decides what a 401 means, for every call the admin makes.
+ * Decides what a refused request means, for every call the admin makes.
  *
  * This lives in a $fetch interceptor rather than in useApi because not every
  * caller goes through useApi: usePersonApi, for one, calls $fetch directly.
@@ -50,9 +24,9 @@ function applyImpersonationRefusal(request: unknown, status: number | undefined,
  * silently ignored.
  *
  * It still does not cover literally every call. The agent chat streams with
- * native fetch, which no $fetch interceptor can see, so it calls
- * applyRefusedResponse itself. Any future caller that reaches past $fetch has
- * to do the same.
+ * native fetch, which no $fetch interceptor can see, so it hands its failed
+ * responses to the same applyRefusal through applyStreamRefusal (wm-ptcuk).
+ * Any future caller that reaches past $fetch has to do the same.
  *
  * A coded refusal is explained where the person is standing and explicitly
  * does NOT redirect: for two of the three codes a fresh sign-in cannot help,
@@ -72,8 +46,7 @@ export default defineNuxtPlugin(() => {
     // happens instead — "try again" reloads, and a reload starts with no
     // refusal because the state is held in memory by design.
     onResponseError({ request, response }) {
-      applyImpersonationRefusal(request, response?.status, response?._data)
-      applyRefusedResponse(response?.status, response?._data)
+      applyRefusal(request, response?.status, response?._data)
     },
   })
 })

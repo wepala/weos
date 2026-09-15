@@ -17,6 +17,9 @@
 // answers stream server-sent events (see docs/_reference/agent-widgets.md);
 // EventSource cannot POST, so the stream is read off a fetch body.
 
+import { applyStreamRefusal } from './agentStreamRefusal'
+import { applyRefusal } from './useRefusedResponse'
+
 export interface AgentWidgetField {
   label: string
   value: string
@@ -68,17 +71,11 @@ async function streamAgentEvents(
   })
   // Native fetch, so the $fetch interceptor never sees this response. A
   // refused session here would otherwise surface as a bare "agent request
-  // failed (401)" with no explanation and no redirect — the agent routes sit
-  // behind the same guard as everything else.
-  if (res.status === 401) {
-    let body: unknown = null
-    try {
-      body = await res.clone().json()
-    } catch {
-      body = null
-    }
-    applyRefusedResponse(res.status, body)
-  }
+  // failed (401)" with no explanation and no redirect, and an ended
+  // impersonation (403 impersonation_target_not_member) would leave its banner
+  // up — the agent routes sit behind the same guards as everything else. So
+  // every failure goes to the function the interceptor calls (wm-ptcuk).
+  await applyStreamRefusal(res, url, applyRefusal)
   if (!res.ok || !res.body) {
     let message = `agent request failed (${res.status})`
     try {
