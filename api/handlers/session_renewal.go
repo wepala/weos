@@ -133,16 +133,7 @@ func (h *PasswordAuthHandler) Refresh(c echo.Context) error {
 			return renewalUnavailable(c, "could not read the refresh token")
 		}
 		if !inGrace {
-			h.cfg.Logger.Warn(ctx, "session renewal: a spent refresh token was presented again — revoking its family",
-				"token", stored.ID, "family", stored.FamilyID, "agent", stored.AgentID)
-			if err := tokens.RevokeFamily(ctx, stored.FamilyID); err != nil {
-				// The presented token is refused either way; what could not be
-				// revoked is the newest token of the family, which the next reuse
-				// tries again.
-				h.cfg.Logger.Error(ctx, "session renewal: family revocation failed",
-					"family", stored.FamilyID, "error", err)
-			}
-			return refuseRenewal(c, CodeInvalidRefreshToken)
+			return h.refuseReusedRefreshToken(c, stored)
 		}
 		h.cfg.Logger.Info(ctx, "session renewal: a refresh token spent moments ago was repeated inside the grace window — answering its successor",
 			"token", presented.ID, "family", presented.FamilyID)
@@ -249,8 +240,12 @@ func (h *PasswordAuthHandler) Refresh(c echo.Context) error {
 				return renewalUnavailable(c, "could not renew the session")
 			}
 			// Another renewal spent it. Inside the grace window that renewal's
-			// successor is this one's too; otherwise the token is refused, and
-			// the family is left as it is.
+			// successor is this one's too. Otherwise — the successor was made
+			// under another process's key, or was already spent — the token was
+			// reused, exactly as a spent token read above was, and its family is
+			// revoked. A renewal that lost a race in this process always finds
+			// the successor, because a rotation spends the token and saves its
+			// successor in one transaction.
 			inGrace := false
 			if lookupErr == nil {
 				_, next, inGrace, lookupErr = weosoauth.NativeRefreshSuccessorInGrace(ctx, tokens, again, raw,
@@ -262,7 +257,7 @@ func (h *PasswordAuthHandler) Refresh(c echo.Context) error {
 				return renewalUnavailable(c, "could not read the refresh token")
 			}
 			if !inGrace {
-				return refuseRenewal(c, CodeInvalidRefreshToken)
+				return h.refuseReusedRefreshToken(c, again)
 			}
 		}
 	}
@@ -280,6 +275,22 @@ func (h *PasswordAuthHandler) Refresh(c echo.Context) error {
 		answer.Code = apimw.CodeAccountErasurePending
 	}
 	return respond(c, http.StatusOK, answer)
+}
+
+// refuseReusedRefreshToken refuses spent, a native refresh token presented
+// again outside the grace window, and revokes its whole family: someone else
+// holds a copy.
+func (h *PasswordAuthHandler) refuseReusedRefreshToken(c echo.Context, spent *weosoauth.OAuthRefreshToken) error {
+	ctx := c.Request().Context()
+	h.cfg.Logger.Warn(ctx, "session renewal: a spent refresh token was presented again — revoking its family",
+		"token", spent.ID, "family", spent.FamilyID, "agent", spent.AgentID)
+	if err := h.cfg.RefreshTokens.RevokeFamily(ctx, spent.FamilyID); err != nil {
+		// The presented token is refused either way; what could not be revoked
+		// is the newest token of the family, which the next reuse tries again.
+		h.cfg.Logger.Error(ctx, "session renewal: family revocation failed",
+			"family", spent.FamilyID, "error", err)
+	}
+	return refuseRenewal(c, CodeInvalidRefreshToken)
 }
 
 // nativeSessionBody is what a renewal's or a native sign-out's JSON body may

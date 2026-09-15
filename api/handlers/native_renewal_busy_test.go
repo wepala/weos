@@ -112,10 +112,13 @@ func (busyRenewalLocks) IsLocked(context.Context, string) (bool, error) { return
 
 // wm-tu180. A renewal whose rotation fails — a busy or locked database — never
 // answers 500, which an app would retry with a refresh token it cannot tell was
-// spent. When another renewal spent the token meanwhile, this one is refused
-// with invalid_refresh_token and the session's family is left alone. When
-// nobody spent it, nothing was spent, and the answer is 503 with Retry-After so
-// the app sends the same renewal again.
+// spent. When another renewal spent the token meanwhile and its successor is not
+// this renewal's to answer — it reached another process, or the successor was
+// already spent — the token was reused outside the grace window: this renewal is
+// refused with invalid_refresh_token and the family is revoked, as it is for a
+// spent token read at the start of a renewal. When nobody spent it, nothing was
+// spent, nothing is revoked, and the answer is 503 with Retry-After so the app
+// sends the same renewal again.
 func TestPasswordAuthHandler_Refresh_ARotationThatFailsNeverAnswers500(t *testing.T) {
 	const refreshToken = "phone-refresh-token-value"
 	now := time.Now()
@@ -129,13 +132,15 @@ func TestPasswordAuthHandler_Refresh_ARotationThatFailsNeverAnswers500(t *testin
 	spentByAnother.RotatedAt = &now
 
 	cases := []struct {
-		name         string
-		afterFailure weosoauth.OAuthRefreshToken
-		wantStatus   int
-		wantCode     string
+		name              string
+		afterFailure      weosoauth.OAuthRefreshToken
+		wantStatus        int
+		wantCode          string
+		wantFamilyRevoked bool
 	}{
-		{"another renewal spent the token meanwhile", spentByAnother, http.StatusUnauthorized, handlers.CodeInvalidRefreshToken},
-		{"nobody spent the token", live, http.StatusServiceUnavailable, ""},
+		{"another renewal spent the token meanwhile, outside the grace window", spentByAnother,
+			http.StatusUnauthorized, handlers.CodeInvalidRefreshToken, true},
+		{"nobody spent the token", live, http.StatusServiceUnavailable, "", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -172,9 +177,11 @@ func TestPasswordAuthHandler_Refresh_ARotationThatFailsNeverAnswers500(t *testin
 			if strings.Contains(rec.Body.String(), "renewed-access-token") {
 				t.Fatal("a renewal that did not renew carries an access token")
 			}
-			if store.familyRevoked || store.revocations != 0 {
-				t.Fatalf("the renewal revoked the family %v and %d tokens; a failed rotation must revoke nothing",
-					store.familyRevoked, store.revocations)
+			if store.familyRevoked != tc.wantFamilyRevoked {
+				t.Fatalf("the renewal revoked the family: %v, want %v", store.familyRevoked, tc.wantFamilyRevoked)
+			}
+			if store.revocations != 0 {
+				t.Fatalf("the renewal revoked %d single tokens, want none", store.revocations)
 			}
 		})
 	}
