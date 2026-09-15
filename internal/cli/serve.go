@@ -292,6 +292,9 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	// SESSION_SECRET is unset) so the JWT cookie is accepted in plain-HTTP
 	// local dev and stays Secure in any real deployment.
 	secureCookies := appCfg.SessionSecret != config.DefaultSessionSecret
+	// One refresh token store for connectors and native apps: a native sign-in's
+	// refresh token is kept, rotated and revoked there too (wm-lnimb).
+	refreshRepo := weosoauth.NewRefreshTokenRepository(db)
 	passwordAuthHandlers := handlers.NewPasswordAuthHandler(handlers.PasswordAuthHandlerConfig{
 		AuthService:    authService,
 		SessionManager: sessionManager,
@@ -299,6 +302,9 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 		Logger:         logger,
 		AccountRepo:    accountRepo,
 		ErasureLocks:   erasureLocks,
+		RefreshTokens:  refreshRepo,
+		AgentRepo:      agentRepo,
+		JWTService:     jwtService,
 	})
 	handlers.MountPasswordAuth(api, passwordAuthHandlers, handlers.PasswordAuthRoutes{
 		SignIn:       appCfg.PasswordAuthEnabled,
@@ -370,15 +376,26 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 		})
 	// A trusted issuer's sign-in hands a native app a bearer token, and the app
 	// reads its account with it (wm-hg3xf). With no JWT_SIGNING_KEY that token
-	// is signed by a key made at boot, so every restart or deploy signs the app
-	// out. Say so once at boot (wm-a6xb6). The key itself is never logged.
+	// is signed by a key made at boot, so every restart or deploy ends it. The
+	// refresh token beside it is stored, so the app renews after the restart
+	// (wm-lnimb), but a renewal repeated across the restart is taken as reuse,
+	// because the grace window needs the same key. Say so once at boot
+	// (wm-a6xb6). The key itself is never logged.
 	// Only when the assert route is mounted: a partly configured issuer, or one
 	// on core's public session secret, issues no such token, and the mount has
 	// already logged why.
 	if assertMounted && weosoauth.TokensDieOnRestart(appCfg) {
 		logger.Warn(context.Background(),
-			"JWT_SIGNING_KEY is empty or auto, so native bearer tokens will not survive a restart: each boot signs tokens with a new key, and an app holding one is signed out after every restart or deploy",
+			"JWT_SIGNING_KEY is empty or auto, so native bearer tokens will not survive a restart: each boot signs tokens with a new key, so after every restart or deploy an app must renew its access token with its refresh token, and a renewal repeated across the restart counts as reuse and signs the app out",
 			"remedy", "set JWT_SIGNING_KEY to a PEM-encoded RSA private key that stays the same across restarts and on every instance")
+	}
+
+	// A native sign-in's access token lasts an hour, and an app in a native
+	// shell holds nothing else, so the refresh token handed back beside it
+	// renews it here (wm-lnimb). Public, like the sign-ins: the caller's access
+	// token may already have expired. Mounted wherever a native sign-in is.
+	if appCfg.PasswordAuthEnabled || assertMounted {
+		handlers.MountSessionRenewal(api, passwordAuthHandlers)
 	}
 
 	// Logout must clear BOTH the gorilla session (pericarp Logout) AND the
@@ -402,7 +419,6 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	if appCfg.AuthEnabled() {
 		clientRepo := weosoauth.NewClientRepository(db)
 		codeRepo := weosoauth.NewAuthCodeRepository(db)
-		refreshRepo := weosoauth.NewRefreshTokenRepository(db)
 
 		const mcpResourcePath = "/api/mcp"
 		var defaultResource string

@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/wepala/weos/v3/internal/config"
+	weosoauth "github.com/wepala/weos/v3/internal/oauth"
 
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
@@ -168,6 +169,10 @@ func ProvideAuthenticationService(params struct {
 	opts := []authapp.AuthServiceOption{
 		authapp.WithAuthorizationChecker(params.AuthzChecker),
 		authapp.WithPasswordCredentialRepository(params.PasswordCredentials),
+		// A native session's access token names its refresh token family, so a
+		// sign-out with only that token ends that session (wm-utb5c). It adds
+		// nothing to any other token.
+		authapp.WithClaimsEnricher(weosoauth.NativeSessionClaims),
 	}
 	if params.JWTService != nil {
 		opts = append(opts, authapp.WithJWTService(params.JWTService))

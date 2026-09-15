@@ -77,11 +77,17 @@ func ProvideJWTService(cfg config.Config) (authapp.JWTService, error) {
 	// Normalize to match discovery handlers (which trim trailing slashes).
 	issuer = strings.TrimRight(issuer, "/")
 
-	return authjwt.NewRSAJWTService(
-		authjwt.WithSigningKey(key),
-		authjwt.WithTokenTTL(defaultAccessTokenTTL),
-		authjwt.WithIssuer(issuer),
-	), nil
+	// The public key is kept beside the service so a sign-out can read an
+	// expired token this instance signed (see SignedClaimsIgnoringExpiry).
+	return &instanceJWTService{
+		RSAJWTService: authjwt.NewRSAJWTService(
+			authjwt.WithSigningKey(key),
+			authjwt.WithTokenTTL(defaultAccessTokenTTL),
+			authjwt.WithIssuer(issuer),
+		),
+		publicKey:    &key.PublicKey,
+		successorKey: nativeSuccessorKeyFor(key),
+	}, nil
 }
 
 // TokensDieOnRestart reports whether the service ProvideJWTService builds for
