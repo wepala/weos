@@ -139,9 +139,11 @@ func runAccountAuditMembers(cmd *cobra.Command, _ []string) error {
 }
 
 // sqliteFileMissing reports the file a SQLite DSN names when that file does not
-// exist. A Postgres DSN and an in-memory database are never missing.
+// exist. A Postgres DSN and an in-memory database are never missing. In-memory
+// is judged as the read-only dialector judges it, so a file whose name only
+// contains ":memory:" or "mode=memory" is still checked.
 func sqliteFileMissing(dsn string) (string, bool) {
-	if config.IsPostgresDSN(dsn) || strings.Contains(dsn, ":memory:") || strings.Contains(dsn, "mode=memory") {
+	if config.IsPostgresDSN(dsn) || gormdb.IsSQLiteMemoryDSN(dsn) {
 		return "", false
 	}
 	path := strings.TrimPrefix(dsn, "file:")
