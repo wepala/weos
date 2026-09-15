@@ -264,8 +264,14 @@ func (h *PasswordAuthHandler) Login(c echo.Context) error {
 // hour. A revocation that cannot be written answers 503 before
 // anything is cleared, so the app signs out again rather than keep a refresh
 // token it believes is gone.
+//
+// A sign-out that presents a bearer token, a refresh token or "everywhere"
+// says in its answer what it did to the app's sessions: app_session is ended,
+// ended_everywhere or not_identified, and code says what it did not do
+// (wm-ehtnq). A cookie-only sign-out answers exactly as it always did.
 func (h *PasswordAuthHandler) Logout(c echo.Context, oauthLogout http.HandlerFunc) error {
-	if err := h.endNativeSessions(c); err != nil {
+	did, err := h.endNativeSessions(c)
+	if err != nil {
 		h.cfg.Logger.Error(c.Request().Context(), "sign-out: could not revoke the person's native refresh tokens", "error", err)
 		return renewalUnavailable(c, "could not end the app's session; sign out again")
 	}
@@ -279,8 +285,13 @@ func (h *PasswordAuthHandler) Logout(c echo.Context, oauthLogout http.HandlerFun
 		Secure:   h.cfg.SecureCookies,
 		SameSite: http.SameSiteLaxMode,
 	})
-	oauthLogout(w, c.Request())
-	return nil
+	if did.AppSession == "" {
+		oauthLogout(w, c.Request())
+		return nil
+	}
+	recorded := &signOutRecorder{header: w.Header()}
+	oauthLogout(recorded, c.Request())
+	return answerNativeSignOut(c, recorded, did)
 }
 
 func (h *PasswordAuthHandler) completeAuth(

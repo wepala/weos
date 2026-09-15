@@ -236,38 +236,65 @@ type nativeSessionBody struct {
 	Everywhere   bool   `json:"everywhere"`
 }
 
+// Codes a native sign-out's answer carries when it did not do all it was asked
+// (wm-ehtnq). The sign-out itself still succeeded for the browser session.
+const (
+	// CodeAppSessionNotIdentified: the request presented a credential, but no
+	// native session could be identified from it, so none was ended. An app
+	// holding a refresh token signs out again with it in the body.
+	CodeAppSessionNotIdentified = "app_session_not_identified"
+	// CodeSignOutEverywhereRefused: "everywhere":true was asked without a live
+	// credential. The device's own session was still ended.
+	CodeSignOutEverywhereRefused = "sign_out_everywhere_refused"
+)
+
+// What a native sign-out's answer says, in app_session, it did to the app's
+// sessions.
+const (
+	appSessionEnded           = "ended"
+	appSessionEndedEverywhere = "ended_everywhere"
+	appSessionNotIdentified   = "not_identified"
+)
+
+// nativeSignOut is what a native sign-out did, as its answer says it. The zero
+// value is a sign-out that presented no app credential — a browser's — whose
+// answer says nothing about app sessions.
+type nativeSignOut struct {
+	AppSession string
+	Code       string
+}
+
 // endNativeSessions ends the native sessions a sign-out names (wm-utb5c).
 //
 // By default that is one session, the device's own: the refresh token family
 // of the refresh token in the JSON body, when it is a native one, and the
-// family the bearer token names, when it validates and is not a connector's.
-// A refresh token that can no longer renew — spent, revoked or expired — still
-// ends its own family, as a renewal with a spent one does, and nothing else.
+// family the bearer token names, when this instance signed it and it is not a
+// connector's — expired or not (wm-ehtnq). A refresh token that can no longer
+// renew — spent, revoked or expired — still ends its own family, as a renewal
+// with a spent one does, and nothing else.
 //
 // {"everywhere":true} ends every native session of the person, on every device
 // and in every account, and only with a live credential: a refresh token that
-// can still renew, or a bearer token that validates. Otherwise it ends only
-// what the default would. A request that names nothing — a browser's, with
-// only its cookie — ends nothing.
-func (h *PasswordAuthHandler) endNativeSessions(c echo.Context) error {
-	if h.cfg.RefreshTokens == nil {
-		return nil
+// can still renew, or a bearer token that validates now. Otherwise it ends only
+// what the default would, and says everywhere was refused. A request that
+// presents no credential — a browser's, with only its cookie — ends nothing and
+// says nothing.
+func (h *PasswordAuthHandler) endNativeSessions(c echo.Context) (nativeSignOut, error) {
+	body, _ := readNativeSessionBody(c)
+	bearer := bearerToken(c.Request())
+	if h.cfg.RefreshTokens == nil || (bearer == "" && body.RefreshToken == "" && !body.Everywhere) {
+		return nativeSignOut{}, nil
 	}
 	ctx := c.Request().Context()
-	body, _ := readNativeSessionBody(c)
 	families := map[string]struct{}{}
 	everywhere := map[string]struct{}{}
 
-	if token := bearerToken(c.Request()); token != "" && h.cfg.JWTService != nil {
-		// A token that does not validate names nothing here, and sign-out still
-		// ends what it can. A connector's token is not the app's: it does not
-		// sign the person out of their app.
-		claims, err := h.cfg.JWTService.ValidateToken(ctx, token)
-		if err == nil && claims.AgentID != "" && !weosoauth.IssuedToConnector(claims) {
+	if bearer != "" {
+		if claims, live := h.signOutBearer(c, bearer); claims != nil {
 			if family := weosoauth.NativeSessionOf(claims); family != "" {
 				families[family] = struct{}{}
 			}
-			if body.Everywhere {
+			if body.Everywhere && live {
 				everywhere[claims.AgentID] = struct{}{}
 			}
 		}
@@ -283,21 +310,106 @@ func (h *PasswordAuthHandler) endNativeSessions(c echo.Context) error {
 				}
 			}
 		case !errors.Is(err, weosoauth.ErrNotFound):
-			return err
+			return nativeSignOut{}, err
 		}
 	}
 
 	for agentID := range everywhere {
 		if err := h.cfg.RefreshTokens.RevokeForAgent(ctx, agentID, weosoauth.NativeClientID); err != nil {
-			return err
+			return nativeSignOut{}, err
 		}
 	}
 	for family := range families {
 		if err := h.cfg.RefreshTokens.RevokeFamily(ctx, family); err != nil {
-			return err
+			return nativeSignOut{}, err
 		}
 	}
-	return nil
+
+	var did nativeSignOut
+	switch {
+	case len(everywhere) > 0:
+		did.AppSession = appSessionEndedEverywhere
+	case len(families) > 0:
+		did.AppSession = appSessionEnded
+	default:
+		did.AppSession, did.Code = appSessionNotIdentified, CodeAppSessionNotIdentified
+	}
+	if body.Everywhere && len(everywhere) == 0 && did.Code == "" {
+		did.Code = CodeSignOutEverywhereRefused
+	}
+	return did, nil
+}
+
+// signOutBearer reads the bearer token a sign-out presents: its claims, and
+// whether it is live, validating now. A token this instance signed whose hour
+// has passed still names its session, and is not live. A connector's token, a
+// token whose signature does not verify, and a token naming nobody name
+// nothing.
+func (h *PasswordAuthHandler) signOutBearer(c echo.Context, token string) (_ *authapp.PericarpClaims, live bool) {
+	if h.cfg.JWTService == nil {
+		return nil, false
+	}
+	claims, err := h.cfg.JWTService.ValidateToken(c.Request().Context(), token)
+	live = err == nil
+	if errors.Is(err, authapp.ErrTokenExpired) {
+		claims, err = weosoauth.SignedClaimsIgnoringExpiry(h.cfg.JWTService, token)
+	}
+	if err != nil || claims == nil || claims.AgentID == "" || weosoauth.IssuedToConnector(claims) {
+		return nil, false
+	}
+	return claims, live
+}
+
+// signOutRecorder holds pericarp's sign-out answer so what happened to the
+// app's session can be added to it. Headers — the cookies the sign-out clears
+// — go straight to the response.
+type signOutRecorder struct {
+	header http.Header
+	status int
+	body   bytes.Buffer
+}
+
+func (r *signOutRecorder) Header() http.Header { return r.header }
+
+func (r *signOutRecorder) WriteHeader(status int) {
+	if r.status == 0 {
+		r.status = status
+	}
+}
+
+func (r *signOutRecorder) Write(p []byte) (int, error) {
+	if r.status == 0 {
+		r.status = http.StatusOK
+	}
+	return r.body.Write(p)
+}
+
+// answerNativeSignOut sends pericarp's recorded sign-out answer with app_session
+// and code added. The route's answer is pericarp's flat object, not the
+// envelope, as it has always been; the fields are added to that object so the
+// route keeps one shape. An answer that is not a 200 JSON object is sent as it
+// was.
+func answerNativeSignOut(c echo.Context, recorded *signOutRecorder, did nativeSignOut) error {
+	status := recorded.status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	answer := map[string]any{}
+	if recorded.body.Len() > 0 {
+		if err := json.Unmarshal(recorded.body.Bytes(), &answer); err != nil {
+			answer = nil
+		}
+	}
+	if status != http.StatusOK || answer == nil {
+		c.Response().WriteHeader(status)
+		_, err := c.Response().Write(recorded.body.Bytes())
+		return err
+	}
+	answer["app_session"] = did.AppSession
+	if did.Code != "" {
+		answer["code"] = did.Code
+	}
+	return c.JSON(status, answer)
 }
 
 // readRefreshToken reads refresh_token from a JSON request body of at most
