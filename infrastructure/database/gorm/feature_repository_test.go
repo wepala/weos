@@ -317,10 +317,10 @@ func TestAccountMemberQueryListsByRole(t *testing.T) {
 	}
 }
 
-// wm-govvg. The users routes list an account's people from this query, so it
-// must return the members of the one account asked about, with their roles,
-// and never a member of another account.
-func TestAccountMemberQueryListsTheMembersOfOneAccount(t *testing.T) {
+// wm-govvg. The users routes list an account's people from the member
+// directory, so it must return the members of the one account asked about,
+// with their roles, and never a member of another account.
+func TestAccountMemberDirectoryListsTheMembersOfOneAccount(t *testing.T) {
 	ctx := context.Background()
 	db := newFeatureTestDB(t)
 	if err := db.Exec(`CREATE TABLE account_members (
@@ -342,7 +342,7 @@ func TestAccountMemberQueryListsTheMembersOfOneAccount(t *testing.T) {
 		}
 	}
 
-	q := ProvideAccountMemberQuery(db)
+	q := ProvideAccountMemberDirectory(db)
 	got, err := q.ListMembers(ctx, "acct-harbor")
 	if err != nil {
 		t.Fatalf("ListMembers: %v", err)

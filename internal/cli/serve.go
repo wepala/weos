@@ -147,6 +147,7 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	var erasureService *application.AccountErasureService
 	var erasureLocks repositories.AccountErasureLocks
 	var memberQuery repositories.AccountMemberQuery
+	var memberDirectory repositories.AccountMemberDirectory
 	var resourceRepo repositories.ResourceRepository
 
 	registry := presets.NewDefaultRegistry()
@@ -186,7 +187,7 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 		fx.Populate(&db),
 		fx.Populate(&presetHandlers),
 		fx.Populate(&notificationService),
-		fx.Populate(&erasureService, &erasureLocks, &memberQuery, &resourceRepo),
+		fx.Populate(&erasureService, &erasureLocks, &memberQuery, &memberDirectory, &resourceRepo),
 	}
 	fxOpts = append(fxOpts, extra...)
 	app := fx.New(fxOpts...)
@@ -553,7 +554,7 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 		AgentRepo:      agentRepo,
 		CredentialRepo: credentialRepo,
 		AccountRepo:    accountRepo,
-		Members:        memberQuery,
+		Members:        memberDirectory,
 		Features:       featureInvalidator,
 		Logger:         logger,
 	})

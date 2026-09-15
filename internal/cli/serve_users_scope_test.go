@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
 	"github.com/wepala/weos/v3/internal/config"
 
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
@@ -409,6 +410,19 @@ func TestServe_UsersRoutesStillServeAnOwnerForTheMembersOfTheirAccount(t *testin
 	}
 	if role := s.roleIn(t, s.member.ownAccountID, s.member.agentID); role != authentities.RoleOwner {
 		t.Errorf("after the change the member holds %q in their own account, want owner (unchanged)", role)
+	}
+}
+
+// wm-9wslp. The users handler lists people through the member directory the
+// module provides, not through the published AccountMemberQuery, so serve's
+// graph must hold one.
+func TestServe_ProvidesTheMemberDirectoryTheUsersRoutesList(t *testing.T) {
+	var directory repositories.AccountMemberDirectory
+	cfg := config.Default()
+	cfg.SessionSecret = bootOwnSecret
+	bootServe(t, cfg, fx.Populate(&directory))
+	if directory == nil {
+		t.Fatal("serve's graph provides no AccountMemberDirectory")
 	}
 }
 

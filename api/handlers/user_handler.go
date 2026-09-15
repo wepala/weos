@@ -37,7 +37,7 @@ type UserHandler struct {
 	agentRepo      authrepos.AgentRepository
 	credentialRepo authrepos.CredentialRepository
 	accountRepo    authrepos.AccountRepository
-	members        repositories.AccountMemberQuery
+	members        repositories.AccountMemberDirectory
 	features       repositories.FeatureCacheInvalidator
 	logger         entities.Logger
 }
@@ -47,7 +47,7 @@ type UserHandlerConfig struct {
 	CredentialRepo authrepos.CredentialRepository
 	AccountRepo    authrepos.AccountRepository
 	// Members lists the people of the caller's account. Required.
-	Members repositories.AccountMemberQuery
+	Members repositories.AccountMemberDirectory
 	// Features drops a member's resolved feature set when their role changes.
 	// Optional: a handler constructed without one simply does not invalidate,
 	// which keeps existing test constructions working.

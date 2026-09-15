@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/wepala/weos/v3/domain/entities"
-	"github.com/wepala/weos/v3/domain/repositories"
 )
 
 // recordingInvalidator records what was invalidated, so each write can be
@@ -49,22 +48,6 @@ func (f fakeMembers) ListMemberIDsByRole(_ context.Context, accountID, roleID st
 		return nil, f.err
 	}
 	return f.byRole[accountID+"|"+roleID], nil
-}
-
-func (f fakeMembers) ListMembers(_ context.Context, accountID string) ([]repositories.AccountMembership, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	var out []repositories.AccountMembership
-	for key, ids := range f.byRole {
-		if role, ok := strings.CutPrefix(key, accountID+"|"); ok {
-			for _, id := range ids {
-				out = append(out, repositories.AccountMembership{AgentID: id, RoleID: role})
-			}
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].AgentID < out[j].AgentID })
-	return out, nil
 }
 
 func (f fakeMembers) CountMembers(_ context.Context, accountID string) (int, error) {
