@@ -3,9 +3,14 @@ package middleware
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
+
+	"github.com/wepala/weos/v3/domain/entities"
 
 	"github.com/akeemphilbert/pericarp/pkg/auth"
 	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
@@ -69,6 +74,13 @@ func TestImpersonation_StaysInTheAccountItStartedIn(t *testing.T) {
 // started by "ops" for "counsel" that records startedIn as its account.
 func impersonateIn(t *testing.T, caller, acting, startedIn string, book accountBook, locks lockSet) impersonated {
 	t.Helper()
+	return impersonateFrom(t, caller, acting, startedIn, book, locks, nopLogger{}, nil)
+}
+
+// impersonateFrom is impersonateIn logged to logger, with prepare, when set,
+// applied to the request before it is sent.
+func impersonateFrom(t *testing.T, caller, acting, startedIn string, book accountBook, locks lockSet, logger entities.Logger, prepare func(*http.Request)) impersonated {
+	t.Helper()
 	store := sessions.NewCookieStore([]byte("test-secret"))
 	e := echo.New()
 	var got impersonated
@@ -83,7 +95,7 @@ func impersonateIn(t *testing.T, caller, acting, startedIn string, book accountB
 		got.seen = auth.AgentFromCtx(c.Request().Context())
 		got.impersonator = ImpersonatorFromCtx(c.Request().Context())
 		return c.String(http.StatusOK, "served")
-	}, signedIn, Impersonation(store, book, locks, nopLogger{}))
+	}, signedIn, Impersonation(store, book, locks, logger))
 
 	// Mint the impersonation cookie the way the start route does.
 	rec := httptest.NewRecorder()
@@ -98,6 +110,9 @@ func impersonateIn(t *testing.T, caller, acting, startedIn string, book accountB
 	req = httptest.NewRequest(http.MethodGet, "/api/thing", nil)
 	for _, c := range rec.Result().Cookies() {
 		req.AddCookie(c)
+	}
+	if prepare != nil {
+		prepare(req)
 	}
 	got.rec = httptest.NewRecorder()
 	e.ServeHTTP(got.rec, req)
@@ -288,5 +303,95 @@ func TestMayImpersonate(t *testing.T) {
 				t.Fatalf("MayImpersonate = %v, %v; want %v", got, err, c.want)
 			}
 		})
+	}
+}
+
+// recordedLog records every line the middleware logs.
+type recordedLog struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (l *recordedLog) add(level, msg string, fields []any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.lines = append(l.lines, fmt.Sprintf("%s: %s %v", level, msg, fields))
+}
+
+func (l *recordedLog) Debug(_ context.Context, m string, f ...any) { l.add("debug", m, f) }
+func (l *recordedLog) Info(_ context.Context, m string, f ...any)  { l.add("info", m, f) }
+func (l *recordedLog) Warn(_ context.Context, m string, f ...any)  { l.add("warn", m, f) }
+func (l *recordedLog) Error(_ context.Context, m string, f ...any) { l.add("error", m, f) }
+
+func (l *recordedLog) mentioning(s string) []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var out []string
+	for _, line := range l.lines {
+		if strings.Contains(line, s) {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+// sentThroughAProxyHeader is a request from 192.0.2.10 whose forwarding headers
+// claim other addresses. serve configures no trusted proxy, so any caller can
+// write those headers.
+func sentThroughAProxyHeader(r *http.Request) {
+	r.RemoteAddr = "192.0.2.10:52814"
+	r.Header.Set("X-Forwarded-For", "203.0.113.9")
+	r.Header.Set("X-Real-IP", "198.51.100.7")
+}
+
+// wm-ptcuk, Copilot review 5204289188. The middleware's impersonation lines
+// record the address of the connection's peer, not an address a forwarding
+// header claims, so a caller cannot choose the address recorded against them.
+func TestImpersonation_RecordsTheConnectionPeerNotAForwardedAddress(t *testing.T) {
+	cases := []struct {
+		name, caller, acting, line string
+		book                       accountBook
+	}{
+		{"another person is signed in", "broker", "acct-harbor", "another person is signed in",
+			harborBook(t, map[string]string{"counsel|acct-harbor": authentities.RoleMember})},
+		{"the caller acts in another account", "ops", "acct-cedar", "acts in another account",
+			harborBook(t, map[string]string{"counsel|acct-harbor": authentities.RoleMember})},
+		{"the person is not a member", "ops", "acct-harbor", "is not a member of the caller's account",
+			harborBook(t, nil)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			logs := &recordedLog{}
+			impersonateFrom(t, tc.caller, tc.acting, "acct-harbor", tc.book, lockSet{}, logs, sentThroughAProxyHeader)
+			lines := logs.mentioning(tc.line)
+			if len(lines) != 1 {
+				t.Fatalf("want one line mentioning %q, got %q", tc.line, lines)
+			}
+			if !strings.Contains(lines[0], "ip 192.0.2.10") {
+				t.Errorf("the line %q does not record the connection's peer 192.0.2.10", lines[0])
+			}
+			for _, claimed := range []string{"203.0.113.9", "198.51.100.7"} {
+				if strings.Contains(lines[0], claimed) {
+					t.Errorf("the line %q records %s, an address a forwarding header claimed", lines[0], claimed)
+				}
+			}
+		})
+	}
+}
+
+func TestConnectionPeer(t *testing.T) {
+	cases := []struct{ remote, want string }{
+		{"192.0.2.10:52814", "192.0.2.10"},
+		{"[2001:db8::7]:443", "2001:db8::7"},
+		{"192.0.2.10", "192.0.2.10"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.RemoteAddr = c.remote
+		r.Header.Set("X-Forwarded-For", "203.0.113.9")
+		if got := ConnectionPeer(r); got != c.want {
+			t.Errorf("ConnectionPeer(%q) = %q, want %q", c.remote, got, c.want)
+		}
 	}
 }

@@ -18,6 +18,7 @@ package middleware
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 
 	"github.com/wepala/weos/v3/domain/entities"
@@ -155,7 +156,7 @@ func Impersonation(
 			if currentIdentity.AgentID != realAgentID {
 				logger.Warn(c.Request().Context(), "impersonation cookie expired: another person is signed in",
 					"agent_id", currentIdentity.AgentID, "cookie_admin_agent_id", realAgentID,
-					"target_agent_id", impersonatedAgentID, "ip", c.RealIP())
+					"target_agent_id", impersonatedAgentID, "ip", ConnectionPeer(c.Request()))
 				ExpireImpersonationCookie(c.Response())
 				return next(c)
 			}
@@ -173,7 +174,7 @@ func Impersonation(
 			if startedIn == "" || accountID != startedIn {
 				logger.Warn(ctx, "impersonation refused: the caller acts in another account than the one the impersonation started in",
 					"account_id", accountID, "started_in_account_id", startedIn,
-					"admin_agent_id", realAgentID, "target_agent_id", impersonatedAgentID, "ip", c.RealIP())
+					"admin_agent_id", realAgentID, "target_agent_id", impersonatedAgentID, "ip", ConnectionPeer(c.Request()))
 				return refuseImpersonation(c)
 			}
 			allowed, err := MayImpersonate(ctx, accountRepo, startedIn, realAgentID, impersonatedAgentID)
@@ -184,7 +185,7 @@ func Impersonation(
 			}
 			if !allowed {
 				logger.Warn(ctx, "impersonation refused: the person is not a member of the caller's account, or the caller's role there does not allow it",
-					"account_id", startedIn, "admin_agent_id", realAgentID, "target_agent_id", impersonatedAgentID, "ip", c.RealIP())
+					"account_id", startedIn, "admin_agent_id", realAgentID, "target_agent_id", impersonatedAgentID, "ip", ConnectionPeer(c.Request()))
 				return refuseImpersonation(c)
 			}
 
@@ -285,4 +286,19 @@ func EndHeldImpersonation() echo.MiddlewareFunc {
 // could not be read, with the answer the bearer path gives.
 func unreadableAccountState(c echo.Context) error {
 	return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "could not read the account's state"})
+}
+
+// ConnectionPeer is the address of the peer the request's connection came from,
+// without its port. The impersonation audit lines record it rather than Echo's
+// RealIP: with no IPExtractor configured, RealIP takes X-Forwarded-For or
+// X-Real-IP first, and serve configures no trusted proxy, so any caller could
+// choose the address recorded against them (wm-ptcuk). Behind a proxy this is
+// the proxy's address, which is true, where a forwarded one might not be.
+func ConnectionPeer(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		// RemoteAddr carries no port; it is already the peer's address.
+		return r.RemoteAddr
+	}
+	return host
 }
