@@ -228,30 +228,41 @@ func (h *PasswordAuthHandler) Refresh(c echo.Context) error {
 	next := graceRefresh
 	if next.Raw == "" {
 		rotated, err := weosoauth.RotateNativeRefreshToken(ctx, tokens, presented, raw, h.cfg.RefreshSuccessorKey)
-		switch {
-		case err == nil:
+		if err == nil {
 			next = rotated
-		case errors.Is(err, weosoauth.ErrNotFound):
-			// Another renewal with the same refresh token spent it a moment ago.
-			// Inside the grace window that renewal's successor is this one's too;
-			// otherwise the token is refused, and the family is left as it is.
+		} else {
+			// The rotation did not spend the token for this renewal: another
+			// renewal with the same token spent it a moment ago, or the store
+			// failed — a busy or locked database — and rolled back. The token is
+			// read again to tell which, and the answer is never 500, which an app
+			// would retry with a token it cannot tell was spent (wm-tu180).
 			again, lookupErr := tokens.FindByTokenHash(ctx, weosoauth.HashToken(raw))
+			switch {
+			case errors.Is(lookupErr, weosoauth.ErrNotFound):
+				return refuseRenewal(c, CodeInvalidRefreshToken)
+			case lookupErr == nil && !again.Revoked:
+				// Nobody spent it, so nothing was spent: the same renewal can be
+				// sent again.
+				h.cfg.Logger.Error(ctx, "session renewal: rotation failed and nothing was spent",
+					"token", presented.ID, "error", err)
+				return renewalUnavailable(c, "could not renew the session")
+			}
+			// Another renewal spent it. Inside the grace window that renewal's
+			// successor is this one's too; otherwise the token is refused, and
+			// the family is left as it is.
 			inGrace := false
 			if lookupErr == nil {
 				_, next, inGrace, lookupErr = weosoauth.NativeRefreshSuccessorInGrace(ctx, tokens, again, raw,
 					h.cfg.RefreshSuccessorKey, now, weosoauth.NativeRefreshGraceWindow)
 			}
 			if lookupErr != nil {
-				h.cfg.Logger.Error(ctx, "session renewal: successor lookup after a concurrent renewal failed",
+				h.cfg.Logger.Error(ctx, "session renewal: reading the refresh token after its rotation failed did not work",
 					"token", presented.ID, "error", lookupErr)
 				return renewalUnavailable(c, "could not read the refresh token")
 			}
 			if !inGrace {
 				return refuseRenewal(c, CodeInvalidRefreshToken)
 			}
-		default:
-			h.cfg.Logger.Error(ctx, "session renewal: rotation failed", "token", presented.ID, "error", err)
-			return respondError(c, http.StatusInternalServerError, "failed to renew the session")
 		}
 	}
 
