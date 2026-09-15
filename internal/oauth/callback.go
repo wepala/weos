@@ -126,12 +126,24 @@ func Callback(
 				map[string]string{"error": "server_error"})
 		}
 
+		// Refuse an email the provider has not verified BEFORE resolving the
+		// agent: FindOrCreateAgent writes a google or apple credential, and owner
+		// binding trusts that credential's email (see
+		// docs/decisions/trusted-issuer-login-assertion.md). HasUnverifiedEmail is
+		// false for a provider that sends no email_verified claim, so only Google
+		// and Apple sign-ins are checked. It runs before the allowlist, so the
+		// allowlist only ever compares an email the provider verified.
+		if authResult.UserInfo.HasUnverifiedEmail() {
+			logger.Warn(ctx, "oauth callback: identity provider has not verified the email address",
+				"provider", authResult.UserInfo.Provider,
+				"provider_user_id", authResult.UserInfo.ProviderUserID)
+			return c.JSON(http.StatusForbidden,
+				map[string]string{"error": "access_denied",
+					"error_description": "the identity provider has not verified this email address"})
+		}
+
 		// Enforce the identity allowlist (when configured) BEFORE resolving the
-		// agent, so a non-permitted user never gets a persisted account. The email
-		// comes from the provider's userinfo endpoint (a server-to-server call),
-		// so we trust Google's consumer-account invariant that this address is
-		// owned by the authenticated user. If a provider without that invariant is
-		// ever added behind this gate, also require an email_verified claim.
+		// agent, so a non-permitted user never gets a persisted account.
 		if len(allowedEmails) > 0 {
 			email := strings.ToLower(strings.TrimSpace(authResult.UserInfo.Email))
 			if !emailAllowed(email, allowedEmails) {
