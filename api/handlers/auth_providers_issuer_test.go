@@ -91,8 +91,9 @@ func TestAuthProviders_TrustedIssuerOffersTheDoor(t *testing.T) {
 	assertProviderNames(t, rec, []string{"issuer"})
 
 	entry := decodeProviderEntries(t, rec.Body.Bytes())[0]
-	if got := entryKeys(entry); len(got) != 3 || got[0] != "accepted_provider_keys" || got[1] != "login_url" || got[2] != "name" {
-		t.Fatalf("issuer entry carries %v, want exactly accepted_provider_keys, login_url and name", got)
+	want := []string{"accepted_provider_keys", "joins_door_and_google_apple_by_email", "login_url", "name"}
+	if got := entryKeys(entry); !slices.Equal(got, want) {
+		t.Fatalf("issuer entry carries %v, want exactly %v", got, want)
 	}
 	if got := fieldText(t, entry, "login_url"); got != "https://money.weos.cloud/door/start" {
 		t.Fatalf("login_url = %q, want https://money.weos.cloud/door/start", got)
@@ -125,6 +126,31 @@ func TestAuthProviders_TrustedIssuerListsTheProviderKeysAnAssertionMayName(t *te
 	sort.Strings(want)
 	if !slices.Equal(got, want) {
 		t.Fatalf("accepted_provider_keys = %v, want %v: the keys the verifier accepts, sorted", got, want)
+	}
+}
+
+// The issuer entry says that this core joins a door identity and a Google or
+// Apple identity with the same email into one person. An older core creates a
+// second, empty person instead, so an issuer offers a second sign-in method to
+// an instance only when the entry says this. The field is true when present;
+// an older core leaves it out.
+func TestAuthProviders_TrustedIssuerSaysItJoinsADoorAndAGoogleOrAppleIdentityByEmail(t *testing.T) {
+	t.Parallel()
+	cfg := config.Config{SessionSecret: instanceSessionSecret, TrustedIssuer: config.TrustedIssuerConfig{
+		Issuer: doorIssuer, JWKSURL: doorKeyList, Audience: doorAudience,
+	}}
+	rec := getProviders(newIssuerBootServer(&cfg))
+	entry := issuerEntry(t, decodeProviderEntries(t, rec.Body.Bytes()))
+	if entry == nil {
+		t.Fatalf("no issuer provider offered: %s", rec.Body.String())
+	}
+	raw, ok := entry["joins_door_and_google_apple_by_email"]
+	if !ok {
+		t.Fatalf("issuer entry has no joins_door_and_google_apple_by_email: %s", rec.Body.String())
+	}
+	var joins bool
+	if err := json.Unmarshal(raw, &joins); err != nil || !joins {
+		t.Fatalf("joins_door_and_google_apple_by_email = %s, want true (%v)", raw, err)
 	}
 }
 

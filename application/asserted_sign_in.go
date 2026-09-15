@@ -60,16 +60,37 @@ var ErrUnprovenOwner = errors.New("credentials hold the asserted email, but none
 const ReasonUnprovenOwner = "unproven-owner"
 
 // ownerProvingProviders are the credential providers whose email says who owns
-// it, because the provider verified the address before the credential was
-// written. The list is explicit on purpose: a provider string that is not on
-// it — invite, netsuite, door, a development provider, or one a downstream
-// binary adds — never proves an owner. An invite credential's email is whatever
-// the inviter and the accepter typed, NetSuite reports an email its account
-// administrator sets, with no verification flag, and the door proves control of
-// the mailbox only once, at sign-up (mini-me front-door decision 3C).
+// it, whatever identity arrives, because the provider verified the address
+// before the credential was written. The list is explicit on purpose: a
+// provider string that is not on it — invite, netsuite, a development
+// provider, or one a downstream binary adds — never proves an owner. An invite
+// credential's email is whatever the inviter and the accepter typed, and
+// NetSuite reports an email its account administrator sets, with no
+// verification flag. A password credential proves an owner only under the
+// operator's opt-in, and a door credential only for the arriving identities
+// doorCredentialProvesOwnerFor names (see provesOwnership).
 var ownerProvingProviders = map[string]bool{
-	"google": true,
-	"apple":  true,
+	OAuthProviderGoogle: true,
+	OAuthProviderApple:  true,
+}
+
+// doorCredentialProvesOwnerFor are the providers of an arriving identity for
+// which a door credential proves who owns its email. A door credential means
+// the issuer vouches for its email: the mini-me door proves the address with a
+// code sent to the mailbox when a person signs up, and the door's operator also
+// writes demo people and owner people directly, with no code. An issuer must
+// only write door credentials for addresses it controls or has proved. On that
+// word, a door password identity and a Google or Apple identity that hold the
+// same email are one person, in either order (decision wm-vvi6t). A door credential proves nothing
+// for another door identity: the door sends one subject for each person it
+// holds, so a second door subject for an email comes only from an operator
+// re-creating the person, and that person is not joined to the first. While an
+// active door credential of an active person holds the email, ownerOf refuses
+// the second door subject as ErrUnprovenOwner, even when that person also
+// holds a google or apple credential that proves the email.
+var doorCredentialProvesOwnerFor = map[string]bool{
+	OAuthProviderGoogle: true,
+	OAuthProviderApple:  true,
 }
 
 // AssertedIdentity is the person a trusted issuer's accepted assertion names.
@@ -114,11 +135,22 @@ type AssertedSignInConfig struct {
 	// event could not be committed (see link). Optional; without it such a row
 	// is left behind, and a repair line names it.
 	CredentialRows repositories.CredentialRowDeleter
-	// LinkByEmail turns owner binding on. It is set exactly when the instance
-	// has an identity allowlist (OAUTH_ALLOWED_EMAILS): an allowlisted
-	// instance has named its owners, so an email there says who a person is;
-	// an open instance lets anyone in, so an email there proves nothing.
-	LinkByEmail bool
+	// Lock serializes the sign-ins for one identity, and for one email, across
+	// every process that shares the database, from the owner look-up through the
+	// link or the create. The application's AuthenticationService holds the same
+	// lock around the OAuth callbacks' FindOrCreateAgent (see
+	// newAccountSignalService). Optional; without it assertions are serialized
+	// in process only, and two replicas that both find no holder for an email
+	// each create a person.
+	Lock repositories.SignInLock
+	// Allowlisted says the instance has an identity allowlist
+	// (OAUTH_ALLOWED_EMAILS). The allowlist is enforced before SignIn runs.
+	// Owner binding runs whether or not it is set: only a credential whose
+	// email was proved can say who owns it (see provesOwnership), which is as
+	// true on an instance with no allowlist, as the instances behind the door
+	// run (decision wm-vvi6t). Allowlisted decides only how a person a sign-in
+	// creates is logged (see logCreated).
+	Allowlisted bool
 	// PasswordOwnersProven lets a password credential prove who owns its
 	// email (TRUSTED_ISSUER_LINK_PASSWORD_OWNERS). Off by default: nothing
 	// verifies a password credential's email, so while it is off a password
@@ -126,7 +158,8 @@ type AssertedSignInConfig struct {
 	// registered the owner's email would be handed the owner's identity and
 	// keep the password. An operator turns it on for an instance whose
 	// password accounts they made themselves. Credentials from google and
-	// apple prove an owner either way.
+	// apple, and a door credential for a google or apple identity, prove an
+	// owner either way.
 	PasswordOwnersProven bool
 	// Logger receives one line for each link, each person a sign-in creates,
 	// each ambiguous-owner or unproven-owner refusal, and each link that could
@@ -136,16 +169,16 @@ type AssertedSignInConfig struct {
 
 // AssertedSignIn decides whom a trusted issuer's accepted assertion signs in.
 // It resolves the person by (provider, subject) the way the OAuth callback
-// does, through FindOrCreateAgent. On an allowlisted instance, an identity it
-// has never seen is linked to the one person already holding a credential for
-// the same email instead of becoming a second person. See
-// docs/decisions/trusted-issuer-login-assertion.md, "Owner binding".
+// does, through FindOrCreateAgent. An identity it has never seen is linked to
+// the one person already holding a credential that proves the same email,
+// instead of becoming a second person, whether or not the instance has an
+// allowlist. See docs/decisions/trusted-issuer-login-assertion.md, "Owner
+// binding".
 //
-// It is safe for concurrent use. Sign-ins for one identity, and on an
-// allowlisted instance sign-ins for one email, are serialized in process, so
-// two first sign-ins arriving together leave one person. The locks are held
-// per process: replicas sharing a database still race, and the store's unique
-// (provider, provider_user_id) index is what stops a second credential there.
+// It is safe for concurrent use. Sign-ins for one identity, and sign-ins for
+// one email, are serialized in process, and across the processes sharing the
+// database when a Lock is configured, so two first sign-ins arriving together
+// leave one person, on one replica or on two.
 type AssertedSignIn struct {
 	cfg        AssertedSignInConfig
 	identities keyedMutex
@@ -161,9 +194,9 @@ func NewAssertedSignIn(cfg AssertedSignInConfig) *AssertedSignIn {
 }
 
 // ProvideAssertedSignIn builds the AssertedSignIn the application wires, with
-// owner binding on exactly when the instance has an identity allowlist, and
+// Allowlisted set exactly when the instance has an identity allowlist, and
 // password credentials proving an owner exactly when the operator opted in
-// with TRUSTED_ISSUER_LINK_PASSWORD_OWNERS.
+// with TRUSTED_ISSUER_LINK_PASSWORD_OWNERS. Owner binding runs either way.
 func ProvideAssertedSignIn(params struct {
 	fx.In
 	Config         config.Config
@@ -174,6 +207,7 @@ func ProvideAssertedSignIn(params struct {
 	EventStore     esdomain.EventStore               `optional:"true"`
 	Dispatcher     *esdomain.EventDispatcher         `optional:"true"`
 	CredentialRows repositories.CredentialRowDeleter `optional:"true"`
+	Lock           repositories.SignInLock           `optional:"true"`
 	Logger         weosentities.Logger               `optional:"true"`
 }) *AssertedSignIn {
 	return NewAssertedSignIn(AssertedSignInConfig{
@@ -184,8 +218,9 @@ func ProvideAssertedSignIn(params struct {
 		EventStore:           params.EventStore,
 		Dispatcher:           params.Dispatcher,
 		CredentialRows:       params.CredentialRows,
+		Lock:                 params.Lock,
 		Logger:               params.Logger,
-		LinkByEmail:          len(params.Config.OAuth.AllowedEmails) > 0,
+		Allowlisted:          len(params.Config.OAuth.AllowedEmails) > 0,
 		PasswordOwnersProven: params.Config.TrustedIssuer.LinkPasswordOwners,
 	})
 }
@@ -194,13 +229,37 @@ func ProvideAssertedSignIn(params struct {
 func (s *AssertedSignIn) SignIn(ctx context.Context, id AssertedIdentity) (AssertedSignInResult, error) {
 	// Always the identity lock first and the email lock second, and never more
 	// than one of each, so two sign-ins can never wait on each other in a
-	// circle.
-	defer s.identities.lock(id.Provider + "\x00" + id.Subject)()
+	// circle. The in-process locks come before the cross-process ones, which
+	// take the same keys in the same order. A request that ends while it waits
+	// holds nothing and never reaches the owner look-up.
+	unlockIdentity, err := s.identities.lock(ctx, id.Provider+"\x00"+id.Subject)
+	if err != nil {
+		return AssertedSignInResult{}, fmt.Errorf("wait for the sign-in lock: %w", err)
+	}
+	defer unlockIdentity()
 	// The same fold the credential query compares under, so the email lock
 	// serializes exactly the sign-ins that could reach one owner.
 	email := repositories.FoldCredentialEmail(id.Email)
-	if s.cfg.LinkByEmail && email != "" {
-		defer s.emails.lock(email)()
+	if email != "" {
+		unlockEmail, err := s.emails.lock(ctx, email)
+		if err != nil {
+			return AssertedSignInResult{}, fmt.Errorf("wait for the sign-in lock: %w", err)
+		}
+		defer unlockEmail()
+	}
+	if s.cfg.Lock != nil {
+		keys := signInLockKeys(id.Provider, id.Subject, email)
+		// Held until SignIn returns, so another replica reads the owner look-up
+		// only after this sign-in's link or create is written.
+		release, err := s.cfg.Lock.Hold(ctx, keys...)
+		if err != nil {
+			return AssertedSignInResult{}, fmt.Errorf("hold the sign-in lock: %w", err)
+		}
+		defer release()
+		// The application's AuthenticationService takes the same keys around
+		// FindOrCreateAgent for the OAuth callbacks; below, it must not wait on
+		// the keys this sign-in already holds.
+		ctx = withSignInKeysHeld(ctx, keys)
 	}
 
 	existing, err := s.cfg.Credentials.FindByProvider(ctx, id.Provider, id.Subject)
@@ -208,7 +267,7 @@ func (s *AssertedSignIn) SignIn(ctx context.Context, id AssertedIdentity) (Asser
 		return AssertedSignInResult{}, fmt.Errorf("look up the credential for provider %s: %w", id.Provider, err)
 	}
 	known := existing != nil
-	if !known && s.cfg.LinkByEmail {
+	if !known && email != "" {
 		owner, err := s.ownerOf(ctx, id, email)
 		if err != nil {
 			return AssertedSignInResult{}, err
@@ -256,11 +315,56 @@ func (s *AssertedSignIn) SignIn(ctx context.Context, id AssertedIdentity) (Asser
 	}, nil
 }
 
+// signInLockKeys are the keys a sign-in for an identity holds on the SignInLock:
+// the identity first and the folded email second, the one order every holder
+// takes them in, so two sign-ins never wait on each other in a circle.
+func signInLockKeys(provider, subject, foldedEmail string) []string {
+	keys := []string{"identity\x00" + provider + "\x00" + subject}
+	if foldedEmail != "" {
+		keys = append(keys, "email\x00"+foldedEmail)
+	}
+	return keys
+}
+
+// heldSignInKeysCtxKey is the context key under which a holder of the SignInLock
+// records the keys it holds.
+type heldSignInKeysCtxKey struct{}
+
+// withSignInKeysHeld returns a context recording that its caller holds keys on
+// the SignInLock.
+func withSignInKeysHeld(ctx context.Context, keys []string) context.Context {
+	held := map[string]bool{}
+	if outer, ok := ctx.Value(heldSignInKeysCtxKey{}).(map[string]bool); ok {
+		for key := range outer {
+			held[key] = true
+		}
+	}
+	for _, key := range keys {
+		held[key] = true
+	}
+	return context.WithValue(ctx, heldSignInKeysCtxKey{}, held)
+}
+
+// signInKeysHeld reports whether ctx records that its caller holds every one of
+// keys on the SignInLock.
+func signInKeysHeld(ctx context.Context, keys []string) bool {
+	held, _ := ctx.Value(heldSignInKeysCtxKey{}).(map[string]bool)
+	for _, key := range keys {
+		if !held[key] {
+			return false
+		}
+	}
+	return true
+}
+
 // ownerOf returns the one person holding a credential for email, "" when no
 // credential holds it, ErrAmbiguousOwner when more than one person does, or
 // ErrUnprovenOwner when credentials hold it but none says who owns it. Only a
-// credential that provesOwnership counts, and only for a person who still
-// exists and is active: a person who is gone or turned off owns nothing.
+// credential that provesOwnership for the arriving identity counts, and only
+// for a person who still exists and is active: a person who is gone or turned
+// off owns nothing. A door identity also gets ErrUnprovenOwner when an active
+// door credential of an active person already holds the email, whatever other
+// credentials hold it.
 func (s *AssertedSignIn) ownerOf(ctx context.Context, id AssertedIdentity, email string) (string, error) {
 	matches, err := s.cfg.Emails.CredentialsByEmail(ctx, email)
 	if err != nil {
@@ -270,23 +374,56 @@ func (s *AssertedSignIn) ownerOf(ctx context.Context, id AssertedIdentity, email
 	counted := map[string]bool{}
 	held := map[string]bool{}
 	providers := map[string]bool{}
+	activePeople := map[string]bool{}
+	isActive := func(agentID string) (bool, error) {
+		if active, read := activePeople[agentID]; read {
+			return active, nil
+		}
+		agent, err := s.cfg.Agents.FindByID(ctx, agentID)
+		if err != nil {
+			return false, fmt.Errorf("read a person holding the asserted email: %w", err)
+		}
+		active := agent != nil && agent.Active()
+		activePeople[agentID] = active
+		return active, nil
+	}
+	// doorHeld is true when the arriving identity is a door identity and an
+	// active door credential of an active person already holds the email.
+	doorHeld := false
 	for _, m := range matches {
 		providers[m.Provider] = true
 		if !held[m.AgentID] {
 			held[m.AgentID] = true
 			holders = append(holders, m.AgentID)
 		}
-		if counted[m.AgentID] || !s.provesOwnership(m) {
+		if !doorHeld && id.Provider == OAuthProviderDoor && m.Provider == OAuthProviderDoor && m.Active {
+			active, err := isActive(m.AgentID)
+			if err != nil {
+				return "", err
+			}
+			doorHeld = active
+		}
+		if counted[m.AgentID] || !s.provesOwnership(m, id.Provider) {
 			continue
 		}
 		counted[m.AgentID] = true
-		agent, err := s.cfg.Agents.FindByID(ctx, m.AgentID)
+		active, err := isActive(m.AgentID)
 		if err != nil {
-			return "", fmt.Errorf("read a person holding the asserted email: %w", err)
+			return "", err
 		}
-		if agent != nil && agent.Active() {
+		if active {
 			owners = append(owners, m.AgentID)
 		}
+	}
+	if doorHeld {
+		// A second door subject for an email comes only from an operator
+		// re-creating the person at the door, and it is never joined to the
+		// first, whatever else the person holding the first one holds: a
+		// google credential beside it proves the email, not that the two door
+		// subjects are one person.
+		s.refuseUnproven(ctx, id, email, holders, providers,
+			"trusted issuer sign-in refused: a door credential already holds the asserted email, and a second door identity is never joined to it, so nothing was linked or created")
+		return "", fmt.Errorf("%w (%d people)", ErrUnprovenOwner, len(holders))
 	}
 	switch len(owners) {
 	case 0:
@@ -295,18 +432,9 @@ func (s *AssertedSignIn) ownerOf(ctx context.Context, id AssertedIdentity, email
 		}
 		// Somebody holds the email, so creating a person could leave the
 		// owner in a second, empty account; nobody proves they own it, so
-		// linking could hand the identity to whoever wrote the email. The
-		// line names every person holding it and the kinds of credential they
-		// hold, which is what an operator decides from.
-		sort.Strings(holders)
-		kinds := make([]string, 0, len(providers))
-		for p := range providers {
-			kinds = append(kinds, p)
-		}
-		sort.Strings(kinds)
-		s.cfg.Logger.Error(ctx, "trusted issuer sign-in refused: credentials hold the asserted email but none of them proves who owns it, so nothing was linked or created",
-			append(append([]any{"reason", ReasonUnprovenOwner}, identityFields(id, email, holders...)...),
-				"matched_providers", strings.Join(kinds, ","))...)
+		// linking could hand the identity to whoever wrote the email.
+		s.refuseUnproven(ctx, id, email, holders, providers,
+			"trusted issuer sign-in refused: credentials hold the asserted email but none of them proves who owns it, so nothing was linked or created")
 		return "", fmt.Errorf("%w (%d people)", ErrUnprovenOwner, len(holders))
 	case 1:
 		return owners[0], nil
@@ -320,6 +448,21 @@ func (s *AssertedSignIn) ownerOf(ctx context.Context, id AssertedIdentity, email
 	}
 }
 
+// refuseUnproven writes the one error line for an unproven-owner refusal. The
+// line names every person holding the email and the kinds of credential they
+// hold, which is what an operator decides from.
+func (s *AssertedSignIn) refuseUnproven(ctx context.Context, id AssertedIdentity, email string, holders []string, providers map[string]bool, message string) {
+	sort.Strings(holders)
+	kinds := make([]string, 0, len(providers))
+	for p := range providers {
+		kinds = append(kinds, p)
+	}
+	sort.Strings(kinds)
+	s.cfg.Logger.Error(ctx, message,
+		append(append([]any{"reason", ReasonUnprovenOwner}, identityFields(id, email, holders...)...),
+			"matched_providers", strings.Join(kinds, ","))...)
+}
+
 // logCreated writes the one line for a person a sign-in created. On an
 // allowlisted instance that already has another active person it is a
 // warning: an instance with named owners rarely gains a second person on
@@ -327,7 +470,7 @@ func (s *AssertedSignIn) ownerOf(ctx context.Context, id AssertedIdentity, email
 // matches no credential here.
 func (s *AssertedSignIn) logCreated(ctx context.Context, id AssertedIdentity, email, agentID string) {
 	fields := identityFields(id, email, agentID)
-	if !s.cfg.LinkByEmail {
+	if !s.cfg.Allowlisted {
 		s.cfg.Logger.Info(ctx, "trusted issuer sign-in created a person", fields...)
 		return
 	}
@@ -406,16 +549,21 @@ func (discardSignInLogs) Warn(context.Context, string, ...any)  {}
 func (discardSignInLogs) Error(context.Context, string, ...any) {}
 
 // provesOwnership reports whether a credential holding the asserted email may
-// say who owns it. It must be active: a sign-in method someone turned off must
-// not come back through the door. And it must come from a provider that
-// verified the email (ownerProvingProviders), or be a password credential on
-// an instance whose operator opted in (PasswordOwnersProven).
-func (s *AssertedSignIn) provesOwnership(m repositories.CredentialEmailMatch) bool {
+// say who owns it, for an identity arriving from the provider arriving. It
+// must be active: a sign-in method someone turned off must not come back
+// through the door. And it must come from a provider that verified the email
+// (ownerProvingProviders), be a password credential on an instance whose
+// operator opted in (PasswordOwnersProven), or be a door credential while the
+// arriving identity is one doorCredentialProvesOwnerFor names.
+func (s *AssertedSignIn) provesOwnership(m repositories.CredentialEmailMatch, arriving string) bool {
 	if !m.Active {
 		return false
 	}
-	if m.Provider == entities.ProviderPassword {
+	switch m.Provider {
+	case entities.ProviderPassword:
 		return s.cfg.PasswordOwnersProven
+	case OAuthProviderDoor:
+		return doorCredentialProvesOwnerFor[arriving]
 	}
 	return ownerProvingProviders[m.Provider]
 }
@@ -495,40 +643,58 @@ func (s *AssertedSignIn) takeBackLink(ctx context.Context, ownerID string, id As
 		"delete_error", deleteErr.Error())
 }
 
-// keyedMutex serializes work per key. An entry lives only while someone holds
-// or waits for its key, so the map does not grow with every identity seen.
+// keyedMutex serializes work per key. A wait for a key ends with ctx. An entry
+// lives only while someone holds or waits for its key, so the map does not grow
+// with every identity seen.
 type keyedMutex struct {
 	mu    sync.Mutex
 	locks map[string]*keyedLock
 }
 
 type keyedLock struct {
-	mu      sync.Mutex
-	waiters int
+	held  chan struct{}
+	users int
 }
 
-// lock blocks until key is free and returns the function that frees it.
-func (k *keyedMutex) lock(key string) func() {
+// lock blocks until key is free and returns the function that frees it. When
+// ctx ends first, or has ended by the time the key is free, it holds nothing
+// and returns ctx's error.
+func (k *keyedMutex) lock(ctx context.Context, key string) (func(), error) {
 	k.mu.Lock()
 	if k.locks == nil {
 		k.locks = map[string]*keyedLock{}
 	}
 	l, ok := k.locks[key]
 	if !ok {
-		l = &keyedLock{}
+		l = &keyedLock{held: make(chan struct{}, 1)}
 		k.locks[key] = l
 	}
-	l.waiters++
+	l.users++
 	k.mu.Unlock()
 
-	l.mu.Lock()
-	return func() {
-		l.mu.Unlock()
+	leave := func() {
 		k.mu.Lock()
-		l.waiters--
-		if l.waiters == 0 {
+		defer k.mu.Unlock()
+		l.users--
+		if l.users == 0 {
 			delete(k.locks, key)
 		}
-		k.mu.Unlock()
 	}
+	select {
+	case l.held <- struct{}{}:
+	case <-ctx.Done():
+		leave()
+		return nil, ctx.Err()
+	}
+	unlock := func() {
+		<-l.held
+		leave()
+	}
+	// A free key and an ended ctx are both ready, and select picks either. A
+	// caller whose request has ended must not go on to write.
+	if err := ctx.Err(); err != nil {
+		unlock()
+		return nil, err
+	}
+	return unlock, nil
 }

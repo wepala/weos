@@ -46,13 +46,14 @@ type AssertedSignInService interface {
 }
 
 // CodeAmbiguousOwner is the code of the conflict answered when an accepted
-// assertion's email is held by more than one person on an allowlisted
-// instance, so it cannot say whose identity it is.
+// assertion's email is held by more than one person, so it cannot say whose
+// identity it is. Owner binding runs with or without an allowlist.
 const CodeAmbiguousOwner = application.ReasonAmbiguousOwner
 
-// CodeUnprovenOwner is the code of the conflict answered when credentials on
-// an allowlisted instance hold an accepted assertion's email but none of them
-// proves who owns it, so the sign-in can neither link nor create.
+// CodeUnprovenOwner is the code of the conflict answered when credentials hold
+// an accepted assertion's email but none of them proves who owns it, so the
+// sign-in can neither link nor create. Owner binding runs with or without an
+// allowlist.
 const CodeUnprovenOwner = application.ReasonUnprovenOwner
 
 // CodeCrossSite is the code of the refusal answered, 403, when a browser
@@ -215,13 +216,16 @@ func (h *TrustedIssuerHandler) Assert(c echo.Context) error {
 		// The sign-in service has logged each conflict with every person
 		// holding the email, which is what an operator acts on. A second line
 		// here would count one refusal twice.
+		// Only the instance's operator can clear either conflict, and the person
+		// who meets one cannot see the log line that names the people involved,
+		// so the answer says whom to ask.
 		if errors.Is(err, application.ErrAmbiguousOwner) {
 			return respondErrorCode(c, http.StatusConflict,
-				"more than one account holds this email, so the sign-in cannot tell whose it is", CodeAmbiguousOwner)
+				"more than one account holds this email, so the sign-in cannot tell whose it is; contact the operator of this instance", CodeAmbiguousOwner)
 		}
 		if errors.Is(err, application.ErrUnprovenOwner) {
 			return respondErrorCode(c, http.StatusConflict,
-				"an account holds this email, but nothing proves whose it is, so the sign-in cannot tell whose it is", CodeUnprovenOwner)
+				"an account holds this email, but nothing proves whose it is, so the sign-in cannot tell whose it is; contact the operator of this instance", CodeUnprovenOwner)
 		}
 		h.cfg.Logger.Error(ctx, "trusted issuer sign-in: could not find or create the agent",
 			"provider", identity.Provider, "error", err)
@@ -376,6 +380,11 @@ const mountedIssuerConsequence = "the API is locked: every API route requires a 
 // lines says, in its consequence field, that the API is locked. build runs
 // only when the route is mounted.
 //
+// A mounted route on an instance with no OAUTH_ALLOWED_EMAILS and
+// TRUSTED_ISSUER_LINK_PASSWORD_OWNERS off also logs one warning naming that
+// setting, because there a door sign-in for an email that only a password
+// holds is refused 409 unproven-owner. Its consequence field says so instead.
+//
 // serve.go and the acceptance tests both mount through here so there is one
 // copy of this decision rather than two that can drift apart.
 func MountTrustedIssuerAssertion(
@@ -425,5 +434,14 @@ func MountTrustedIssuerAssertion(
 	logger.Info(ctx, "trusted-issuer sign-in is on; POST /api/auth/assert is mounted",
 		"issuer", issuer,
 		"consequence", mountedIssuerConsequence)
+	if len(cfg.OAuth.AllowedEmails) == 0 && !settings.LinkPasswordOwners {
+		// Read from configuration alone. Whether the instance holds a password
+		// or invite credential is not asked: pericarp's credential repository
+		// cannot list by provider, and a credential written after boot would be
+		// missed anyway.
+		logger.Warn(ctx, "trusted-issuer sign-in runs with no OAUTH_ALLOWED_EMAILS and TRUSTED_ISSUER_LINK_PASSWORD_OWNERS off, so a password credential does not prove who owns its email",
+			"remedy", "if this instance's operator made its password accounts, set TRUSTED_ISSUER_LINK_PASSWORD_OWNERS=true",
+			"consequence", "a door sign-in for an email that only a password or invite credential holds is refused 409 unproven-owner; for a password owner that lasts until the operator sets TRUSTED_ISSUER_LINK_PASSWORD_OWNERS=true. This instance may hold no such credential")
+	}
 	return true
 }

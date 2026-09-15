@@ -336,8 +336,8 @@ func (s *memoryAuthStore) deactivateAgent(t *testing.T, agentID string) {
 	}
 }
 
-func newTestAssertedSignIn(s *memoryAuthStore, linkByEmail bool) *AssertedSignIn {
-	return newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) { cfg.LinkByEmail = linkByEmail })
+func newTestAssertedSignIn(s *memoryAuthStore, allowlist bool) *AssertedSignIn {
+	return newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) { cfg.Allowlisted = allowlist })
 }
 
 // newTestAssertedSignInWith builds the service over the store, letting a test
@@ -357,7 +357,7 @@ func newTestAssertedSignInWith(s *memoryAuthStore, configure func(*AssertedSignI
 // that lets password credentials prove an owner set or not.
 func allowlisted(passwordOwners bool) func(*AssertedSignInConfig) {
 	return func(cfg *AssertedSignInConfig) {
-		cfg.LinkByEmail = true
+		cfg.Allowlisted = true
 		cfg.PasswordOwnersProven = passwordOwners
 	}
 }
@@ -445,7 +445,10 @@ func TestAssertedSignInLinksAnOwnersNewIdentityWhenTheAllowlistIsSet(t *testing.
 	}
 }
 
-func TestAssertedSignInLinksNothingWithoutTheAllowlist(t *testing.T) {
+// Owner binding runs with or without an allowlist (decision wm-vvi6t). The
+// instances behind the door set none, and an owner who signs in there with a
+// second provider must still reach the one person they already are.
+func TestAssertedSignInLinksAnOwnersNewIdentityWithoutTheAllowlist(t *testing.T) {
 	s := newMemoryAuthStore()
 	s.seedPerson(t, "agent-dana", "Dana Whitfield", "google", googleSub, "dana.whitfield@harborlegal.example")
 
@@ -453,8 +456,11 @@ func TestAssertedSignInLinksNothingWithoutTheAllowlist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SignIn: %v", err)
 	}
-	if !got.NewAccount || got.Agent.GetID() == "agent-dana" || s.createCount() != 1 {
-		t.Fatalf("no allowlist: NewAccount=%v agent=%s creates=%d", got.NewAccount, got.Agent.GetID(), s.createCount())
+	if got.NewAccount || got.Agent.GetID() != "agent-dana" || s.createCount() != 0 {
+		t.Fatalf("no allowlist: NewAccount=%v agent=%s creates=%d, want a link to agent-dana", got.NewAccount, got.Agent.GetID(), s.createCount())
+	}
+	if linked := s.credentialFor("apple", appleSub); linked == nil || linked.AgentID() != "agent-dana" {
+		t.Fatalf("the new identity is not stored against its owner: %v", linked)
 	}
 }
 
@@ -575,7 +581,7 @@ func TestAssertedSignInLogsEachLinkOnceWithHashesAndTheOwner(t *testing.T) {
 	s.seedPerson(t, "agent-ops", "ops", "password", "ops@harborlegal.example", "ops@harborlegal.example")
 	logs := &signInLogs{}
 	svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) {
-		cfg.LinkByEmail = true
+		cfg.Allowlisted = true
 		cfg.PasswordOwnersProven = true
 		cfg.Logger = logs
 	})
@@ -625,7 +631,7 @@ func TestAssertedSignInLogsEachPersonItCreates(t *testing.T) {
 			c.stage(t, s)
 			logs := &signInLogs{}
 			svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) {
-				cfg.LinkByEmail = c.allowlist
+				cfg.Allowlisted = c.allowlist
 				cfg.Logger = logs
 			})
 
@@ -652,7 +658,7 @@ func TestAssertedSignInLogsAnAmbiguousOwnerWithEveryPersonHoldingTheEmail(t *tes
 	s.seedPerson(t, "agent-dana", "Dana Whitfield", "password", "dana.whitfield@harborlegal.example", "dana.whitfield@harborlegal.example")
 	logs := &signInLogs{}
 	svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) {
-		cfg.LinkByEmail = true
+		cfg.Allowlisted = true
 		cfg.PasswordOwnersProven = true
 		cfg.Logger = logs
 	})
@@ -711,7 +717,7 @@ func TestAssertedSignInRecordsALinkedCredentialsCreationOnce(t *testing.T) {
 	s.seedPerson(t, "agent-dana", "Dana Whitfield", "google", googleSub, "dana.whitfield@harborlegal.example")
 	events := esinfra.NewMemoryStore()
 	svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) {
-		cfg.LinkByEmail = true
+		cfg.Allowlisted = true
 		cfg.EventStore = events
 	})
 
@@ -746,7 +752,7 @@ func TestAssertedSignInThatLosesALinkRaceRecordsAndLogsNothing(t *testing.T) {
 	events := esinfra.NewMemoryStore()
 	logs := &signInLogs{}
 	svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) {
-		cfg.LinkByEmail = true
+		cfg.Allowlisted = true
 		cfg.EventStore = events
 		cfg.Logger = logs
 	})
@@ -772,7 +778,7 @@ func TestAssertedSignInRecordsNoEventForALinkThatCannotBeSaved(t *testing.T) {
 	s.saveErr = errors.New("database unavailable")
 	events := esinfra.NewMemoryStore()
 	svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) {
-		cfg.LinkByEmail = true
+		cfg.Allowlisted = true
 		cfg.EventStore = events
 	})
 
@@ -792,7 +798,7 @@ func TestAssertedSignInFailsWhenALinkedCredentialsCreationCannotBeRecorded(t *te
 	s := newMemoryAuthStore()
 	s.seedPerson(t, "agent-dana", "Dana Whitfield", "google", googleSub, "dana.whitfield@harborlegal.example")
 	svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) {
-		cfg.LinkByEmail = true
+		cfg.Allowlisted = true
 		cfg.EventStore = failingEventStore{esinfra.NewMemoryStore()}
 	})
 
@@ -831,22 +837,117 @@ func TestAssertedSignInConcurrentFirstSignInsForOneIdentityLeaveOnePerson(t *tes
 	requireOnePersonOneCreate(t, results)
 }
 
+// Owner binding runs with or without an allowlist, so sign-ins for one email
+// are serialized either way.
 func TestAssertedSignInConcurrentFirstSignInsFromTwoProvidersLeaveOneOwner(t *testing.T) {
-	s := newMemoryAuthStore()
-	s.window = 20 * time.Millisecond
-	svc := newTestAssertedSignIn(s, true)
+	for _, allowlist := range []bool{true, false} {
+		t.Run(fmt.Sprintf("allowlist set %v", allowlist), func(t *testing.T) {
+			s := newMemoryAuthStore()
+			s.window = 20 * time.Millisecond
+			svc := newTestAssertedSignIn(s, allowlist)
 
-	results := runTogether(t, 2, func(i int) AssertedIdentity {
-		if i == 0 {
-			return dana("google", googleSub)
-		}
-		return dana("apple", appleSub)
-	}, svc)
+			results := runTogether(t, 2, func(i int) AssertedIdentity {
+				if i == 0 {
+					return dana("google", googleSub)
+				}
+				return dana("apple", appleSub)
+			}, svc)
 
-	if s.createCount() != 1 {
-		t.Fatalf("created %d people for one owner's two identities, want 1", s.createCount())
+			if s.createCount() != 1 {
+				t.Fatalf("created %d people for one owner's two identities, want 1", s.createCount())
+			}
+			requireOnePersonOneCreate(t, results)
+		})
 	}
-	requireOnePersonOneCreate(t, results)
+}
+
+// A request queued behind a slow sign-in for the same identity or the same email
+// must not stay blocked after it ends, and must create nobody.
+func TestAssertedSignInQueuedBehindAHeldKeyEndsWithItsRequest(t *testing.T) {
+	for name, queued := range map[string]AssertedIdentity{
+		"the identity key": dana("google", googleSub),
+		"the email key":    dana("apple", appleSub),
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := newMemoryAuthStore()
+			emails := newPausingEmails(storeEmails{s: s})
+			svc := newTestAssertedSignInWith(s, func(cfg *AssertedSignInConfig) { cfg.Emails = emails })
+			proceed := sync.OnceFunc(func() { close(emails.proceed) })
+			t.Cleanup(proceed)
+
+			firstDone := make(chan signInOutcome, 1)
+			go func() {
+				r, err := svc.SignIn(context.Background(), dana("google", googleSub))
+				firstDone <- signInOutcome{r, err}
+			}()
+			select {
+			case <-emails.paused:
+			case o := <-firstDone:
+				t.Fatalf("the first sign-in finished (%v) before it reached its pause", o.err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("the first sign-in never reached its pause")
+			}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			queuedDone := make(chan signInOutcome, 1)
+			go func() {
+				r, err := svc.SignIn(ctx, queued)
+				queuedDone <- signInOutcome{r, err}
+			}()
+			// Time to join the queue. A cancel that lands before it does must
+			// give the same answer, so this only makes the test exercise the wait.
+			time.Sleep(20 * time.Millisecond)
+			cancel()
+
+			select {
+			case o := <-queuedDone:
+				if !errors.Is(o.err, context.Canceled) {
+					t.Fatalf("the queued sign-in returned (reached %s, err %v), want its request's cancellation", agentIDOf(o.result), o.err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("the queued sign-in still waits behind the held key after its request ended")
+			}
+
+			proceed()
+			select {
+			case o := <-firstDone:
+				if o.err != nil {
+					t.Fatalf("the first sign-in: %v", o.err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("the first sign-in never finished, so the queued one left a key held")
+			}
+			if s.createCount() != 1 {
+				t.Fatalf("created %d people, want only the first sign-in's person", s.createCount())
+			}
+			if s.credentialFor("apple", appleSub) != nil {
+				t.Fatal("the ended sign-in linked its identity")
+			}
+		})
+	}
+}
+
+// A request that has already ended holds nothing and creates nobody, even when
+// every key is free.
+func TestAssertedSignInForAnEndedRequestCreatesNobody(t *testing.T) {
+	s := newMemoryAuthStore()
+	svc := newTestAssertedSignIn(s, false)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := svc.SignIn(ctx, dana("google", googleSub))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want the request's cancellation", err)
+	}
+	if s.createCount() != 0 {
+		t.Fatalf("created %d people for an ended request, want 0", s.createCount())
+	}
+	// The keys are free again: the next sign-in for the same identity and email
+	// goes through.
+	if _, err := svc.SignIn(context.Background(), dana("google", googleSub)); err != nil {
+		t.Fatalf("a sign-in after the ended one: %v", err)
+	}
 }
 
 func runTogether(t *testing.T, n int, identity func(int) AssertedIdentity, svc *AssertedSignIn) []AssertedSignInResult {

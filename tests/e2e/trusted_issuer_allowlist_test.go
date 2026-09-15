@@ -104,8 +104,9 @@ func initTrustedIssuerAllowlistScenario(sc *godog.ScenarioContext) {
 
 	// Outcomes of asking for the providers
 	sc.Step(`^the instance offers the sign-in provider "([^"]*)" with the sign-in address "([^"]*)"$`, w.offersProviderAt)
-	sc.Step(`^that provider carries nothing but its name, its sign-in address and the sign-in providers an assertion may name$`, w.namedCarriesOnlyNameAddressAndKeys)
+	sc.Step(`^that provider carries nothing but its name, its sign-in address, the sign-in providers an assertion may name and whether it joins identities by email$`, w.namedCarriesOnlyTheIssuerFields)
 	sc.Step(`^the "([^"]*)" provider lists "([^"]*)" among the sign-in providers an assertion may name$`, w.providerListsAcceptedKey)
+	sc.Step(`^the "([^"]*)" provider says the instance joins a door identity and a Google or Apple identity with the same email$`, w.providerSaysItJoinsDoorAndGoogleOrApple)
 	sc.Step(`^the instance offers exactly the sign-in providers "([^"]*)" and "([^"]*)"$`, w.offersExactly)
 	sc.Step(`^the "([^"]*)" provider carries no sign-in address$`, w.providerCarriesNoAddress)
 	sc.Step(`^the instance offers no sign-in provider named "([^"]*)"$`, w.offersNoProviderNamed)
@@ -280,10 +281,11 @@ func (w *alWorld) offersProviderAt(name, address string) error {
 	return nil
 }
 
-// namedCarriesOnlyNameAddressAndKeys requires the provider found last to carry
-// exactly its name, its sign-in address and the provider keys an assertion may
-// name: nothing else rides along on the issuer's entry.
-func (w *alWorld) namedCarriesOnlyNameAddressAndKeys() error {
+// namedCarriesOnlyTheIssuerFields requires the provider found last to carry
+// exactly its name, its sign-in address, the provider keys an assertion may
+// name and whether the instance joins a door identity and a Google or Apple
+// identity by email: nothing else rides along on the issuer's entry.
+func (w *alWorld) namedCarriesOnlyTheIssuerFields() error {
 	if w.named == nil {
 		return fmt.Errorf("no provider has been found to look at")
 	}
@@ -292,8 +294,31 @@ func (w *alWorld) namedCarriesOnlyNameAddressAndKeys() error {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	if len(keys) != 3 || keys[0] != "accepted_provider_keys" || keys[1] != "login_url" || keys[2] != "name" {
-		return fmt.Errorf("the provider carries %v, want only its name, its sign-in address and the sign-in providers an assertion may name", keys)
+	want := []string{"accepted_provider_keys", "joins_door_and_google_apple_by_email", "login_url", "name"}
+	if strings.Join(keys, ",") != strings.Join(want, ",") {
+		return fmt.Errorf("the provider carries %v, want exactly %v", keys, want)
+	}
+	return nil
+}
+
+// providerSaysItJoinsDoorAndGoogleOrApple requires the named provider to say
+// that the instance joins a door identity and a Google or Apple identity with
+// the same email into one person.
+func (w *alWorld) providerSaysItJoinsDoorAndGoogleOrApple(name string) error {
+	p, err := w.provider(name)
+	if err != nil {
+		return err
+	}
+	if p == nil {
+		return fmt.Errorf("the instance offers %v, and not %q", w.providerNames(), name)
+	}
+	raw, ok := p["joins_door_and_google_apple_by_email"]
+	if !ok {
+		return fmt.Errorf("the %q provider does not say whether the instance joins a door identity and a Google or Apple identity by email", name)
+	}
+	var joins bool
+	if err := json.Unmarshal(raw, &joins); err != nil || !joins {
+		return fmt.Errorf("the %q provider's joins_door_and_google_apple_by_email is %s, want true", name, raw)
 	}
 	return nil
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/wepala/weos/v3/domain/repositories"
 	"github.com/wepala/weos/v3/internal/config"
 	weosoauth "github.com/wepala/weos/v3/internal/oauth"
 
@@ -34,28 +35,34 @@ const (
 
 // OAuthProviderDoor is the provider a trusted issuer (the door) names for an
 // identity it owns itself: a person who signed up to the door with an email
-// and a password, whose address the door proved before it asserts. No registry
+// and a password, or whom the door's operator wrote, whose address the issuer
+// vouches for. No registry
 // entry holds this key — this instance never runs that sign-in itself — so it
 // reaches an instance only through a login assertion, and only with
 // email_verified true, as every other key does.
 //
-// The key does NOT prove who owns an email (mini-me front-door decision 3C). It
-// is deliberately absent from ownerProvingProviders: the door proves control of
-// a mailbox once, at sign-up, while Google and Apple stand behind the account's
-// recovery over time. So a stored door credential never lets another identity
-// link to its person by email. A door identity the instance has not seen can
-// still be linked, on an allowlisted instance, to a person whose google, apple
-// or opted-in password credential holds its email.
+// A door identity and a Google or Apple identity that hold the same email are
+// one person, in either order, with or without OAUTH_ALLOWED_EMAILS (decision
+// wm-vvi6t). An issuer sends one provider key and one subject for each person
+// it asserts, so a person who signed up to the door with a password and later
+// signs in through the door with Google reaches this instance as a google
+// identity it has not seen. A door credential means the issuer vouches for its
+// email: the mini-me door proves the address with a code sent to the mailbox
+// at sign-up, and its operator also writes demo and owner people directly. An
+// issuer must only write door credentials for addresses it controls or has
+// proved. So the person's door credential proves who owns its email for that
+// google or apple identity, which is linked to the person
+// (doorCredentialProvesOwnerFor). A door identity the instance has not
+// seen is linked, the same way, to a person whose google, apple or opted-in
+// password credential holds its email, unless a door credential already holds
+// it (below).
 //
-// The other way round does not link. An issuer sends one provider key and one
-// subject for each person it asserts, so a person who signed up to the door
-// with a password and later signs in through the door with Google reaches this
-// instance as a google identity it has not seen. When only that person's door
-// credential holds the email, the sign-in is refused 409 unproven-owner
-// (ErrUnprovenOwner) on an allowlisted instance, and on an instance with no
-// OAUTH_ALLOWED_EMAILS, where nothing links by email, it creates a second,
-// empty person. Whether the two should be one person is an open decision (bead
-// wm-vvi6t); this describes what the instance does today.
+// A door credential proves nothing for another door identity. A second door
+// subject for an email comes only from an operator re-creating the person at
+// the door, and it is never joined to the first: while an active door
+// credential of an active person holds the email, that sign-in is refused 409
+// unproven-owner (ErrUnprovenOwner), whatever other credentials that person
+// holds.
 const OAuthProviderDoor = "door"
 
 // OAuthProviderKeys lists every provider key a trusted issuer's assertion may
@@ -165,6 +172,7 @@ func ProvideAuthenticationService(params struct {
 	EventStore          esdomain.EventStore       `optional:"true"`
 	EventDispatcher     *esdomain.EventDispatcher `optional:"true"`
 	JWTService          authapp.JWTService        `optional:"true"`
+	SignInLock          repositories.SignInLock   `optional:"true"`
 }) authapp.AuthenticationService {
 	opts := []authapp.AuthServiceOption{
 		authapp.WithAuthorizationChecker(params.AuthzChecker),
@@ -196,11 +204,14 @@ func ProvideAuthenticationService(params struct {
 		opts...,
 	)
 	// Decorate so the OAuth callback can tell first-time signups from returning
-	// logins (see new_account_signal.go). FindOrCreateAgent is only ever called
-	// from the OAuth callback path, and the decorator is additionally inert
-	// unless a caller installs a flag pointer in the request context — so
-	// password and MCP login flows are entirely unaffected.
-	return &newAccountSignalService{AuthenticationService: svc, credentials: params.Credentials}
+	// logins, and so every FindOrCreateAgent and RegisterPassword holds the
+	// sign-in lock owner binding holds (see new_account_signal.go).
+	// FindOrCreateAgent is called by the two OAuth callbacks, asserted sign-in
+	// (which already holds the lock) and seeding; RegisterPassword by
+	// POST /auth/register and the account command. The new-account signal
+	// stays inert unless a caller installs a flag pointer in the request
+	// context, and password login never calls either.
+	return &newAccountSignalService{AuthenticationService: svc, credentials: params.Credentials, lock: params.SignInLock}
 }
 
 func ProvideSessionManager(params struct {
