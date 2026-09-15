@@ -47,7 +47,8 @@ type UserHandlerConfig struct {
 	AgentRepo      authrepos.AgentRepository
 	CredentialRepo authrepos.CredentialRepository
 	AccountRepo    authrepos.AccountRepository
-	// Members lists the people of the caller's account. Required.
+	// Members lists the people of the caller's account. Required:
+	// NewUserHandler panics without one.
 	Members repositories.AccountMemberDirectory
 	// Features drops a member's resolved feature set when their role changes.
 	// Optional: a handler constructed without one simply does not invalidate,
@@ -56,7 +57,15 @@ type UserHandlerConfig struct {
 	Logger   entities.Logger
 }
 
+// NewUserHandler builds the users handler. It panics when cfg.Members is nil
+// (wm-ii1hz): the list route cannot answer without it, and a handler built
+// that way would fail on its first request instead of when it is wired, where
+// the missing dependency is a mistake in code, not in a request.
 func NewUserHandler(cfg UserHandlerConfig) *UserHandler {
+	if cfg.Members == nil {
+		panic("handlers.NewUserHandler: UserHandlerConfig.Members is required " +
+			"(a repositories.AccountMemberDirectory, such as gorm.ProvideAccountMemberDirectory)")
+	}
 	return &UserHandler{
 		agentRepo:      cfg.AgentRepo,
 		credentialRepo: cfg.CredentialRepo,
