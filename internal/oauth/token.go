@@ -286,6 +286,17 @@ func handleRefreshGrant(
 			Error: "server_error",
 		})
 	}
+	// A native sign-in's refresh token renews at POST /api/auth/refresh, into a
+	// native token. This endpoint issues connector tokens, so it refuses one and
+	// leaves it as it was: a caller holding it can renew the native session
+	// there, and gets no connector token here (wm-lnimb).
+	if IsNativeRefreshToken(stored) {
+		logger.Warn(ctx, "oauth refresh: a native sign-in's refresh token was presented at the token endpoint — refused",
+			"token", stored.ID, "agent", stored.AgentID)
+		return c.JSON(http.StatusBadRequest, tokenErrorResponse{
+			Error: "invalid_grant",
+		})
+	}
 	if stored.Revoked {
 		// Reuse of a revoked refresh token signals theft. Revoke the
 		// entire token family to invalidate any tokens an attacker

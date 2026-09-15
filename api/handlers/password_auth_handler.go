@@ -25,6 +25,7 @@ import (
 	apimw "github.com/wepala/weos/v3/api/middleware"
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
+	weosoauth "github.com/wepala/weos/v3/internal/oauth"
 
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
 	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
@@ -54,6 +55,16 @@ type PasswordAuthHandlerConfig struct {
 	// either missing, such a sign-in stays unscoped, as it always was.
 	AccountRepo  authrepos.AccountRepository
 	ErasureLocks repositories.AccountErasureLocks
+	// RefreshTokens and AgentRepo let an app in a native shell keep its session
+	// past the access token's hour (wm-lnimb). With both set, and AccountRepo
+	// and ErasureLocks, a sign-in that hands back a token hands back a refresh
+	// token beside it, and Refresh renews with it. Optional: without them a
+	// sign-in answers as it always did.
+	RefreshTokens weosoauth.RefreshTokenRepository
+	AgentRepo     authrepos.AgentRepository
+	// JWTService reads the bearer token a native app signs out with, so the
+	// sign-out can end that person's refresh tokens. Optional.
+	JWTService authapp.JWTService
 }
 
 type PasswordAuthHandler struct {
@@ -142,6 +153,15 @@ type authSuccessResponse struct {
 	Account   *authAccountResponse `json:"account,omitempty"`
 	Token     string               `json:"token,omitempty"`
 	ExpiresAt time.Time            `json:"expires_at"`
+	// TokenExpiresAt is when Token stops being accepted, an hour after the
+	// sign-in. ExpiresAt is the browser session's, which an app in a native
+	// shell does not hold.
+	TokenExpiresAt time.Time `json:"token_expires_at,omitzero"`
+	// RefreshToken renews Token at POST /auth/refresh before it expires, and
+	// RefreshTokenExpiresAt is when it stops renewing (wm-lnimb). Present
+	// whenever Token is, on an instance that can renew.
+	RefreshToken          string    `json:"refresh_token,omitempty"`
+	RefreshTokenExpiresAt time.Time `json:"refresh_token_expires_at,omitzero"`
 	// ErasurePending says the session was scoped to an account whose
 	// deletion began and did not finish. The session serves exactly one
 	// request, DELETE /api/account, and the app should offer that.
@@ -222,7 +242,19 @@ func (h *PasswordAuthHandler) Login(c echo.Context) error {
 // is currently informational on the server side (no middleware reads it)
 // but a SPA may attach it as a Bearer token, so an endpoint that only
 // invalidates the session would leave a still-presentable JWT.
+//
+// An app in a native shell signs out with the token it holds, or with
+// {"refresh_token":"..."} in the body when its token has expired. Either one
+// revokes every native refresh token of that person, so no device of theirs
+// renews afterwards (wm-lnimb). The access token itself is stateless and lasts
+// out its hour. A revocation that cannot be written answers 503 before
+// anything is cleared, so the app signs out again rather than keep a refresh
+// token it believes is gone.
 func (h *PasswordAuthHandler) Logout(c echo.Context, oauthLogout http.HandlerFunc) error {
+	if err := h.endNativeSessions(c); err != nil {
+		h.cfg.Logger.Error(c.Request().Context(), "sign-out: could not revoke the person's native refresh tokens", "error", err)
+		return renewalUnavailable(c, "could not end the app's session; sign out again")
+	}
 	w := c.Response().Writer
 	http.SetCookie(w, &http.Cookie{
 		Name:     h.cfg.JWTCookieName,
@@ -368,15 +400,35 @@ func (h *PasswordAuthHandler) completeAuthAs(
 		})
 	}
 
+	// A refresh token goes back wherever the token does (wm-lnimb): the token
+	// lasts an hour, and an app in a native shell holds nothing else to renew
+	// it with. The same rule as the token, so a locked account's owner gets one
+	// for the deletion too, and the renewal applies the same limit to it. Like
+	// the token it is best-effort: without it the app signs in again when the
+	// token expires, which is where it was before refresh tokens existed.
+	var refresh weosoauth.NativeRefreshToken
+	if tokenString != "" && h.renews() {
+		var refreshErr error
+		refresh, refreshErr = weosoauth.IssueNativeRefreshToken(ctx, h.cfg.RefreshTokens, agent.GetID(), accountID)
+		if refreshErr != nil {
+			h.cfg.Logger.Warn(ctx, "password auth: failed to issue a refresh token; the app signs in again when the token expires",
+				"error", refreshErr)
+			refresh = weosoauth.NativeRefreshToken{}
+		}
+	}
+
 	response := authSuccessResponse{
 		Agent: authAgentResponse{
 			ID:    agent.GetID(),
 			Name:  agent.Name(),
 			Email: email,
 		},
-		Account:   accountResp,
-		Token:     tokenString,
-		ExpiresAt: authSession.ExpiresAt(),
+		Account:               accountResp,
+		Token:                 tokenString,
+		ExpiresAt:             authSession.ExpiresAt(),
+		TokenExpiresAt:        tokenExpiry(tokenString),
+		RefreshToken:          refresh.Raw,
+		RefreshTokenExpiresAt: refresh.ExpiresAt,
 	}
 	if erasurePending {
 		response.ErasurePending = true

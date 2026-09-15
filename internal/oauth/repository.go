@@ -153,6 +153,10 @@ type RefreshTokenRepository interface {
 	// a compromise response when a previously-revoked token is presented
 	// (signals theft of an earlier rotation).
 	RevokeFamily(ctx context.Context, familyID string) error
+	// RevokeForAgent revokes every active token the agent holds for clientID,
+	// in every account and family. A native app's sign-out uses it to end the
+	// person's native sessions on every device (wm-lnimb).
+	RevokeForAgent(ctx context.Context, agentID, clientID string) error
 	// Rotate atomically revokes the old token (only if active) and creates
 	// the new token in a single transaction. If the old token is already
 	// revoked, returns ErrNotFound (token reuse). If the new token cannot
@@ -221,6 +225,16 @@ func (r *gormRefreshTokenRepo) RevokeFamily(ctx context.Context, familyID string
 	return r.db.WithContext(ctx).
 		Model(&OAuthRefreshToken{}).
 		Where("family_id = ? AND revoked = ?", familyID, false).
+		Update("revoked", true).Error
+}
+
+func (r *gormRefreshTokenRepo) RevokeForAgent(ctx context.Context, agentID, clientID string) error {
+	if agentID == "" || clientID == "" {
+		return nil
+	}
+	return r.db.WithContext(ctx).
+		Model(&OAuthRefreshToken{}).
+		Where("agent_id = ? AND client_id = ? AND revoked = ?", agentID, clientID, false).
 		Update("revoked", true).Error
 }
 

@@ -291,6 +291,9 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	// SESSION_SECRET is unset) so the JWT cookie is accepted in plain-HTTP
 	// local dev and stays Secure in any real deployment.
 	secureCookies := appCfg.SessionSecret != config.DefaultSessionSecret
+	// One refresh token store for connectors and native apps: a native sign-in's
+	// refresh token is kept, rotated and revoked there too (wm-lnimb).
+	refreshRepo := weosoauth.NewRefreshTokenRepository(db)
 	passwordAuthHandlers := handlers.NewPasswordAuthHandler(handlers.PasswordAuthHandlerConfig{
 		AuthService:    authService,
 		SessionManager: sessionManager,
@@ -298,6 +301,9 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 		Logger:         logger,
 		AccountRepo:    accountRepo,
 		ErasureLocks:   erasureLocks,
+		RefreshTokens:  refreshRepo,
+		AgentRepo:      agentRepo,
+		JWTService:     jwtService,
 	})
 	handlers.MountPasswordAuth(api, passwordAuthHandlers, handlers.PasswordAuthRoutes{
 		SignIn:       appCfg.PasswordAuthEnabled,
@@ -380,6 +386,14 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 			"remedy", "set JWT_SIGNING_KEY to a PEM-encoded RSA private key that stays the same across restarts and on every instance")
 	}
 
+	// A native sign-in's access token lasts an hour, and an app in a native
+	// shell holds nothing else, so the refresh token handed back beside it
+	// renews it here (wm-lnimb). Public, like the sign-ins: the caller's access
+	// token may already have expired. Mounted wherever a native sign-in is.
+	if appCfg.PasswordAuthEnabled || assertMounted {
+		handlers.MountSessionRenewal(api, passwordAuthHandlers)
+	}
+
 	// Logout must clear BOTH the gorilla session (pericarp Logout) AND the
 	// JWT cookie issued by the password and OAuth flows. Routing through
 	// the password handler so a single endpoint is correct for both flows.
@@ -401,7 +415,6 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	if appCfg.AuthEnabled() {
 		clientRepo := weosoauth.NewClientRepository(db)
 		codeRepo := weosoauth.NewAuthCodeRepository(db)
-		refreshRepo := weosoauth.NewRefreshTokenRepository(db)
 
 		const mcpResourcePath = "/api/mcp"
 		var defaultResource string
