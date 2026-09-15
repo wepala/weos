@@ -78,6 +78,16 @@ func (d usersDirectory) ListMembers(context.Context, string, string, int) (*repo
 	return &repositories.AccountMemberPage{Members: d.members}, nil
 }
 
+func (d usersDirectory) CountMembersWithRole(_ context.Context, _, roleID string) (int, error) {
+	n := 0
+	for _, m := range d.members {
+		if m.RoleID == roleID {
+			n++
+		}
+	}
+	return n, nil
+}
+
 func usersPerson(t *testing.T, id, name string) *authentities.Agent {
 	t.Helper()
 	agent, err := (&authentities.Agent{}).With(id, name, authentities.AgentTypePerson)

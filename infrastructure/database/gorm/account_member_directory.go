@@ -129,6 +129,21 @@ func (d *AccountMemberDirectory) ListMembers(
 	return page, nil
 }
 
+func (d *AccountMemberDirectory) CountMembersWithRole(ctx context.Context, accountID, roleID string) (int, error) {
+	if accountID == "" || roleID == "" {
+		return 0, nil
+	}
+	var count int64
+	err := d.db.WithContext(ctx).
+		Table("account_members").
+		Where("account_id = ? AND role_id = ?", accountID, roleID).
+		Count(&count).Error
+	if err != nil {
+		return 0, fmt.Errorf("failed to count the holders of role %q in account %q: %w", roleID, accountID, err)
+	}
+	return int(count), nil
+}
+
 func derefString(s *string) string {
 	if s == nil {
 		return ""

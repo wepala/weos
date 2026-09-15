@@ -162,6 +162,10 @@ All three routes require the owner or admin role in the account the caller acts 
 token that names no active account is refused with `401` and the code `unscoped_session`; the routes
 never choose one of the caller's accounts for them.
 
+`PUT /api/users/:id` refuses a role change that would leave the account with no owner — demoting
+the only owner, the caller included — with `400` and the code `last_owner_required`. Nothing in the
+request is saved, the name included. Add a second owner first, then change the first one's role.
+
 `GET /api/users` is paginated. A page holds 100 members unless `limit` names another size, and never
 more than 500; a larger `limit` is cut to 500. Members are ordered by id. The response carries
 `cursor` and `has_more`: while `has_more` is `true`, send `cursor` back as `?cursor=` to get the next

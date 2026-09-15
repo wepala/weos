@@ -44,6 +44,11 @@ type AccountMemberDirectory interface {
 	// queries whatever it holds. An account with no members is an empty last
 	// page, not an error.
 	ListMembers(ctx context.Context, accountID, cursor string, limit int) (*AccountMemberPage, error)
+
+	// CountMembersWithRole returns how many people hold roleID in accountID.
+	// The users routes read it to refuse a role change that would leave an
+	// account with no owner (wm-qhda1).
+	CountMembersWithRole(ctx context.Context, accountID, roleID string) (int, error)
 }
 
 // AccountMemberPage is one page of an account's members.

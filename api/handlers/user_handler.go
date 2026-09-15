@@ -208,6 +208,10 @@ func (h *UserHandler) Get(c echo.Context) error {
 	return respond(c, http.StatusOK, h.buildUserResponse(c.Request().Context(), agent, role))
 }
 
+// CodeLastOwnerRequired is the code on the refusal of a role change that would
+// leave an account with no owner.
+const CodeLastOwnerRequired = "last_owner_required"
+
 type UpdateUserRequest struct {
 	Name string `json:"name"`
 	Role string `json:"role"`
@@ -232,6 +236,27 @@ func (h *UserHandler) Update(c echo.Context) error {
 	agent, role, err := h.member(c, s, id)
 	if agent == nil {
 		return err
+	}
+
+	// An account keeps at least one owner (wm-qhda1): with none, nobody can
+	// manage its people or invites again. Checked before anything is written,
+	// so a refused request changes nothing, the name included. Two owners
+	// demoting each other at the same moment can still both pass; the count
+	// and the write are not one transaction.
+	if req.Role != "" && role == authentities.RoleOwner && req.Role != authentities.RoleOwner {
+		owners, err := h.members.CountMembersWithRole(ctx, s.accountID, authentities.RoleOwner)
+		if err != nil {
+			h.logger.Error(ctx, "failed to count the owners of the account", "account_id", s.accountID, "error", err)
+			return respondError(c, http.StatusInternalServerError, "failed to update user role")
+		}
+		if owners <= 1 {
+			h.logger.Warn(ctx, "users request refused: the change would leave the account with no owner",
+				"caller_agent_id", s.callerID,
+				"account_id", s.accountID,
+				"target_agent_id", id,
+			)
+			return respondErrorCode(c, http.StatusBadRequest, "an account must keep at least one owner", CodeLastOwnerRequired)
+		}
 	}
 
 	if req.Name != "" && req.Name != agent.Name() {

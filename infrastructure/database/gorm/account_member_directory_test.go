@@ -118,6 +118,37 @@ func TestAccountMemberDirectoryListsOneAccountWithEachPersonsRecord(t *testing.T
 	}
 }
 
+// wm-qhda1. The owner count is per account: an owner of another account, or a
+// member with another role, does not count.
+func TestAccountMemberDirectoryCountsTheHoldersOfARoleInOneAccount(t *testing.T) {
+	ctx := context.Background()
+	db := newDirectoryTestDB(t)
+	seedMembership(t, db, "acct-harbor", "agent-ops", "owner")
+	seedMembership(t, db, "acct-harbor", "agent-counsel", "owner")
+	seedMembership(t, db, "acct-harbor", "agent-clerk", "member")
+	seedMembership(t, db, "acct-cedar", "agent-ops", "owner")
+	directory := ProvideAccountMemberDirectory(db)
+
+	for _, tc := range []struct {
+		account, role string
+		want          int
+	}{
+		{"acct-harbor", "owner", 2},
+		{"acct-cedar", "owner", 1},
+		{"acct-harbor", "admin", 0},
+		{"", "owner", 0},
+		{"acct-harbor", "", 0},
+	} {
+		got, err := directory.CountMembersWithRole(ctx, tc.account, tc.role)
+		if err != nil {
+			t.Fatalf("CountMembersWithRole(%q, %q): %v", tc.account, tc.role, err)
+		}
+		if got != tc.want {
+			t.Errorf("CountMembersWithRole(%q, %q) = %d, want %d", tc.account, tc.role, got, tc.want)
+		}
+	}
+}
+
 // wm-g7284. A client walks a large account a page at a time, each page
 // starting after the agent ID the previous one ended at.
 func TestAccountMemberDirectoryPagesByAgentID(t *testing.T) {
