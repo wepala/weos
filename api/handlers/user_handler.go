@@ -235,14 +235,17 @@ func (h *UserHandler) Update(c echo.Context) error {
 	id := c.Param("id")
 	ctx := c.Request().Context()
 
-	var req UpdateUserRequest
-	if err := c.Bind(&req); err != nil {
-		return respondError(c, http.StatusBadRequest, "invalid request")
-	}
-
+	// The person is resolved before the body is read, so a PUT about anyone
+	// outside the account gets the 404 an unknown person gets, and is recorded,
+	// whatever its body holds.
 	agent, role, err := h.member(c, s, id)
 	if agent == nil {
 		return err
+	}
+
+	var req UpdateUserRequest
+	if err := c.Bind(&req); err != nil {
+		return respondError(c, http.StatusBadRequest, "invalid request")
 	}
 
 	// An account keeps at least one owner (wm-qhda1): with none, nobody can

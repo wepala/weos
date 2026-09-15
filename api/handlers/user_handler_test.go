@@ -341,3 +341,62 @@ func TestUserRoutesNameAMemberByTheirEarliestCredentialWithAnEmail(t *testing.T)
 		}
 	}
 }
+
+// wm-govvg. A PUT about a person outside the caller's account is refused with
+// the 404 an unknown person gets before its body is read, so a malformed body
+// changes nothing about the answer: both still get the same 404, and the
+// refusal is recorded. A member of the account with a malformed body still
+// gets 400.
+func TestUserUpdateRefusesAPersonOutsideTheAccountBeforeReadingTheBody(t *testing.T) {
+	accounts := &usersAccounts{
+		roles: map[string]string{
+			"ops|acct-harbor":     authentities.RoleOwner,
+			"clerk|acct-harbor":   authentities.RoleMember,
+			"stranger|acct-cedar": authentities.RoleOwner,
+		},
+	}
+	logs := &usersWarnings{}
+	h := handlers.NewUserHandler(handlers.UserHandlerConfig{
+		AgentRepo: usersAgents{agents: map[string]*authentities.Agent{
+			"ops":      usersPerson(t, "ops", "Harbor Operations"),
+			"clerk":    usersPerson(t, "clerk", "Lantern Clerk"),
+			"stranger": usersPerson(t, "stranger", "Cedar Counsel"),
+		}},
+		CredentialRepo: usersCredentials{},
+		AccountRepo:    accounts,
+		Members:        usersDirectory{},
+		Logger:         logs,
+	})
+
+	e := echo.New()
+	e.PUT("/api/users/:id", h.Update, asIdentity("ops", "acct-harbor"))
+	put := func(id string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPut, "/api/users/"+id, strings.NewReader(`{"role":`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		return rec
+	}
+
+	outside := put("stranger")
+	unknown := put("2Zq7mQb0Xn9YpR4sT1vW8kLcE3dA")
+	if outside.Code != http.StatusNotFound || unknown.Code != outside.Code || unknown.Body.String() != outside.Body.String() {
+		t.Errorf("a malformed PUT about a person outside the account answered %d %s and about an unknown person %d %s; "+
+			"want the same 404", outside.Code, outside.Body.String(), unknown.Code, unknown.Body.String())
+	}
+	recorded := false
+	for _, line := range logs.lines {
+		if strings.HasPrefix(line, "users request refused") && strings.Contains(line, "target_agent_id stranger") {
+			recorded = true
+		}
+	}
+	if !recorded {
+		t.Errorf("the refusal of a malformed PUT about a person outside the account was not recorded: %q", logs.lines)
+	}
+	if member := put("clerk"); member.Code != http.StatusBadRequest {
+		t.Errorf("a malformed PUT about a member of the account answered %d %s, want 400", member.Code, member.Body.String())
+	}
+	if len(accounts.saved) != 0 {
+		t.Errorf("malformed PUTs saved roles %v; want none", accounts.saved)
+	}
+}
