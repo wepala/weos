@@ -504,6 +504,17 @@ every connector authorize again.
   nothing (an invite, or a password without the opt-in) is now refused `unproven-owner`
   instead of creating a person, so whoever can write such a credential for an address can
   make that address's first door sign-in wait for an operator.
+
+  *Amended 2026-09-15 (finding `wm-yg7va`, bead `wm-am5ly`):* this side effect stands, with
+  three safeguards so an operator can see and fix the refusal. (1) When the route mounts
+  on an instance with no `OAUTH_ALLOWED_EMAILS` and `TRUSTED_ISSUER_LINK_PASSWORD_OWNERS`
+  is off, boot logs one warning that names `TRUSTED_ISSUER_LINK_PASSWORD_OWNERS`. It is
+  read from configuration alone, so it also appears on an instance that holds no password
+  or invite credential. (2) The 409 answer for `unproven-owner` and for `ambiguous-owner`
+  tells the person to contact the operator of the instance; the codes do not change.
+  (3) An acceptance scenario in `tests/e2e/features/trusted_issuer_account.feature`
+  stages an email that only a password holds, on an instance with no allowlist, and
+  checks the refusal and its text.
 - Bad: the instance makes an outbound HTTPS call to the JWKS URL; a fleet instance
   therefore needs egress to the door's host, or the key delivered by env instead —
   the config keys deliberately leave room for `TRUSTED_ISSUER_JWKS` (inline key) later.
