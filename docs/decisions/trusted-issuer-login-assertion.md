@@ -318,6 +318,18 @@ A person the assertion gives no name is named after the email's local part.
   `(provider, provider_user_id)` index still stops a second credential for one identity.
   A link saves the credential row first and records `Credential.Created` only after the
   row is saved, so a link that loses that race records no event.
+  - **Known limit: a lost lock connection releases the lock while the writes continue.**
+    On PostgreSQL the advisory locks are held on one dedicated connection, while the
+    owner look-up and pericarp's person and credential writes run on other pooled
+    connections. If that connection is lost in the middle of a sign-in, for example when
+    the database restarts, the server releases the locks, but nothing tells the sign-in,
+    and its writes continue. A concurrent sign-in for the same email can then take the
+    locks, find no holder, and create a second person. A fix needs the protected writes
+    on the lock's connection, or a fencing check before they commit. pericarp's write API
+    does not allow either today: `FindOrCreateAgent` and `RegisterPassword` take no
+    transaction or connection. SQLite is unaffected: it takes no advisory lock, and one
+    process serves the database. The maintainer recorded this as a known limit rather
+    than a fix in this change. Bead `wm-klqwq` tracks it.
 - **The lock does not use up the pool.** A sign-in that holds the advisory locks keeps one
   pooled connection, and its reads and writes need a second one. So on each replica only
   a quarter of the pool (25 of the 100 connections core opens to PostgreSQL, and at least
