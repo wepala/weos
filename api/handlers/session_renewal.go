@@ -246,6 +246,10 @@ const (
 	// CodeSignOutEverywhereRefused: "everywhere":true was asked without a live
 	// credential. The device's own session was still ended.
 	CodeSignOutEverywhereRefused = "sign_out_everywhere_refused"
+	// CodeAppSessionNotEnded: the refresh token store could not be read or
+	// written, so no app session was ended (wm-5rziu). The browser session was.
+	// The app keeps its refresh token and signs out again.
+	CodeAppSessionNotEnded = "app_session_not_ended"
 )
 
 // What a native sign-out's answer says, in app_session, it did to the app's
@@ -254,6 +258,7 @@ const (
 	appSessionEnded           = "ended"
 	appSessionEndedEverywhere = "ended_everywhere"
 	appSessionNotIdentified   = "not_identified"
+	appSessionNotEnded        = "not_ended"
 )
 
 // nativeSignOut is what a native sign-out did, as its answer says it. The zero

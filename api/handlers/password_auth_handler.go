@@ -261,9 +261,10 @@ func (h *PasswordAuthHandler) Login(c echo.Context) error {
 // its refresh token family — and no other; {"everywhere":true} with a live
 // credential ends every native session of the person (wm-lnimb, wm-utb5c; see
 // endNativeSessions). The access token itself is stateless and lasts out its
-// hour. A revocation that cannot be written answers 503 before
-// anything is cleared, so the app signs out again rather than keep a refresh
-// token it believes is gone.
+// hour. The cookie and the browser session are cleared whether or not the app's
+// session could be ended: a store that cannot be read or written is answered
+// 200 with app_session not_ended and code app_session_not_ended, so the app
+// keeps its refresh token and signs out again (wm-5rziu).
 //
 // A sign-out that presents a bearer token, a refresh token or "everywhere"
 // says in its answer what it did to the app's sessions: app_session is ended,
@@ -272,8 +273,14 @@ func (h *PasswordAuthHandler) Login(c echo.Context) error {
 func (h *PasswordAuthHandler) Logout(c echo.Context, oauthLogout http.HandlerFunc) error {
 	did, err := h.endNativeSessions(c)
 	if err != nil {
-		h.cfg.Logger.Error(c.Request().Context(), "sign-out: could not revoke the person's native refresh tokens", "error", err)
-		return renewalUnavailable(c, "could not end the app's session; sign out again")
+		// The browser's sign-out never waits on the refresh token store: the
+		// cookie and the browser session are cleared below whatever happened
+		// here, and the answer tells the app its session was not ended, so it
+		// keeps its refresh token and signs out again (wm-5rziu).
+		h.cfg.Logger.Error(c.Request().Context(),
+			"sign-out: could not end the app's native session; the browser session is ended and the app is told to sign out again",
+			"error", err)
+		did = nativeSignOut{AppSession: appSessionNotEnded, Code: CodeAppSessionNotEnded}
 	}
 	w := c.Response().Writer
 	http.SetCookie(w, &http.Cookie{
