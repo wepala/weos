@@ -204,11 +204,13 @@ func ProvideAuthenticationService(params struct {
 		opts...,
 	)
 	// Decorate so the OAuth callback can tell first-time signups from returning
-	// logins, and so every FindOrCreateAgent holds the sign-in lock owner
-	// binding holds (see new_account_signal.go). FindOrCreateAgent is called by
-	// the two OAuth callbacks, asserted sign-in (which already holds the lock)
-	// and seeding; the new-account signal stays inert unless a caller installs
-	// a flag pointer in the request context, and password login never calls it.
+	// logins, and so every FindOrCreateAgent and RegisterPassword holds the
+	// sign-in lock owner binding holds (see new_account_signal.go).
+	// FindOrCreateAgent is called by the two OAuth callbacks, asserted sign-in
+	// (which already holds the lock) and seeding; RegisterPassword by
+	// POST /auth/register and the account command. The new-account signal
+	// stays inert unless a caller installs a flag pointer in the request
+	// context, and password login never calls either.
 	return &newAccountSignalService{AuthenticationService: svc, credentials: params.Credentials, lock: params.SignInLock}
 }
 

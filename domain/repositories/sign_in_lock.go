@@ -24,7 +24,8 @@ import "context"
 // person. Two replicas that both find no holder would each create a person, and
 // the two proving credentials that leaves make every later sign-in for the
 // email ambiguous. The OAuth callbacks write google and apple credentials
-// through FindOrCreateAgent, which binding reads, so they hold the same keys.
+// through FindOrCreateAgent, which binding reads, and password registration
+// creates a person through RegisterPassword, so they hold the same keys.
 // pericarp's FindOrCreateAgent writes its rows outside any transaction core can
 // join, so the look-up and the create cannot share one; a lock held across both
 // is what keeps the second sign-in from reading before the first one's rows are
@@ -33,6 +34,7 @@ type SignInLock interface {
 	// Hold blocks until this process holds every key, taken in the order given,
 	// and returns the function that releases them all. The keys must differ from
 	// each other. It returns an error, and holds nothing, when a key cannot be
-	// taken, for example because ctx ended: every wait ends with ctx.
+	// taken, for example because ctx ended: every wait ends with ctx, and a ctx
+	// that has ended holds nothing even when every key is free.
 	Hold(ctx context.Context, keys ...string) (release func(), err error)
 }

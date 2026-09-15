@@ -205,8 +205,8 @@ type keyedLock struct {
 }
 
 // lock takes every key in the order given and returns the function that
-// releases them all. When ctx ends first it releases the keys it took and
-// returns ctx's error.
+// releases them all. When ctx ends first, or has ended by the time every key is
+// taken, it releases the keys it took and returns ctx's error.
 func (k *keyedLocks) lock(ctx context.Context, keys []string) (func(), error) {
 	taken := make([]string, 0, len(keys))
 	release := func() {
@@ -225,6 +225,12 @@ func (k *keyedLocks) lock(ctx context.Context, keys []string) (func(), error) {
 			release()
 			return nil, ctx.Err()
 		}
+	}
+	// A free key and an ended ctx are both ready, and select picks either. A
+	// caller whose request has ended must not go on to write.
+	if err := ctx.Err(); err != nil {
+		release()
+		return nil, err
 	}
 	return release, nil
 }

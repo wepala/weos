@@ -131,6 +131,53 @@ func TestSignInLockOnSQLiteSerializesInProcessAndStallsNoWrite(t *testing.T) {
 	}
 }
 
+// A holder whose context has already ended holds nothing on SQLite, even when
+// every key is free. A free key and an ended context are both ready, so without
+// a check after the keys are taken a canceled sign-in would hold the lock and go
+// on to write: each attempt here would then succeed one time in four.
+func TestSignInLockOnSQLiteHoldsNothingForAnEndedContext(t *testing.T) {
+	db, err := gorm.Open(DialectorForDSN(filepath.Join(t.TempDir(), "sign_in_lock.db")), gormConfig())
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get the sqlite pool: %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	lock := ProvideSignInLock(db)
+	keys := []string{"identity\x00google\x00108234917650023841257", "email\x00dana.whitfield@harborlegal.example"}
+
+	ended, cancel := context.WithCancel(context.Background())
+	cancel()
+	for i := range 64 {
+		release, err := lock.Hold(ended, keys...)
+		if err == nil {
+			release()
+			t.Fatalf("attempt %d: a Hold whose context had ended held the lock", i+1)
+		}
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("attempt %d: %v, want the context's error", i+1, err)
+		}
+	}
+
+	signInLock := lock.(*SignInLock)
+	signInLock.keys.mu.Lock()
+	left := len(signInLock.keys.locks)
+	signInLock.keys.mu.Unlock()
+	if left != 0 {
+		t.Fatalf("%d keys are still tracked after every Hold whose context had ended", left)
+	}
+
+	live, cancelLive := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelLive()
+	release, err := lock.Hold(live, keys...)
+	if err != nil {
+		t.Fatalf("a Hold after the ended ones: %v", err)
+	}
+	release()
+}
+
 // Many holders of distinct and shared keys at once all finish, each shared key
 // is held by one of them at a time, and nothing is left tracked.
 func TestSignInLockSerializesEachKeyAcrossManyHolders(t *testing.T) {

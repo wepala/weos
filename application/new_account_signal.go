@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/wepala/weos/v3/domain/repositories"
 
@@ -35,19 +36,19 @@ func NewAccountFlagFromContext(ctx context.Context) *bool {
 
 // newAccountSignalService decorates an AuthenticationService so the OAuth
 // callback can distinguish a freshly created account from a returning login,
-// and so every FindOrCreateAgent holds the sign-in lock. It embeds the wrapped
-// service and overrides only FindOrCreateAgent; every other method passes
-// straight through.
+// and so every FindOrCreateAgent and every RegisterPassword holds the sign-in
+// lock. It embeds the wrapped service and overrides only those two methods;
+// every other method passes straight through.
 type newAccountSignalService struct {
 	authapp.AuthenticationService
 	credentials authrepos.CredentialRepository
 	// lock is the SignInLock owner binding holds. Both OAuth callbacks — core's
 	// /oauth/callback and pericarp's /api/auth/callback — write google and apple
-	// credentials through FindOrCreateAgent, and binding trusts those
-	// credentials' emails, so a callback holds the same identity and email keys
-	// as an asserted sign-in. Otherwise an assertion that read "nobody holds this
-	// email" while a callback wrote the first credential for it would create a
-	// second person. Optional; without it FindOrCreateAgent holds nothing.
+	// credentials through FindOrCreateAgent, and password registration creates a
+	// person through RegisterPassword, so each holds the same identity and email
+	// keys as an asserted sign-in. Otherwise an assertion that read "nobody holds
+	// this email" while one of them wrote the first credential for it would
+	// create a second person. Optional; without it neither method holds anything.
 	lock repositories.SignInLock
 }
 
@@ -80,4 +81,27 @@ func (s *newAccountSignalService) FindOrCreateAgent(ctx context.Context, userInf
 		*flag = existing == nil
 	}
 	return s.AuthenticationService.FindOrCreateAgent(ctx, userInfo)
+}
+
+// RegisterPassword holds the sign-in lock for the password identity and its
+// email around the registration, which POST /auth/register and the account
+// command call. Registration reads whether a password credential holds the
+// email and then creates a person, so without the keys an asserted sign-in that
+// read "nobody holds this email" in between would create a second person.
+//
+// The lock does not make registration look at other credentials: it still only
+// refuses an email a password credential holds, so registering after an
+// asserted sign-in for the same email creates a second person, lock or not. See
+// docs/decisions/trusted-issuer-login-assertion.md, "Races".
+func (s *newAccountSignalService) RegisterPassword(ctx context.Context, email, displayName, plaintext string) (*entities.Agent, *entities.Credential, *entities.Account, error) {
+	if s.lock != nil {
+		// The subject pericarp stores a password credential under.
+		subject := strings.ToLower(strings.TrimSpace(email))
+		release, err := s.lock.Hold(ctx, signInLockKeys(entities.ProviderPassword, subject, repositories.FoldCredentialEmail(email))...)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("hold the sign-in lock: %w", err)
+		}
+		defer release()
+	}
+	return s.AuthenticationService.RegisterPassword(ctx, email, displayName, plaintext)
 }
