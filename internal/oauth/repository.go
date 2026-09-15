@@ -266,11 +266,15 @@ func (r *gormRefreshTokenRepo) Rotate(
 		newToken.ExpiresAt = time.Now().Add(30 * 24 * time.Hour)
 	}
 
+	rotatedAt := time.Now()
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// Conditional revoke — fails if token is already revoked.
+		// Conditional revoke — fails if token is already revoked. The spent
+		// token records its successor's id and when it was spent, so a native
+		// renewal repeated inside the grace window can be answered that
+		// successor (wm-3dgs0).
 		result := tx.Model(&OAuthRefreshToken{}).
 			Where("id = ? AND revoked = ?", oldID, false).
-			Update("revoked", true)
+			Updates(map[string]any{"revoked": true, "successor_id": newToken.ID, "rotated_at": rotatedAt})
 		if result.Error != nil {
 			return result.Error
 		}

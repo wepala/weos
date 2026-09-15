@@ -85,7 +85,8 @@ func ProvideJWTService(cfg config.Config) (authapp.JWTService, error) {
 			authjwt.WithTokenTTL(defaultAccessTokenTTL),
 			authjwt.WithIssuer(issuer),
 		),
-		publicKey: &key.PublicKey,
+		publicKey:    &key.PublicKey,
+		successorKey: nativeSuccessorKeyFor(key),
 	}, nil
 }
 

@@ -65,6 +65,10 @@ type PasswordAuthHandlerConfig struct {
 	// JWTService reads the bearer token a native app signs out with, so the
 	// sign-out can end that person's refresh tokens. Optional.
 	JWTService authapp.JWTService
+	// RefreshSuccessorKey derives a native refresh token's successor, so a
+	// renewal repeated inside the grace window gets the same one (wm-3dgs0).
+	// Optional: it defaults to weosoauth.NativeRefreshSuccessorKey(JWTService).
+	RefreshSuccessorKey []byte
 }
 
 type PasswordAuthHandler struct {
@@ -72,6 +76,9 @@ type PasswordAuthHandler struct {
 }
 
 func NewPasswordAuthHandler(cfg PasswordAuthHandlerConfig) *PasswordAuthHandler {
+	if len(cfg.RefreshSuccessorKey) == 0 {
+		cfg.RefreshSuccessorKey = weosoauth.NativeRefreshSuccessorKey(cfg.JWTService)
+	}
 	if cfg.SessionDuration == 0 {
 		cfg.SessionDuration = 24 * time.Hour
 	}

@@ -127,19 +127,27 @@ func IssueNativeRefreshToken(
 	return NativeRefreshToken{Raw: raw, ExpiresAt: token.ExpiresAt}, nil
 }
 
-// RotateNativeRefreshToken replaces stored with a new refresh token in the same
-// family, with the full lifetime, in one transaction. It answers ErrNotFound
-// when stored was already rotated or revoked, which a concurrent renewal with
-// the same token also gets.
+// RotateNativeRefreshToken replaces stored, presented as presentedRaw, with a new
+// refresh token in the same family, with the full lifetime, in one transaction.
+// With a successor key the new token is derived from the presented one, so a
+// repeat inside the grace window can be answered it again (see
+// NativeRefreshSuccessorInGrace); without one it is random. It answers
+// ErrNotFound when stored was already rotated or revoked, which a concurrent
+// renewal with the same token also gets.
 func RotateNativeRefreshToken(
-	ctx context.Context, repo RefreshTokenRepository, stored *OAuthRefreshToken,
+	ctx context.Context, repo RefreshTokenRepository, stored *OAuthRefreshToken, presentedRaw string, successorKey []byte,
 ) (NativeRefreshToken, error) {
 	if !IsNativeRefreshToken(stored) {
 		return NativeRefreshToken{}, fmt.Errorf("native refresh token: %w: not a native refresh token", ErrNotFound)
 	}
-	raw, err := GenerateRefreshToken()
-	if err != nil {
-		return NativeRefreshToken{}, fmt.Errorf("native refresh token: generate: %w", err)
+	raw := ""
+	if len(successorKey) > 0 && presentedRaw != "" {
+		raw = nativeSuccessorRaw(successorKey, stored.ID, presentedRaw)
+	} else {
+		var err error
+		if raw, err = GenerateRefreshToken(); err != nil {
+			return NativeRefreshToken{}, fmt.Errorf("native refresh token: generate: %w", err)
+		}
 	}
 	next := &OAuthRefreshToken{
 		AgentID:   stored.AgentID,

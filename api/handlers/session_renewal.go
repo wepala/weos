@@ -91,7 +91,10 @@ func (h *PasswordAuthHandler) renews() bool {
 // is unfinished renews only for an owner or admin, whose new token serves the
 // deletion alone, as a sign-in to it does (account_erasure_pending otherwise).
 // A refresh token that was already rotated revokes its whole family: someone
-// else holds a copy. A store that cannot be read answers 503 with Retry-After,
+// else holds a copy. The one exception is an exact repeat inside
+// weosoauth.NativeRefreshGraceWindow (30 seconds) of a token whose successor is
+// still live — a renewal whose answer was lost, or two renewals at once — which
+// is answered that same successor and a fresh access token (wm-3dgs0). A store that cannot be read answers 503 with Retry-After,
 // and spends nothing.
 func (h *PasswordAuthHandler) Refresh(c echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "no-store")
@@ -115,19 +118,37 @@ func (h *PasswordAuthHandler) Refresh(c echo.Context) error {
 	if err != nil || !weosoauth.IsNativeRefreshToken(stored) {
 		return refuseRenewal(c, CodeInvalidRefreshToken)
 	}
+	// presented is the row the refresh token names. stored is the row every
+	// check below applies to: presented itself, or — when presented was spent
+	// moments ago and is repeated inside the grace window — the successor its
+	// renewal made, which is answered again (wm-3dgs0).
+	presented := stored
+	var graceRefresh weosoauth.NativeRefreshToken
+	now := time.Now()
 	if stored.Revoked {
-		h.cfg.Logger.Warn(ctx, "session renewal: a spent refresh token was presented again — revoking its family",
-			"token", stored.ID, "family", stored.FamilyID, "agent", stored.AgentID)
-		if err := tokens.RevokeFamily(ctx, stored.FamilyID); err != nil {
-			// The presented token is refused either way; what could not be
-			// revoked is the newest token of the family, which the next reuse
-			// tries again.
-			h.cfg.Logger.Error(ctx, "session renewal: family revocation failed",
-				"family", stored.FamilyID, "error", err)
+		successor, refresh, inGrace, err := weosoauth.NativeRefreshSuccessorInGrace(ctx, tokens, stored, raw,
+			h.cfg.RefreshSuccessorKey, now, weosoauth.NativeRefreshGraceWindow)
+		if err != nil {
+			h.cfg.Logger.Error(ctx, "session renewal: successor lookup failed", "token", stored.ID, "error", err)
+			return renewalUnavailable(c, "could not read the refresh token")
 		}
-		return refuseRenewal(c, CodeInvalidRefreshToken)
+		if !inGrace {
+			h.cfg.Logger.Warn(ctx, "session renewal: a spent refresh token was presented again — revoking its family",
+				"token", stored.ID, "family", stored.FamilyID, "agent", stored.AgentID)
+			if err := tokens.RevokeFamily(ctx, stored.FamilyID); err != nil {
+				// The presented token is refused either way; what could not be
+				// revoked is the newest token of the family, which the next reuse
+				// tries again.
+				h.cfg.Logger.Error(ctx, "session renewal: family revocation failed",
+					"family", stored.FamilyID, "error", err)
+			}
+			return refuseRenewal(c, CodeInvalidRefreshToken)
+		}
+		h.cfg.Logger.Info(ctx, "session renewal: a refresh token spent moments ago was repeated inside the grace window — answering its successor",
+			"token", presented.ID, "family", presented.FamilyID)
+		stored, graceRefresh = successor, refresh
 	}
-	if time.Now().After(stored.ExpiresAt) {
+	if now.After(stored.ExpiresAt) {
 		return refuseRenewal(c, CodeInvalidRefreshToken)
 	}
 
@@ -204,14 +225,34 @@ func (h *PasswordAuthHandler) Refresh(c echo.Context) error {
 		return respondError(c, http.StatusInternalServerError, "failed to renew the session")
 	}
 
-	next, err := weosoauth.RotateNativeRefreshToken(ctx, tokens, stored)
-	if err != nil {
-		if errors.Is(err, weosoauth.ErrNotFound) {
-			// Another renewal spent the token a moment ago.
-			return refuseRenewal(c, CodeInvalidRefreshToken)
+	next := graceRefresh
+	if next.Raw == "" {
+		rotated, err := weosoauth.RotateNativeRefreshToken(ctx, tokens, presented, raw, h.cfg.RefreshSuccessorKey)
+		switch {
+		case err == nil:
+			next = rotated
+		case errors.Is(err, weosoauth.ErrNotFound):
+			// Another renewal with the same refresh token spent it a moment ago.
+			// Inside the grace window that renewal's successor is this one's too;
+			// otherwise the token is refused, and the family is left as it is.
+			again, lookupErr := tokens.FindByTokenHash(ctx, weosoauth.HashToken(raw))
+			inGrace := false
+			if lookupErr == nil {
+				_, next, inGrace, lookupErr = weosoauth.NativeRefreshSuccessorInGrace(ctx, tokens, again, raw,
+					h.cfg.RefreshSuccessorKey, now, weosoauth.NativeRefreshGraceWindow)
+			}
+			if lookupErr != nil {
+				h.cfg.Logger.Error(ctx, "session renewal: successor lookup after a concurrent renewal failed",
+					"token", presented.ID, "error", lookupErr)
+				return renewalUnavailable(c, "could not read the refresh token")
+			}
+			if !inGrace {
+				return refuseRenewal(c, CodeInvalidRefreshToken)
+			}
+		default:
+			h.cfg.Logger.Error(ctx, "session renewal: rotation failed", "token", presented.ID, "error", err)
+			return respondError(c, http.StatusInternalServerError, "failed to renew the session")
 		}
-		h.cfg.Logger.Error(ctx, "session renewal: rotation failed", "token", stored.ID, "error", err)
-		return respondError(c, http.StatusInternalServerError, "failed to renew the session")
 	}
 
 	h.cfg.Logger.Info(ctx, "native session renewed", "agent", stored.AgentID, "account", stored.AccountID)

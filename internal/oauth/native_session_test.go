@@ -91,7 +91,7 @@ func TestRotateNativeRefreshToken_KeepsTheFamilyAndSlidesTheExpiry(t *testing.T)
 	mustNoErr(t, repo.Create(ctx, old, "raw-native-refresh-token"), "create the refresh token")
 
 	before := time.Now()
-	rotated, err := RotateNativeRefreshToken(ctx, repo, old)
+	rotated, err := RotateNativeRefreshToken(ctx, repo, old, "raw-native-refresh-token", nil)
 	mustNoErr(t, err, "rotate the native refresh token")
 	if rotated.Raw == "" || rotated.Raw == "raw-native-refresh-token" {
 		t.Fatal("the rotation did not hand back a new refresh token")
@@ -114,7 +114,7 @@ func TestRotateNativeRefreshToken_KeepsTheFamilyAndSlidesTheExpiry(t *testing.T)
 		t.Fatalf("the new refresh token expires at %v; a renewal must give it a full %v", next.ExpiresAt, NativeRefreshTokenTTL)
 	}
 
-	if _, err := RotateNativeRefreshToken(ctx, repo, old); !errors.Is(err, ErrNotFound) {
+	if _, err := RotateNativeRefreshToken(ctx, repo, old, "raw-native-refresh-token", nil); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("rotating the already rotated token again returned %v, want ErrNotFound", err)
 	}
 }

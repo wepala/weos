@@ -67,7 +67,13 @@ type OAuthRefreshToken struct {
 	Scope     string `gorm:"type:varchar(500)"`
 	ExpiresAt time.Time
 	Revoked   bool `gorm:"not null;default:false"`
-	CreatedAt time.Time
+	// SuccessorID is the id of the token a rotation replaced this one with, and
+	// RotatedAt is when. Set only by a rotation, never by another revocation, so
+	// a native renewal repeated inside the grace window can be answered that
+	// successor (wm-3dgs0). The successor itself is kept by hash like any token.
+	SuccessorID string `gorm:"type:varchar(255)"`
+	RotatedAt   *time.Time
+	CreatedAt   time.Time
 }
 
 func (OAuthRefreshToken) TableName() string { return "oauth_refresh_tokens" }

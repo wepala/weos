@@ -32,6 +32,10 @@ import (
 type instanceJWTService struct {
 	*authjwt.RSAJWTService
 	publicKey *rsa.PublicKey
+	// successorKey derives native refresh token successors (see
+	// NativeRefreshSuccessorKey). It comes from the signing key, so every
+	// process that signs with that key derives the same successors.
+	successorKey []byte
 }
 
 // errNoSignatureCheck is answered for a token service that holds no key this
