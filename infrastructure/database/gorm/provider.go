@@ -163,6 +163,62 @@ func ReadOnlyDialectorForDSN(dsn string) gorm.Dialector {
 	return sqlite.Open(sqliteReadOnlyDSN(dsn))
 }
 
+// IsSQLiteMemoryDSN reports whether SQLite opens dsn as an in-memory database:
+// the name is exactly ":memory:", plain or as the path of a file: URI, or dsn
+// is a file: URI whose query sets mode=memory. The driver cuts the query off a
+// plain path before it opens the file, so a mode parameter there names nothing.
+// A file whose name only contains either text is a file.
+func IsSQLiteMemoryDSN(dsn string) bool {
+	name, query, _ := strings.Cut(dsn, "?")
+	if strings.TrimPrefix(name, "file:") == ":memory:" {
+		return true
+	}
+	if !strings.HasPrefix(name, "file:") {
+		return false
+	}
+	query, _, _ = strings.Cut(query, "#")
+	for _, param := range strings.Split(query, "&") {
+		key, value, _ := strings.Cut(param, "=")
+		if sqliteURIUnescape(key) == "mode" && sqliteURIUnescape(value) == "memory" {
+			return true
+		}
+	}
+	return false
+}
+
+// sqliteURIUnescape decodes the %HH escapes in part of a SQLite URI the way
+// SQLite does: a % not followed by two hex digits is kept as it is.
+func sqliteURIUnescape(s string) string {
+	if !strings.Contains(s, "%") {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '%' && i+2 < len(s) && isHexDigit(s[i+1]) && isHexDigit(s[i+2]) {
+			b.WriteByte(hexValue(s[i+1])<<4 | hexValue(s[i+2]))
+			i += 2
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+func isHexDigit(c byte) bool {
+	return ('0' <= c && c <= '9') || ('a' <= c && c <= 'f') || ('A' <= c && c <= 'F')
+}
+
+func hexValue(c byte) byte {
+	switch {
+	case c >= 'a':
+		return c - 'a' + 10
+	case c >= 'A':
+		return c - 'A' + 10
+	default:
+		return c - '0'
+	}
+}
+
 // sqliteURIPathEscaper escapes the characters a SQLite URI path gives meaning to.
 var sqliteURIPathEscaper = strings.NewReplacer("%", "%25", "#", "%23")
 
@@ -172,7 +228,7 @@ var sqliteURIPathEscaper = strings.NewReplacer("%", "%25", "#", "%23")
 // the DSN already names is dropped; every other parameter is kept. In-memory
 // databases are left untouched.
 func sqliteReadOnlyDSN(dsn string) string {
-	if strings.Contains(dsn, ":memory:") || strings.Contains(dsn, "mode=memory") {
+	if IsSQLiteMemoryDSN(dsn) {
 		return dsn
 	}
 	name, query, _ := strings.Cut(dsn, "?")
