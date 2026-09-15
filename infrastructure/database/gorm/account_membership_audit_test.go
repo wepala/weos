@@ -88,10 +88,17 @@ func (s *auditStore) event(accountID string, seq int, eventType, agentID, roleID
 
 func (s *auditStore) invite(id, accountID, email, inviteeAgentID, roleID string) {
 	s.t.Helper()
+	s.inviteAt(id, accountID, email, inviteeAgentID, roleID, time.Now())
+}
+
+// inviteAt seeds an invite sent at a given time, for tests that depend on the
+// order the invites were sent in.
+func (s *auditStore) inviteAt(id, accountID, email, inviteeAgentID, roleID string, sentAt time.Time) {
+	s.t.Helper()
 	if err := s.db.Create(&authmodels.InviteModel{
 		ID: id, AccountID: accountID, Email: email, RoleID: roleID,
 		InviterAgentID: "agent-ops", InviteeAgentID: inviteeAgentID, Status: "pending",
-		ExpiresAt: time.Now().Add(72 * time.Hour), CreatedAt: time.Now(),
+		ExpiresAt: sentAt.Add(72 * time.Hour), CreatedAt: sentAt,
 	}).Error; err != nil {
 		s.t.Fatalf("seed invite %s: %v", id, err)
 	}
@@ -99,11 +106,18 @@ func (s *auditStore) invite(id, accountID, email, inviteeAgentID, roleID string)
 
 func (s *auditStore) credential(agentID, email string) {
 	s.t.Helper()
+	s.namedCredential(agentID+"-cred", agentID, email)
+}
+
+// namedCredential seeds a credential with its own id, for a person who holds
+// more than one.
+func (s *auditStore) namedCredential(id, agentID, email string) {
+	s.t.Helper()
 	if err := s.db.Create(&authmodels.CredentialModel{
-		ID: agentID + "-cred", AgentID: agentID, Provider: "password", ProviderUserID: agentID,
+		ID: id, AgentID: agentID, Provider: "password", ProviderUserID: id,
 		Email: email, Active: true, CreatedAt: time.Now(),
 	}).Error; err != nil {
-		s.t.Fatalf("seed credential of %s: %v", agentID, err)
+		s.t.Fatalf("seed credential %s of %s: %v", id, agentID, err)
 	}
 }
 
@@ -265,5 +279,45 @@ func TestAccountMembershipAuditFoldsEmailsTheWayOwnerBindingDoes(t *testing.T) {
 	if len(report.Unexplained) != 1 || report.Unexplained[0].AgentID != "agent-kelvin" ||
 		report.Unexplained[0].RoleID != authentities.RoleMember || !report.Unexplained[0].WrittenAt.Equal(at(1)) {
 		t.Fatalf("the audit listed %+v; want only agent-kelvin, as member, written at %v", report.Unexplained, at(1))
+	}
+}
+
+// wm-govvg. A person can hold credentials for two addresses that were each
+// invited with a different role. The later invite's role wins, as it does for
+// one address invited twice, whatever order the credentials are stored in. Two
+// people show both orders: one whose credential for the later invite was stored
+// first, and one whose credential for the earlier invite was.
+func TestAccountMembershipAuditTakesTheLaterInviteAcrossAPersonsAddresses(t *testing.T) {
+	ctx := context.Background()
+	s := newAuditStore(t)
+	base := time.Date(2026, 8, 3, 9, 0, 0, 0, time.UTC)
+	at := func(hours int) time.Time { return base.Add(time.Duration(hours) * time.Hour) }
+
+	s.account("acct-1harbor")
+	s.event("acct-1harbor", 1, authentities.EventTypeAccountCreated, "", "")
+	s.event("acct-1harbor", 2, authentities.EventTypeAccountMemberAdded, "agent-ops", authentities.RoleOwner)
+
+	s.row("acct-1harbor", "agent-ops", authentities.RoleOwner, at(0))
+	s.row("acct-1harbor", "agent-avery", authentities.RoleAdmin, at(1))
+	s.row("acct-1harbor", "agent-blake", authentities.RoleAdmin, at(2))
+
+	s.inviteAt("invite-1", "acct-1harbor", "avery@harborlegal.example", "", authentities.RoleMember, at(3))
+	s.inviteAt("invite-2", "acct-1harbor", "avery@cedarrealty.example", "", authentities.RoleAdmin, at(4))
+	s.inviteAt("invite-3", "acct-1harbor", "blake@harborlegal.example", "", authentities.RoleMember, at(5))
+	s.inviteAt("invite-4", "acct-1harbor", "blake@cedarrealty.example", "", authentities.RoleAdmin, at(6))
+
+	// Avery's credential for the later invite is stored first; Blake's for the
+	// earlier invite is.
+	s.namedCredential("cred-avery-cedar", "agent-avery", "avery@cedarrealty.example")
+	s.namedCredential("cred-avery-harbor", "agent-avery", "avery@harborlegal.example")
+	s.namedCredential("cred-blake-harbor", "agent-blake", "blake@harborlegal.example")
+	s.namedCredential("cred-blake-cedar", "agent-blake", "blake@cedarrealty.example")
+
+	report, err := ProvideAccountMembershipAudit(s.db).UnexplainedMemberships(ctx, "acct-1harbor")
+	if err != nil {
+		t.Fatalf("UnexplainedMemberships: %v", err)
+	}
+	if len(report.Unexplained) != 0 {
+		t.Fatalf("the audit listed %+v; want nothing, since each admin role is the role of the later invite", report.Unexplained)
 	}
 }

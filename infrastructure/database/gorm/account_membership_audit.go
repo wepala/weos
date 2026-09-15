@@ -70,6 +70,13 @@ type auditInviteRow struct {
 	RoleID         string
 }
 
+// auditInvitedRole is the role the latest invite to an address gave, and that
+// invite's place in the account's invites, oldest first.
+type auditInvitedRole struct {
+	role string
+	sent int
+}
+
 func (a *AccountMembershipAudit) UnexplainedMemberships(
 	ctx context.Context, accountID string,
 ) (*repositories.MembershipAuditReport, error) {
@@ -145,13 +152,13 @@ func (a *AccountMembershipAudit) UnexplainedMemberships(
 		return nil, fmt.Errorf("failed to read the invites of account %q: %w", accountID, err)
 	}
 	invitedAgent := map[string]string{}
-	invitedEmail := map[string]string{}
-	for _, inv := range invites {
+	invitedEmail := map[string]auditInvitedRole{}
+	for i, inv := range invites {
 		if inv.InviteeAgentID != "" {
 			invitedAgent[inv.InviteeAgentID] = inv.RoleID
 		}
 		if key := auditEmailKey(inv.Email); key != "" {
-			invitedEmail[key] = inv.RoleID
+			invitedEmail[key] = auditInvitedRole{role: inv.RoleID, sent: i}
 		}
 	}
 
@@ -176,10 +183,21 @@ func (a *AccountMembershipAudit) UnexplainedMemberships(
 			Scan(&credentials).Error; err != nil {
 			return nil, fmt.Errorf("failed to read the credentials of the members of account %q: %w", accountID, err)
 		}
+		// A person with credentials for several invited addresses takes the
+		// role of the latest of those invites, as one address invited twice
+		// does. The credentials are read back in no set order, so the invite
+		// order decides, not the order of the loop.
+		latest := map[string]int{}
 		for _, c := range credentials {
-			if role, ok := invitedEmail[auditEmailKey(c.Email)]; ok {
-				emailRole[c.AgentID] = role
+			inv, ok := invitedEmail[auditEmailKey(c.Email)]
+			if !ok {
+				continue
 			}
+			if sent, seen := latest[c.AgentID]; seen && sent > inv.sent {
+				continue
+			}
+			latest[c.AgentID] = inv.sent
+			emailRole[c.AgentID] = inv.role
 		}
 	}
 
