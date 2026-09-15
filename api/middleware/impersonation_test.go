@@ -233,9 +233,10 @@ func TestExpireImpersonationCookie_WritesOneCookieWhenCalledTwice(t *testing.T) 
 	}
 }
 
-type unreadableRoles struct{ accountBook }
+// rolesThatCannotBeRead is an account book whose role read fails.
+type rolesThatCannotBeRead struct{ accountBook }
 
-func (unreadableRoles) FindMemberRole(context.Context, string, string) (string, error) {
+func (rolesThatCannotBeRead) FindMemberRole(context.Context, string, string) (string, error) {
 	return "", errors.New("database unavailable")
 }
 
