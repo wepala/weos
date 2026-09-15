@@ -230,6 +230,7 @@ func (h *PasswordAuthHandler) Refresh(c echo.Context) error {
 		rotated, err := weosoauth.RotateNativeRefreshToken(ctx, tokens, presented, raw, h.cfg.RefreshSuccessorKey)
 		if err == nil {
 			next = rotated
+			h.purgeNativeRefreshTokens(ctx)
 		} else {
 			// The rotation did not spend the token for this renewal: another
 			// renewal with the same token spent it a moment ago, or the store

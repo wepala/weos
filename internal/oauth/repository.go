@@ -157,6 +157,10 @@ type RefreshTokenRepository interface {
 	// in every account and family. A native app's sign-out uses it to end the
 	// person's native sessions on every device (wm-lnimb).
 	RevokeForAgent(ctx context.Context, agentID, clientID string) error
+	// PurgeExpired deletes the tokens held for clientID that expired before
+	// before, revoked or not, and answers how many (wm-sa7wv; see
+	// NativeRefreshTokenPurger).
+	PurgeExpired(ctx context.Context, clientID string, before time.Time) (int64, error)
 	// Rotate atomically revokes the old token (only if active) and creates
 	// the new token in a single transaction. If the old token is already
 	// revoked, returns ErrNotFound (token reuse). If the new token cannot

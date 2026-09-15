@@ -73,6 +73,22 @@ type PasswordAuthHandlerConfig struct {
 
 type PasswordAuthHandler struct {
 	cfg PasswordAuthHandlerConfig
+	// purger removes native refresh token rows past the purge horizon when a
+	// native refresh token is written (wm-sa7wv). Nil without RefreshTokens.
+	purger *weosoauth.NativeRefreshTokenPurger
+}
+
+// purgeNativeRefreshTokens runs the native refresh token purge when it is due.
+// It never fails the request that runs it.
+func (h *PasswordAuthHandler) purgeNativeRefreshTokens(ctx context.Context) {
+	ran, purged, err := h.purger.MaybePurge(ctx)
+	if err != nil {
+		h.cfg.Logger.Warn(ctx, "native refresh tokens: purge failed; it runs again after the interval", "error", err)
+		return
+	}
+	if ran && purged > 0 {
+		h.cfg.Logger.Info(ctx, "native refresh tokens: purged rows past the horizon", "rows", purged)
+	}
 }
 
 func NewPasswordAuthHandler(cfg PasswordAuthHandlerConfig) *PasswordAuthHandler {
@@ -92,7 +108,11 @@ func NewPasswordAuthHandler(cfg PasswordAuthHandlerConfig) *PasswordAuthHandler 
 	if cfg.JWTCookieMaxAge == 0 {
 		cfg.JWTCookieMaxAge = int(cfg.SessionDuration.Seconds())
 	}
-	return &PasswordAuthHandler{cfg: cfg}
+	h := &PasswordAuthHandler{cfg: cfg}
+	if cfg.RefreshTokens != nil {
+		h.purger = weosoauth.NewNativeRefreshTokenPurger(cfg.RefreshTokens, nil)
+	}
+	return h
 }
 
 // DefaultDisplayName picks the name to register an account under. Registration
@@ -470,6 +490,8 @@ func (h *PasswordAuthHandler) completeAuthAs(
 			h.cfg.Logger.Warn(ctx, "password auth: failed to issue a refresh token; the app signs in again when the token expires",
 				"error", refreshErr)
 			refresh = weosoauth.NativeRefreshToken{}
+		} else {
+			h.purgeNativeRefreshTokens(ctx)
 		}
 	}
 
