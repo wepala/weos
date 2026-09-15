@@ -423,7 +423,8 @@ func (h *ImpersonationHandler) impersonationHolds(ctx context.Context, agentID, 
 // validatedSession checks the session the cookie names, the way the
 // protected group's middleware would. It reports refused=true after writing
 // the 401, with the code the other routes use: account_access_revoked,
-// account_erasure_pending, account_deactivated, or none. A request with no
+// account_erasure_pending, account_deactivated, or none. Every refusal expires
+// the impersonation cookie the request carries. A request with no
 // cookie, or a handler wired without a session manager and auth service,
 // gets info=nil and is answered from the cookie as before.
 func (h *ImpersonationHandler) validatedSession(c echo.Context) (info *authapp.SessionInfo, refused bool) {
@@ -439,6 +440,10 @@ func (h *ImpersonationHandler) validatedSession(c echo.Context) (info *authapp.S
 	if err == nil {
 		return info, false
 	}
+	// Every answer from here refuses the session, and a refused session holds
+	// no impersonation. The cookie is expired before the refusal is written, so
+	// the identity read does not leave it in place (wm-ptcuk).
+	apimw.ExpireHeldImpersonationCookie(c)
 	code := ""
 	switch {
 	case errors.Is(err, authapp.ErrSessionAccountRevoked):
