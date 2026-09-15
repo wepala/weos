@@ -700,3 +700,62 @@ func TestServe_UsersRoutesActInTheAccountANativeBearerTokenNames(t *testing.T) {
 		t.Errorf("the outsider's token beside the owner's cookie listed %s; want only the outsider", s.describe(rows))
 	}
 }
+
+// wm-govvg, with #567 (wm-ptcuk) merged. The users routes sit behind the
+// protected group's Impersonation middleware, which serves an impersonating
+// owner as the person impersonated, acting in the owner's account. The users
+// routes judge that person in that account: a plain member is refused by the
+// role check, and an admin lists and reaches only the owner's account, with a
+// person outside it answered as an unknown one is.
+func TestServe_UsersRoutesUnderAnImpersonationJudgeThePersonInTheCallersAccount(t *testing.T) {
+	s := newUsersScope(t)
+	started := serveCall(t, s.srv, http.MethodPost, "/api/admin/impersonate",
+		fmt.Sprintf(`{"agent_id":%q}`, s.member.agentID), s.owner.cookies)
+	if started.status != http.StatusOK {
+		t.Fatalf("the owner's impersonation of a member of their account answered %d %s, want 200", started.status, started.body)
+	}
+	impersonating := s.owner
+	impersonating.cookies = withCookies(s.owner.cookies, started.cookies)
+
+	refused := s.call(t, http.MethodGet, "/api/users", "", impersonating)
+	if refused.status != http.StatusForbidden {
+		t.Fatalf("the list, impersonating a plain member, answered %d %s, want 403", refused.status, refused.body)
+	}
+	var judged []string
+	for _, line := range s.logs.mentioning("the caller is not an owner or admin of the account") {
+		if strings.Contains(line, "caller_agent_id "+s.member.agentID) && strings.Contains(line, "account_id "+s.owner.accountID) {
+			judged = append(judged, line)
+		}
+	}
+	if len(judged) == 0 {
+		t.Errorf("no refusal recorded the impersonated member, in the owner's account, as the caller")
+	}
+
+	if err := s.accounts.SaveMember(context.Background(), s.owner.accountID, s.member.agentID, authentities.RoleAdmin); err != nil {
+		t.Fatalf("make the member an admin of the owner's account: %v", err)
+	}
+	listed := s.call(t, http.MethodGet, "/api/users", "", impersonating)
+	if listed.status != http.StatusOK {
+		t.Fatalf("the list, impersonating an admin, answered %d %s, want 200", listed.status, listed.body)
+	}
+	rows := usersListed(t, listed)
+	roles := map[string]string{}
+	for _, r := range rows {
+		roles[r.ID] = r.Role
+	}
+	if len(rows) != 2 || roles[s.owner.agentID] != authentities.RoleOwner || roles[s.member.agentID] != authentities.RoleAdmin {
+		t.Fatalf("impersonating an admin of the owner's account listed %s; want the owner and the admin only", s.describe(rows))
+	}
+
+	outside := s.call(t, http.MethodGet, "/api/users/"+s.outsider.agentID, "", impersonating)
+	if outside.status != http.StatusNotFound {
+		t.Errorf("fetching a person outside the owner's account, impersonating an admin, answered %d %s, want 404",
+			outside.status, outside.body)
+	}
+	unknown := s.call(t, http.MethodGet, "/api/users/"+usersUnknownID, "", impersonating)
+	if unknown.status != outside.status || unknown.body != outside.body {
+		t.Errorf("an unknown person answered %d %s; a person outside the account answered %d %s",
+			unknown.status, unknown.body, outside.status, outside.body)
+	}
+	s.wantRefusalRecorded(t, s.member, s.outsider)
+}
