@@ -275,6 +275,10 @@ func TestImpersonation_FailsClosedWhenTheRolesCannotBeRead(t *testing.T) {
 	if rec.Code != http.StatusServiceUnavailable || reached {
 		t.Fatalf("got %d %s reached=%v, want 503 and the handler not reached", rec.Code, rec.Body.String(), reached)
 	}
+	// The same answer BearerOrSession gives in front of it on the same group.
+	if rec.Header().Get("Retry-After") == "" {
+		t.Fatalf("the 503 carries no Retry-After, unlike the bearer path's answer for an unreadable account state")
+	}
 }
 
 func TestMayImpersonate(t *testing.T) {

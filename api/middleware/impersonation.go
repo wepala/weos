@@ -343,9 +343,10 @@ func EndHeldImpersonation() echo.MiddlewareFunc {
 }
 
 // unreadableAccountState fails closed when the roles or state of the account
-// could not be read, with the answer the bearer path gives.
+// could not be read, with the answer the bearer path gives: 503 with
+// Retry-After.
 func unreadableAccountState(c echo.Context) error {
-	return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "could not read the account's state"})
+	return accountStateUnreadable(c)
 }
 
 // ConnectionPeer is the address of the peer the request's connection came from,
