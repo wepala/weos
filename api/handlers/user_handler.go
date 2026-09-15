@@ -18,6 +18,7 @@ package handlers
 import (
 	"context"
 	"net/http"
+	"strconv"
 
 	apimw "github.com/wepala/weos/v3/api/middleware"
 	"github.com/wepala/weos/v3/domain/entities"
@@ -140,8 +141,13 @@ func (h *UserHandler) member(c echo.Context, s *userScope, id string) (*authenti
 	return agent, role, nil
 }
 
-// List returns the members of the caller's account, each with the role they
-// hold in it. Owner or admin of that account only.
+// List returns one page of the members of the caller's account, each with the
+// role they hold in it. Owner or admin of that account only.
+//
+// The page holds repositories.DefaultMemberPageSize people unless the client
+// names a limit, and never more than repositories.MaxMemberPageSize. A client
+// asks for the next page by sending the response's cursor back as ?cursor=,
+// until has_more is false (wm-g7284).
 func (h *UserHandler) List(c echo.Context) error {
 	s, err := h.scope(c)
 	if s == nil {
@@ -149,29 +155,31 @@ func (h *UserHandler) List(c echo.Context) error {
 	}
 	ctx := c.Request().Context()
 
-	members, err := h.members.ListMembers(ctx, s.accountID)
+	// A missing or unreadable limit is 0, which the directory reads as its
+	// default page size.
+	limit, _ := strconv.Atoi(c.QueryParam("limit"))
+	page, err := h.members.ListMembers(ctx, s.accountID, c.QueryParam("cursor"), limit)
 	if err != nil {
 		h.logger.Error(ctx, "failed to list users", "account_id", s.accountID, "error", err)
 		return respondError(c, http.StatusInternalServerError, "failed to list users")
 	}
 
-	users := make([]UserResponse, 0, len(members))
-	for _, m := range members {
-		agent, err := h.agentRepo.FindByID(ctx, m.AgentID)
-		if err != nil {
-			h.logger.Error(ctx, "failed to load a member of the account", "account_id", s.accountID, "agent_id", m.AgentID, "error", err)
-			return respondError(c, http.StatusInternalServerError, "failed to list users")
-		}
-		if agent == nil {
+	users := make([]UserResponse, 0, len(page.Members))
+	for _, m := range page.Members {
+		if !m.HasRecord {
 			// A membership whose person record is gone has nobody to show or
 			// manage; listing it would render an empty row.
 			h.logger.Warn(ctx, "a member of the account has no person record", "account_id", s.accountID, "agent_id", m.AgentID)
 			continue
 		}
-		users = append(users, h.buildUserResponse(ctx, agent, m.RoleID))
+		email := m.Email
+		if email == "" {
+			email = m.Name
+		}
+		users = append(users, UserResponse{ID: m.AgentID, Name: m.Name, Email: email, Status: m.Status, Role: m.RoleID})
 	}
 
-	return respond(c, http.StatusOK, users)
+	return respondPaginated(c, http.StatusOK, users, page.Cursor, page.HasMore)
 }
 
 // Get returns one member of the caller's account. Owner or admin of that

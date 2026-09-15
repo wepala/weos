@@ -154,11 +154,16 @@ The `name` field is auto-computed from `given_name` + `family_name`.
 
 | Method | Path | Description | Request Body |
 |--------|------|-------------|-------------|
-| GET | `/api/users` | List the members of the caller's account, with their role in it | |
+| GET | `/api/users` | List one page of the members of the caller's account, with their role in it | Query: `cursor`, `limit` |
 | GET | `/api/users/:id` | Get a member of the caller's account (404 for anyone else) | |
 | PUT | `/api/users/:id` | Update a member of the caller's account (name, role in that account; 404 for anyone else) | `{name?, role?}` |
 
 All three routes require the owner or admin role in the account the caller acts in.
+
+`GET /api/users` is paginated. A page holds 100 members unless `limit` names another size, and never
+more than 500; a larger `limit` is cut to 500. Members are ordered by id. The response carries
+`cursor` and `has_more`: while `has_more` is `true`, send `cursor` back as `?cursor=` to get the next
+page.
 
 ## Settings
 

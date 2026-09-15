@@ -21,7 +21,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -62,16 +64,19 @@ type usersPerson struct {
 // in to act in it; outsider owns an account of their own and belongs to no
 // other.
 type usersScope struct {
-	srv      *httptest.Server
-	accounts authrepos.AccountRepository
-	agents   authrepos.AgentRepository
-	logs     *bootLogCapture
+	srv         *httptest.Server
+	accounts    authrepos.AccountRepository
+	agents      authrepos.AgentRepository
+	credentials authrepos.CredentialRepository
+	authService authapp.AuthenticationService
+	sessions    session.SessionManager
+	logs        *bootLogCapture
 	owner    usersPerson
 	member   usersPerson
 	outsider usersPerson
 }
 
-func newUsersScope(t *testing.T) *usersScope {
+func newUsersScope(t *testing.T, extra ...fx.Option) *usersScope {
 	t.Helper()
 	s := &usersScope{logs: &bootLogCapture{}}
 	var credentials authrepos.CredentialRepository
@@ -82,10 +87,12 @@ func newUsersScope(t *testing.T) *usersScope {
 	cfg.SessionSecret = bootOwnSecret
 	cfg.PasswordAuthEnabled = true
 	cfg.PasswordRegistrationEnabled = true
-	s.srv = bootServe(t, cfg,
+	options := append([]fx.Option{
 		fx.Populate(&s.accounts, &s.agents, &credentials, &authService, &sessionManager),
 		fx.Decorate(func(entities.Logger) entities.Logger { return s.logs }),
-	)
+	}, extra...)
+	s.srv = bootServe(t, cfg, options...)
+	s.authService, s.sessions, s.credentials = authService, sessionManager, credentials
 
 	people := []usersPerson{
 		usersRegister(t, s.srv, "ops@harborlegal.example"),
@@ -410,6 +417,134 @@ func TestServe_UsersRoutesStillServeAnOwnerForTheMembersOfTheirAccount(t *testin
 	}
 	if role := s.roleIn(t, s.member.ownAccountID, s.member.agentID); role != authentities.RoleOwner {
 		t.Errorf("after the change the member holds %q in their own account, want owner (unchanged)", role)
+	}
+}
+
+// usersDefaultPage is how many people a users list holds when the client names
+// no limit (wm-g7284).
+const usersDefaultPage = 100
+
+type usersPageAnswer struct {
+	rows    []usersRow
+	cursor  string
+	hasMore bool
+}
+
+func usersPage(t *testing.T, answer serveAnswer) usersPageAnswer {
+	t.Helper()
+	if answer.status != http.StatusOK {
+		t.Fatalf("the list answered %d %s, want 200", answer.status, answer.body)
+	}
+	var envelope struct {
+		Data    []usersRow `json:"data"`
+		Cursor  string     `json:"cursor"`
+		HasMore bool       `json:"has_more"`
+	}
+	if err := json.Unmarshal([]byte(answer.body), &envelope); err != nil {
+		t.Fatalf("decode the users page: %v", err)
+	}
+	return usersPageAnswer{rows: envelope.Data, cursor: envelope.Cursor, hasMore: envelope.HasMore}
+}
+
+// countingAgents counts the person lookups made for each id.
+type countingAgents struct {
+	authrepos.AgentRepository
+	mu    sync.Mutex
+	finds map[string]int
+}
+
+func (c *countingAgents) FindByID(ctx context.Context, id string) (*authentities.Agent, error) {
+	c.mu.Lock()
+	c.finds[id]++
+	c.mu.Unlock()
+	return c.AgentRepository.FindByID(ctx, id)
+}
+
+// countingCredentials counts the credential lookups made for each person.
+type countingCredentials struct {
+	authrepos.CredentialRepository
+	mu    sync.Mutex
+	finds map[string]int
+}
+
+func (c *countingCredentials) FindByAgent(ctx context.Context, agentID string) ([]*authentities.Credential, error) {
+	c.mu.Lock()
+	c.finds[agentID]++
+	c.mu.Unlock()
+	return c.CredentialRepository.FindByAgent(ctx, agentID)
+}
+
+// wm-g7284. The owner of a large account lists it a page at a time, with the
+// default page size when no limit is named, and no page loads its people one
+// by one.
+func TestServe_UsersListPagesALargeAccountWithoutAQueryPerMember(t *testing.T) {
+	agents := &countingAgents{finds: map[string]int{}}
+	credentials := &countingCredentials{finds: map[string]int{}}
+	s := newUsersScope(t,
+		fx.Decorate(func(r authrepos.AgentRepository) authrepos.AgentRepository {
+			agents.AgentRepository = r
+			return agents
+		}),
+		fx.Decorate(func(r authrepos.CredentialRepository) authrepos.CredentialRepository {
+			credentials.CredentialRepository = r
+			return credentials
+		}),
+	)
+	ctx := context.Background()
+	seeded := map[string]bool{}
+	for i := 0; i < usersDefaultPage; i++ {
+		id := fmt.Sprintf("harbor-paralegal-%03d", i)
+		agent, err := (&authentities.Agent{}).With(id, fmt.Sprintf("Harbor Paralegal %03d", i), authentities.AgentTypePerson)
+		if err != nil {
+			t.Fatalf("build person %s: %v", id, err)
+		}
+		if err := s.agents.Save(ctx, agent); err != nil {
+			t.Fatalf("save person %s: %v", id, err)
+		}
+		if err := s.accounts.SaveMember(ctx, s.owner.accountID, id, authentities.RoleMember); err != nil {
+			t.Fatalf("add %s to the owner's account: %v", id, err)
+		}
+		seeded[id] = true
+	}
+	total := usersDefaultPage + 2 // the seeded people, the owner and the member
+
+	first := usersPage(t, s.call(t, http.MethodGet, "/api/users", "", s.owner))
+	if len(first.rows) != usersDefaultPage || !first.hasMore || first.cursor == "" {
+		t.Fatalf("the first page held %d people (has_more=%v, cursor=%q); want %d, more to come, and a cursor",
+			len(first.rows), first.hasMore, first.cursor, usersDefaultPage)
+	}
+	second := usersPage(t, s.call(t, http.MethodGet, "/api/users?cursor="+url.QueryEscape(first.cursor), "", s.owner))
+	if len(second.rows) != total-usersDefaultPage || second.hasMore {
+		t.Errorf("the second page held %d people (has_more=%v); want %d and no more",
+			len(second.rows), second.hasMore, total-usersDefaultPage)
+	}
+	listed := map[string]bool{}
+	for _, r := range append(first.rows, second.rows...) {
+		if listed[r.ID] {
+			t.Errorf("%s was listed on both pages", r.ID)
+		}
+		listed[r.ID] = true
+	}
+	for id := range seeded {
+		if !listed[id] {
+			t.Errorf("%s, a member of the account, was on neither page", id)
+		}
+	}
+	if !listed[s.owner.agentID] || !listed[s.member.agentID] || listed[s.outsider.agentID] {
+		t.Errorf("the pages listed %s; want the owner and the member and not the outsider", s.describe(append(first.rows, second.rows...)))
+	}
+
+	small := usersPage(t, s.call(t, http.MethodGet, "/api/users?limit=5", "", s.owner))
+	if len(small.rows) != 5 || !small.hasMore {
+		t.Errorf("a page of 5 held %d people (has_more=%v)", len(small.rows), small.hasMore)
+	}
+
+	lookups := 0
+	for id := range seeded {
+		lookups += agents.finds[id] + credentials.finds[id]
+	}
+	if lookups != 0 {
+		t.Errorf("listing the account looked people up one by one %d times; want their records loaded with the page", lookups)
 	}
 }
 

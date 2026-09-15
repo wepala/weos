@@ -17,6 +17,16 @@ package repositories
 
 import "context"
 
+// The page sizes of an account's member list (wm-g7284). An account can hold
+// thousands of people, so no request reads all of them at once.
+const (
+	// DefaultMemberPageSize is the page size when the client names no limit.
+	DefaultMemberPageSize = 100
+	// MaxMemberPageSize is the largest page a client can ask for; a larger
+	// limit is cut to it.
+	MaxMemberPageSize = 500
+)
+
 // AccountMemberDirectory lists the people of one account for the users routes
 // (wm-govvg), so an owner or admin sees the members of their own account and
 // nobody else on the instance.
@@ -26,15 +36,36 @@ import "context"
 // existing implementation outside this module from compiling (wm-9wslp). Like
 // AccountMemberQuery, it is a read-only port over tables pericarp owns.
 type AccountMemberDirectory interface {
-	// ListMembers returns every membership of accountID with the role it
-	// carries, ordered by agent ID. An account with no members is not an
-	// error.
-	ListMembers(ctx context.Context, accountID string) ([]AccountMembership, error)
+	// ListMembers returns one page of the members of accountID, ordered by
+	// agent ID, each with the role they hold there and the person's own
+	// record. cursor is the Cursor of the previous page, or "" for the first
+	// page. A limit of zero or less means DefaultMemberPageSize, and a limit
+	// above MaxMemberPageSize is cut to it. A page costs the same number of
+	// queries whatever it holds. An account with no members is an empty last
+	// page, not an error.
+	ListMembers(ctx context.Context, accountID, cursor string, limit int) (*AccountMemberPage, error)
 }
 
-// AccountMembership is one person's membership of an account and the role
-// they hold in it.
-type AccountMembership struct {
+// AccountMemberPage is one page of an account's members.
+type AccountMemberPage struct {
+	Members []AccountMember
+	// Cursor is the agent ID this page ended at, to pass for the next page.
+	// It is "" on the last page.
+	Cursor  string
+	HasMore bool
+}
+
+// AccountMember is one person's membership of an account, the role they hold
+// in it, and their own record.
+type AccountMember struct {
 	AgentID string
 	RoleID  string
+	// HasRecord is false for a membership whose person record is gone. The
+	// fields below are then empty.
+	HasRecord bool
+	Name      string
+	Status    string
+	// Email is the address on the person's earliest credential that carries
+	// one, or "" when none does.
+	Email string
 }

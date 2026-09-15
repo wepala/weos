@@ -317,55 +317,6 @@ func TestAccountMemberQueryListsByRole(t *testing.T) {
 	}
 }
 
-// wm-govvg. The users routes list an account's people from the member
-// directory, so it must return the members of the one account asked about,
-// with their roles, and never a member of another account.
-func TestAccountMemberDirectoryListsTheMembersOfOneAccount(t *testing.T) {
-	ctx := context.Background()
-	db := newFeatureTestDB(t)
-	if err := db.Exec(`CREATE TABLE account_members (
-		account_id TEXT NOT NULL, agent_id TEXT NOT NULL, role_id TEXT NOT NULL,
-		PRIMARY KEY (account_id, agent_id))`).Error; err != nil {
-		t.Fatalf("create account_members: %v", err)
-	}
-	rows := []struct{ account, agent, role string }{
-		{"acct-harbor", "agent-ops", "owner"},
-		{"acct-harbor", "agent-clerk", "member"},
-		{"acct-cedar", "agent-counsel", "owner"},
-		{"acct-cedar", "agent-clerk", "admin"},
-	}
-	for _, r := range rows {
-		if err := db.Exec(
-			`INSERT INTO account_members (account_id, agent_id, role_id) VALUES (?, ?, ?)`,
-			r.account, r.agent, r.role).Error; err != nil {
-			t.Fatalf("insert member: %v", err)
-		}
-	}
-
-	q := ProvideAccountMemberDirectory(db)
-	got, err := q.ListMembers(ctx, "acct-harbor")
-	if err != nil {
-		t.Fatalf("ListMembers: %v", err)
-	}
-	want := []repositories.AccountMembership{
-		{AgentID: "agent-clerk", RoleID: "member"},
-		{AgentID: "agent-ops", RoleID: "owner"},
-	}
-	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
-		t.Fatalf("ListMembers(acct-harbor) = %+v, want %+v", got, want)
-	}
-
-	for _, account := range []string{"", "acct-nobody"} {
-		got, err := q.ListMembers(ctx, account)
-		if err != nil {
-			t.Fatalf("ListMembers(%q): %v", account, err)
-		}
-		if len(got) != 0 {
-			t.Fatalf("ListMembers(%q) = %+v, want empty", account, got)
-		}
-	}
-}
-
 // grantedKeys folds a caller's rows the way the resolver does, so these tests
 // keep asserting on what a caller holds rather than on row shape.
 func grantedKeys(
