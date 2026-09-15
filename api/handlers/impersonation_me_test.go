@@ -10,6 +10,7 @@ import (
 
 	"github.com/wepala/weos/v3/api/handlers"
 	apimw "github.com/wepala/weos/v3/api/middleware"
+	"github.com/wepala/weos/v3/domain/repositories"
 
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
 	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
@@ -71,6 +72,13 @@ func (stubCreds) FindByAgent(context.Context, string) ([]*authentities.Credentia
 // wired to validate sessions the given way.
 func readMe(t *testing.T, auth validatingAuth, locks lockSetFor, data *session.SessionData) *httptest.ResponseRecorder {
 	t.Helper()
+	return readMeHolding(t, auth, locks, data, false)
+}
+
+// readMeHolding is readMe sent, when holding is set, with an impersonation
+// cookie beside the session cookie.
+func readMeHolding(t *testing.T, auth validatingAuth, locks repositories.AccountErasureLocks, data *session.SessionData, holding bool) *httptest.ResponseRecorder {
+	t.Helper()
 	h := handlers.NewImpersonationHandler(handlers.ImpersonationHandlerConfig{
 		Store:          sessions.NewCookieStore([]byte("test-secret")),
 		AccountRepo:    stubAccounts{roles: map[string]string{"ops|acct-harbor": authentities.RoleOwner}},
@@ -85,6 +93,9 @@ func readMe(t *testing.T, auth validatingAuth, locks lockSetFor, data *session.S
 	e.GET("/api/auth/me", h.Me(&authhttp.AuthHandlers{}))
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
 	req.AddCookie(&http.Cookie{Name: "weos-session", Value: "x"})
+	if holding {
+		req.AddCookie(&http.Cookie{Name: apimw.ImpersonationSessionName, Value: "held"})
+	}
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	return rec
@@ -181,6 +192,10 @@ func readMeThrough(t *testing.T, r meRequest) *httptest.ResponseRecorder {
 			roles: map[string]string{
 				"ops|acct-harbor":   authentities.RoleOwner,
 				"broker|acct-cedar": authentities.RoleMember,
+				// broker also belongs to Harbor Legal, so the impersonation
+				// cookie ops started names a member of ops's account and is
+				// one the protected routes would apply (wm-ptcuk).
+				"broker|acct-harbor": authentities.RoleMember,
 			},
 		},
 		members: map[string][]*authentities.Account{"ops": {harbor}, "broker": {cedar}},
@@ -382,5 +397,57 @@ func TestMe_AnswersFromTheValidatedSession(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &body)
 	if body.Data.ID != "ops" || body.Data.AccountID != "acct-harbor" || body.Data.Role != authentities.RoleOwner {
 		t.Errorf("answer = %+v, want ops in acct-harbor as owner", body.Data)
+	}
+}
+
+// locksThatFail cannot read any erasure lock, as when the store is unavailable.
+type locksThatFail struct{ lockSetFor }
+
+func (locksThatFail) IsLocked(context.Context, string) (bool, error) {
+	return false, errors.New("database unavailable")
+}
+
+// wm-ptcuk, Copilot review 5204289188. A session the identity read refuses —
+// gone, revoked, suspended, locked for deletion, or one whose lock cannot be
+// read — cannot hold an impersonation, so the refusal expires the impersonation
+// cookie the request carries. A refused request that carries none gets no
+// impersonation cookie written.
+func TestMe_ARefusedSessionEndsTheImpersonationHeld(t *testing.T) {
+	data := &session.SessionData{SessionID: "s1", AgentID: "ops", AccountID: "acct-harbor"}
+	cases := []struct {
+		name   string
+		auth   validatingAuth
+		locks  repositories.AccountErasureLocks
+		status int
+	}{
+		{"a session that is gone", validatingAuth{err: authapp.ErrSessionNotFound}, lockSetFor{}, http.StatusUnauthorized},
+		{"a revoked membership", validatingAuth{err: authapp.ErrSessionAccountRevoked}, lockSetFor{}, http.StatusUnauthorized},
+		{"a suspended account", validatingAuth{err: authapp.ErrSessionAccountDeactivated}, lockSetFor{}, http.StatusUnauthorized},
+		{"an account locked for deletion", validatingAuth{err: authapp.ErrSessionAccountDeactivated}, lockSetFor{"acct-harbor": true}, http.StatusUnauthorized},
+		{"a lock that cannot be read", validatingAuth{err: authapp.ErrSessionAccountDeactivated}, locksThatFail{}, http.StatusServiceUnavailable},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := readMeHolding(t, tc.auth, tc.locks, data, true)
+			if rec.Code != tc.status {
+				t.Fatalf("the identity read answered %d %s, want %d", rec.Code, rec.Body.String(), tc.status)
+			}
+			expired := 0
+			for _, c := range rec.Result().Cookies() {
+				if c.Name == apimw.ImpersonationSessionName && c.MaxAge < 0 {
+					expired++
+				}
+			}
+			if expired != 1 {
+				t.Fatalf("the refusal expired the impersonation cookie %d times, want once", expired)
+			}
+
+			bare := readMeHolding(t, tc.auth, tc.locks, data, false)
+			for _, c := range bare.Result().Cookies() {
+				if c.Name == apimw.ImpersonationSessionName {
+					t.Fatalf("a refusal that holds no impersonation wrote an impersonation cookie")
+				}
+			}
+		})
 	}
 }

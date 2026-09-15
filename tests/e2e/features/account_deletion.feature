@@ -23,8 +23,8 @@ Feature: A person can delete their account from the app
   "confirmation" lost to the story's wording, and the app's delete button sends "confirm".
   Anything else is 400 and changes nothing. Only an owner or an admin of the account may
   delete it — an ordinary member is refused, because the account is not theirs to end.
-  And a request made while an administrator is impersonating somebody is refused
-  outright, so an instance admin cannot erase a person's account through their identity.
+  And a request made while an owner or admin is impersonating a member is refused
+  outright, so an account is never ended under the identity of a person being impersonated.
 
   An account may have several members, and erasing it takes the account away from every
   one of them. That is not left silent. The identity the app reads before it offers
@@ -166,15 +166,14 @@ Feature: A person can delete their account from the app
     And the answer reports that 2 people lost the account
     And "broker@cedarrealty.example" cannot sign in with password "trellis-anchor-mango-9"
 
-  Scenario: An administrator impersonating somebody cannot delete their account
+  Scenario: An owner impersonating a member of their account cannot delete it
     Given a WeOS instance where password sign-in is enabled and requests are authenticated by their session
     And the account "Harbor Legal", whose owner "ops@harborlegal.example" signs in with password "correct-horse-battery-staple"
-    And "ops@harborlegal.example" is an instance admin
-    And the account "Cedar Realty", whose owner "counsel@harborlegal.example" signs in with password "trellis-anchor-mango-9"
+    And "counsel@harborlegal.example" belongs to "Harbor Legal" as an ordinary member
     When "ops@harborlegal.example" impersonates "counsel@harborlegal.example"
     And they ask to delete the account they are acting in, confirming with "DELETE"
     Then the request is refused as forbidden
-    And "counsel@harborlegal.example" can sign in with password "trellis-anchor-mango-9"
+    And "counsel@harborlegal.example" is still a member of "Harbor Legal"
     And "ops@harborlegal.example" can sign in with password "correct-horse-battery-staple"
 
   Scenario: Before deleting, the app can learn how many people share the account
@@ -514,18 +513,20 @@ Feature: A person can delete their account from the app
     Then the deletion is accepted
     And nothing of "Harbor Legal" remains in any store on the instance
 
-  # wm-iiasy. The lock holds against an instance admin too: impersonating a
-  # member of a locked account does not open it.
-  Scenario: An administrator impersonating a member of a locked account is refused
+  # wm-iiasy, rewritten for wm-ptcuk. An impersonation acts only in the account of
+  # the owner or admin who started it, so none reaches into another, locked
+  # account. The lock must still hold against an impersonation that was already
+  # running in the account when the lock was taken.
+  Scenario: An impersonation already running when the account is locked does not open it
     Given a WeOS instance where password sign-in is enabled and requests are authenticated by their session
-    And the account "Harbor Legal", whose owner "ops@harborlegal.example" signs in with password "correct-horse-battery-staple"
-    And "ops@harborlegal.example" is an instance admin
-    And the account "Cedar Realty", whose owner "counsel@harborlegal.example" signs in with password "trellis-anchor-mango-9"
+    And the account "Cedar Realty", whose owner "broker@cedarrealty.example" signs in with password "trellis-anchor-mango-9"
+    And "counsel@harborlegal.example" also belongs to "Cedar Realty" with the role "admin"
+    And "newcomer@cedarrealty.example" belongs to "Cedar Realty" as an ordinary member
+    And "counsel@harborlegal.example" is signed in to "Cedar Realty"
+    And "counsel@harborlegal.example" impersonates "newcomer@cedarrealty.example"
     And a deletion of "Cedar Realty" failed after the lock was taken, leaving the account locked
-    When "ops@harborlegal.example" impersonates "counsel@harborlegal.example"
-    And they list the projects they can see
-    Then the request is refused as not authenticated
-    And the refusal says the account's deletion is unfinished
+    When "counsel@harborlegal.example" makes a request with the session they already held
+    Then the refusal says the account's deletion is unfinished
 
   # wm-or9a5. WeHungry signs people in through Google and Apple, and a
   # provider sign-in resolves no active account for a locked one, so the
