@@ -111,7 +111,7 @@ func (h *UserHandler) scope(c echo.Context) (*userScope, error) {
 	accountID := identity.ActiveAccountID
 	if accountID == "" {
 		h.logger.Warn(ctx, "users request refused: the caller names no active account",
-			"caller_agent_id", identity.AgentID)
+			withUsersTarget(c, "caller_agent_id", identity.AgentID)...)
 		return nil, respondErrorCode(c, http.StatusUnauthorized, "not authenticated", apimw.CodeUnscopedSession)
 	}
 	isAdmin, err := apimw.IsOwnerOrAdmin(ctx, h.accountRepo, accountID, identity.AgentID)
@@ -122,14 +122,20 @@ func (h *UserHandler) scope(c echo.Context) (*userScope, error) {
 	if !isAdmin {
 		// Recorded like every other users-route refusal: ids only, and the
 		// person asked about when the route names one.
-		fields := []any{"caller_agent_id", identity.AgentID, "account_id", accountID}
-		if target := c.Param("id"); target != "" {
-			fields = append(fields, "target_agent_id", target)
-		}
-		h.logger.Warn(ctx, "users request refused: the caller is not an owner or admin of the account", fields...)
+		h.logger.Warn(ctx, "users request refused: the caller is not an owner or admin of the account",
+			withUsersTarget(c, "caller_agent_id", identity.AgentID, "account_id", accountID)...)
 		return nil, respondError(c, http.StatusForbidden, "admin role required")
 	}
 	return &userScope{callerID: identity.AgentID, accountID: accountID}, nil
+}
+
+// withUsersTarget returns a users-route refusal's log fields, with the person
+// the route names added when it names one (GET and PUT /users/:id).
+func withUsersTarget(c echo.Context, fields ...any) []any {
+	if target := c.Param("id"); target != "" {
+		fields = append(fields, "target_agent_id", target)
+	}
+	return fields
 }
 
 // member returns the person id and the role they hold in the scope's account.

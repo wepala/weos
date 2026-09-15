@@ -159,6 +159,66 @@ func TestUserRoutesRefuseAnIdentityWithNoActiveAccount(t *testing.T) {
 	}
 }
 
+// wm-govvg, Copilot review 5205110975. The refusal of an identity that names no
+// active account is recorded like the role check's refusal: the caller, and the
+// person asked about on GET and PUT. The list names no target, and the line
+// carries ids only.
+func TestUserRoutesRecordTheRefusalOfAnIdentityWithNoActiveAccount(t *testing.T) {
+	logs := &usersWarnings{}
+	h := handlers.NewUserHandler(handlers.UserHandlerConfig{
+		AgentRepo:      usersAgents{agents: map[string]*authentities.Agent{}},
+		CredentialRepo: usersCredentials{},
+		AccountRepo:    &usersAccounts{roles: map[string]string{"ops|acct-harbor": authentities.RoleOwner}},
+		Members:        usersDirectory{},
+		Logger:         logs,
+	})
+
+	e := echo.New()
+	ops := asIdentity("ops", "")
+	e.GET("/api/users", h.List, ops)
+	e.GET("/api/users/:id", h.Get, ops)
+	e.PUT("/api/users/:id", h.Update, ops)
+
+	for _, tc := range []struct{ method, path, body, target string }{
+		{http.MethodGet, "/api/users", "", ""},
+		{http.MethodGet, "/api/users/clerk", "", "clerk"},
+		{http.MethodPut, "/api/users/clerk", `{"role":"admin"}`, "clerk"},
+	} {
+		logs.lines = nil
+		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("%s %s with no active account answered %d %s, want 401", tc.method, tc.path, rec.Code, rec.Body.String())
+			continue
+		}
+		var recorded []string
+		for _, line := range logs.lines {
+			if strings.HasPrefix(line, "users request refused") {
+				recorded = append(recorded, line)
+			}
+		}
+		if len(recorded) != 1 {
+			t.Errorf("%s %s with no active account recorded %d refusal warnings %q, want 1", tc.method, tc.path, len(recorded), logs.lines)
+			continue
+		}
+		if !strings.Contains(recorded[0], "caller_agent_id ops") {
+			t.Errorf("the refusal of %s %s was recorded as %q, which does not carry the caller", tc.method, tc.path, recorded[0])
+		}
+		if tc.target != "" && !strings.Contains(recorded[0], "target_agent_id "+tc.target) {
+			t.Errorf("the refusal of %s %s was recorded as %q, which does not carry %q", tc.method, tc.path, recorded[0], "target_agent_id "+tc.target)
+		}
+		if tc.target == "" && strings.Contains(recorded[0], "target_agent_id") {
+			t.Errorf("the refusal of the list names a target: %q", recorded[0])
+		}
+		if strings.Contains(recorded[0], "@") {
+			t.Errorf("the refusal line carries an email address: %q", recorded[0])
+		}
+	}
+}
+
 // wm-ii1hz. A users handler built without its member directory would answer
 // every list with a nil-pointer panic. It must refuse to be built at all, and
 // say which dependency is missing.
