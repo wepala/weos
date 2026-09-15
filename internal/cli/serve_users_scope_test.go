@@ -71,9 +71,9 @@ type usersScope struct {
 	authService authapp.AuthenticationService
 	sessions    session.SessionManager
 	logs        *bootLogCapture
-	owner    usersPerson
-	member   usersPerson
-	outsider usersPerson
+	owner       usersPerson
+	member      usersPerson
+	outsider    usersPerson
 }
 
 func newUsersScope(t *testing.T, extra ...fx.Option) *usersScope {

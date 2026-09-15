@@ -71,7 +71,7 @@ func (d *AccountMemberDirectory) ListMembers(
 	var rows []memberRow
 	query := d.db.WithContext(ctx).
 		Table("account_members").
-		Select("account_members.agent_id AS agent_id, account_members.role_id AS role_id, " +
+		Select("account_members.agent_id AS agent_id, account_members.role_id AS role_id, "+
 			"agents.id AS person_id, agents.name AS name, agents.status AS status").
 		Joins("LEFT JOIN agents ON agents.id = account_members.agent_id").
 		Where("account_members.account_id = ?", accountID)
