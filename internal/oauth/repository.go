@@ -160,6 +160,15 @@ type RefreshTokenRepository interface {
 	// person's native sessions on every device (wm-lnimb). It returns nil
 	// only once none is active, as RevokeFamily does.
 	RevokeForAgent(ctx context.Context, agentID, clientID string) error
+	// RevokeAllForAgent revokes every active token the agent holds, whatever
+	// client, family or account it belongs to — a connector's and a native
+	// session's alike — and answers how many it revoked. The trusted issuer's
+	// revocation call uses it to end one person's token access after a
+	// password reset at the door (wm-fcpzx), where no client id can be named:
+	// the person whose password was reset is exactly the person whose every
+	// token must stop renewing. It returns nil only once none is active, as
+	// RevokeFamily does.
+	RevokeAllForAgent(ctx context.Context, agentID string) (int64, error)
 	// PurgeExpired deletes the tokens held for clientID that expired before
 	// before, revoked or not, and answers how many (wm-sa7wv; see
 	// NativeRefreshTokenPurger).
@@ -234,14 +243,23 @@ func (r *gormRefreshTokenRepo) RevokeFamily(ctx context.Context, familyID string
 	if familyID == "" {
 		return nil
 	}
-	return r.revokeUntilNoneActive(ctx, "family_id = ?", familyID)
+	_, err := r.revokeUntilNoneActive(ctx, "family_id = ?", familyID)
+	return err
 }
 
 func (r *gormRefreshTokenRepo) RevokeForAgent(ctx context.Context, agentID, clientID string) error {
 	if agentID == "" || clientID == "" {
 		return nil
 	}
-	return r.revokeUntilNoneActive(ctx, "agent_id = ? AND client_id = ?", agentID, clientID)
+	_, err := r.revokeUntilNoneActive(ctx, "agent_id = ? AND client_id = ?", agentID, clientID)
+	return err
+}
+
+func (r *gormRefreshTokenRepo) RevokeAllForAgent(ctx context.Context, agentID string) (int64, error) {
+	if agentID == "" {
+		return 0, nil
+	}
+	return r.revokeUntilNoneActive(ctx, "agent_id = ?", agentID)
 }
 
 // revokePasses bounds revokeUntilNoneActive. A pass after the first is needed
@@ -253,28 +271,32 @@ const revokePasses = 5
 var errStillRotating = errors.New("oauth: refresh tokens were still being rotated while they were revoked")
 
 // revokeUntilNoneActive revokes the active tokens matching query, then counts
-// them, until a count finds none. The update and the count must stay separate
+// them, until a count finds none. It answers how many rows it revoked, over
+// every pass. The update and the count must stay separate
 // statements outside a transaction. On PostgreSQL an update that waits on the
 // row a rotation is spending never sees the successor that rotation commits; a
 // later statement does, and until the rotation commits, the row it spends still
 // counts as active.
-func (r *gormRefreshTokenRepo) revokeUntilNoneActive(ctx context.Context, query string, args ...any) error {
+func (r *gormRefreshTokenRepo) revokeUntilNoneActive(ctx context.Context, query string, args ...any) (int64, error) {
 	db := r.db.WithContext(ctx)
+	var revoked int64
 	for range revokePasses {
-		if err := db.Model(&OAuthRefreshToken{}).Where(query, args...).Where("revoked = ?", false).
-			Update("revoked", true).Error; err != nil {
-			return err
+		result := db.Model(&OAuthRefreshToken{}).Where(query, args...).Where("revoked = ?", false).
+			Update("revoked", true)
+		if result.Error != nil {
+			return revoked, result.Error
 		}
+		revoked += result.RowsAffected
 		var active int64
 		if err := db.Model(&OAuthRefreshToken{}).Where(query, args...).Where("revoked = ?", false).
 			Count(&active).Error; err != nil {
-			return err
+			return revoked, err
 		}
 		if active == 0 {
-			return nil
+			return revoked, nil
 		}
 	}
-	return errStillRotating
+	return revoked, errStillRotating
 }
 
 func (r *gormRefreshTokenRepo) RevokeIfActive(ctx context.Context, id string) error {
