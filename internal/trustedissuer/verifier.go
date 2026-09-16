@@ -72,7 +72,9 @@ const (
 	// ReasonReplay: the assertion's jti was already presented.
 	ReasonReplay Reason = "jti-replay"
 	// ReasonClaims: a required claim is missing or unacceptable — jti, sub,
-	// email, provider (verbatim, one of Config.Providers), email_verified == true.
+	// email, provider (verbatim, one of Config.Providers), email_verified == true,
+	// or a purpose other than the one the route the assertion was presented to
+	// serves (see Config.Purpose).
 	ReasonClaims Reason = "claims"
 	// ReasonAllowlist: the instance has an identity allowlist
 	// (OAUTH_ALLOWED_EMAILS) and it does not name the assertion's email. It is
@@ -103,6 +105,24 @@ const (
 	// MaxLifetime is the longest an assertion may be minted to live, exp − iat.
 	// Both come from the issuer's one clock, so no allowance applies to it.
 	MaxLifetime = 60 * time.Second
+)
+
+// What an assertion asks the instance to do, carried in its purpose claim.
+// One issuer, one key list and one audience serve every route that takes an
+// assertion, so the claim is what keeps them apart: an assertion minted to end
+// a person's token access can never sign that person in, and one minted to
+// sign a person in can never end their token access. Without it, an assertion
+// captured on its way to one route would work at the other.
+const (
+	// PurposeLogin is what POST /api/auth/assert serves. An assertion carrying
+	// no purpose claim asks for it: the claim was added after the route, so an
+	// issuer minting the login assertion the contract has always described
+	// keeps working unchanged.
+	PurposeLogin = "login"
+	// PurposeRevokeTokens is what POST /api/auth/revoke-tokens serves: end
+	// every refresh token of the person the assertion names. It is never
+	// implied — an assertion must carry it.
+	PurposeRevokeTokens = "revoke-tokens"
 )
 
 // Refusal is the error Verify returns for every assertion it does not accept.
@@ -154,6 +174,11 @@ type Config struct {
 	JWKSURL string
 	// Audience is the exact aud value accepted (TRUSTED_ISSUER_AUDIENCE).
 	Audience string
+	// Purpose is what an accepted assertion must ask for: PurposeLogin or
+	// PurposeRevokeTokens. An assertion asking for anything else is refused as
+	// claims, and so is one asking for nothing where PurposeLogin is not what
+	// is wanted. Optional; empty means PurposeLogin.
+	Purpose string
 	// Providers are the provider claim values accepted, verbatim — the keys
 	// application.OAuthProviderKeys lists: core's OAuth registry keys, plus
 	// "door", which no registry entry holds and which names an email+password
@@ -197,6 +222,7 @@ type Config struct {
 type Verifier struct {
 	issuer    string
 	audience  string
+	purpose   string
 	providers map[string]struct{}
 	// allowed is the normalized allowlist; nil when the instance has none.
 	allowed map[string]struct{}
@@ -231,6 +257,10 @@ func NewVerifier(cfg Config) *Verifier {
 	for _, p := range cfg.Providers {
 		providers[p] = struct{}{}
 	}
+	purpose := cfg.Purpose
+	if purpose == "" {
+		purpose = PurposeLogin
+	}
 	var allowed map[string]struct{}
 	if len(cfg.AllowedEmails) > 0 {
 		allowed = make(map[string]struct{}, len(cfg.AllowedEmails))
@@ -242,6 +272,7 @@ func NewVerifier(cfg Config) *Verifier {
 		// Without trailing slashes, as checkClaims compares iss.
 		issuer:    strings.TrimRight(strings.TrimSpace(cfg.Issuer), "/"),
 		audience:  cfg.Audience,
+		purpose:   purpose,
 		providers: providers,
 		allowed:   allowed,
 		now:       now,
@@ -350,6 +381,17 @@ func (v *Verifier) checkClaims(c gojwt.MapClaims) (Identity, error) {
 	}
 	if verified, ok := c["email_verified"].(bool); !ok || !verified {
 		return refuse(ReasonClaims, "the assertion does not mark the email address verified")
+	}
+	// An assertion that says nothing asks to sign its person in, which is what
+	// every assertion asked for before the claim existed. Checked before the
+	// jti is spent, like every other claim: an issuer that minted the wrong
+	// kind corrects it and presents the same jti.
+	purpose := textClaim(c, "purpose")
+	if purpose == "" {
+		purpose = PurposeLogin
+	}
+	if purpose != v.purpose {
+		return refuse(ReasonClaims, "the assertion does not ask for what this route does")
 	}
 
 	// Spent after every check except the allowlist, so an assertion refused

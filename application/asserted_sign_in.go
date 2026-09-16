@@ -556,12 +556,23 @@ func (discardSignInLogs) Error(context.Context, string, ...any) {}
 // operator opted in (PasswordOwnersProven), or be a door credential while the
 // arriving identity is one doorCredentialProvesOwnerFor names.
 func (s *AssertedSignIn) provesOwnership(m repositories.CredentialEmailMatch, arriving string) bool {
+	return credentialProvesOwnership(m, arriving, s.cfg.PasswordOwnersProven)
+}
+
+// credentialProvesOwnership is that rule as a function of the one setting it
+// reads. The trusted issuer's token revocation reaches the same people a
+// sign-in would reach (see AssertedTokenRevocation), so it asks this and not a
+// second copy of the rule: a copy that drifts would revoke the tokens of
+// somebody the sign-in never links.
+func credentialProvesOwnership(
+	m repositories.CredentialEmailMatch, arriving string, passwordOwnersProven bool,
+) bool {
 	if !m.Active {
 		return false
 	}
 	switch m.Provider {
 	case entities.ProviderPassword:
-		return s.cfg.PasswordOwnersProven
+		return passwordOwnersProven
 	case OAuthProviderDoor:
 		return doorCredentialProvesOwnerFor[arriving]
 	}

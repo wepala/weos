@@ -122,6 +122,7 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	var fileService application.FileService
 	var authService authapp.AuthenticationService
 	var assertedSignIn *application.AssertedSignIn
+	var credentialEmails repositories.CredentialEmailQuery
 	var providerRegistry authapp.OAuthProviderRegistry
 	var sessionManager session.SessionManager
 	var credentialRepo authrepos.CredentialRepository
@@ -170,6 +171,7 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 		fx.Populate(&fileService),
 		fx.Populate(&authService),
 		fx.Populate(&assertedSignIn),
+		fx.Populate(&credentialEmails),
 		fx.Populate(&providerRegistry),
 		fx.Populate(&sessionManager),
 		fx.Populate(&credentialRepo),
@@ -389,6 +391,31 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 			"JWT_SIGNING_KEY is empty or auto, so native bearer tokens will not survive a restart: each boot signs tokens with a new key, so after every restart or deploy an app must renew its access token with its refresh token, and a renewal repeated across the restart counts as reuse and signs the app out",
 			"remedy", "set JWT_SIGNING_KEY to a PEM-encoded RSA private key that stays the same across restarts and on every instance")
 	}
+
+	// The door, having reset a person's password, ends that person's token
+	// access here (wm-fcpzx): every refresh token they hold — each connector's
+	// and each native app session's — stops renewing, so nothing issued under
+	// the old password outlives it. Mounted on exactly the condition the
+	// assertion route is, and authorized the same way: an assertion the trusted
+	// issuer signed for this instance, asking to revoke tokens rather than to
+	// sign anyone in. It ends no browser session — those are signed cookies,
+	// and only a SESSION_SECRET rotation ends them, for everybody at once.
+	handlers.MountTrustedIssuerRevocation(context.Background(), api, appCfg, logger,
+		func() *handlers.TokenRevocationHandler {
+			return handlers.NewTrustedIssuerRevocationHandler(appCfg.TrustedIssuer, appCfg.OAuth.AllowedEmails,
+				handlers.TrustedIssuerRevocationDeps{
+					Revoke: application.NewAssertedTokenRevocation(application.AssertedTokenRevocationConfig{
+						Credentials:          credentialRepo,
+						Agents:               agentRepo,
+						Emails:               credentialEmails,
+						Tokens:               refreshRepo,
+						PasswordOwnersProven: appCfg.TrustedIssuer.LinkPasswordOwners,
+						Logger:               logger,
+					}),
+					Logger:        logger,
+					PublicBaseURL: baseURL,
+				})
+		})
 
 	// A native sign-in's access token lasts an hour, and an app in a native
 	// shell holds nothing else, so the refresh token handed back beside it
