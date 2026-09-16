@@ -77,10 +77,10 @@ door's own origin). Where that holds, the instance's `Set-Cookie` lands in the b
 exactly as it does for `/auth/password-login`. Where it does not, the sign-in breaks in
 silence: the instance's cookie is host-only, a browser on another origin drops it,
 `/auth/assert` still answers 200, nothing is logged, and every later request to the
-instance is a 401. An issuer that posts the assertion itself keeps two duties: it mints a
-fresh assertion, with a new `jti`, for every attempt, and, for an instance started on
-demand, it mints one only after the instance answers that it is ready (see
-"Consequences").
+instance that needs a session is a 401. An issuer that posts the assertion itself keeps
+two duties: it mints a fresh assertion, with a new `jti`, for every attempt, and, for an
+instance started on demand, it mints one only after the instance answers that it is ready
+(see "Consequences").
 
 - **A request from another site is refused before the assertion is read.** An assertion
   signs in whoever posts it. A page on another site that holds a valid assertion for this
