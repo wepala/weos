@@ -103,11 +103,15 @@ type ErasureResult struct {
 //  2. Drain: wait, bounded, until every subscriber group's checkpoint reaches
 //     the head of the event log, so no background group projects the
 //     account's events after the purge.
-//  3. Enumerate the SQL state that names the account.
-//  4. External stores: the bucket folder, then the graph. Neither is
+//  3. Participants: the steps an embedding service registered, so a
+//     deployment can unlink the account from whatever lives outside this
+//     instance while its data is still whole (see
+//     AccountErasureParticipant).
+//  4. Enumerate the SQL state that names the account.
+//  5. External stores: the bucket folder, then the graph. Neither is
 //     transactional, so both go before the SQL commit — a failure leaves the
 //     SQL state that drives enumeration in place for the re-run.
-//  5. SQL: one chunked transaction, the account row last.
+//  6. SQL: one chunked transaction, the account row last.
 //
 // The caller signs the person out; this service knows nothing of cookies.
 type AccountErasureService struct {
@@ -135,6 +139,9 @@ type AccountErasureService struct {
 	timeout time.Duration
 	roles   AccountRoleRevoker
 	logger  entities.Logger
+	// participants are the embedding service's own steps, run in this order
+	// before anything of the account's is removed.
+	participants []AccountErasureParticipant
 
 	mu       sync.Mutex
 	inFlight map[string]bool
@@ -157,6 +164,10 @@ type AccountErasureDeps struct {
 	// from.
 	Roles  AccountRoleRevoker
 	Logger entities.Logger
+	// Participants are optional steps an embedding service runs inside the
+	// erasure, before anything is removed. They run in the order given here.
+	// See AccountErasureParticipant.
+	Participants []AccountErasureParticipant
 }
 
 // AccountErasureParams bundles the service's dependencies from the container.
@@ -173,6 +184,10 @@ type AccountErasureParams struct {
 	RunningGroups RunningGroupsFunc
 	Roles         *authcasbin.CasbinAuthorizationChecker `optional:"true"`
 	Logger        entities.Logger
+	// Participants is the value group a downstream binary contributes its
+	// own erasure steps to. An instance that registers none gets the
+	// sequence it always had. See AsAccountErasureParticipant.
+	Participants []AccountErasureParticipant `group:"account_erasure_participants"`
 }
 
 // ProvideAccountErasureService wires the service from the container.
@@ -182,7 +197,10 @@ func ProvideAccountErasureService(p AccountErasureParams) *AccountErasureService
 		roles = p.Roles
 	}
 	return NewAccountErasureService(AccountErasureDeps{
-		Roles:         roles,
+		Roles: roles,
+		// The container shuffles a value group, so the run order is fixed
+		// here by name rather than left to Fx (AsAccountErasureParticipant).
+		Participants:  sortParticipantsByName(p.Participants),
 		Accounts:      p.Accounts,
 		Locks:         p.Locks,
 		Purger:        p.Purger,
@@ -228,15 +246,22 @@ func NewAccountErasureService(d AccountErasureDeps) *AccountErasureService {
 		timeout:      d.Timeout,
 		roles:        d.Roles,
 		logger:       d.Logger,
+		participants: participantsOf(d.Participants),
 		inFlight:     map[string]bool{},
 	}
 }
 
 // Erase runs the whole sequence for one account. It answers
 // ErrAccountNotFound for an account that does not exist,
-// ErrErasureDrainTimeout when a background group never caught up, and
-// ErrErasureInProgress when this process is already erasing the account;
-// any other error is a step that failed with the account left locked.
+// ErrErasureDrainTimeout when a background group never caught up,
+// ErrErasureInProgress when this process is already erasing the account, and
+// ErrErasureParticipantFailed when a registered participant's step failed —
+// which it does before anything has been removed; any other error is a step
+// that failed with the account left locked.
+//
+// It returns only once every registered participant has returned, so a
+// caller that answers 2xx on Erase answers it for the whole sequence,
+// participants included.
 //
 // The run is detached from the caller's context and given its own deadline.
 // A person who asked for the deletion and then hung up — a mobile client
@@ -294,6 +319,14 @@ func (s *AccountErasureService) Erase(ctx context.Context, cmd EraseAccountComma
 	if cmd.SkipDrain {
 		s.logger.Warn(ctx, "account erasure: the drain was skipped on the operator's say-so", "account_id", cmd.AccountID)
 	} else if err := s.drain(ctx); err != nil {
+		return nil, err
+	}
+
+	// The embedding service's own steps, last thing before anything goes:
+	// the account's data is whole and the read model has caught up, so a
+	// participant can still read whatever it needs, and a failure here
+	// leaves nothing removed.
+	if err := s.runParticipants(ctx, cmd); err != nil {
 		return nil, err
 	}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -33,6 +34,9 @@ type erasureHarness struct {
 	running []string
 	head    int64
 	steps   *[]string
+	// participants are the embedding service's steps, in the order the
+	// service is wired with them.
+	participants []AccountErasureParticipant
 }
 
 func (h *erasureHarness) setPosition(group string, position int64) {
@@ -206,6 +210,7 @@ func (h *erasureHarness) service(drainTimeout time.Duration) *AccountErasureServ
 		EventStore: headOf{store, h.head}, Checkpoints: h.checkpoints,
 		RunningGroups: func() []string { return h.running },
 		DrainTimeout:  drainTimeout, StaleAfter: time.Minute, Logger: noopWorkerLogger{},
+		Participants: h.participants,
 	})
 	svc.drainPoll = 5 * time.Millisecond
 	svc.frozenGrace = 20 * time.Millisecond
@@ -552,5 +557,185 @@ func TestAccountErasure_UnknownAccountIsNotFound(t *testing.T) {
 	}
 	if len(*h.steps) != 0 {
 		t.Errorf("steps %v ran for an account that does not exist", *h.steps)
+	}
+}
+
+// recordingParticipant is an embedding service's step: it records that it
+// ran, in the harness's one step list, so a test can say where in the
+// sequence it ran.
+type recordingParticipant struct {
+	name  string
+	err   error
+	steps *[]string
+	// seen is what the participant was told about the account.
+	seen ErasingAccount
+	// deadline is whether the context it was handed had one, and whether it
+	// was still live. A participant is the last thing to run before anything
+	// is removed, so both matter.
+	hadDeadline bool
+	wasLive     bool
+	ran         int
+}
+
+func (p *recordingParticipant) Name() string { return p.name }
+
+func (p *recordingParticipant) BeforeAccountErased(ctx context.Context, account ErasingAccount) error {
+	*p.steps = append(*p.steps, "participant:"+p.name)
+	p.seen = account
+	_, p.hadDeadline = ctx.Deadline()
+	p.wasLive = ctx.Err() == nil
+	p.ran++
+	return p.err
+}
+
+// wm-j2sg5: an embedding service's step runs inside the erasure, after the
+// lock and the drain and before the first step that removes anything, so it
+// sees the account's data whole.
+func TestAccountErasure_ParticipantsRunBeforeAnythingIsRemoved(t *testing.T) {
+	h := newErasureHarness(t)
+	h.head = 10
+	h.positions = map[string]int64{"oxigraph": 10}
+	first := &recordingParticipant{name: "bank-links", steps: h.steps}
+	second := &recordingParticipant{name: "identity-tokens", steps: h.steps}
+	h.participants = []AccountErasureParticipant{first, second}
+
+	if _, err := h.service(time.Second).Erase(context.Background(),
+		EraseAccountCommand{AccountID: "acct-harbor", RequestedBy: "ops"}); err != nil {
+		t.Fatalf("Erase: %v", err)
+	}
+	want := []string{"lock", "deactivate", "participant:bank-links", "participant:identity-tokens",
+		"enumerate", "files", "graph", "purge"}
+	if strings.Join(*h.steps, ",") != strings.Join(want, ",") {
+		t.Fatalf("steps = %v, want %v", *h.steps, want)
+	}
+	if first.seen.AccountID != "acct-harbor" || first.seen.RequestedBy != "ops" {
+		t.Errorf("the participant was told %+v, want the account and who asked", first.seen)
+	}
+	if !first.hadDeadline || !first.wasLive {
+		t.Errorf("the participant's context had deadline=%v live=%v, want the erasure's own live deadline",
+			first.hadDeadline, first.wasLive)
+	}
+}
+
+// A participant that fails stops the erasure where it stands: nothing of the
+// account's is removed, the lock is kept, and the caller is told which step
+// failed rather than being answered 2xx.
+func TestAccountErasure_AFailedParticipantAbortsWithNothingErased(t *testing.T) {
+	h := newErasureHarness(t)
+	refused := errors.New("the aggregator refused to unlink the item")
+	ran := &recordingParticipant{name: "bank-links", steps: h.steps}
+	failing := &recordingParticipant{name: "identity-tokens", err: refused, steps: h.steps}
+	after := &recordingParticipant{name: "zz-never-runs", steps: h.steps}
+	h.participants = []AccountErasureParticipant{ran, failing, after}
+
+	_, err := h.service(time.Second).Erase(context.Background(),
+		EraseAccountCommand{AccountID: "acct-harbor", RequestedBy: "ops"})
+	if !errors.Is(err, ErrErasureParticipantFailed) {
+		t.Fatalf("Erase error = %v, want ErrErasureParticipantFailed", err)
+	}
+	if !errors.Is(err, refused) {
+		t.Errorf("the failure does not carry the participant's own error: %v", err)
+	}
+	if !strings.Contains(err.Error(), "identity-tokens") {
+		t.Errorf("the failure does not name the participant that failed: %v", err)
+	}
+	if after.ran != 0 {
+		t.Error("a participant after the failing one ran")
+	}
+	for _, step := range *h.steps {
+		if step == "enumerate" || step == "files" || step == "graph" || step == "purge" {
+			t.Errorf("step %q ran after a participant failed", step)
+		}
+	}
+	if len(h.files.deleted) != 0 || len(h.graphs.dropped) != 0 || h.purger.purged {
+		t.Error("a store was touched after a participant failed")
+	}
+	if locked, _ := h.locks.IsLocked(context.Background(), "acct-harbor"); !locked {
+		t.Error("the lock was released after a participant failed")
+	}
+	if h.accounts.account.Active() {
+		t.Error("the account was left active after a participant failed")
+	}
+
+	// The deletion can be run again, and it runs every participant again.
+	failing.err = nil
+	*h.steps = nil
+	if _, err := h.service(time.Second).Erase(context.Background(),
+		EraseAccountCommand{AccountID: "acct-harbor"}); err != nil {
+		t.Fatalf("re-run: %v", err)
+	}
+	if ran.ran != 2 || failing.ran != 2 || after.ran != 1 {
+		t.Errorf("re-run ran the participants %d/%d/%d times, want 2/2/1", ran.ran, failing.ran, after.ran)
+	}
+}
+
+// An instance that registers no participant gets the sequence it always had.
+func TestAccountErasure_NoParticipantsLeavesTheSequenceUnchanged(t *testing.T) {
+	h := newErasureHarness(t)
+	h.head = 10
+	h.positions = map[string]int64{"oxigraph": 10}
+	h.participants = nil
+
+	result, err := h.service(time.Second).Erase(context.Background(),
+		EraseAccountCommand{AccountID: "acct-harbor", RequestedBy: "ops"})
+	if err != nil {
+		t.Fatalf("Erase with no participants: %v", err)
+	}
+	want := []string{"lock", "deactivate", "enumerate", "files", "graph", "purge"}
+	if strings.Join(*h.steps, ",") != strings.Join(want, ",") {
+		t.Fatalf("steps = %v, want %v", *h.steps, want)
+	}
+	if result.MembersLost != 2 || result.Resources != 2 || result.Events != 7 {
+		t.Errorf("result = %+v, want the sequence's usual counts", result)
+	}
+}
+
+// Fx shuffles the members of a value group, so the container path fixes the
+// run order by name — the same order on every process that has the same
+// participants.
+func TestAccountErasure_ContainerParticipantsRunInNameOrder(t *testing.T) {
+	steps := &[]string{}
+	shuffled := []AccountErasureParticipant{
+		&recordingParticipant{name: "identity-tokens", steps: steps},
+		nil,
+		&recordingParticipant{name: "bank-links", steps: steps},
+	}
+	sorted := sortParticipantsByName(shuffled)
+	if len(sorted) != 2 {
+		t.Fatalf("sorted %d participants, want the 2 non-nil ones", len(sorted))
+	}
+	if sorted[0].Name() != "bank-links" || sorted[1].Name() != "identity-tokens" {
+		t.Fatalf("order = %s,%s, want bank-links,identity-tokens", sorted[0].Name(), sorted[1].Name())
+	}
+}
+
+// A participant that names itself nothing is still named in the failure, by
+// its type, so an operator can tell which step did not finish.
+func TestAccountErasure_AnUnnamedParticipantIsNamedByItsType(t *testing.T) {
+	h := newErasureHarness(t)
+	h.participants = []AccountErasureParticipant{
+		&recordingParticipant{err: errors.New("no"), steps: h.steps},
+	}
+	_, err := h.service(time.Second).Erase(context.Background(), EraseAccountCommand{AccountID: "acct-harbor"})
+	if !errors.Is(err, ErrErasureParticipantFailed) {
+		t.Fatalf("Erase error = %v, want ErrErasureParticipantFailed", err)
+	}
+	if !strings.Contains(err.Error(), "recordingParticipant") {
+		t.Errorf("the failure names no participant: %v", err)
+	}
+}
+
+// The helper's value-group name and the name the service's Fx params collect
+// have to be the same string. A drift between them is silent: the container
+// still builds, the binary still registers its participant, and the step
+// never runs.
+func TestAccountErasure_TheParticipantGroupTagMatchesTheCollector(t *testing.T) {
+	field, ok := reflect.TypeOf(AccountErasureParams{}).FieldByName("Participants")
+	if !ok {
+		t.Fatal("AccountErasureParams has no Participants field")
+	}
+	want := strings.TrimSuffix(strings.TrimPrefix(accountErasureParticipantTag, `group:"`), `"`)
+	if got := field.Tag.Get("group"); got != want {
+		t.Fatalf("the params collect group %q, want %q — a participant registered with AsAccountErasureParticipant would never run", got, want)
 	}
 }

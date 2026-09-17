@@ -1,0 +1,174 @@
+// Copyright (C) 2026 Wepala, LLC
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+package application
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sort"
+
+	"go.uber.org/fx"
+)
+
+// ErrErasureParticipantFailed is returned when a participant's step failed.
+// The erasure stops there with nothing of the account's removed, and the
+// account is left locked, so running the deletion again runs every
+// participant again.
+var ErrErasureParticipantFailed = errors.New("account erasure: a participant step failed")
+
+// ErasingAccount names the account a participant is being asked about, and
+// who asked for the deletion. Everything else the participant needs — the
+// account's members, its resources, its credentials — it reads through its
+// own repositories: the account's SQL rows, files and graph are all still
+// there when the participant runs.
+type ErasingAccount struct {
+	// AccountID is the account being erased.
+	AccountID string
+	// RequestedBy is the person who asked for the deletion. It is empty when
+	// an operator ran the deletion from the command line.
+	RequestedBy string
+}
+
+// AccountErasureParticipant is a step an embedding service runs inside an
+// account erasure. It is the seam for the work core cannot do itself: a
+// deployment that linked the account to something outside this instance has
+// to unlink it when the account goes, and only that deployment knows how.
+// Two examples, neither of which core depends on: dropping a bank-aggregator
+// item and the credentials it was linked with, and revoking an identity
+// provider's token for the person who is leaving.
+//
+// When it runs. BeforeAccountErased is called inside
+// AccountErasureService.Erase, after the account is locked and deactivated
+// and after the background projections have drained, and before the first
+// step that removes anything — the enumeration, the file folder, the graph
+// and the SQL purge all follow it. So a participant sees the account's data
+// whole, and it sees a read model that has caught up with every event the
+// account committed.
+//
+// It runs synchronously. Erase returns only once every participant has
+// returned, and the HTTP handler answers 200 only once Erase has returned —
+// so a 2xx on the deletion means every participant completed.
+//
+// What an error does. The erasure stops at the first participant that
+// returns one and answers ErrErasureParticipantFailed, wrapping both the
+// participant's name and its error. Nothing of the account's has been
+// removed at that point, the account is left locked and inactive, and the
+// caller sees the failure rather than a 2xx. The deletion can be run again,
+// and it runs every participant again from the start: a participant must be
+// idempotent, like every other step of the sequence.
+//
+// The context carries the erasure's own deadline and is detached from the
+// request, so a caller that hangs up does not cancel the step. A participant
+// must honor it — it is the only bound on the run.
+type AccountErasureParticipant interface {
+	// Name identifies the participant in the log and in the error a failed
+	// step fails the erasure with. Keep it short and stable: it is what an
+	// operator reads when a deletion did not finish.
+	Name() string
+	// BeforeAccountErased runs the step. Returning an error aborts the
+	// erasure with nothing removed.
+	BeforeAccountErased(ctx context.Context, account ErasingAccount) error
+}
+
+// accountErasureParticipantTag is the Fx value-group name through which a
+// downstream binary contributes participants. The erasure service collects
+// the whole group.
+const accountErasureParticipantTag = `group:"account_erasure_participants"`
+
+// AsAccountErasureParticipant tags a constructor so its result joins the
+// "account_erasure_participants" value group the erasure service collects.
+// It is the whole seam for out-of-tree erasure steps; nothing in core
+// imports anything to support it:
+//
+//	fx.Provide(application.AsAccountErasureParticipant(newBankLinkRemover))
+//
+// The constructor is an ordinary Fx provider, so a participant takes its own
+// dependencies from the container.
+//
+// Order. Fx does not promise an order for the members of a value group — dig
+// deliberately shuffles them — so the container path runs participants
+// sorted by Name, which is stable across restarts. A participant must not
+// depend on another participant having run; where an order really matters,
+// build the ordered sequence yourself and register it as one participant, or
+// wire the service with AccountErasureDeps.Participants, which runs in the
+// order the slice gives.
+func AsAccountErasureParticipant(constructor any) any {
+	return fx.Annotate(constructor, fx.ResultTags(accountErasureParticipantTag))
+}
+
+// AsAccountErasureParticipants tags a constructor returning
+// []AccountErasureParticipant so its elements are flattened into the value
+// group. Use it for a provider that contributes zero or more participants
+// depending on configuration — the bank-link remover of a deployment that
+// has no aggregator configured contributes none:
+//
+//	fx.Provide(application.AsAccountErasureParticipants(newExternalUnlinkers))
+func AsAccountErasureParticipants(constructor any) any {
+	return fx.Annotate(constructor, fx.ResultTags(`group:"account_erasure_participants,flatten"`))
+}
+
+// sortParticipantsByName copies the participants into a stable run order.
+// The container hands over a shuffled value group; the run order has to be
+// the same on every process that has the same participants, or a deletion
+// that failed reproduces differently from the one that failed.
+func sortParticipantsByName(participants []AccountErasureParticipant) []AccountErasureParticipant {
+	sorted := participantsOf(participants)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Name() < sorted[j].Name() })
+	return sorted
+}
+
+// participantsOf keeps the order it is given and drops the nil entries a
+// hand-wired Deps can carry.
+func participantsOf(participants []AccountErasureParticipant) []AccountErasureParticipant {
+	kept := make([]AccountErasureParticipant, 0, len(participants))
+	for _, p := range participants {
+		if p != nil {
+			kept = append(kept, p)
+		}
+	}
+	return kept
+}
+
+// runParticipants runs every registered participant, in order, and stops at
+// the first one that fails. It is called from Erase before anything is
+// removed; see AccountErasureParticipant for what that guarantees.
+func (s *AccountErasureService) runParticipants(ctx context.Context, cmd EraseAccountCommand) error {
+	account := ErasingAccount{AccountID: cmd.AccountID, RequestedBy: cmd.RequestedBy}
+	for _, participant := range s.participants {
+		name := participantName(participant)
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("%w: %s: %w", ErrErasureParticipantFailed, name, err)
+		}
+		if err := participant.BeforeAccountErased(ctx, account); err != nil {
+			s.logger.Error(ctx, "account erasure: a participant failed; nothing of the account has been removed",
+				"account_id", cmd.AccountID, "participant", name, "error", err)
+			return fmt.Errorf("%w: %s: %w", ErrErasureParticipantFailed, name, err)
+		}
+		s.logger.Info(ctx, "account erasure: participant finished", "account_id", cmd.AccountID, "participant", name)
+	}
+	return nil
+}
+
+// participantName is what the log and the error call a participant. A
+// participant that names itself nothing is named by its type, so the failure
+// still says which step it was.
+func participantName(participant AccountErasureParticipant) string {
+	if name := participant.Name(); name != "" {
+		return name
+	}
+	return fmt.Sprintf("%T", participant)
+}
