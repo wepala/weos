@@ -928,3 +928,46 @@ func TestAccountErasure_ASweepOfAGoneAccountTellsTheParticipantTheDataIsGone(t *
 		t.Errorf("the participant was told %+v, want the account reported as already gone", participant.saw[0])
 	}
 }
+
+// panickingParticipant is the third-party SDK that dereferences nothing on
+// an unusual response. Core does not control a participant's code, which is
+// the argument for containing what it does at this boundary.
+type panickingParticipant struct{ name string }
+
+func (p *panickingParticipant) Name() string { return p.name }
+
+func (p *panickingParticipant) BeforeAccountErased(context.Context, ErasingAccount) error {
+	panic("the aggregator client dereferenced a nil response")
+}
+
+// A participant that panics is a participant that failed. Without this the
+// panic unwinds out of Erase: the person deleting their account gets no
+// answer at all rather than the 500 the contract promises, the erasure log
+// never names the step, and an operator's command dies mid-run with the
+// account locked.
+func TestAccountErasure_APanickingParticipantFailsLikeOneThatReturnedAnError(t *testing.T) {
+	h := newErasureHarness(t)
+	after := &recordingParticipant{name: "zz-never-runs", steps: h.steps}
+	h.participants = []AccountErasureParticipant{&panickingParticipant{name: "bank-links"}, after}
+
+	_, err := h.service(time.Second).Erase(context.Background(),
+		EraseAccountCommand{AccountID: "acct-harbor", RequestedBy: "ops"})
+	if !errors.Is(err, ErrErasureParticipantFailed) {
+		t.Fatalf("Erase error = %v, want ErrErasureParticipantFailed", err)
+	}
+	if !strings.Contains(err.Error(), "bank-links") {
+		t.Errorf("the failure does not name the step that panicked: %v", err)
+	}
+	if !strings.Contains(err.Error(), "dereferenced a nil response") {
+		t.Errorf("the failure does not carry what the panic said: %v", err)
+	}
+	if after.ran != 0 {
+		t.Error("a participant after the panicking one ran")
+	}
+	if len(h.files.deleted) != 0 || len(h.graphs.dropped) != 0 || h.purger.purged {
+		t.Error("a store was touched after a participant panicked")
+	}
+	if locked, _ := h.locks.IsLocked(context.Background(), "acct-harbor"); !locked {
+		t.Error("the lock was released after a participant panicked")
+	}
+}

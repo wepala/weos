@@ -111,6 +111,12 @@ has been removed, the account is left locked and inactive, and the handler answe
 again runs every participant again, so a participant is idempotent like every other
 step of the sequence.
 
+A participant that panics fails the same way: the panic is contained at the call,
+logged with its stack, and returned as `ErrErasureParticipantFailed` naming the step.
+Core does not sandbox a participant, which is the argument for containing it here —
+an escaping panic would drop the caller's connection with no answer at all, name no
+step in the log, and kill an operator's command mid-run.
+
 **Where a participant is registered.** `cli.RegisterErasureFxOptions`, not
 `cli.RegisterFxOptions`. The second is merged into the server's graph only, and
 `account delete` builds its own graph — so a participant registered there would run

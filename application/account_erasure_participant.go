@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"runtime/debug"
 	"sort"
 
 	"go.uber.org/fx"
@@ -104,6 +105,12 @@ type ErasingAccount struct {
 // caller sees the failure rather than a 2xx. The deletion can be run again,
 // and it runs every participant again from the start: a participant must be
 // idempotent, like every other step of the sequence.
+//
+// A participant that panics fails the same way. The panic is contained at
+// this boundary, logged with its stack — the only place it is written down,
+// since it no longer reaches the server's own recovery — and returned as
+// ErrErasureParticipantFailed naming the step, so the caller gets an answer
+// rather than a dropped connection.
 //
 // The context carries the erasure's own deadline and is detached from the
 // request, so a caller that hangs up does not cancel the step. A participant
@@ -247,7 +254,7 @@ func (s *AccountErasureService) runParticipants(ctx context.Context, cmd EraseAc
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("%w: %s: %w", ErrErasureParticipantFailed, name, err)
 		}
-		if err := participant.BeforeAccountErased(ctx, account); err != nil {
+		if err := s.callParticipant(ctx, participant, name, account); err != nil {
 			s.logger.Error(ctx, "account erasure: a participant failed; nothing of the account has been removed",
 				"account_id", cmd.AccountID, "participant", name, "error", err)
 			return fmt.Errorf("%w: %s: %w", ErrErasureParticipantFailed, name, err)
@@ -255,6 +262,30 @@ func (s *AccountErasureService) runParticipants(ctx context.Context, cmd EraseAc
 		s.logger.Info(ctx, "account erasure: participant finished", "account_id", cmd.AccountID, "participant", name)
 	}
 	return nil
+}
+
+// callParticipant runs one participant's step and turns a panic into the
+// error a failed step returns. A participant is the embedding binary's own
+// code and core neither validates nor sandboxes it, which is the argument
+// for containing what it does here: a panic that unwound out of Erase would
+// drop the caller's connection with no answer at all — not the 500 the
+// contract promises — name no step in the erasure log, and kill an
+// operator's command mid-run.
+func (s *AccountErasureService) callParticipant(
+	ctx context.Context, participant AccountErasureParticipant, name string, account ErasingAccount,
+) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			// The stack goes to the log because it no longer reaches the
+			// server's own recovery: this is the only place it is written
+			// down for whoever wrote the participant.
+			s.logger.Error(ctx, "account erasure: a participant panicked",
+				"account_id", account.AccountID, "participant", name,
+				"panic", fmt.Sprint(recovered), "stack", string(debug.Stack()))
+			err = fmt.Errorf("panicked: %v", recovered)
+		}
+	}()
+	return participant.BeforeAccountErased(ctx, account)
 }
 
 // participantName is what the log and the error call a participant. A
