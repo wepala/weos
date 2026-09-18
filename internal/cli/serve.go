@@ -67,8 +67,43 @@ var customFxOptions []fx.Option
 // RegisterFxOptions appends fx options to be merged into the serve command's
 // fx graph. Must be called before Execute(). Reachable from downstream binaries
 // via the public re-export in pkg/cli.
+//
+// These options are serve's alone. What a short-lived operator command must
+// carry as well — an account-erasure participant, and whatever it is built
+// from — goes to RegisterErasureFxOptions instead.
 func RegisterFxOptions(opts ...fx.Option) {
 	customFxOptions = append(customFxOptions, opts...)
+}
+
+// customErasureFxOptions are merged into every graph that can erase an
+// account: serve's, and the one "account delete" builds for itself. They are
+// kept apart from customFxOptions because that list is where a binary starts
+// its background work — sweeps and pollers hung off fx.Lifecycle — and none
+// of that belongs in an operator command that opens the store, erases one
+// account and stops.
+var customErasureFxOptions []fx.Option
+
+// RegisterErasureFxOptions appends fx options merged into every graph that
+// can erase an account. Must be called before Execute(). Reachable from
+// downstream binaries via the public re-export in pkg/cli.
+//
+// Register an application.AccountErasureParticipant here, with the providers
+// it is built from. A participant registered with RegisterFxOptions runs when
+// a person deletes their account through the API and does not run when an
+// operator finishes that same deletion with "account delete" — which is the
+// documented remedy for a deletion that failed part-way, so the step that
+// unlinks the account from something outside this instance would be skipped
+// exactly when it is needed most.
+func RegisterErasureFxOptions(opts ...fx.Option) {
+	customErasureFxOptions = append(customErasureFxOptions, opts...)
+}
+
+// serveFxOptions are the registered options serve merges into its graph:
+// every graph's erasure options, then serve's own.
+func serveFxOptions() []fx.Option {
+	opts := make([]fx.Option, 0, len(customErasureFxOptions)+len(customFxOptions))
+	opts = append(opts, customErasureFxOptions...)
+	return append(opts, customFxOptions...)
 }
 
 // EchoConfigurer customizes the serve command's *echo.Echo after the core and
@@ -837,7 +872,7 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 
 func runServe(cmd *cobra.Command, args []string) error {
 	appCfg := loadServeConfig()
-	e, app, err := buildServer(appCfg, customFxOptions...)
+	e, app, err := buildServer(appCfg, serveFxOptions()...)
 	if err != nil {
 		return err
 	}

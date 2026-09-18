@@ -83,6 +83,15 @@ type EraseAccountCommand struct {
 	// operator's override for a checkpoint that will never move, and the
 	// command line refuses it without --confirm; the app never sets it.
 	SkipDrain bool
+	// SkipParticipants erases without running the steps an embedding service
+	// registered. It is the operator's override for a step that can never
+	// succeed — a provider account that is closed, an endpoint that rejects
+	// the unlink for good — which would otherwise leave the account locked,
+	// deactivated and unusable with every retry failing the same way. What it
+	// costs is the thing the steps exist to prevent: whatever the account was
+	// linked to elsewhere stays linked, with the rows that named it gone. The
+	// command line refuses it without --confirm; the app never sets it.
+	SkipParticipants bool
 }
 
 // ErasureResult is what an erasure removed.
@@ -103,11 +112,15 @@ type ErasureResult struct {
 //  2. Drain: wait, bounded, until every subscriber group's checkpoint reaches
 //     the head of the event log, so no background group projects the
 //     account's events after the purge.
-//  3. Enumerate the SQL state that names the account.
-//  4. External stores: the bucket folder, then the graph. Neither is
+//  3. Participants: the steps an embedding service registered, so a
+//     deployment can unlink the account from whatever lives outside this
+//     instance while its data is still whole (see
+//     AccountErasureParticipant).
+//  4. Enumerate the SQL state that names the account.
+//  5. External stores: the bucket folder, then the graph. Neither is
 //     transactional, so both go before the SQL commit — a failure leaves the
 //     SQL state that drives enumeration in place for the re-run.
-//  5. SQL: one chunked transaction, the account row last.
+//  6. SQL: one chunked transaction, the account row last.
 //
 // The caller signs the person out; this service knows nothing of cookies.
 type AccountErasureService struct {
@@ -133,8 +146,14 @@ type AccountErasureService struct {
 	// timeout bounds the whole erasure. The run is detached from the
 	// caller's context, so this is the only deadline it has.
 	timeout time.Duration
-	roles   AccountRoleRevoker
-	logger  entities.Logger
+	// participantTimeout bounds one participant's step, inside the erasure's
+	// own budget.
+	participantTimeout time.Duration
+	roles              AccountRoleRevoker
+	logger             entities.Logger
+	// participants are the embedding service's own steps, run in this order
+	// before anything of the account's is removed.
+	participants []AccountErasureParticipant
 
 	mu       sync.Mutex
 	inFlight map[string]bool
@@ -153,10 +172,18 @@ type AccountErasureDeps struct {
 	DrainTimeout  time.Duration
 	StaleAfter    time.Duration
 	Timeout       time.Duration
+	// ParticipantTimeout bounds one participant's step within Timeout. It
+	// keeps a step that hangs on an external API from spending the whole
+	// erasure's budget. Default 2m.
+	ParticipantTimeout time.Duration
 	// Roles is optional: a process with no enforcer has no copy to revoke
 	// from.
 	Roles  AccountRoleRevoker
 	Logger entities.Logger
+	// Participants are optional steps an embedding service runs inside the
+	// erasure, before anything is removed. They run in the order given here.
+	// See AccountErasureParticipant.
+	Participants []AccountErasureParticipant
 }
 
 // AccountErasureParams bundles the service's dependencies from the container.
@@ -173,6 +200,10 @@ type AccountErasureParams struct {
 	RunningGroups RunningGroupsFunc
 	Roles         *authcasbin.CasbinAuthorizationChecker `optional:"true"`
 	Logger        entities.Logger
+	// Participants is the value group a downstream binary contributes its
+	// own erasure steps to. An instance that registers none gets the
+	// sequence it always had. See AsAccountErasureParticipant.
+	Participants []AccountErasureParticipant `group:"account_erasure_participants"`
 }
 
 // ProvideAccountErasureService wires the service from the container.
@@ -182,19 +213,23 @@ func ProvideAccountErasureService(p AccountErasureParams) *AccountErasureService
 		roles = p.Roles
 	}
 	return NewAccountErasureService(AccountErasureDeps{
-		Roles:         roles,
-		Accounts:      p.Accounts,
-		Locks:         p.Locks,
-		Purger:        p.Purger,
-		Files:         p.Files,
-		Graphs:        p.Graphs,
-		EventStore:    p.EventStore,
-		Checkpoints:   p.Checkpoints,
-		RunningGroups: p.RunningGroups,
-		DrainTimeout:  p.Config.Worker.ErasureDrainTimeout,
-		StaleAfter:    p.Config.Worker.ErasureDrainStaleAfter,
-		Timeout:       p.Config.Worker.ErasureTimeout,
-		Logger:        p.Logger,
+		Roles: roles,
+		// The container shuffles a value group, so the run order is fixed
+		// here by name rather than left to Fx (AsAccountErasureParticipant).
+		Participants:       sortParticipantsByName(p.Participants),
+		Accounts:           p.Accounts,
+		Locks:              p.Locks,
+		Purger:             p.Purger,
+		Files:              p.Files,
+		Graphs:             p.Graphs,
+		EventStore:         p.EventStore,
+		Checkpoints:        p.Checkpoints,
+		RunningGroups:      p.RunningGroups,
+		DrainTimeout:       p.Config.Worker.ErasureDrainTimeout,
+		StaleAfter:         p.Config.Worker.ErasureDrainStaleAfter,
+		Timeout:            p.Config.Worker.ErasureTimeout,
+		ParticipantTimeout: p.Config.Worker.ErasureParticipantTimeout,
+		Logger:             p.Logger,
 	})
 }
 
@@ -212,31 +247,48 @@ func NewAccountErasureService(d AccountErasureDeps) *AccountErasureService {
 	if d.Timeout <= 0 {
 		d.Timeout = 15 * time.Minute
 	}
+	if d.ParticipantTimeout <= 0 {
+		d.ParticipantTimeout = 2 * time.Minute
+	}
+	if d.Logger == nil {
+		d.Logger = noopWorkerLogger{}
+	}
+	participants := participantsOf(d.Participants)
+	reportDuplicateNames(d.Logger, participants)
 	return &AccountErasureService{
-		accounts:     d.Accounts,
-		locks:        d.Locks,
-		purger:       d.Purger,
-		files:        d.Files,
-		graphs:       d.Graphs,
-		eventStore:   d.EventStore,
-		checkpoints:  d.Checkpoints,
-		running:      d.RunningGroups,
-		drainTimeout: d.DrainTimeout,
-		staleAfter:   d.StaleAfter,
-		frozenGrace:  2 * time.Second,
-		drainPoll:    100 * time.Millisecond,
-		timeout:      d.Timeout,
-		roles:        d.Roles,
-		logger:       d.Logger,
-		inFlight:     map[string]bool{},
+		accounts:           d.Accounts,
+		locks:              d.Locks,
+		purger:             d.Purger,
+		files:              d.Files,
+		graphs:             d.Graphs,
+		eventStore:         d.EventStore,
+		checkpoints:        d.Checkpoints,
+		running:            d.RunningGroups,
+		drainTimeout:       d.DrainTimeout,
+		staleAfter:         d.StaleAfter,
+		frozenGrace:        2 * time.Second,
+		drainPoll:          100 * time.Millisecond,
+		timeout:            d.Timeout,
+		participantTimeout: d.ParticipantTimeout,
+		roles:              d.Roles,
+		logger:             d.Logger,
+		participants:       participants,
+		inFlight:           map[string]bool{},
 	}
 }
 
 // Erase runs the whole sequence for one account. It answers
 // ErrAccountNotFound for an account that does not exist,
-// ErrErasureDrainTimeout when a background group never caught up, and
-// ErrErasureInProgress when this process is already erasing the account;
-// any other error is a step that failed with the account left locked.
+// ErrErasureDrainTimeout when a background group never caught up,
+// ErrErasureInProgress when this process is already erasing the account, and
+// ErrErasureParticipantFailed when a registered participant's step failed —
+// which it does before anything of the account's has been removed from this
+// instance, though what a participant already did elsewhere stands; any
+// other error is a step that failed with the account left locked.
+//
+// It returns only once every registered participant has returned, so a
+// caller that answers 2xx on Erase answers it for the whole sequence,
+// participants included.
 //
 // The run is detached from the caller's context and given its own deadline.
 // A person who asked for the deletion and then hung up — a mobile client
@@ -297,16 +349,33 @@ func (s *AccountErasureService) Erase(ctx context.Context, cmd EraseAccountComma
 		return nil, err
 	}
 
+	// The embedding service's own steps, last thing before anything goes:
+	// the account's data is whole and the read model has caught up, so a
+	// participant can still read whatever it needs, and a failure here
+	// leaves nothing of the account's removed from this instance.
+	accountGone := account == nil
+	if err := s.runParticipants(ctx, cmd, 1, accountGone); err != nil {
+		return nil, err
+	}
+
 	report, err := s.sweep(ctx, cmd.AccountID)
 	if err != nil {
 		return nil, err
 	}
+	// The purge takes the account row last, so a sweep that returned took it
+	// with everything else. Every pass after this one is told the account is
+	// gone whatever it was at the start, or a participant asked about rows
+	// that landed late reads a promise the deletion has already broken.
+	accountGone = true
 
 	// The lock stops new requests, not requests already admitted: one
 	// admitted a moment before it can commit after the head was read, even
 	// after the purge's transaction. What it left is swept again, up to a
 	// bound, so the deletion does not strand rows it can no longer reach
-	// through the account row (wm-mnry2).
+	// through the account row (wm-mnry2). The participants run again before
+	// each of those sweeps: a row that landed that way can name something
+	// outside this instance too, and removing it without asking them is the
+	// stranded link the whole seam exists to prevent.
 	for pass := 1; ; pass++ {
 		left, err := s.purger.Remains(ctx, cmd.AccountID)
 		if err != nil {
@@ -320,6 +389,9 @@ func (s *AccountErasureService) Erase(ctx context.Context, cmd EraseAccountComma
 				cmd.AccountID, orphanSweeps)
 		}
 		s.logger.Warn(ctx, "account erasure: rows landed after the purge; sweeping again", "account_id", cmd.AccountID, "pass", pass)
+		if err := s.runParticipants(ctx, cmd, pass+1, accountGone); err != nil {
+			return nil, err
+		}
 		again, err := s.sweep(ctx, cmd.AccountID)
 		if err != nil {
 			return nil, err

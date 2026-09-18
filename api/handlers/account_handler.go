@@ -44,6 +44,15 @@ const (
 	// while the first is still running. Nothing is wrong; the app should wait
 	// for the first answer rather than send a third.
 	CodeAccountErasureInProgress = "account_erasure_in_progress"
+	// CodeAccountErasureParticipantFailed is the code a deletion answers with
+	// when a step this instance runs outside itself — unlinking the account
+	// from a provider it was linked to — did not finish. Nothing of the
+	// account's has been removed from this instance. It is told apart from
+	// CodeAccountErasureUnfinished because the two are worth different things
+	// to the app: a third party that refused is worth trying again later,
+	// while this instance failing is not the person's to wait out. The step's
+	// own name stays in the log, not in the answer.
+	CodeAccountErasureParticipantFailed = "account_erasure_participant_failed"
 )
 
 // deleteConfirmation is the one body DELETE /api/account accepts. The field is
@@ -162,6 +171,12 @@ func (h *AccountHandler) Delete(c echo.Context) error {
 		}
 		h.cfg.Logger.Error(ctx, "account delete: erasure did not finish",
 			"account_id", identity.ActiveAccountID, "error", err)
+		if errors.Is(err, application.ErrErasureParticipantFailed) {
+			return respondErrorCode(c, http.StatusInternalServerError,
+				"a step of the deletion that reaches outside this instance did not finish; "+
+					"nothing of the account has been removed here, the account is locked, and the deletion can be run again",
+				CodeAccountErasureParticipantFailed)
+		}
 		return respondErrorCode(c, http.StatusInternalServerError,
 			"the account's deletion did not finish; the account is locked and the deletion can be run again",
 			CodeAccountErasureUnfinished)

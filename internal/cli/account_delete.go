@@ -19,19 +19,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/wepala/weos/v3/application"
 	"github.com/wepala/weos/v3/application/presets"
+	"github.com/wepala/weos/v3/internal/config"
 
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
 )
 
 var (
-	accountDeleteConfirm      bool
-	accountDeleteSkipDrain    bool
-	accountDeleteDrainTimeout time.Duration
+	accountDeleteConfirm          bool
+	accountDeleteSkipDrain        bool
+	accountDeleteSkipParticipants bool
+	accountDeleteDrainTimeout     time.Duration
 )
 
 var accountDeleteCmd = &cobra.Command{
@@ -45,6 +48,19 @@ to no other account go with it. This is a hard delete and cannot be undone.
 It runs the same service the app's delete button runs, so an operator can
 finish a deletion the person can no longer reach: a deletion that failed
 part-way leaves the account locked, and running this command finishes it.
+
+If this binary registers steps of its own inside a deletion — unlinking the
+account from something outside this instance, such as a payment provider or an
+identity provider — this command runs them too, and names them before it
+starts. A deletion finished here is the same deletion the app runs.
+
+A step that fails leaves the account locked and deactivated, and running the
+command again runs that step again. For a step that can never succeed — the
+provider account is closed, the link is already gone at the other end and the
+step calls that an error — --skip-participants erases without it. Whatever the
+account was linked to elsewhere then stays linked, with the rows that named it
+gone, so use it only when you know the link is already gone or is being
+cleaned up another way.
 
 The command refuses to run without --confirm, and it opens the store directly,
 so it needs no running server. A server that is running keeps serving; the
@@ -69,6 +85,8 @@ func init() {
 		"how long to wait for background projections to catch up before purging (default from config)")
 	accountDeleteCmd.Flags().BoolVar(&accountDeleteSkipDrain, "skip-drain", false,
 		"purge without waiting for background projections; for a checkpoint row that will never move")
+	accountDeleteCmd.Flags().BoolVar(&accountDeleteSkipParticipants, "skip-participants", false,
+		"erase without running this binary's registered steps; for a step that can never succeed")
 	accountCmd.AddCommand(accountDeleteCmd)
 }
 
@@ -92,12 +110,10 @@ func runAccountDelete(cmd *cobra.Command, args []string) error {
 		appCfg.Worker.ErasureDrainTimeout = accountDeleteDrainTimeout
 	}
 
-	var erasure *application.AccountErasureService
-	app := fx.New(
-		fx.NopLogger,
-		application.Module(appCfg, presets.NewDefaultRegistry()),
-		fx.Populate(&erasure),
-	)
+	erasure, app, err := buildErasure(appCfg)
+	if err != nil {
+		return err
+	}
 	startCtx, startCancel := context.WithTimeout(cmd.Context(), 2*time.Minute)
 	defer startCancel()
 	if err := app.Start(startCtx); err != nil {
@@ -110,10 +126,24 @@ func runAccountDelete(cmd *cobra.Command, args []string) error {
 		_ = app.Stop(stopCtx)
 	}()
 
+	// Said out loud before anything is removed: an instance whose binary
+	// registered its steps into a graph this command does not carry reads as
+	// "none" here, rather than erasing silently without them.
+	if accountDeleteSkipParticipants {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(),
+			"Skipping this binary's registered steps on your say-so: whatever the account was linked to elsewhere stays linked\n")
+	} else if names := erasure.ParticipantNames(); len(names) > 0 {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Running %d registered step(s) first: %s\n",
+			len(names), strings.Join(names, ", "))
+	} else {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "No registered steps to run first; erasing what is on this instance only\n")
+	}
+
 	result, err := erasure.Erase(cmd.Context(), application.EraseAccountCommand{
-		AccountID:   accountID,
-		RequestedBy: "operator",
-		SkipDrain:   accountDeleteSkipDrain,
+		AccountID:        accountID,
+		RequestedBy:      "operator",
+		SkipDrain:        accountDeleteSkipDrain,
+		SkipParticipants: accountDeleteSkipParticipants,
 	})
 	if err != nil {
 		if errors.Is(err, application.ErrAccountNotFound) {
@@ -127,10 +157,35 @@ func runAccountDelete(cmd *cobra.Command, args []string) error {
 				"once the background projections have caught up, pass --drain-timeout to wait longer, "+
 				"or pass --skip-drain if the named checkpoint belongs to a projection nothing runs any more", accountID, err)
 		}
+		if errors.Is(err, application.ErrErasureParticipantFailed) {
+			return fmt.Errorf("account %s is locked but not erased: %v — run this command again to run that step again, "+
+				"or, if it can never succeed, pass --skip-participants --confirm to erase without it "+
+				"(whatever the account was linked to elsewhere then stays linked)", accountID, err)
+		}
 		return fmt.Errorf("account %s is locked but not erased: %v — run this command again to finish", accountID, err)
 	}
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(),
 		"Erased account %s: %d member(s) lost it, %d resource(s) and %d event(s) removed\n",
 		result.AccountID, result.MembersLost, result.Resources, result.Events)
 	return nil
+}
+
+// buildErasure builds the graph this command erases from: the application
+// module, plus the options a downstream binary registered for every graph
+// that can erase an account. Those options are what carry the binary's own
+// erasure participants here — without them the command would erase with an
+// empty participant group, which is indistinguishable from an instance that
+// legitimately registered none.
+func buildErasure(appCfg config.Config) (*application.AccountErasureService, *fx.App, error) {
+	var erasure *application.AccountErasureService
+	opts := []fx.Option{
+		fx.NopLogger,
+		application.Module(appCfg, presets.NewDefaultRegistry()),
+	}
+	opts = append(opts, customErasureFxOptions...)
+	app := fx.New(append(opts, fx.Populate(&erasure))...)
+	if err := app.Err(); err != nil {
+		return nil, nil, fmt.Errorf("could not build the erasure: %w", err)
+	}
+	return erasure, app, nil
 }
