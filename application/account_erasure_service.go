@@ -137,8 +137,11 @@ type AccountErasureService struct {
 	// timeout bounds the whole erasure. The run is detached from the
 	// caller's context, so this is the only deadline it has.
 	timeout time.Duration
-	roles   AccountRoleRevoker
-	logger  entities.Logger
+	// participantTimeout bounds one participant's step, inside the erasure's
+	// own budget.
+	participantTimeout time.Duration
+	roles              AccountRoleRevoker
+	logger             entities.Logger
 	// participants are the embedding service's own steps, run in this order
 	// before anything of the account's is removed.
 	participants []AccountErasureParticipant
@@ -160,6 +163,10 @@ type AccountErasureDeps struct {
 	DrainTimeout  time.Duration
 	StaleAfter    time.Duration
 	Timeout       time.Duration
+	// ParticipantTimeout bounds one participant's step within Timeout. It
+	// keeps a step that hangs on an external API from spending the whole
+	// erasure's budget. Default 2m.
+	ParticipantTimeout time.Duration
 	// Roles is optional: a process with no enforcer has no copy to revoke
 	// from.
 	Roles  AccountRoleRevoker
@@ -200,19 +207,20 @@ func ProvideAccountErasureService(p AccountErasureParams) *AccountErasureService
 		Roles: roles,
 		// The container shuffles a value group, so the run order is fixed
 		// here by name rather than left to Fx (AsAccountErasureParticipant).
-		Participants:  sortParticipantsByName(p.Participants),
-		Accounts:      p.Accounts,
-		Locks:         p.Locks,
-		Purger:        p.Purger,
-		Files:         p.Files,
-		Graphs:        p.Graphs,
-		EventStore:    p.EventStore,
-		Checkpoints:   p.Checkpoints,
-		RunningGroups: p.RunningGroups,
-		DrainTimeout:  p.Config.Worker.ErasureDrainTimeout,
-		StaleAfter:    p.Config.Worker.ErasureDrainStaleAfter,
-		Timeout:       p.Config.Worker.ErasureTimeout,
-		Logger:        p.Logger,
+		Participants:       sortParticipantsByName(p.Participants),
+		Accounts:           p.Accounts,
+		Locks:              p.Locks,
+		Purger:             p.Purger,
+		Files:              p.Files,
+		Graphs:             p.Graphs,
+		EventStore:         p.EventStore,
+		Checkpoints:        p.Checkpoints,
+		RunningGroups:      p.RunningGroups,
+		DrainTimeout:       p.Config.Worker.ErasureDrainTimeout,
+		StaleAfter:         p.Config.Worker.ErasureDrainStaleAfter,
+		Timeout:            p.Config.Worker.ErasureTimeout,
+		ParticipantTimeout: p.Config.Worker.ErasureParticipantTimeout,
+		Logger:             p.Logger,
 	})
 }
 
@@ -230,24 +238,28 @@ func NewAccountErasureService(d AccountErasureDeps) *AccountErasureService {
 	if d.Timeout <= 0 {
 		d.Timeout = 15 * time.Minute
 	}
+	if d.ParticipantTimeout <= 0 {
+		d.ParticipantTimeout = 2 * time.Minute
+	}
 	return &AccountErasureService{
-		accounts:     d.Accounts,
-		locks:        d.Locks,
-		purger:       d.Purger,
-		files:        d.Files,
-		graphs:       d.Graphs,
-		eventStore:   d.EventStore,
-		checkpoints:  d.Checkpoints,
-		running:      d.RunningGroups,
-		drainTimeout: d.DrainTimeout,
-		staleAfter:   d.StaleAfter,
-		frozenGrace:  2 * time.Second,
-		drainPoll:    100 * time.Millisecond,
-		timeout:      d.Timeout,
-		roles:        d.Roles,
-		logger:       d.Logger,
-		participants: participantsOf(d.Participants),
-		inFlight:     map[string]bool{},
+		accounts:           d.Accounts,
+		locks:              d.Locks,
+		purger:             d.Purger,
+		files:              d.Files,
+		graphs:             d.Graphs,
+		eventStore:         d.EventStore,
+		checkpoints:        d.Checkpoints,
+		running:            d.RunningGroups,
+		drainTimeout:       d.DrainTimeout,
+		staleAfter:         d.StaleAfter,
+		frozenGrace:        2 * time.Second,
+		drainPoll:          100 * time.Millisecond,
+		timeout:            d.Timeout,
+		participantTimeout: d.ParticipantTimeout,
+		roles:              d.Roles,
+		logger:             d.Logger,
+		participants:       participantsOf(d.Participants),
+		inFlight:           map[string]bool{},
 	}
 }
 

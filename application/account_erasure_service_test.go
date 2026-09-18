@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 	"strings"
@@ -38,6 +39,13 @@ type erasureHarness struct {
 	// participants are the embedding service's steps, in the order the
 	// service is wired with them.
 	participants []AccountErasureParticipant
+	// timeout and participantTimeout are the service's own bounds when a
+	// test sets them; zero leaves the service's defaults.
+	timeout            time.Duration
+	participantTimeout time.Duration
+	// logger records what the run said, so a test can read the erasure
+	// log the way an operator watching a stuck deletion would.
+	logger *erasureLog
 }
 
 func (h *erasureHarness) setPosition(group string, position int64) {
@@ -201,6 +209,7 @@ func newErasureHarness(t *testing.T) *erasureHarness {
 		positions: map[string]int64{},
 		written:   map[string]time.Time{},
 		steps:     steps,
+		logger:    &erasureLog{},
 	}
 }
 
@@ -210,7 +219,8 @@ func (h *erasureHarness) service(drainTimeout time.Duration) *AccountErasureServ
 		Accounts: h.accounts, Locks: h.locks, Purger: h.purger, Files: h.files, Graphs: h.graphs,
 		EventStore: headOf{store, h.head}, Checkpoints: h.checkpoints,
 		RunningGroups: func() []string { return h.running },
-		DrainTimeout:  drainTimeout, StaleAfter: time.Minute, Logger: noopWorkerLogger{},
+		DrainTimeout:  drainTimeout, StaleAfter: time.Minute, Logger: h.logger,
+		Timeout: h.timeout, ParticipantTimeout: h.participantTimeout,
 		Participants: h.participants,
 	})
 	svc.drainPoll = 5 * time.Millisecond
@@ -969,5 +979,121 @@ func TestAccountErasure_APanickingParticipantFailsLikeOneThatReturnedAnError(t *
 	}
 	if locked, _ := h.locks.IsLocked(context.Background(), "acct-harbor"); !locked {
 		t.Error("the lock was released after a participant panicked")
+	}
+}
+
+// erasureLog keeps what the erasure said, so a test can read the log an
+// operator watching a deletion reads.
+type erasureLog struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (l *erasureLog) record(msg string, fields ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.lines = append(l.lines, fmt.Sprint(append([]any{msg, " "}, fields...)...))
+}
+
+func (l *erasureLog) Debug(_ context.Context, msg string, fields ...any) {
+	l.record(msg, fields...)
+}
+func (l *erasureLog) Info(_ context.Context, msg string, fields ...any) {
+	l.record(msg, fields...)
+}
+func (l *erasureLog) Warn(_ context.Context, msg string, fields ...any) {
+	l.record(msg, fields...)
+}
+func (l *erasureLog) Error(_ context.Context, msg string, fields ...any) {
+	l.record(msg, fields...)
+}
+
+// said reports whether one line holds every one of the words.
+func (l *erasureLog) said(words ...string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, line := range l.lines {
+		found := true
+		for _, word := range words {
+			if !strings.Contains(line, word) {
+				found = false
+				break
+			}
+		}
+		if found {
+			return true
+		}
+	}
+	return false
+}
+
+// hangingParticipant is the participant that wraps a third-party SDK whose
+// HTTP client has no timeout of its own: it returns when its context says
+// to, and not before.
+type hangingParticipant struct{ name string }
+
+func (p *hangingParticipant) Name() string { return p.name }
+
+func (p *hangingParticipant) BeforeAccountErased(ctx context.Context, _ ErasingAccount) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+// The budget belongs to the whole erasure, so the drain or the account load
+// can spend all of it before a participant is ever invoked. Reporting that
+// as "a participant step failed", naming the step that never ran, sends an
+// operator to debug a healthy client in the middle of an incident.
+func TestAccountErasure_ADeadlineSpentBeforeAStepRanIsNotReportedAsThatStepFailing(t *testing.T) {
+	h := newErasureHarness(t)
+	h.timeout = time.Nanosecond
+	participant := &recordingParticipant{name: "bank-links", steps: h.steps}
+	h.participants = []AccountErasureParticipant{participant}
+
+	_, err := h.service(time.Second).Erase(context.Background(),
+		EraseAccountCommand{AccountID: "acct-harbor", RequestedBy: "ops"})
+	if err == nil {
+		t.Fatal("Erase returned no error although the budget was spent")
+	}
+	if participant.ran != 0 {
+		t.Fatalf("the participant ran %d time(s) with no time left", participant.ran)
+	}
+	if errors.Is(err, ErrErasureParticipantFailed) {
+		t.Errorf("the failure blames a participant that never ran: %v", err)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("the failure does not report the deadline: %v", err)
+	}
+	if !strings.Contains(err.Error(), "bank-links") || !strings.Contains(err.Error(), "still to run") {
+		t.Errorf("the failure does not say which step was still to run: %v", err)
+	}
+}
+
+// One participant that hangs must not spend the erasure's whole budget: the
+// bucket walk and every step after it share that budget, and while it hangs
+// every retry is answered "a deletion is already running".
+func TestAccountErasure_AParticipantGetsItsOwnDeadlineWithinTheErasures(t *testing.T) {
+	h := newErasureHarness(t)
+	h.timeout = time.Minute
+	h.participantTimeout = 30 * time.Millisecond
+	after := &recordingParticipant{name: "zz-never-runs", steps: h.steps}
+	h.participants = []AccountErasureParticipant{&hangingParticipant{name: "bank-links"}, after}
+
+	started := time.Now()
+	_, err := h.service(time.Second).Erase(context.Background(),
+		EraseAccountCommand{AccountID: "acct-harbor", RequestedBy: "ops"})
+	if !errors.Is(err, ErrErasureParticipantFailed) {
+		t.Fatalf("Erase error = %v, want the step that ran out of time reported as a failed participant", err)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("the failure does not carry the deadline the step ran out of: %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 15*time.Second {
+		t.Errorf("the deletion waited %s on one step, want it bounded by the step's own deadline", elapsed)
+	}
+	if after.ran != 0 {
+		t.Error("a participant after the one that ran out of time ran")
+	}
+	if !h.logger.said("starting", "bank-links") {
+		t.Error("the log never said which step had started, so nobody watching a stuck deletion could name it")
 	}
 }

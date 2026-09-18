@@ -159,8 +159,15 @@ participant that runs both.
   the value group is empty and `runParticipants` is a no-op loop. The existing erasure
   tests are unchanged, which is the evidence for it.
 - A participant is inside the erasure's 15-minute deadline and shares it with the
-  bucket walk. A participant that blocks on a slow external API spends that budget; it
-  is handed the erasure's context and must honor it.
+  bucket walk, and each step is additionally bounded by
+  `ACCOUNT_ERASURE_PARTICIPANT_TIMEOUT_SECONDS` (default 2m) so one step that hangs on
+  an external API cannot spend the whole budget — while it hangs, every retry is
+  answered "a deletion is already running". A participant that ignores its context can
+  still hang; nothing can preempt it, so each step is logged as it starts and not only
+  when it finishes, which is what lets an operator name the one that is stuck.
+- A deadline that passes between two steps is reported as a deadline, naming the step
+  that spent the budget rather than the one that had not started. Blaming a step that
+  never ran sent an operator to debug a healthy client mid-incident.
 - A participant sees the account's data and is trusted with it. It is the embedding
   binary's own code, registered in its own graph — core neither validates nor sandboxes
   it.

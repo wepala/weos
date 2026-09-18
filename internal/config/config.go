@@ -344,6 +344,12 @@ type WorkerConfig struct {
 	// abort a deletion it asked for — so this is its only deadline. It has to
 	// cover a bucket walk of every file the account ever stored. Default 15m.
 	ErasureTimeout time.Duration
+	// ErasureParticipantTimeout bounds one erasure participant's step — a
+	// step an embedding service registered, which commonly calls an external
+	// API — within ErasureTimeout. One step that hangs must not spend the
+	// whole deletion's budget, because every retry is answered "a deletion is
+	// already running" until it does. Default 2m.
+	ErasureParticipantTimeout time.Duration
 }
 
 // IsPostgresDSN reports whether dsn targets PostgreSQL — a "host=" libpq DSN
@@ -587,16 +593,17 @@ func Default() Config {
 			MaxUploadBytes: 50 << 20, // 50 MB
 		},
 		Worker: WorkerConfig{
-			RunInProcess:           false,
-			BatchSize:              100,
-			PollInterval:           time.Second,
-			MaxRetries:             5,
-			RetryBackoff:           100 * time.Millisecond,
-			MaxRetryBackoff:        5 * time.Second,
-			LagLogInterval:         30 * time.Second,
-			ErasureDrainTimeout:    30 * time.Second,
-			ErasureDrainStaleAfter: 10 * time.Minute,
-			ErasureTimeout:         15 * time.Minute,
+			RunInProcess:              false,
+			BatchSize:                 100,
+			PollInterval:              time.Second,
+			MaxRetries:                5,
+			RetryBackoff:              100 * time.Millisecond,
+			MaxRetryBackoff:           5 * time.Second,
+			LagLogInterval:            30 * time.Second,
+			ErasureDrainTimeout:       30 * time.Second,
+			ErasureDrainStaleAfter:    10 * time.Minute,
+			ErasureTimeout:            15 * time.Minute,
+			ErasureParticipantTimeout: 2 * time.Minute,
 		},
 		Features: FeaturesConfig{
 			CacheMaxAge:   15 * time.Minute,
@@ -879,6 +886,11 @@ func (c *Config) loadWorkerFromEnvironment() {
 	if v := os.Getenv("ACCOUNT_ERASURE_TIMEOUT_SECONDS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			c.Worker.ErasureTimeout = time.Duration(n) * time.Second
+		}
+	}
+	if v := os.Getenv("ACCOUNT_ERASURE_PARTICIPANT_TIMEOUT_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.Worker.ErasureParticipantTimeout = time.Duration(n) * time.Second
 		}
 	}
 }

@@ -249,19 +249,39 @@ func (s *AccountErasureService) runParticipants(ctx context.Context, cmd EraseAc
 		Pass:        pass,
 		AccountGone: accountGone,
 	}
+	// finished is the last step that returned, so a budget that ran out is
+	// reported against what spent it rather than against the step that never
+	// started.
+	finished := ""
 	for _, participant := range s.participants {
 		name := participantName(participant)
 		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("%w: %s: %w", ErrErasureParticipantFailed, name, err)
+			return fmt.Errorf("account erasure: ran out of time %s, with the %s step still to run: %w",
+				spentBy(finished), name, err)
 		}
+		// Said before the step, not only after it: a deletion stuck on a
+		// participant answers every retry "already running", and this line is
+		// the only thing that names which step it is stuck on.
+		s.logger.Info(ctx, "account erasure: participant starting",
+			"account_id", cmd.AccountID, "participant", name, "pass", pass)
 		if err := s.callParticipant(ctx, participant, name, account); err != nil {
-			s.logger.Error(ctx, "account erasure: a participant failed; nothing of the account has been removed",
+			s.logger.Error(ctx, "account erasure: a participant failed; nothing of the account has been removed from this instance",
 				"account_id", cmd.AccountID, "participant", name, "error", err)
 			return fmt.Errorf("%w: %s: %w", ErrErasureParticipantFailed, name, err)
 		}
 		s.logger.Info(ctx, "account erasure: participant finished", "account_id", cmd.AccountID, "participant", name)
+		finished = name
 	}
 	return nil
+}
+
+// spentBy says what used the budget up, for a deadline that passed between
+// two steps.
+func spentBy(finished string) string {
+	if finished == "" {
+		return "before any participant ran"
+	}
+	return "after the " + finished + " step"
 }
 
 // callParticipant runs one participant's step and turns a panic into the
@@ -274,6 +294,14 @@ func (s *AccountErasureService) runParticipants(ctx context.Context, cmd EraseAc
 func (s *AccountErasureService) callParticipant(
 	ctx context.Context, participant AccountErasureParticipant, name string, account ErasingAccount,
 ) (err error) {
+	// Each step gets its own slice of the erasure's budget. A participant
+	// wraps code core does not control — commonly a third-party SDK whose
+	// HTTP client has no timeout of its own — and the whole budget is shared
+	// with the bucket walk and every step after it, so one hang must not
+	// spend all of it. A participant that ignores its context can still
+	// hang; nothing here can preempt it.
+	ctx, cancel := context.WithTimeout(ctx, s.participantTimeout)
+	defer cancel()
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			// The stack goes to the log because it no longer reaches the
