@@ -250,6 +250,11 @@ func NewAccountErasureService(d AccountErasureDeps) *AccountErasureService {
 	if d.ParticipantTimeout <= 0 {
 		d.ParticipantTimeout = 2 * time.Minute
 	}
+	if d.Logger == nil {
+		d.Logger = noopWorkerLogger{}
+	}
+	participants := participantsOf(d.Participants)
+	reportDuplicateNames(d.Logger, participants)
 	return &AccountErasureService{
 		accounts:           d.Accounts,
 		locks:              d.Locks,
@@ -267,7 +272,7 @@ func NewAccountErasureService(d AccountErasureDeps) *AccountErasureService {
 		participantTimeout: d.ParticipantTimeout,
 		roles:              d.Roles,
 		logger:             d.Logger,
-		participants:       participantsOf(d.Participants),
+		participants:       participants,
 		inFlight:           map[string]bool{},
 	}
 }

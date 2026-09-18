@@ -66,6 +66,14 @@ func (h *erasureHarness) setStalePosition(group string, position int64, age time
 func (h *erasureHarness) checkpoints(context.Context) ([]SubscriberCheckpoint, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	// The drain is a step like any other, and it is recorded here because
+	// this is the only port it touches. Without it, nothing pins the one
+	// thing the placement of the participants is argued from — that they run
+	// after the read model has caught up — and moving them above the drain
+	// would leave every test in this file green.
+	if last := len(*h.steps); last == 0 || (*h.steps)[last-1] != "drain" {
+		*h.steps = append(*h.steps, "drain")
+	}
 	out := make([]SubscriberCheckpoint, 0, len(h.positions))
 	for name, position := range h.positions {
 		updated, ok := h.written[name]
@@ -246,7 +254,7 @@ func TestAccountErasure_RunsTheSequenceLockDrainEnumerateStoresThenPurge(t *test
 	if err != nil {
 		t.Fatalf("Erase: %v", err)
 	}
-	want := []string{"lock", "deactivate", "enumerate", "files", "graph", "purge"}
+	want := []string{"lock", "deactivate", "drain", "enumerate", "files", "graph", "purge"}
 	if strings.Join(*h.steps, ",") != strings.Join(want, ",") {
 		t.Fatalf("steps = %v, want %v", *h.steps, want)
 	}
@@ -404,7 +412,7 @@ func TestAccountErasure_AFailedFileDeleteKeepsTheLockAndTheSQLState(t *testing.T
 	if _, err := h.service(time.Second).Erase(context.Background(), EraseAccountCommand{AccountID: "acct-harbor"}); err != nil {
 		t.Fatalf("re-run: %v", err)
 	}
-	want := []string{"lock", "enumerate", "files", "graph", "purge"}
+	want := []string{"lock", "drain", "enumerate", "files", "graph", "purge"}
 	if strings.Join(*h.steps, ",") != strings.Join(want, ",") {
 		t.Fatalf("re-run steps = %v, want %v (no second deactivation)", *h.steps, want)
 	}
@@ -493,7 +501,7 @@ func TestAccountErasure_RowsThatLandAfterThePurgeAreSweptAgain(t *testing.T) {
 	if result.Events != 14 {
 		t.Errorf("result counts %d events, want both sweeps' (14)", result.Events)
 	}
-	want := []string{"lock", "deactivate", "enumerate", "files", "graph", "purge", "enumerate", "files", "graph", "purge"}
+	want := []string{"lock", "deactivate", "drain", "enumerate", "files", "graph", "purge", "enumerate", "files", "graph", "purge"}
 	if strings.Join(*h.steps, ",") != strings.Join(want, ",") {
 		t.Fatalf("steps = %v, want %v", *h.steps, want)
 	}
@@ -520,7 +528,7 @@ func TestAccountErasure_OrphansOfAGoneAccountAreSweptWithoutALock(t *testing.T) 
 	if _, err := h.service(time.Second).Erase(context.Background(), EraseAccountCommand{AccountID: "acct-harbor"}); err != nil {
 		t.Fatalf("Erase of a gone account's orphans: %v", err)
 	}
-	want := []string{"enumerate", "files", "graph", "purge"}
+	want := []string{"drain", "enumerate", "files", "graph", "purge"}
 	if strings.Join(*h.steps, ",") != strings.Join(want, ",") {
 		t.Fatalf("steps = %v, want %v (no lock, no deactivation)", *h.steps, want)
 	}
@@ -618,7 +626,7 @@ func TestAccountErasure_ParticipantsRunBeforeAnythingIsRemoved(t *testing.T) {
 		EraseAccountCommand{AccountID: "acct-harbor", RequestedBy: "ops"}); err != nil {
 		t.Fatalf("Erase: %v", err)
 	}
-	want := []string{"lock", "deactivate", "participant:bank-links", "participant:identity-tokens",
+	want := []string{"lock", "deactivate", "drain", "participant:bank-links", "participant:identity-tokens",
 		"enumerate", "files", "graph", "purge"}
 	if strings.Join(*h.steps, ",") != strings.Join(want, ",") {
 		t.Fatalf("steps = %v, want %v", *h.steps, want)
@@ -700,7 +708,7 @@ func TestAccountErasure_NoParticipantsLeavesTheSequenceUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Erase with no participants: %v", err)
 	}
-	want := []string{"lock", "deactivate", "enumerate", "files", "graph", "purge"}
+	want := []string{"lock", "deactivate", "drain", "enumerate", "files", "graph", "purge"}
 	if strings.Join(*h.steps, ",") != strings.Join(want, ",") {
 		t.Fatalf("steps = %v, want %v", *h.steps, want)
 	}
@@ -901,7 +909,7 @@ func TestAccountErasure_ParticipantsRunAgainForRowsThatLandAfterThePurge(t *test
 		EraseAccountCommand{AccountID: "acct-harbor", RequestedBy: "ops"}); err != nil {
 		t.Fatalf("Erase: %v", err)
 	}
-	want := []string{"lock", "deactivate", "participant:bank-links", "enumerate", "files", "graph", "purge",
+	want := []string{"lock", "deactivate", "drain", "participant:bank-links", "enumerate", "files", "graph", "purge",
 		"participant:bank-links", "enumerate", "files", "graph", "purge"}
 	if strings.Join(*h.steps, ",") != strings.Join(want, ",") {
 		t.Fatalf("steps = %v, want %v", *h.steps, want)
@@ -1121,5 +1129,47 @@ func TestAccountErasure_SkippingTheParticipantsErasesWithoutThem(t *testing.T) {
 	}
 	if !h.logger.said("skipped", "operator") {
 		t.Error("skipping the steps was not written down; it is the operator's say-so and has to be in the log")
+	}
+}
+
+// A participant that names itself nothing is ordered by the name the failure
+// would call it — its type — rather than sorting as the empty string beside
+// every other unnamed one, where the container's shuffle decides and a
+// failed deletion reproduces in a different order than it ran.
+func TestAccountErasure_UnnamedParticipantsRunInTheOrderTheyAreNamedIn(t *testing.T) {
+	steps := &[]string{}
+	shuffled := []AccountErasureParticipant{
+		&recordingParticipant{steps: steps},
+		&hangingParticipant{},
+		&panickingParticipant{},
+	}
+	first := sortParticipantsByName(shuffled)
+	for round := 0; round < 3; round++ {
+		again := sortParticipantsByName([]AccountErasureParticipant{shuffled[2], shuffled[0], shuffled[1]})
+		for i := range first {
+			if participantName(again[i]) != participantName(first[i]) {
+				t.Fatalf("round %d ordered the unnamed participants %s, want %s",
+					round, participantName(again[i]), participantName(first[i]))
+			}
+		}
+	}
+	if participantName(first[0]) != "*application.hangingParticipant" {
+		t.Errorf("the order starts with %s, want the names the failures use, in order", participantName(first[0]))
+	}
+}
+
+// Two participants that answer the same Name() run in whichever order the
+// container shuffled them into, and a failure naming that name says nothing
+// about which of them it was. Nothing can fix that from here, so it is
+// reported where it is wired.
+func TestAccountErasure_TwoParticipantsWithOneNameAreReported(t *testing.T) {
+	h := newErasureHarness(t)
+	h.participants = []AccountErasureParticipant{
+		&recordingParticipant{name: "bank-links", steps: h.steps},
+		&recordingParticipant{name: "bank-links", steps: h.steps},
+	}
+	h.service(time.Second)
+	if !h.logger.said("bank-links", "same name") {
+		t.Error("two participants sharing a name was not reported when the service was built")
 	}
 }

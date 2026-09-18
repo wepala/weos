@@ -137,9 +137,12 @@ it will run before it starts, so an instance whose steps went to the wrong list 
 as "none registered" rather than erasing silently without them.
 
 **Order.** dig shuffles the members of a value group deliberately
-(`shuffledCopy`, dig v1.18), so the container path sorts participants by `Name` —
-stable across processes and restarts, which is what makes a failed deletion reproduce
-the same way twice. `AccountErasureDeps.Participants` runs in the order of the slice.
+(`shuffledCopy`, dig v1.18), so the container path sorts participants by the name a
+failure would call them — `Name()`, or the participant's type where it names itself
+nothing — which is stable across processes and restarts and is what makes a failed
+deletion reproduce the same way twice. Two participants that answer to the same name
+cannot be told apart from here, so they keep the shuffle's order and are reported when
+the service is built. `AccountErasureDeps.Participants` runs in the order of the slice.
 Participants are independent by design; a step that must follow another is one
 participant that runs both.
 

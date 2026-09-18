@@ -23,6 +23,7 @@ import (
 	"runtime/debug"
 	"sort"
 
+	"github.com/wepala/weos/v3/domain/entities"
 	"go.uber.org/fx"
 )
 
@@ -195,7 +196,11 @@ const (
 //
 // Order. Fx does not promise an order for the members of a value group — dig
 // deliberately shuffles them — so the container path runs participants
-// sorted by Name, which is stable across restarts. A participant must not
+// sorted by the name a failure would call them: Name(), or the participant's
+// type where it names itself nothing. That is stable across restarts for any
+// set of participants whose names differ; two that answer to the same name
+// are left in the shuffle's order and reported when the service is built,
+// because nothing here can tell them apart. A participant must not
 // depend on another participant having run; where an order really matters,
 // build the ordered sequence yourself and register it as one participant, or
 // wire the service with AccountErasureDeps.Participants, which runs in the
@@ -244,10 +249,41 @@ func mustReturnParticipants(constructor any) {
 // The container hands over a shuffled value group; the run order has to be
 // the same on every process that has the same participants, or a deletion
 // that failed reproduces differently from the one that failed.
+//
+// It sorts on the name the failure would use, not on Name() itself. A
+// participant that names itself nothing would otherwise sort as the empty
+// string beside every other unnamed one, leaving their order to the
+// container's shuffle while the failure named them apart by type — an order
+// in the message that the run never had.
 func sortParticipantsByName(participants []AccountErasureParticipant) []AccountErasureParticipant {
 	sorted := participantsOf(participants)
-	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Name() < sorted[j].Name() })
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return participantName(sorted[i]) < participantName(sorted[j])
+	})
 	return sorted
+}
+
+// reportDuplicateNames writes down participants that answer the same Name().
+// Two of them run in whichever order the container shuffled them into, and a
+// failure naming that name says nothing about which one it was. Nothing can
+// be fixed from here — both are the binary's own code — so it is reported
+// where the service is wired rather than left to be read off a log line that
+// names two steps at once.
+func reportDuplicateNames(logger entities.Logger, participants []AccountErasureParticipant) {
+	seen := map[string]bool{}
+	for _, participant := range participants {
+		name := participant.Name()
+		if name == "" {
+			continue
+		}
+		if seen[name] {
+			logger.Warn(context.Background(),
+				"account erasure: two participants answer to the same name; their order is not fixed and a failure cannot say which one it was",
+				"participant", name)
+			continue
+		}
+		seen[name] = true
+	}
 }
 
 // participantsOf keeps the order it is given and drops the nil entries a
