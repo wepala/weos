@@ -35,7 +35,7 @@ import (
 // It is not a rollback. A participant that ran before the failing one has
 // already done whatever it does outside this instance — a revoked token, a
 // dropped aggregator item — and nothing undoes that. An abort is a deletion
-// that stopped part-way, not a deletion that was cancelled, and a support
+// that stopped part-way, not a deletion that was canceled, and a support
 // tool that unlocks the account afterwards is restoring an account whose
 // external links are already gone.
 var ErrErasureParticipantFailed = errors.New("account erasure: a participant step failed")
@@ -48,7 +48,7 @@ var ErrErasureParticipantFailed = errors.New("account erasure: a participant ste
 type ErasingAccount struct {
 	// AccountID is the account being erased.
 	AccountID string
-	// RequestedBy is whoever asked for the deletion, as the caller labelled
+	// RequestedBy is whoever asked for the deletion, as the caller labeled
 	// them: the agent id of the person who asked through the API, and the
 	// word "operator" when the deletion was run from the command line. It is
 	// a label to log and to branch on at the caller's own risk, not an
