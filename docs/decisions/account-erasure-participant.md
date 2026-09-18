@@ -77,12 +77,25 @@ provider) annotates a constructor into it — the same shape as `AsSubscriberGro
 (`application/feature_registry.go`), which is core's established seam for out-of-tree
 contributions. `AccountErasureDeps.Participants` is the hand-wiring equivalent.
 
+The precedent does not transfer whole, and the difference is the one that bites: a
+value group is keyed by its element **type** as well as its name, and those two groups
+collect concrete types, whose constructors already return the group's element type.
+This one collects an interface. Tagging a constructor that returns `*BankLinkRemover`
+would file it under `*BankLinkRemover` — a group nothing collects — with no container
+error, no failed start, and a deletion that answers 200 with the external link
+stranded. `AsAccountErasureParticipant` therefore casts with `fx.As` before it tags.
+`AsAccountErasureParticipants` cannot cast a slice element by element, so it refuses a
+constructor that returns anything but `[]AccountErasureParticipant`, at registration.
+
 **Where it runs.** Inside `Erase`, after the lock and deactivation and after the
 drain, immediately before `sweep`. The lock is what stops anything new being linked
 while the step works; the drain is what makes the read model complete, so a
 participant that reads a projection sees a link made seconds before the deletion; and
 `sweep` is the first step that removes anything, so the account's data is whole in
-front of the participant. 
+front of the participant. Two paths qualify that: a deletion an operator ran with
+`--skip-drain` has not waited for the projections, and a sweep of an account whose row
+is already gone runs with no lock and with the data purged.
+
 **What the sweeps owe a participant.** The participants run before **every** sweep
 that removes rows, not only the first. `Erase` sweeps again for rows a request
 admitted just before the lock committed after the purge (wm-mnry2), and a row that
@@ -114,9 +127,8 @@ handler's "can be run again", a support tool that offers to unlock the account, 
 participant author deciding how early to do destructive work — has to read it that
 way. A participant should leave its destructive external work as late in its step as
 it will go. The account is left locked and inactive, and the handler answers 500
-`account_erasure_unfinished` as it does for any other failed step. Running the deletion
-again runs every participant again, so a participant is idempotent like every other
-step of the sequence.
+`account_erasure_participant_failed`. Running the deletion again runs every
+participant again.
 
 A participant that panics fails the same way: the panic is contained at the call,
 logged with its stack, and returned as `ErrErasureParticipantFailed` naming the step.
@@ -166,8 +178,9 @@ participant that runs both.
 ## Consequences
 
 - An instance that registers no participant runs exactly the sequence it ran before —
-  the value group is empty and `runParticipants` is a no-op loop. The existing erasure
-  tests are unchanged, which is the evidence for it.
+  the value group is empty and `runParticipants` is a no-op loop.
+  `TestAccountErasure_NoParticipantsLeavesTheSequenceUnchanged` asserts that sequence
+  step by step, drain included.
 - A participant is inside the erasure's 15-minute deadline and shares it with the
   bucket walk, and each step is additionally bounded by
   `ACCOUNT_ERASURE_PARTICIPANT_TIMEOUT_SECONDS` (default 2m) so one step that hangs on
@@ -209,5 +222,6 @@ participant that runs both.
 
 - [What Core Carries for WeHungry — the Food Types, a Folder per Account, and Erasure of an Account]({% link decisions/wehungry-food-types-uploads-and-account-erasure.md %}) — the erasure sequence this extends.
 - `application/account_erasure_participant.go` — the interface, the registration helpers, and the run.
-- `application/worker_providers.go` (`AsSubscriberGroup`), `application/feature_registry.go` (`AsFeatureDeclarations`) — the registration precedent.
+- `application/worker_providers.go` (`AsSubscriberGroup`), `application/feature_registry.go` (`AsFeatureDeclarations`) — the registration precedent, and the concrete-versus-interface difference described under Decision.
+- `internal/cli/serve.go` (`RegisterErasureFxOptions`), `internal/cli/account_delete.go` — the registration a participant uses, and the operator command that carries it.
 - `constitution.md`, Article II (dependencies point inward) and Article X (this record).
