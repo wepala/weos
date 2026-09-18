@@ -1097,3 +1097,29 @@ func TestAccountErasure_AParticipantGetsItsOwnDeadlineWithinTheErasures(t *testi
 		t.Error("the log never said which step had started, so nobody watching a stuck deletion could name it")
 	}
 }
+
+// A participant that fails permanently — a provider account that is closed,
+// a link already gone at the other end that the step reports as an error —
+// leaves the account locked and deactivated with every retry failing the
+// same way. The drain has --skip-drain for exactly that shape of problem;
+// the steps that call third parties are likelier to get stuck than the
+// drain, so they have one too.
+func TestAccountErasure_SkippingTheParticipantsErasesWithoutThem(t *testing.T) {
+	h := newErasureHarness(t)
+	refusing := &recordingParticipant{name: "bank-links", err: errors.New("the provider account is closed"), steps: h.steps}
+	h.participants = []AccountErasureParticipant{refusing}
+
+	if _, err := h.service(time.Second).Erase(context.Background(),
+		EraseAccountCommand{AccountID: "acct-harbor", RequestedBy: "operator", SkipParticipants: true}); err != nil {
+		t.Fatalf("Erase with the steps skipped: %v", err)
+	}
+	if refusing.ran != 0 {
+		t.Errorf("the participant ran %d time(s) although the operator skipped the steps", refusing.ran)
+	}
+	if !h.purger.purged {
+		t.Error("the account was not erased although the operator skipped the steps")
+	}
+	if !h.logger.said("skipped", "operator") {
+		t.Error("skipping the steps was not written down; it is the operator's say-so and has to be in the log")
+	}
+}

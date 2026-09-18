@@ -171,8 +171,19 @@ participant that runs both.
 - A participant sees the account's data and is trusted with it. It is the embedding
   binary's own code, registered in its own graph — core neither validates nor sandboxes
   it.
-- `ErrErasureParticipantFailed` is a new error the handler surfaces through the
-  existing `account_erasure_unfinished` path; no new API response shape.
+- `ErrErasureParticipantFailed` answers 500 with its own code,
+  `account_erasure_participant_failed`, beside the existing
+  `account_erasure_unfinished`. Same status and same shape; the code is what lets an
+  app tell "a third party refused" — worth trying again later — from "this instance
+  failed", which is not the person's to wait out. The step's name stays in the log,
+  not in the answer.
+- Every deletion now makes network calls to third parties after the account is locked
+  and deactivated, so the locked-but-not-erased state stops being rare. A participant
+  that can never succeed would leave the account unusable for good, so
+  `EraseAccountCommand.SkipParticipants` (`account delete --skip-participants
+  --confirm`, logged at Warn) is the operator's way out, matching `--skip-drain`. What
+  it costs is exactly what the seam exists to prevent, so it is a last resort: the
+  external link stays, with the rows that named it gone.
 - Two consumers follow: the bank-link removal recorded on bead `wm-ujhy5.4`, and the
   identity-token revocation recorded on bead `wm-hhi0t`. Both wait on a tag of this
   change.

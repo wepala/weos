@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -683,5 +684,34 @@ func TestPasswordAuthHandler_Login_SuspendedOrMemberStaysUnscoped(t *testing.T) 
 				t.Errorf("the sign-in offered the deletion: %s", rec.Body.String())
 			}
 		})
+	}
+}
+
+// A step that runs outside this instance failing is not the same as this
+// instance failing, and the app cannot act on the two the same way: one is
+// worth telling the person to try again in an hour, the other is not. The
+// code says which it was; the step's own name stays in the log.
+func TestAccountDelete_AFailedParticipantAnswersWithItsOwnCode(t *testing.T) {
+	f := newDeleteFixture(t)
+	f.erasure.result = nil
+	f.erasure.err = fmt.Errorf("%w: bank-links: the aggregator refused to unlink the item",
+		application.ErrErasureParticipantFailed)
+	rec := f.deleteAs("ops", "acct-harbor", `{"confirm":"DELETE"}`)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("got %d %s, want 500", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Error string `json:"error"`
+		Code  string `json:"code"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if body.Code != handlers.CodeAccountErasureParticipantFailed {
+		t.Errorf("code = %q, want %s", body.Code, handlers.CodeAccountErasureParticipantFailed)
+	}
+	if strings.Contains(body.Error, "bank-links") {
+		t.Errorf("the answer names an internal step to the caller: %q", body.Error)
+	}
+	if f.sessions.destroyed != 0 {
+		t.Error("the session was cleared even though the deletion did not finish; the re-run needs it")
 	}
 }

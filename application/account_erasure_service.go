@@ -83,6 +83,15 @@ type EraseAccountCommand struct {
 	// operator's override for a checkpoint that will never move, and the
 	// command line refuses it without --confirm; the app never sets it.
 	SkipDrain bool
+	// SkipParticipants erases without running the steps an embedding service
+	// registered. It is the operator's override for a step that can never
+	// succeed — a provider account that is closed, an endpoint that rejects
+	// the unlink for good — which would otherwise leave the account locked,
+	// deactivated and unusable with every retry failing the same way. What it
+	// costs is the thing the steps exist to prevent: whatever the account was
+	// linked to elsewhere stays linked, with the rows that named it gone. The
+	// command line refuses it without --confirm; the app never sets it.
+	SkipParticipants bool
 }
 
 // ErasureResult is what an erasure removed.
@@ -337,7 +346,7 @@ func (s *AccountErasureService) Erase(ctx context.Context, cmd EraseAccountComma
 	// The embedding service's own steps, last thing before anything goes:
 	// the account's data is whole and the read model has caught up, so a
 	// participant can still read whatever it needs, and a failure here
-	// leaves nothing removed.
+	// leaves nothing of the account's removed from this instance.
 	if err := s.runParticipants(ctx, cmd, 1, account == nil); err != nil {
 		return nil, err
 	}

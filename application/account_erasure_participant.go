@@ -103,8 +103,20 @@ type ErasingAccount struct {
 // participant's name and its error. Nothing of the account's has been
 // removed at that point, the account is left locked and inactive, and the
 // caller sees the failure rather than a 2xx. The deletion can be run again,
-// and it runs every participant again from the start: a participant must be
-// idempotent, like every other step of the sequence.
+// and it runs every participant again from the start.
+//
+// So the contract is stronger than "idempotent", and this is the part that
+// decides whether a deletion can ever finish: a participant must treat work
+// that is ALREADY DONE as success. Not-found, already-revoked,
+// already-unlinked, nothing-left-to-do — each of those is a step that has
+// nothing to do, not a step that failed. A re-run after a partial failure is
+// the normal path, not the edge case: the step that succeeded on the first
+// run is called again on the second, and if it reports "already revoked" as
+// an error the deletion fails at a step whose work is done, every time, and
+// the account stays locked, deactivated and unusable for good. An operator
+// can force that deletion through with EraseAccountCommand.SkipParticipants,
+// which erases without the steps and leaves whatever the account was linked
+// to elsewhere linked — a last resort, not the design.
 //
 // A participant that panics fails the same way. The panic is contained at
 // this boundary, logged with its stack — the only place it is written down,
@@ -243,6 +255,13 @@ func (s *AccountErasureService) ParticipantNames() []string {
 // the first one that fails. It is called from Erase before anything is
 // removed; see AccountErasureParticipant for what that guarantees.
 func (s *AccountErasureService) runParticipants(ctx context.Context, cmd EraseAccountCommand, pass int, accountGone bool) error {
+	if cmd.SkipParticipants {
+		if len(s.participants) > 0 {
+			s.logger.Warn(ctx, "account erasure: the registered steps were skipped on the operator's say-so; what the account was linked to elsewhere stays linked",
+				"account_id", cmd.AccountID, "requested_by", cmd.RequestedBy, "participants", s.ParticipantNames())
+		}
+		return nil
+	}
 	account := ErasingAccount{
 		AccountID:   cmd.AccountID,
 		RequestedBy: cmd.RequestedBy,
