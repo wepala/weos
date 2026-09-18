@@ -82,8 +82,27 @@ drain, immediately before `sweep`. The lock is what stops anything new being lin
 while the step works; the drain is what makes the read model complete, so a
 participant that reads a projection sees a link made seconds before the deletion; and
 `sweep` is the first step that removes anything, so the account's data is whole in
-front of the participant. A participant runs once per `Erase`, before the first sweep,
-not again for the orphan sweeps that follow it.
+front of the participant. 
+**What the sweeps owe a participant.** The participants run before **every** sweep
+that removes rows, not only the first. `Erase` sweeps again for rows a request
+admitted just before the lock committed after the purge (wm-mnry2), and a row that
+landed that way can name something outside this instance exactly as the first ones
+did — so removing it without asking the participants would strand the external link
+in precisely the race the lock exists to close. The rule is one invariant: no row
+naming the account is removed without the participants having been asked since it
+landed. `ErasingAccount.Pass` tells a participant which pass it is on.
+
+The same invariant settles the other sweep. When the account's own row is already
+gone — an earlier deletion finished and left rows behind — the participants still
+run, with no lock (there is no row to hang one off) and with most of the account's
+data already purged; `ErasingAccount.AccountGone` says so. The alternative, skipping
+them there, would remove those rows with nothing asked about what they name.
+
+The cost is that a participant can be asked two or three times in one deletion and
+may find nothing to work from, so the contract is stated the other way round from
+"idempotent": **work already done, and nothing left to do, are both success**. A
+participant that reports "already unlinked" or "no rows found" as an error wedges the
+deletion and the cleanup behind it.
 
 **What an error does.** The first participant to return an error stops the erasure with
 `ErrErasureParticipantFailed`, wrapping the participant's name and its error. Nothing

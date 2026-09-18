@@ -34,14 +34,29 @@ var ErrErasureParticipantFailed = errors.New("account erasure: a participant ste
 // ErasingAccount names the account a participant is being asked about, and
 // who asked for the deletion. Everything else the participant needs — the
 // account's members, its resources, its credentials — it reads through its
-// own repositories: the account's SQL rows, files and graph are all still
-// there when the participant runs.
+// own repositories: on the first pass the account's SQL rows, files and
+// graph are all still there when the participant runs.
 type ErasingAccount struct {
 	// AccountID is the account being erased.
 	AccountID string
-	// RequestedBy is the person who asked for the deletion. It is empty when
-	// an operator ran the deletion from the command line.
+	// RequestedBy is whoever asked for the deletion, as the caller labelled
+	// them: the agent id of the person who asked through the API, and the
+	// word "operator" when the deletion was run from the command line. It is
+	// a label to log and to branch on at the caller's own risk, not an
+	// identity this service checks.
 	RequestedBy string
+	// Pass is 1 the first time the participants run for this deletion, and
+	// 2 or more when they are being asked again about rows that landed after
+	// the purge (a request admitted just before the lock can commit after
+	// it). Past the first pass most of the account's data is gone; the rows
+	// that are left are what the sweep is about to remove.
+	Pass int
+	// AccountGone reports that the account's own row was already removed
+	// when this deletion started — a sweep of what an earlier, finished
+	// deletion left behind. The participant is still asked, because those
+	// rows can name something outside this instance, but it may find nothing
+	// of the account's left to read. Finding nothing is success.
+	AccountGone bool
 }
 
 // AccountErasureParticipant is a step an embedding service runs inside an
@@ -56,9 +71,27 @@ type ErasingAccount struct {
 // AccountErasureService.Erase, after the account is locked and deactivated
 // and after the background projections have drained, and before the first
 // step that removes anything — the enumeration, the file folder, the graph
-// and the SQL purge all follow it. So a participant sees the account's data
-// whole, and it sees a read model that has caught up with every event the
-// account committed.
+// and the SQL purge all follow it. So on that first pass a participant sees
+// the account's data whole, and it sees a read model that has caught up with
+// every event the account committed.
+//
+// It can be asked more than once in one deletion. The lock stops new
+// requests, not requests already admitted, so a request that was let in a
+// moment before the lock can commit rows after the purge; those rows are
+// swept again, and the participants run again before each of those sweeps,
+// because a row that landed that way can name something outside this
+// instance too. ErasingAccount.Pass says which pass this is. Past the first
+// one most of the account's data is already gone.
+//
+// Two things the first pass does not always promise. A deletion an operator
+// ran with --skip-drain has not waited for the background projections, so a
+// participant that reads a projection may be reading a stale one. And a
+// deletion whose account row was already gone — a sweep of what an earlier
+// deletion left behind — takes no lock and runs with the account's data
+// already purged; ErasingAccount.AccountGone says so. In both cases the
+// participant may find nothing of the account's to work from. Finding
+// nothing is success, not a failure to report: a participant that errors
+// there wedges the cleanup of those rows for good.
 //
 // It runs synchronously. Erase returns only once every participant has
 // returned, and the HTTP handler answers 200 only once Erase has returned —
@@ -202,8 +235,13 @@ func (s *AccountErasureService) ParticipantNames() []string {
 // runParticipants runs every registered participant, in order, and stops at
 // the first one that fails. It is called from Erase before anything is
 // removed; see AccountErasureParticipant for what that guarantees.
-func (s *AccountErasureService) runParticipants(ctx context.Context, cmd EraseAccountCommand) error {
-	account := ErasingAccount{AccountID: cmd.AccountID, RequestedBy: cmd.RequestedBy}
+func (s *AccountErasureService) runParticipants(ctx context.Context, cmd EraseAccountCommand, pass int, accountGone bool) error {
+	account := ErasingAccount{
+		AccountID:   cmd.AccountID,
+		RequestedBy: cmd.RequestedBy,
+		Pass:        pass,
+		AccountGone: accountGone,
+	}
 	for _, participant := range s.participants {
 		name := participantName(participant)
 		if err := ctx.Err(); err != nil {

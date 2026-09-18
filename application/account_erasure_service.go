@@ -326,7 +326,7 @@ func (s *AccountErasureService) Erase(ctx context.Context, cmd EraseAccountComma
 	// the account's data is whole and the read model has caught up, so a
 	// participant can still read whatever it needs, and a failure here
 	// leaves nothing removed.
-	if err := s.runParticipants(ctx, cmd); err != nil {
+	if err := s.runParticipants(ctx, cmd, 1, account == nil); err != nil {
 		return nil, err
 	}
 
@@ -339,7 +339,10 @@ func (s *AccountErasureService) Erase(ctx context.Context, cmd EraseAccountComma
 	// admitted a moment before it can commit after the head was read, even
 	// after the purge's transaction. What it left is swept again, up to a
 	// bound, so the deletion does not strand rows it can no longer reach
-	// through the account row (wm-mnry2).
+	// through the account row (wm-mnry2). The participants run again before
+	// each of those sweeps: a row that landed that way can name something
+	// outside this instance too, and removing it without asking them is the
+	// stranded link the whole seam exists to prevent.
 	for pass := 1; ; pass++ {
 		left, err := s.purger.Remains(ctx, cmd.AccountID)
 		if err != nil {
@@ -353,6 +356,9 @@ func (s *AccountErasureService) Erase(ctx context.Context, cmd EraseAccountComma
 				cmd.AccountID, orphanSweeps)
 		}
 		s.logger.Warn(ctx, "account erasure: rows landed after the purge; sweeping again", "account_id", cmd.AccountID, "pass", pass)
+		if err := s.runParticipants(ctx, cmd, pass+1, account == nil); err != nil {
+			return nil, err
+		}
 		again, err := s.sweep(ctx, cmd.AccountID)
 		if err != nil {
 			return nil, err

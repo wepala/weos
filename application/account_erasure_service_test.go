@@ -568,8 +568,11 @@ type recordingParticipant struct {
 	name  string
 	err   error
 	steps *[]string
-	// seen is what the participant was told about the account.
+	// seen is what the participant was told about the account, the last
+	// time it was asked; saw is every time, in order, because a deletion
+	// can ask more than once.
 	seen ErasingAccount
+	saw  []ErasingAccount
 	// deadline is whether the context it was handed had one, and whether it
 	// was still live. A participant is the last thing to run before anything
 	// is removed, so both matter.
@@ -583,6 +586,7 @@ func (p *recordingParticipant) Name() string { return p.name }
 func (p *recordingParticipant) BeforeAccountErased(ctx context.Context, account ErasingAccount) error {
 	*p.steps = append(*p.steps, "participant:"+p.name)
 	p.seen = account
+	p.saw = append(p.saw, account)
 	_, p.hadDeadline = ctx.Deadline()
 	p.wasLive = ctx.Err() == nil
 	p.ran++
@@ -611,6 +615,10 @@ func TestAccountErasure_ParticipantsRunBeforeAnythingIsRemoved(t *testing.T) {
 	}
 	if first.seen.AccountID != "acct-harbor" || first.seen.RequestedBy != "ops" {
 		t.Errorf("the participant was told %+v, want the account and who asked", first.seen)
+	}
+	if first.seen.Pass != 1 || first.seen.AccountGone {
+		t.Errorf("the participant was told pass=%d gone=%v, want the first pass over an account whose data is whole",
+			first.seen.Pass, first.seen.AccountGone)
 	}
 	if !first.hadDeadline || !first.wasLive {
 		t.Errorf("the participant's context had deadline=%v live=%v, want the erasure's own live deadline",
@@ -865,5 +873,58 @@ func TestAccountErasure_BothHelpersTagTheGroupTheCollectorReads(t *testing.T) {
 	flattened := strings.TrimSuffix(strings.TrimPrefix(accountErasureParticipantsTag, `group:"`), `"`)
 	if want := accountErasureParticipantGroup + ",flatten"; flattened != want {
 		t.Errorf("the flattening tag names group %q, want %q — a participant registered with it would never run", flattened, want)
+	}
+}
+
+// wm-mnry2 left a hole this closes: a request admitted just before the lock
+// can commit after the purge, and what it left is swept again. A row that
+// landed that way can name something outside this instance, so the sweep
+// that removes it asks the participants first — otherwise the one race the
+// lock exists to close is the one that strands an external link.
+func TestAccountErasure_ParticipantsRunAgainForRowsThatLandAfterThePurge(t *testing.T) {
+	h := newErasureHarness(t)
+	h.purger.remains = []bool{true, false}
+	participant := &recordingParticipant{name: "bank-links", steps: h.steps}
+	h.participants = []AccountErasureParticipant{participant}
+
+	if _, err := h.service(time.Second).Erase(context.Background(),
+		EraseAccountCommand{AccountID: "acct-harbor", RequestedBy: "ops"}); err != nil {
+		t.Fatalf("Erase: %v", err)
+	}
+	want := []string{"lock", "deactivate", "participant:bank-links", "enumerate", "files", "graph", "purge",
+		"participant:bank-links", "enumerate", "files", "graph", "purge"}
+	if strings.Join(*h.steps, ",") != strings.Join(want, ",") {
+		t.Fatalf("steps = %v, want %v", *h.steps, want)
+	}
+	if participant.ran != 2 {
+		t.Fatalf("the participant ran %d time(s), want one per sweep", participant.ran)
+	}
+	if participant.saw[1].Pass != 2 {
+		t.Errorf("the second run was told pass=%d, want 2 so a participant can tell a sweep from the first pass",
+			participant.saw[1].Pass)
+	}
+}
+
+// The other sweep: the account's own row is already gone, so the data a
+// participant would read went with the run that removed it. The step still
+// runs, because the rows left behind can name something outside this
+// instance — and it is told the account is gone, so finding nothing to work
+// from is not a failure it reports.
+func TestAccountErasure_ASweepOfAGoneAccountTellsTheParticipantTheDataIsGone(t *testing.T) {
+	h := newErasureHarness(t)
+	h.accounts.account = nil
+	h.purger.remains = []bool{true, false}
+	participant := &recordingParticipant{name: "bank-links", steps: h.steps}
+	h.participants = []AccountErasureParticipant{participant}
+
+	if _, err := h.service(time.Second).Erase(context.Background(),
+		EraseAccountCommand{AccountID: "acct-harbor", RequestedBy: "operator"}); err != nil {
+		t.Fatalf("Erase of a gone account's orphans: %v", err)
+	}
+	if participant.ran == 0 {
+		t.Fatal("no participant ran for the rows the sweep removed")
+	}
+	if !participant.saw[0].AccountGone {
+		t.Errorf("the participant was told %+v, want the account reported as already gone", participant.saw[0])
 	}
 }
