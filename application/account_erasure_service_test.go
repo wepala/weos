@@ -16,6 +16,7 @@ import (
 	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
 	esinfra "github.com/akeemphilbert/pericarp/pkg/eventsourcing/infrastructure"
+	"go.uber.org/fx"
 )
 
 // erasureHarness records what each port saw, in order, so a test can say not
@@ -737,5 +738,132 @@ func TestAccountErasure_TheParticipantGroupTagMatchesTheCollector(t *testing.T) 
 	want := strings.TrimSuffix(strings.TrimPrefix(accountErasureParticipantTag, `group:"`), `"`)
 	if got := field.Tag.Get("group"); got != want {
 		t.Fatalf("the params collect group %q, want %q — a participant registered with AsAccountErasureParticipant would never run", got, want)
+	}
+}
+
+// bankLinkRemover is what an embedding service's participant actually looks
+// like: a struct whose constructor returns the struct, not the interface.
+// That shape is the one the registration helper has to carry into the value
+// group, because Fx tags a constructor's declared result type.
+type bankLinkRemover struct {
+	steps *[]string
+	ran   int
+}
+
+func (p *bankLinkRemover) Name() string { return "bank-links" }
+
+func (p *bankLinkRemover) BeforeAccountErased(context.Context, ErasingAccount) error {
+	*p.steps = append(*p.steps, "participant:bank-links")
+	p.ran++
+	return nil
+}
+
+// A constructor that returns its own concrete type — the shape both known
+// consumers write, and the shape the helper's own godoc shows — has to reach
+// the group the service collects and run. Tagging alone does not do it: the
+// group is keyed by the declared result type, so the step would join a group
+// of *bankLinkRemover that nothing reads, with no container error and a
+// deletion that answers 200 with the external link stranded.
+func TestAccountErasure_AParticipantRegisteredByItsOwnTypeRuns(t *testing.T) {
+	h := newErasureHarness(t)
+	h.head = 10
+	h.positions = map[string]int64{"oxigraph": 10}
+	remover := &bankLinkRemover{steps: h.steps}
+
+	var collected []AccountErasureParticipant
+	app := fx.New(
+		fx.NopLogger,
+		fx.Provide(AsAccountErasureParticipant(func() *bankLinkRemover { return remover })),
+		fx.Invoke(fx.Annotate(func(participants []AccountErasureParticipant) { collected = participants },
+			fx.ParamTags(accountErasureParticipantTag))),
+	)
+	if err := app.Err(); err != nil {
+		t.Fatalf("the container refused the registration: %v", err)
+	}
+	if len(collected) != 1 {
+		t.Fatalf("the container collected %d participants, want 1 — a constructor that returns its own type never joined the group", len(collected))
+	}
+
+	h.participants = sortParticipantsByName(collected)
+	if _, err := h.service(time.Second).Erase(context.Background(),
+		EraseAccountCommand{AccountID: "acct-harbor", RequestedBy: "ops"}); err != nil {
+		t.Fatalf("Erase: %v", err)
+	}
+	if remover.ran != 1 {
+		t.Fatalf("the participant ran %d times, want once", remover.ran)
+	}
+}
+
+// A constructor that already returns the interface keeps working: the
+// annotation casts what is assignable and leaves the rest alone.
+func TestAccountErasure_AParticipantRegisteredByTheInterfaceRuns(t *testing.T) {
+	steps := &[]string{}
+	var collected []AccountErasureParticipant
+	app := fx.New(
+		fx.NopLogger,
+		fx.Provide(AsAccountErasureParticipant(func() AccountErasureParticipant {
+			return &recordingParticipant{name: "identity-tokens", steps: steps}
+		})),
+		fx.Invoke(fx.Annotate(func(participants []AccountErasureParticipant) { collected = participants },
+			fx.ParamTags(accountErasureParticipantTag))),
+	)
+	if err := app.Err(); err != nil {
+		t.Fatalf("the container refused the registration: %v", err)
+	}
+	if len(collected) != 1 || collected[0].Name() != "identity-tokens" {
+		t.Fatalf("the container collected %v, want the one participant the constructor returned", collected)
+	}
+}
+
+// The flattening helper carries a whole slice into the group, and the
+// elements have to be the interface for the same reason.
+func TestAccountErasure_AFlattenedSliceOfParticipantsRuns(t *testing.T) {
+	steps := &[]string{}
+	var collected []AccountErasureParticipant
+	app := fx.New(
+		fx.NopLogger,
+		fx.Provide(AsAccountErasureParticipants(func() []AccountErasureParticipant {
+			return []AccountErasureParticipant{
+				&recordingParticipant{name: "bank-links", steps: steps},
+				&recordingParticipant{name: "identity-tokens", steps: steps},
+			}
+		})),
+		fx.Invoke(fx.Annotate(func(participants []AccountErasureParticipant) { collected = participants },
+			fx.ParamTags(accountErasureParticipantTag))),
+	)
+	if err := app.Err(); err != nil {
+		t.Fatalf("the container refused the registration: %v", err)
+	}
+	if len(collected) != 2 {
+		t.Fatalf("the container collected %d participants, want the 2 the slice held", len(collected))
+	}
+}
+
+// A flattening constructor that returns a slice of its own concrete type
+// cannot be cast element by element, so it is refused where the mistake is
+// made rather than accepted into a group nothing collects.
+func TestAccountErasure_AFlattenedSliceOfConcreteTypesIsRefused(t *testing.T) {
+	defer func() {
+		refusal, ok := recover().(string)
+		if !ok {
+			t.Fatal("a constructor returning a slice of its own type was accepted; it would join a group nothing collects")
+		}
+		if !strings.Contains(refusal, "[]application.AccountErasureParticipant") {
+			t.Errorf("the refusal does not say what the constructor must return: %s", refusal)
+		}
+	}()
+	AsAccountErasureParticipants(func() []*bankLinkRemover { return nil })
+}
+
+// Both helpers and the collector have to name one group. The flatten helper
+// writing its own copy of the name is the drift this catches.
+func TestAccountErasure_BothHelpersTagTheGroupTheCollectorReads(t *testing.T) {
+	group := strings.TrimSuffix(strings.TrimPrefix(accountErasureParticipantTag, `group:"`), `"`)
+	if want := accountErasureParticipantGroup; group != want {
+		t.Errorf("the participant tag names group %q, want %q", group, want)
+	}
+	flattened := strings.TrimSuffix(strings.TrimPrefix(accountErasureParticipantsTag, `group:"`), `"`)
+	if want := accountErasureParticipantGroup + ",flatten"; flattened != want {
+		t.Errorf("the flattening tag names group %q, want %q — a participant registered with it would never run", flattened, want)
 	}
 }

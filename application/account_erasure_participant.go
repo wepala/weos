@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 
 	"go.uber.org/fx"
@@ -84,20 +85,38 @@ type AccountErasureParticipant interface {
 	BeforeAccountErased(ctx context.Context, account ErasingAccount) error
 }
 
-// accountErasureParticipantTag is the Fx value-group name through which a
-// downstream binary contributes participants. The erasure service collects
-// the whole group.
-const accountErasureParticipantTag = `group:"account_erasure_participants"`
+// accountErasureParticipantGroup is the Fx value group through which a
+// downstream binary contributes participants, and the tags both registration
+// helpers write are built from it. The erasure service collects the whole
+// group; a helper that spelled the name itself could drift from the
+// collector silently, and the step would simply never run.
+const (
+	accountErasureParticipantGroup = "account_erasure_participants"
+	accountErasureParticipantTag   = `group:"` + accountErasureParticipantGroup + `"`
+	accountErasureParticipantsTag  = `group:"` + accountErasureParticipantGroup + `,flatten"`
+)
 
 // AsAccountErasureParticipant tags a constructor so its result joins the
 // "account_erasure_participants" value group the erasure service collects.
 // It is the whole seam for out-of-tree erasure steps; nothing in core
 // imports anything to support it:
 //
-//	fx.Provide(application.AsAccountErasureParticipant(newBankLinkRemover))
+//	cli.RegisterErasureFxOptions(
+//		fx.Provide(application.AsAccountErasureParticipant(newBankLinkRemover)),
+//	)
 //
 // The constructor is an ordinary Fx provider, so a participant takes its own
-// dependencies from the container.
+// dependencies from the container. Register it with RegisterErasureFxOptions
+// rather than RegisterFxOptions: the second is merged into the server's
+// graph only, so a participant registered with it would not run when an
+// operator finishes a deletion with "account delete".
+//
+// The constructor may declare its own type as its result — newBankLinkRemover
+// returning *BankLinkRemover — which is how one is naturally written. The
+// annotation casts the result to AccountErasureParticipant before tagging it,
+// because a value group is keyed by the type as well as the name: a result
+// tagged as *BankLinkRemover would join a group of *BankLinkRemover that
+// nothing collects, and neither the container nor the deletion would say so.
 //
 // Order. Fx does not promise an order for the members of a value group — dig
 // deliberately shuffles them — so the container path runs participants
@@ -107,7 +126,9 @@ const accountErasureParticipantTag = `group:"account_erasure_participants"`
 // wire the service with AccountErasureDeps.Participants, which runs in the
 // order the slice gives.
 func AsAccountErasureParticipant(constructor any) any {
-	return fx.Annotate(constructor, fx.ResultTags(accountErasureParticipantTag))
+	return fx.Annotate(constructor,
+		fx.As(new(AccountErasureParticipant)),
+		fx.ResultTags(accountErasureParticipantTag))
 }
 
 // AsAccountErasureParticipants tags a constructor returning
@@ -116,9 +137,32 @@ func AsAccountErasureParticipant(constructor any) any {
 // depending on configuration — the bank-link remover of a deployment that
 // has no aggregator configured contributes none:
 //
-//	fx.Provide(application.AsAccountErasureParticipants(newExternalUnlinkers))
+//	cli.RegisterErasureFxOptions(
+//		fx.Provide(application.AsAccountErasureParticipants(newExternalUnlinkers)),
+//	)
+//
+// The constructor must return []AccountErasureParticipant exactly. A slice of
+// some other type cannot be cast element by element on the way into the
+// group, so this refuses it where the mistake is made — at registration, as
+// the binary wires itself — rather than letting it join a group nothing
+// collects and finding out when an external link is left behind.
 func AsAccountErasureParticipants(constructor any) any {
-	return fx.Annotate(constructor, fx.ResultTags(`group:"account_erasure_participants,flatten"`))
+	mustReturnParticipants(constructor)
+	return fx.Annotate(constructor, fx.ResultTags(accountErasureParticipantsTag))
+}
+
+// mustReturnParticipants refuses a flattening constructor whose first result
+// is not the interface slice the value group is keyed by.
+func mustReturnParticipants(constructor any) {
+	fn := reflect.TypeOf(constructor)
+	if fn == nil || fn.Kind() != reflect.Func || fn.NumOut() == 0 {
+		panic("application.AsAccountErasureParticipants: want a constructor function returning []application.AccountErasureParticipant")
+	}
+	if got := fn.Out(0); got != reflect.TypeOf([]AccountErasureParticipant(nil)) {
+		panic(fmt.Sprintf(
+			"application.AsAccountErasureParticipants: the constructor returns %s; it must return []application.AccountErasureParticipant, "+
+				"because a value group is keyed by its element type and a slice of anything else joins a group nothing collects", got))
+	}
 }
 
 // sortParticipantsByName copies the participants into a stable run order.
