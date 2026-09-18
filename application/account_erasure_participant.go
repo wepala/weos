@@ -187,6 +187,18 @@ func participantsOf(participants []AccountErasureParticipant) []AccountErasurePa
 	return kept
 }
 
+// ParticipantNames names the participants this service runs, in the order it
+// runs them. A command that is about to erase an account says them out loud,
+// so a binary whose participants were registered into a graph this command
+// does not carry reads as "none registered" rather than as silence.
+func (s *AccountErasureService) ParticipantNames() []string {
+	names := make([]string, 0, len(s.participants))
+	for _, participant := range s.participants {
+		names = append(names, participantName(participant))
+	}
+	return names
+}
+
 // runParticipants runs every registered participant, in order, and stops at
 // the first one that fails. It is called from Erase before anything is
 // removed; see AccountErasureParticipant for what that guarantees.

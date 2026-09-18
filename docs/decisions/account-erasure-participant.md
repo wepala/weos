@@ -92,6 +92,18 @@ has been removed, the account is left locked and inactive, and the handler answe
 again runs every participant again, so a participant is idempotent like every other
 step of the sequence.
 
+**Where a participant is registered.** `cli.RegisterErasureFxOptions`, not
+`cli.RegisterFxOptions`. The second is merged into the server's graph only, and
+`account delete` builds its own graph — so a participant registered there would run
+for a deletion asked for through the API and would be skipped when an operator
+finishes that same deletion from the command line, which is the documented remedy for
+a deletion that failed part-way. The two lists are kept apart rather than merged
+because `RegisterFxOptions` is also where a binary starts its background work —
+sweeps and pollers hung off `fx.Lifecycle` — and none of that belongs in a command
+that opens the store, erases one account and stops. `account delete` names the steps
+it will run before it starts, so an instance whose steps went to the wrong list reads
+as "none registered" rather than erasing silently without them.
+
 **Order.** dig shuffles the members of a value group deliberately
 (`shuffledCopy`, dig v1.18), so the container path sorts participants by `Name` —
 stable across processes and restarts, which is what makes a failed deletion reproduce

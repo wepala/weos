@@ -47,6 +47,20 @@ func RegisterFxOptions(opts ...fx.Option) {
 	internalcli.RegisterFxOptions(opts...)
 }
 
+// RegisterErasureFxOptions appends fx options merged into every graph that can
+// erase an account: the serve command's, and the one the "account delete"
+// command builds for itself. Use this from a downstream binary's main() to
+// register an application.AccountErasureParticipant and whatever it is built
+// from. Must be called before Execute().
+//
+// A participant registered with RegisterFxOptions runs for a deletion asked
+// for through the API and does not run when an operator finishes that same
+// deletion from the command line, which is where a deletion that failed
+// part-way is finished.
+func RegisterErasureFxOptions(opts ...fx.Option) {
+	internalcli.RegisterErasureFxOptions(opts...)
+}
+
 // RegisterEchoConfigurer registers a function that customizes the serve
 // command's *echo.Echo after core and preset routes are wired and before the
 // dynamic resource catch-all. Use this from a downstream binary's main() (or an
