@@ -277,8 +277,9 @@ func NewAccountErasureService(d AccountErasureDeps) *AccountErasureService {
 // ErrErasureDrainTimeout when a background group never caught up,
 // ErrErasureInProgress when this process is already erasing the account, and
 // ErrErasureParticipantFailed when a registered participant's step failed —
-// which it does before anything has been removed; any other error is a step
-// that failed with the account left locked.
+// which it does before anything of the account's has been removed from this
+// instance, though what a participant already did elsewhere stands; any
+// other error is a step that failed with the account left locked.
 //
 // It returns only once every registered participant has returned, so a
 // caller that answers 2xx on Erase answers it for the whole sequence,

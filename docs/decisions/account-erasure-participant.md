@@ -106,7 +106,14 @@ deletion and the cleanup behind it.
 
 **What an error does.** The first participant to return an error stops the erasure with
 `ErrErasureParticipantFailed`, wrapping the participant's name and its error. Nothing
-has been removed, the account is left locked and inactive, and the handler answers 500
+has been removed **from this instance** — and that is the whole of the promise: a
+participant that ran before the failing one has already revoked a token or dropped an
+aggregator item, and the abort does not undo it. An abort is a deletion that stopped
+part-way, not a cancelled deletion, so anything downstream of those words — the
+handler's "can be run again", a support tool that offers to unlock the account, a
+participant author deciding how early to do destructive work — has to read it that
+way. A participant should leave its destructive external work as late in its step as
+it will go. The account is left locked and inactive, and the handler answers 500
 `account_erasure_unfinished` as it does for any other failed step. Running the deletion
 again runs every participant again, so a participant is idempotent like every other
 step of the sequence.
@@ -168,6 +175,13 @@ participant that runs both.
 - A deadline that passes between two steps is reported as a deadline, naming the step
   that spent the budget rather than the one that had not started. Blaming a step that
   never ran sent an operator to debug a healthy client mid-incident.
+- Two processes can run the same account's participants at once. The in-flight guard
+  is per process and the durable lock is re-enterable by design (a re-run takes the
+  same lock), so a double-tap through a load balancer can reach two replicas. Core
+  does not close that, because closing it would mean a lease the erasure has to renew
+  and recover; the contract says instead that a participant must tolerate a
+  concurrent duplicate run, and hold its own lock where a provider refuses concurrent
+  modification.
 - A participant sees the account's data and is trusted with it. It is the embedding
   binary's own code, registered in its own graph — core neither validates nor sandboxes
   it.

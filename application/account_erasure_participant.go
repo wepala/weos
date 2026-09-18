@@ -27,9 +27,16 @@ import (
 )
 
 // ErrErasureParticipantFailed is returned when a participant's step failed.
-// The erasure stops there with nothing of the account's removed, and the
-// account is left locked, so running the deletion again runs every
-// participant again.
+// The erasure stops there with nothing of the account's removed from this
+// instance, and the account is left locked, so running the deletion again
+// runs every participant again.
+//
+// It is not a rollback. A participant that ran before the failing one has
+// already done whatever it does outside this instance — a revoked token, a
+// dropped aggregator item — and nothing undoes that. An abort is a deletion
+// that stopped part-way, not a deletion that was cancelled, and a support
+// tool that unlocks the account afterwards is restoring an account whose
+// external links are already gone.
 var ErrErasureParticipantFailed = errors.New("account erasure: a participant step failed")
 
 // ErasingAccount names the account a participant is being asked about, and
@@ -101,7 +108,9 @@ type ErasingAccount struct {
 // What an error does. The erasure stops at the first participant that
 // returns one and answers ErrErasureParticipantFailed, wrapping both the
 // participant's name and its error. Nothing of the account's has been
-// removed at that point, the account is left locked and inactive, and the
+// removed FROM THIS INSTANCE at that point — what a participant before it
+// did elsewhere has happened and is not undone — the account is left locked
+// and inactive, and the
 // caller sees the failure rather than a 2xx. The deletion can be run again,
 // and it runs every participant again from the start.
 //
@@ -124,9 +133,23 @@ type ErasingAccount struct {
 // ErrErasureParticipantFailed naming the step, so the caller gets an answer
 // rather than a dropped connection.
 //
-// The context carries the erasure's own deadline and is detached from the
-// request, so a caller that hangs up does not cancel the step. A participant
-// must honor it — it is the only bound on the run.
+// The context carries the erasure's own deadline, narrowed to this step's
+// share of it, and is detached from the request, so a caller that hangs up
+// does not cancel the step. A participant must honor it — nothing here can
+// preempt a step that does not.
+//
+// A participant can also be run twice at once, for the same account, in two
+// processes. The guard that answers "a deletion is already running" is per
+// process, and the durable lock is re-enterable by design, so a double-tap
+// through a load balancer can reach two replicas and both will run the
+// steps. A participant has to tolerate that as well as tolerating a re-run:
+// a provider that refuses a concurrent modification turns a harmless double
+// click into a failed deletion. Where a step must not overlap itself, the
+// participant is the place to hold a lock for it — core does not hold one.
+//
+// Write destructive external work as late in the step as it will go. A step
+// that revokes first and checks afterwards leaves nothing to undo when the
+// check fails.
 type AccountErasureParticipant interface {
 	// Name identifies the participant in the log and in the error a failed
 	// step fails the erasure with. Keep it short and stable: it is what an
