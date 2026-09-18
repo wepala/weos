@@ -923,6 +923,33 @@ func TestAccountErasure_ParticipantsRunAgainForRowsThatLandAfterThePurge(t *test
 	}
 }
 
+// AccountGone is what a participant reads to know there is no account left
+// to work from, and the purge takes the account row last — so by the sweep
+// that follows it the row is gone however the deletion started. Telling that
+// sweep the account is still there sends a participant to read rows the
+// deletion itself removed a moment earlier.
+func TestAccountErasure_ASweepAfterThePurgeIsToldTheAccountRowHasGone(t *testing.T) {
+	h := newErasureHarness(t)
+	h.purger.remains = []bool{true, false}
+	participant := &recordingParticipant{name: "bank-links", steps: h.steps}
+	h.participants = []AccountErasureParticipant{participant}
+
+	if _, err := h.service(time.Second).Erase(context.Background(),
+		EraseAccountCommand{AccountID: "acct-harbor", RequestedBy: "ops"}); err != nil {
+		t.Fatalf("Erase: %v", err)
+	}
+	if participant.ran != 2 {
+		t.Fatalf("the participant ran %d time(s), want one per sweep", participant.ran)
+	}
+	if participant.saw[0].AccountGone {
+		t.Errorf("the first run was told the account was already gone; it ran before anything was removed")
+	}
+	if !participant.saw[1].AccountGone {
+		t.Errorf("the second run was told %+v, want the account reported as gone — the purge before it took the account row",
+			participant.saw[1])
+	}
+}
+
 // The other sweep: the account's own row is already gone, so the data a
 // participant would read went with the run that removed it. The step still
 // runs, because the rows left behind can name something outside this

@@ -353,7 +353,8 @@ func (s *AccountErasureService) Erase(ctx context.Context, cmd EraseAccountComma
 	// the account's data is whole and the read model has caught up, so a
 	// participant can still read whatever it needs, and a failure here
 	// leaves nothing of the account's removed from this instance.
-	if err := s.runParticipants(ctx, cmd, 1, account == nil); err != nil {
+	accountGone := account == nil
+	if err := s.runParticipants(ctx, cmd, 1, accountGone); err != nil {
 		return nil, err
 	}
 
@@ -361,6 +362,11 @@ func (s *AccountErasureService) Erase(ctx context.Context, cmd EraseAccountComma
 	if err != nil {
 		return nil, err
 	}
+	// The purge takes the account row last, so a sweep that returned took it
+	// with everything else. Every pass after this one is told the account is
+	// gone whatever it was at the start, or a participant asked about rows
+	// that landed late reads a promise the deletion has already broken.
+	accountGone = true
 
 	// The lock stops new requests, not requests already admitted: one
 	// admitted a moment before it can commit after the head was read, even
@@ -383,7 +389,7 @@ func (s *AccountErasureService) Erase(ctx context.Context, cmd EraseAccountComma
 				cmd.AccountID, orphanSweeps)
 		}
 		s.logger.Warn(ctx, "account erasure: rows landed after the purge; sweeping again", "account_id", cmd.AccountID, "pass", pass)
-		if err := s.runParticipants(ctx, cmd, pass+1, account == nil); err != nil {
+		if err := s.runParticipants(ctx, cmd, pass+1, accountGone); err != nil {
 			return nil, err
 		}
 		again, err := s.sweep(ctx, cmd.AccountID)

@@ -103,13 +103,20 @@ landed that way can name something outside this instance exactly as the first on
 did — so removing it without asking the participants would strand the external link
 in precisely the race the lock exists to close. The rule is one invariant: no row
 naming the account is removed without the participants having been asked since it
-landed. `ErasingAccount.Pass` tells a participant which pass it is on.
+landed. `ErasingAccount.Pass` tells a participant which pass it is on, and
+`ErasingAccount.AccountGone` tells it whether there is still an account to read
+through — which is answered for each pass, not fixed at the start of the deletion.
+The purge takes the account row last, so from the sweep after the first one the row
+is gone whatever the deletion began with; a flag fixed at the start would tell that
+sweep the account was still there and send a participant to read rows the deletion
+itself had removed a moment before.
 
 The same invariant settles the other sweep. When the account's own row is already
 gone — an earlier deletion finished and left rows behind — the participants still
 run, with no lock (there is no row to hang one off) and with most of the account's
-data already purged; `ErasingAccount.AccountGone` says so. The alternative, skipping
-them there, would remove those rows with nothing asked about what they name.
+data already purged; `ErasingAccount.AccountGone` says so from the first pass. The
+alternative, skipping them there, would remove those rows with nothing asked about
+what they name.
 
 The cost is that a participant can be asked two or three times in one deletion and
 may find nothing to work from, so the contract is stated the other way round from

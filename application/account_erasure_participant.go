@@ -60,11 +60,15 @@ type ErasingAccount struct {
 	// it). Past the first pass most of the account's data is gone; the rows
 	// that are left are what the sweep is about to remove.
 	Pass int
-	// AccountGone reports that the account's own row was already removed
-	// when this deletion started — a sweep of what an earlier, finished
-	// deletion left behind. The participant is still asked, because those
-	// rows can name something outside this instance, but it may find nothing
-	// of the account's left to read. Finding nothing is success.
+	// AccountGone reports that the account's own row is already removed as
+	// this step is called, so there is no account left to read through. It
+	// is true on the first pass of a sweep of what an earlier, finished
+	// deletion left behind, and on every pass past the first of any
+	// deletion, because the purge takes the account row last and the pass
+	// before it has already run. The participant is still asked, because
+	// the rows that remain can name something outside this instance, but it
+	// may find nothing of the account's left to read. Finding nothing is
+	// success.
 	AccountGone bool
 }
 
@@ -90,7 +94,9 @@ type ErasingAccount struct {
 // swept again, and the participants run again before each of those sweeps,
 // because a row that landed that way can name something outside this
 // instance too. ErasingAccount.Pass says which pass this is. Past the first
-// one most of the account's data is already gone.
+// one most of the account's data is already gone, and
+// ErasingAccount.AccountGone is true — the purge takes the account row last,
+// so the pass before this one removed it.
 //
 // Two things the first pass does not always promise. A deletion an operator
 // ran with --skip-drain has not waited for the background projections, so a
