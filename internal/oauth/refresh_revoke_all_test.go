@@ -17,6 +17,8 @@ package oauth
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"testing"
 	"time"
 )
@@ -117,5 +119,87 @@ func TestRevokeAllForAgentWithNothingToRevoke(t *testing.T) {
 				t.Fatalf("somebody else's token was revoked")
 			}
 		})
+	}
+}
+
+// wm-gf5xd. A client rotating while the revocation runs is what the pass loop
+// is for. One that never stops is what bounds it: after revokePasses the
+// revocation gives up with errStillRotating, and it still answers how many it
+// revoked on the way — the door is told 503 and asks again, and the count is
+// what the instance's log says was already ended.
+//
+// The rotation is stood in for by a trigger that commits a fresh active token
+// on every revoking update, which is the shape a tight rotation loop has and
+// never converges.
+func TestRevokeAllForAgentGivesUpAndStillCountsWhatItRevoked(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewRefreshTokenRepository(db)
+	storeToken(t, repo, "phone", "dana", NativeClientID, "phone", false)
+	// SQLite does not fire triggers recursively by default, and this one
+	// inserts rather than updates, so it cannot fire itself.
+	mustNoErr(t, db.Exec(`
+		CREATE TRIGGER rotate_during_revocation AFTER UPDATE ON oauth_refresh_tokens
+		WHEN NEW.revoked = 1 AND OLD.revoked = 0
+		BEGIN
+			INSERT INTO oauth_refresh_tokens
+				(id, token_hash, agent_id, client_id, family_id, expires_at, revoked, created_at)
+			VALUES (hex(randomblob(8)), hex(randomblob(16)), NEW.agent_id, NEW.client_id,
+				NEW.family_id, NEW.expires_at, 0, NEW.created_at);
+		END;`).Error, "install the rotating client")
+
+	revoked, err := repo.RevokeAllForAgent(context.Background(), "dana")
+
+	if !errors.Is(err, errStillRotating) {
+		t.Fatalf("a revocation that never converged answered %v, want errStillRotating", err)
+	}
+	if revoked != revokePasses {
+		t.Fatalf("revoked %d tokens over %d passes, want one a pass", revoked, revokePasses)
+	}
+}
+
+// Two revocations of the same person at once — the door retrying a call whose
+// answer it could not read — must not double-count, fail, or leave a token
+// active. Every pass is a plain UPDATE of the rows that are still active, so
+// the two calls between them revoke each token exactly once.
+func TestRevokeAllForAgentUnderConcurrentCalls(t *testing.T) {
+	repo := NewRefreshTokenRepository(setupTestDB(t))
+	ids := []string{"phone", "laptop", "connector-1", "connector-2", "tablet"}
+	for _, id := range ids {
+		storeToken(t, repo, id, "dana", NativeClientID, id, false)
+	}
+
+	const callers = 4
+	counts := make(chan int64, callers)
+	errs := make(chan error, callers)
+	var start sync.WaitGroup
+	start.Add(1)
+	var done sync.WaitGroup
+	for range callers {
+		done.Add(1)
+		go func() {
+			defer done.Done()
+			start.Wait()
+			revoked, err := repo.RevokeAllForAgent(context.Background(), "dana")
+			counts <- revoked
+			errs <- err
+		}()
+	}
+	start.Done()
+	done.Wait()
+	close(counts)
+	close(errs)
+
+	for err := range errs {
+		mustNoErr(t, err, "a concurrent revocation")
+	}
+	var total int64
+	for revoked := range counts {
+		total += revoked
+	}
+	if total != int64(len(ids)) {
+		t.Fatalf("the callers revoked %d tokens between them, want each of the %d once", total, len(ids))
+	}
+	if active := activeTokensOf(t, repo, ids...); active != 0 {
+		t.Fatalf("%d of the person's tokens still renew", active)
 	}
 }

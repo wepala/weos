@@ -2,7 +2,7 @@
 title: "ADR: Door-Initiated Token Revocation"
 parent: Architecture Decision Records
 layout: default
-nav_order: 3
+nav_order: 12
 ---
 
 # ADR: Door-Initiated Token Revocation (`POST /auth/revoke-tokens`)
@@ -197,8 +197,21 @@ idempotent for the same reason it is silent.
 - **401** with the refusal's reason as the code, exactly as `/auth/assert` answers one.
   The assertion never reaches a log line.
 - **403** `cross-site`; **413** for a body over the limit.
-- **503** with `Retry-After` when the store could not be written. The tokens may still
-  renew, so the door asks again. A 204 there would report an eviction that did not happen.
+- **503** with `Retry-After` when a store could not be written. Something may still renew,
+  so the door asks again. A 204 there would report an eviction that did not happen.
+
+**The 503 path is a narrow oracle, accepted.** "204, always" closes the question on every
+success path, and not on the error path: the revocation only reaches a store when the
+person exists, so a store that is down answers **503 for an identity somebody here holds
+and 204 for one nobody holds**, and the success path does measurably more work. It is not
+exploitable — only a caller holding a valid, single-use, 60-second assertion the issuer
+signed gets past 401, and the issuer already knows who it signed in — so the difference is
+recorded here rather than closed by answering 204 to a revocation that did not happen,
+which would be worse. `errStillRotating` is answered the same 503 as a locked database:
+after five passes a client rotating in a tight loop can keep the route at 503 while the
+door retries. Safe and idempotent — each pass is a plain `UPDATE` outside a transaction,
+and a retry revokes only what is still active — but it makes a 503 mean two things. Worth
+bounding if the door's retry policy turns out to be unbounded (bead `wm-565ve`).
 
 **What it does not do.**
 

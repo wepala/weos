@@ -436,3 +436,30 @@ func requireWarnLogged(t *testing.T, logs *signInLogs) {
 	}
 	t.Fatalf("nothing was logged at warning level:\n%s", logs.text())
 }
+
+// wm-gf5xd. "204, always" holds on every success path and not on the error
+// path: a store that is down is only ever reached for a person the instance
+// holds, so the same broken store answers 503 for an identity somebody here
+// holds and 204 for one nobody holds. It is recorded in the ADR as accepted —
+// only the issuer gets past 401, and it already knows whom it signed in — and
+// pinned here so that it is a known difference rather than a surprise.
+func TestRevokeReachesNoStoreForAnIdentityNobodyHolds(t *testing.T) {
+	store := newMemoryAuthStore()
+	store.seedPerson(t, "agent-dana", "Dana Whitfield", OAuthProviderDoor, "door-1", "dana@harborlegal.example")
+	r := newRevocation(store, &signInLogs{})
+	r.tokens.failFor = "agent-dana"
+
+	held := AssertedIdentity{Provider: OAuthProviderDoor, Subject: "door-1", Email: "dana@harborlegal.example"}
+	unheld := AssertedIdentity{Provider: OAuthProviderDoor, Subject: "door-999", Email: "dana@harborlegal.example"}
+
+	if _, err := r.service.Revoke(context.Background(), held); err == nil {
+		t.Fatal("a broken store was reported as a revocation for a person the instance holds")
+	}
+	if _, err := r.service.Revoke(context.Background(), unheld); err != nil {
+		t.Fatalf("the same broken store failed for an identity nobody holds: %v", err)
+	}
+	if len(r.order) != 3 {
+		// sessions, codes, tokens for the person; nothing at all for nobody.
+		t.Fatalf("the stores were touched %v, want only the three steps for the person the instance holds", r.order)
+	}
+}

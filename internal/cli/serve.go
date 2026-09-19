@@ -157,7 +157,6 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	var fileService application.FileService
 	var authService authapp.AuthenticationService
 	var assertedSignIn *application.AssertedSignIn
-	var credentialEmails repositories.CredentialEmailQuery
 	var providerRegistry authapp.OAuthProviderRegistry
 	var sessionManager session.SessionManager
 	var credentialRepo authrepos.CredentialRepository
@@ -206,7 +205,6 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 		fx.Populate(&fileService),
 		fx.Populate(&authService),
 		fx.Populate(&assertedSignIn),
-		fx.Populate(&credentialEmails),
 		fx.Populate(&providerRegistry),
 		fx.Populate(&sessionManager),
 		fx.Populate(&credentialRepo),
