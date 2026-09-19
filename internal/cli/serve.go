@@ -440,12 +440,9 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 			return handlers.NewTrustedIssuerRevocationHandler(appCfg.TrustedIssuer, appCfg.OAuth.AllowedEmails,
 				handlers.TrustedIssuerRevocationDeps{
 					Revoke: application.NewAssertedTokenRevocation(application.AssertedTokenRevocationConfig{
-						Credentials:          credentialRepo,
-						Agents:               agentRepo,
-						Emails:               credentialEmails,
-						Tokens:               refreshRepo,
-						PasswordOwnersProven: appCfg.TrustedIssuer.LinkPasswordOwners,
-						Logger:               logger,
+						Credentials: credentialRepo,
+						Tokens:      refreshRepo,
+						Logger:      logger,
 					}),
 					Logger:        logger,
 					PublicBaseURL: baseURL,

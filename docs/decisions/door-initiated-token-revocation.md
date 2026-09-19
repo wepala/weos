@@ -7,9 +7,9 @@ nav_order: 3
 
 # ADR: Door-Initiated Token Revocation (`POST /auth/revoke-tokens`)
 
-**Status:** Proposed
+**Status:** Proposed (amended 2026-09-19 when the work resumed: the revocation reaches only the holder of the asserted identity and never resolves by email; issuer-key compromise buying revocation is recorded as an accepted consequence; no rate limit, as on `/auth/assert`; a section on where the code corrects what bead `wm-fcpzx` records)
 **Date:** 2026-09-16
-**Ticket:** bead `wm-fcpzx`, from finding `wm-p3h32`; the door's caller is story `wm-eb4mv.10`
+**Ticket:** bead `wm-fcpzx`, from finding `wm-p3h32`; the door's caller is bead `wm-a8yyh` (story `wm-eb4mv.10`)
 **Base:** `v3` (the integration branch the `v3.0.1-beta.*` tags are cut from; `main` is the old line)
 
 ## Context and Problem Statement
@@ -112,24 +112,34 @@ carries an `Origin` that is neither the instance's nor the issuer's, is refused 
 `cross-site`** before the body is read, so the `jti` is not spent. A server-side call
 carries neither header and passes — which is how the door calls it.
 
-**Whom it reaches.** Exactly the people a sign-in for the same assertion would reach, and
-it creates nobody and links nothing:
+**Whom it reaches.** Exactly one person, or nobody: the person holding a credential for
+the asserted `(provider, subject)`. It creates nobody and links nothing, and it **never
+resolves by email**.
 
-1. the person holding a credential for the asserted `(provider, subject)`; or
-2. when this instance has never seen that identity, every **active** person whose
-   credential proves the asserted email under the sign-in's own rule
-   (`credentialProvesOwnership` — one function, asked by both paths, so the two cannot
-   drift). That case is the instance that had people before it had a door: someone may
-   hold connector tokens from a Google or password sign-in and still have no credential
-   for the door identity.
+The door asserts the identity the reset password signs in with — provider `door`, its own
+subject for the person. That identity alone reaches every token the reset is about. A
+token issued under the door's password was issued through a door sign-in, and every door
+sign-in leaves a `door` credential on the person it signed in: owner binding links it to
+the person who already owns the email, or the sign-in creates a person holding it. So the
+person holding that credential holds every refresh token the old password ever handed out
+here — and, because owner binding joins a door identity and a Google or Apple identity
+with the same email into one person, every other token that person holds too. An identity
+this instance has never seen means the old password never signed anybody in here, and
+there is nothing to revoke.
 
-Where owner binding refuses a *sign-in* because more than one person proves the email
-(`ambiguous-owner`), the revocation revokes for **all of them**. The trade inverts: a
-sign-in that picks wrong hands one person another's data, while a revocation that reaches
-one person too many costs that person a sign-in — and picking nobody would leave an
-intruder renewing.
+**Why not also by email** (the first draft of this ADR did, and was changed before merge).
+The fallback — every active person whose credential proves the asserted email, and every
+candidate where a sign-in would refuse `ambiguous-owner` — reached further than the reset
+needs. On an instance with no `OAUTH_ALLOWED_EMAILS` it let the issuer name any email and
+end the tokens of a person it had never signed in, bounded only by the issuer's honesty.
+The case it was for — the instance that had people before it had a door, holding tokens
+from a Google or password sign-in — is not the reset's business: a door password never
+issued those tokens, and resetting it does not make them any less the owner's. The door
+knows each person's door identity, because it registers them, so the narrower reach costs
+it nothing. It also narrows what a stolen issuer key buys (see "Consequences"): the thief
+must know each person's opaque door subject, not just an address.
 
-**What it revokes.** Every refresh token of each person reached, in every family, client
+**What it revokes.** Every refresh token of the person reached, in every family, client
 and account — each connector's and each native app session's
 (`RevokeAllForAgent`). The person's own honest clients must authorize or sign in again:
 after a password reset, nothing distinguishes the intruder's client from the owner's, and
@@ -169,12 +179,59 @@ idempotent for the same reason it is silent.
   version or a deny list, and is not in this change.
 - Bad: the browser half of the same question is still open — a reset does not end a
   session already open in a browser.
+- Bad, accepted: the `purpose` claim is the only thing that separates the two capabilities
+  an issuer key holds, so **a stolen issuer signing key now also buys revocation** — an
+  availability attack, repeatedly ending the token access of the people it can name, on
+  every instance that trusts the key. Before this change the same key bought
+  impersonation only. Confidentiality is unchanged, and a key that can sign a person in
+  can already do worse than sign them out. No guard is cheap enough to be worth it: a
+  second key per purpose doubles the key list and its rotation, and a per-instance
+  secret is option 2, rejected above. Two things bound it. Reach by identity only means
+  the thief must know each person's opaque `door` subject; an email is not enough. And
+  the remedy is the one a key compromise already needs — remove the key from the
+  published list, which ends both capabilities at once.
+- Bad, accepted: **no rate limit on the route**, matching `/auth/assert`, which has none
+  either (core has no per-route limiter; the only throttle on the assertion path is the
+  key-list fetch backoff). Only a caller holding a valid, single-use, 60-second assertion
+  signed by the issuer gets past 401, so the one caller that can drive the route hard is
+  the issuer itself. A limiter for both assertion routes is a separate decision.
+
+## Where the Code Corrects Bead `wm-fcpzx`
+
+The bead's verification was done against `feature/wm-63gg0-auth-assert` (`534ca13b`).
+`v3` has since moved on, and the bead is left as written, so the true picture is stated
+here. Its line numbers are stale, and four things differ:
+
+- **The gap is wider than the bead says.** There are two kinds of refresh token in
+  `oauth_refresh_tokens`, not one: a connector's, and a native app session's under the
+  reserved client id `weos-native` (`wm-lnimb`, PR 569). A native sign-in through the door
+  hands the app a refresh token that `POST /api/auth/refresh` renews, so a reset left the
+  intruder's *app session* renewing as well as their connector.
+- **A per-person revoke already existed, but per client.** `RevokeForAgent(ctx, agentID,
+  clientID)` cannot express "every client", which a reset needs, so this change adds
+  `RevokeAllForAgent` beside it, reusing its loop that repeats until no token of the set is
+  active (so a concurrent rotation cannot slip one through).
+- **"No operator lever exists today" needs one qualification.** `POST /api/auth/logout`
+  `{"everywhere":true}` does end every native session of a person — but only for a caller
+  holding that person's own live credential, and never a connector's tokens. The person has
+  a lever; the door has none. The bead's conclusion stands; its wording overstates the
+  absence.
+- **`door` is now an accepted provider key, and owner binding runs with or without
+  `OAUTH_ALLOWED_EMAILS`** (`wm-x0l4m`, `wm-6lx6z`). That is what makes "a door sign-in
+  always leaves a `door` credential on the person it signed in" true, which is what lets
+  the revocation reach by identity alone.
+
+Re-verified on `v3` and still true: a refresh token is an opaque string stored as a SHA-256
+hash; `handleRefreshGrant` reads `JWT_SIGNING_KEY` nowhere, so rotating that key is not an
+eviction; `Create` defaults expiry to 30 days and every rotation grants a fresh 30;
+`SESSION_SECRET` rotation does not reach the bearer path.
 
 ## More Information
 
 Downstream consumer: the mini-me Money front door (`wm-eb4mv`), which calls this at the
-end of a successful password reset (story `wm-eb4mv.10`) with an assertion it signs under
-the same key it signs login assertions with. It needs a `v3` tag before the door can pin
+end of a successful password reset (bead `wm-a8yyh`, story `wm-eb4mv.10`) with an
+assertion it signs under the same key it signs login assertions with, naming the person's
+`door` identity (provider `door`, the door's own subject for them). It needs a `v3` tag before the door can pin
 it.
 
 See [Trusted-Issuer Login Assertion]({% link decisions/trusted-issuer-login-assertion.md %})

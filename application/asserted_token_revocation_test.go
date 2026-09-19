@@ -42,14 +42,11 @@ func (f *fakeRevoker) people() int {
 	return len(f.calls)
 }
 
-func newRevocationFor(store *memoryAuthStore, tokens RefreshTokenRevoker, logs *signInLogs, passwordOwnersProven bool) *AssertedTokenRevocation {
+func newRevocationFor(store *memoryAuthStore, tokens RefreshTokenRevoker, logs *signInLogs) *AssertedTokenRevocation {
 	return NewAssertedTokenRevocation(AssertedTokenRevocationConfig{
-		Credentials:          storeCredentials{s: store},
-		Agents:               storeAgents{s: store},
-		Emails:               storeEmails{s: store},
-		Tokens:               tokens,
-		PasswordOwnersProven: passwordOwnersProven,
-		Logger:               logs,
+		Credentials: storeCredentials{s: store},
+		Tokens:      tokens,
+		Logger:      logs,
 	})
 }
 
@@ -64,7 +61,7 @@ func TestRevokeEndsTheTokensOfThePersonHoldingTheAssertedIdentity(t *testing.T) 
 	tokens.tokens["agent-dana"] = 4
 	logs := &signInLogs{}
 
-	result, err := newRevocationFor(store, tokens, logs, false).Revoke(context.Background(), AssertedIdentity{
+	result, err := newRevocationFor(store, tokens, logs).Revoke(context.Background(), AssertedIdentity{
 		Provider: OAuthProviderDoor, Subject: "door-1", Email: "dana@harborlegal.example",
 	})
 
@@ -80,26 +77,31 @@ func TestRevokeEndsTheTokensOfThePersonHoldingTheAssertedIdentity(t *testing.T) 
 	requireNoRawIdentity(t, logs, "door-1", "dana@harborlegal.example")
 }
 
-// The instance that had people before it had a door: the person holds
-// connector tokens from a Google sign-in and no credential for the door
-// identity yet, because they have not come through the door. A sign-in would
-// link the two by the email, so the revocation reaches that person.
-func TestRevokeReachesThePersonWhoseCredentialProvesTheAssertedEmail(t *testing.T) {
+// A door identity this instance has never seen reaches nobody, even when a
+// person here holds a credential that proves the asserted email. The old
+// password never signed anybody in here — every door sign-in leaves a door
+// credential — so there is nothing of the reset's to end, and resolving by the
+// email would let the issuer end the tokens of a person it never signed in.
+func TestRevokeDoesNotReachAPersonByTheAssertedEmail(t *testing.T) {
 	store := newMemoryAuthStore()
 	store.seedPerson(t, "agent-dana", "Dana Whitfield", OAuthProviderGoogle, "google-108", "dana.whitfield@harborlegal.example")
+	store.seedPerson(t, "agent-morgan", "Morgan Reyes", OAuthProviderApple, "apple-42", "dana.whitfield@harborlegal.example")
 	tokens := newFakeRevoker()
 	tokens.tokens["agent-dana"] = 2
+	logs := &signInLogs{}
 
-	result, err := newRevocationFor(store, tokens, &signInLogs{}, false).Revoke(context.Background(), AssertedIdentity{
-		// A door identity this instance has never seen, with the owner's email.
+	result, err := newRevocationFor(store, tokens, logs).Revoke(context.Background(), AssertedIdentity{
 		Provider: OAuthProviderDoor, Subject: "door-1", Email: "Dana.Whitfield@HarborLegal.example",
 	})
 
 	if err != nil {
-		t.Fatalf("the revocation failed: %v", err)
+		t.Fatalf("an identity nobody holds is not an error: %v", err)
 	}
-	if result.Tokens != 2 || len(result.People) != 1 || result.People[0] != "agent-dana" {
-		t.Fatalf("revoked %+v, want the tokens of the person whose credential proves the email", result)
+	if result.Tokens != 0 || len(result.People) != 0 || tokens.people() != 0 {
+		t.Fatalf("revoked %+v for an identity nobody here holds", result)
+	}
+	if logs.text() == "" {
+		t.Fatal("a revocation that reached nobody was not recorded")
 	}
 	// Nothing is created and nothing is linked: the revocation is not a
 	// sign-in, and an identity it has never seen must not become a credential.
@@ -111,76 +113,30 @@ func TestRevokeReachesThePersonWhoseCredentialProvesTheAssertedEmail(t *testing.
 	}
 }
 
-// A credential that proves nothing about who owns its email — an invite
-// nobody verified, or a password one where the operator has not opted in —
-// reaches nobody. The same rule the sign-in refuses to link on.
-func TestRevokeReachesNobodyWhenNothingProvesTheEmail(t *testing.T) {
+// The person holding the door identity may also hold a Google credential with
+// the same email (the door and Google identities are one person). Revoking by
+// the door identity ends every token of that one person, whichever sign-in
+// issued it.
+func TestRevokeEndsEveryTokenOfThePersonWhateverSignInIssuedIt(t *testing.T) {
 	store := newMemoryAuthStore()
-	store.seedPerson(t, "agent-dana", "Dana Whitfield", "invite", "invite-1", "dana@harborlegal.example")
+	store.seedPerson(t, "agent-dana", "Dana Whitfield", OAuthProviderDoor, "door-1", "dana@harborlegal.example")
+	store.seedPerson(t, "agent-morgan", "Morgan Reyes", OAuthProviderGoogle, "google-7", "morgan@harborlegal.example")
 	tokens := newFakeRevoker()
-	logs := &signInLogs{}
+	tokens.tokens["agent-dana"] = 5
 
-	result, err := newRevocationFor(store, tokens, logs, false).Revoke(context.Background(), AssertedIdentity{
-		Provider: OAuthProviderDoor, Subject: "door-1", Email: "dana@harborlegal.example",
-	})
-
-	if err != nil {
-		t.Fatalf("an identity nobody holds is not an error: %v", err)
-	}
-	if result.Tokens != 0 || len(result.People) != 0 || tokens.people() != 0 {
-		t.Fatalf("revoked %+v for an email nothing proves", result)
-	}
-	if logs.text() == "" {
-		t.Fatal("a revocation that reached nobody was not recorded")
-	}
-}
-
-// Where a sign-in refuses because more than one person proves the email, the
-// revocation revokes for all of them. Picking nobody would leave an intruder
-// renewing; a revocation grants nothing, so reaching one person too many costs
-// only a sign-in.
-func TestRevokeReachesEveryPersonWhoProvesTheEmail(t *testing.T) {
-	store := newMemoryAuthStore()
-	store.seedPerson(t, "agent-dana", "Dana Whitfield", OAuthProviderGoogle, "google-108", "shared@harborlegal.example")
-	store.seedPerson(t, "agent-morgan", "Morgan Reyes", OAuthProviderApple, "apple-42", "shared@harborlegal.example")
-	tokens := newFakeRevoker()
-	tokens.tokens["agent-dana"] = 1
-	tokens.tokens["agent-morgan"] = 2
-
-	result, err := newRevocationFor(store, tokens, &signInLogs{}, false).Revoke(context.Background(), AssertedIdentity{
-		Provider: OAuthProviderDoor, Subject: "door-1", Email: "shared@harborlegal.example",
+	result, err := newRevocationFor(store, tokens, &signInLogs{}).Revoke(context.Background(), AssertedIdentity{
+		// The email the issuer names does not widen the reach.
+		Provider: OAuthProviderDoor, Subject: "door-1", Email: "morgan@harborlegal.example",
 	})
 
 	if err != nil {
 		t.Fatalf("the revocation failed: %v", err)
 	}
-	if len(result.People) != 2 || result.Tokens != 3 {
-		t.Fatalf("revoked %+v, want both people's 3 tokens", result)
+	if result.Tokens != 5 || len(result.People) != 1 || result.People[0] != "agent-dana" {
+		t.Fatalf("revoked %+v, want the 5 tokens of agent-dana alone", result)
 	}
-}
-
-// A person who is turned off holds nothing a sign-in would reach, and every
-// path that reads their tokens refuses them already.
-func TestRevokeDoesNotReachAPersonWhoIsTurnedOff(t *testing.T) {
-	store := newMemoryAuthStore()
-	store.seedPerson(t, "agent-dana", "Dana Whitfield", OAuthProviderGoogle, "google-108", "dana@harborlegal.example")
-	store.mu.Lock()
-	if err := store.agents["agent-dana"].Deactivate(); err != nil {
-		store.mu.Unlock()
-		t.Fatalf("turn the person off: %v", err)
-	}
-	store.mu.Unlock()
-	tokens := newFakeRevoker()
-
-	result, err := newRevocationFor(store, tokens, &signInLogs{}, false).Revoke(context.Background(), AssertedIdentity{
-		Provider: OAuthProviderDoor, Subject: "door-1", Email: "dana@harborlegal.example",
-	})
-
-	if err != nil {
-		t.Fatalf("the revocation failed: %v", err)
-	}
-	if len(result.People) != 0 || tokens.people() != 0 {
-		t.Fatalf("revoked %+v for a person who is turned off", result)
+	if tokens.reached("agent-morgan") != 0 {
+		t.Fatal("the asserted email reached a person the identity does not name")
 	}
 }
 
@@ -194,7 +150,7 @@ func TestRevokeReportsAStoreThatCouldNotBeWritten(t *testing.T) {
 	tokens.failFor = "agent-dana"
 	logs := &signInLogs{}
 
-	_, err := newRevocationFor(store, tokens, logs, false).Revoke(context.Background(), AssertedIdentity{
+	_, err := newRevocationFor(store, tokens, logs).Revoke(context.Background(), AssertedIdentity{
 		Provider: OAuthProviderDoor, Subject: "door-1", Email: "dana@harborlegal.example",
 	})
 
@@ -218,7 +174,7 @@ func TestRevokeIsIdempotent(t *testing.T) {
 	store.seedPerson(t, "agent-dana", "Dana Whitfield", OAuthProviderDoor, "door-1", "dana@harborlegal.example")
 	tokens := newFakeRevoker()
 	tokens.tokens["agent-dana"] = 3
-	revocation := newRevocationFor(store, tokens, &signInLogs{}, false)
+	revocation := newRevocationFor(store, tokens, &signInLogs{})
 	id := AssertedIdentity{Provider: OAuthProviderDoor, Subject: "door-1", Email: "dana@harborlegal.example"}
 
 	first, err := revocation.Revoke(context.Background(), id)

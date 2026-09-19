@@ -30,16 +30,22 @@ import (
 )
 
 // assertionFor is a request body carrying a fresh assertion the door signed
-// for email: purpose is the one it asks for ("" for a login assertion, which
+// for the owner's Google identity with email: purpose is the one it asks for ("" for a login assertion, which
 // says nothing), and session is the sign-in's "session" field ("" for a
 // browser's).
 func (d *bootDoor) assertionFor(t *testing.T, email, purpose, session string) string {
+	t.Helper()
+	return d.assertionOf(t, bootOwnerSubject, email, purpose, session)
+}
+
+// assertionOf is assertionFor for any subject.
+func (d *bootDoor) assertionOf(t *testing.T, subject, email, purpose, session string) string {
 	t.Helper()
 	now := time.Now()
 	claims := gojwt.MapClaims{
 		"iss":            bootDoorIssuer,
 		"aud":            bootDoorAudience,
-		"sub":            "108234567890",
+		"sub":            subject,
 		"email":          email,
 		"email_verified": true,
 		"provider":       "google",
@@ -122,14 +128,16 @@ func TestServe_ADoorRevocationEndsThePersonsTokenAccess(t *testing.T) {
 	}
 
 	// Idempotent, and it says the same thing about a person it has already
-	// revoked for as about one it has never heard of.
-	for name, email := range map[string]string{
-		"the same person again":          bootOwnerEmail,
-		"a person it has never heard of": "nobody@harborlegal.example",
+	// revoked for as about an identity it has never seen — even one that
+	// names the owner's email, because the revocation never reaches by email.
+	for name, id := range map[string][2]string{
+		"the same person again":              {bootOwnerSubject, bootOwnerEmail},
+		"an identity it has never seen":      {"google-999", "nobody@harborlegal.example"},
+		"an unseen identity with that email": {"google-998", bootOwnerEmail},
 	} {
 		t.Run(name, func(t *testing.T) {
 			again := serveCall(t, srv, http.MethodPost, "/api/auth/revoke-tokens",
-				door.assertionFor(t, email, trustedissuer.PurposeRevokeTokens, ""), nil)
+				door.assertionOf(t, id[0], id[1], trustedissuer.PurposeRevokeTokens, ""), nil)
 			if again.status != http.StatusNoContent || again.body != "" {
 				t.Fatalf("answered %d %q, want 204 and no body", again.status, again.body)
 			}

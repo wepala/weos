@@ -18,7 +18,6 @@ package application
 import (
 	"context"
 	"fmt"
-	"sort"
 
 	weosentities "github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
@@ -36,20 +35,11 @@ type RefreshTokenRevoker interface {
 
 // AssertedTokenRevocationConfig wires an AssertedTokenRevocation.
 type AssertedTokenRevocationConfig struct {
-	// Credentials resolves the asserted identity to the person holding it, the
-	// way a sign-in resolves it.
+	// Credentials resolves the asserted (provider, subject) to the person
+	// holding it, the way a returning sign-in resolves it.
 	Credentials authrepos.CredentialRepository
-	// Agents says whether a person holding the asserted email is still active.
-	Agents authrepos.AgentRepository
-	// Emails finds the credentials holding the asserted email, for an identity
-	// this instance has never seen.
-	Emails repositories.CredentialEmailQuery
 	// Tokens is what the revocation ends.
 	Tokens RefreshTokenRevoker
-	// PasswordOwnersProven is the sign-in's own setting
-	// (TRUSTED_ISSUER_LINK_PASSWORD_OWNERS), read by the one ownership rule
-	// both paths share (credentialProvesOwnership).
-	PasswordOwnersProven bool
 	// Logger receives one line per revocation: what was revoked, or that
 	// nobody here held the identity. Optional; without it nothing is logged.
 	Logger weosentities.Logger
@@ -60,24 +50,18 @@ type AssertedTokenRevocationConfig struct {
 // successful password reset: the person's password has changed, so every
 // refresh token issued under the old one must stop renewing (bead wm-fcpzx).
 //
-// It reaches exactly the people a sign-in for the same assertion would reach,
-// and it creates nobody and links nothing:
+// It reaches exactly one person: the one holding a credential for the asserted
+// (provider, subject). It never resolves by email. A token issued under the
+// door's password was issued through a door sign-in, and every door sign-in
+// leaves a credential for the door identity on the person it signed in (it
+// links one or creates one), so the identity alone reaches every token the
+// reset is about. An identity this instance has never seen means the old
+// password never signed anybody in here, and there is nothing to revoke. A
+// fallback by email would reach further than that — on an instance with no
+// OAUTH_ALLOWED_EMAILS, to a person the issuer never signed in — and would buy
+// the door nothing it needs.
 //
-//   - the person holding a credential for the asserted (provider, subject) —
-//     the identity the door signs this person in with; or
-//   - when this instance has never seen that identity, every ACTIVE person
-//     whose credential proves the asserted email under the sign-in's own rule
-//     (credentialProvesOwnership). That case is the instance that had people
-//     before it had a door: a person may hold connector tokens from a Google
-//     or password sign-in and still have no credential for the door identity,
-//     because they have not signed in through the door yet.
-//
-// Where the sign-in refuses because more than one person proves the email
-// (ErrAmbiguousOwner), the revocation revokes for all of them instead. A
-// revocation grants nothing: the worst it costs a person it should not have
-// reached is that their app signs in again, while picking nobody would leave
-// an intruder renewing. That is the opposite trade from a sign-in, which would
-// hand one person's data to another.
+// It creates nobody and links nothing.
 //
 // It does not end browser sessions. Those are signed cookies with no store to
 // revoke, so an instance-wide SESSION_SECRET rotation is still the only lever
@@ -114,13 +98,13 @@ func (s *AssertedTokenRevocation) Revoke(
 	ctx context.Context, id AssertedIdentity,
 ) (TokenRevocationResult, error) {
 	email := repositories.FoldCredentialEmail(id.Email)
-	people, err := s.peopleFor(ctx, id, email)
+	people, err := s.peopleFor(ctx, id)
 	if err != nil {
 		return TokenRevocationResult{}, err
 	}
 	if len(people) == 0 {
 		s.cfg.Logger.Info(ctx,
-			"trusted issuer token revocation: nobody on this instance holds the asserted identity or proves its email, so no token was revoked",
+			"trusted issuer token revocation: nobody on this instance holds the asserted identity, so no token was revoked",
 			identityFields(id, email)...)
 		return TokenRevocationResult{}, nil
 	}
@@ -146,46 +130,17 @@ func (s *AssertedTokenRevocation) Revoke(
 	return result, nil
 }
 
-// peopleFor is whom the revocation reaches, sorted: the holder of the asserted
-// identity, or — when this instance has never seen it — every active person
-// whose credential proves the asserted email. It never creates anybody and
-// never links an identity, so a revocation for an identity nobody holds leaves
-// the instance exactly as it was.
-func (s *AssertedTokenRevocation) peopleFor(
-	ctx context.Context, id AssertedIdentity, email string,
-) ([]string, error) {
+// peopleFor is whom the revocation reaches: the holder of the asserted
+// identity, or nobody. It never creates anybody and never links an identity,
+// so a revocation for an identity nobody holds leaves the instance exactly as
+// it was.
+func (s *AssertedTokenRevocation) peopleFor(ctx context.Context, id AssertedIdentity) ([]string, error) {
 	credential, err := s.cfg.Credentials.FindByProvider(ctx, id.Provider, id.Subject)
 	if err != nil {
 		return nil, fmt.Errorf("look up the credential for provider %s: %w", id.Provider, err)
 	}
-	if credential != nil && credential.AgentID() != "" {
-		return []string{credential.AgentID()}, nil
-	}
-	if email == "" || s.cfg.Emails == nil {
+	if credential == nil || credential.AgentID() == "" {
 		return nil, nil
 	}
-
-	matches, err := s.cfg.Emails.CredentialsByEmail(ctx, email)
-	if err != nil {
-		return nil, fmt.Errorf("look up the holders of the asserted email: %w", err)
-	}
-	counted := map[string]bool{}
-	var people []string
-	for _, m := range matches {
-		if counted[m.AgentID] || !credentialProvesOwnership(m, id.Provider, s.cfg.PasswordOwnersProven) {
-			continue
-		}
-		counted[m.AgentID] = true
-		agent, err := s.cfg.Agents.FindByID(ctx, m.AgentID)
-		if err != nil {
-			return nil, fmt.Errorf("read a person holding the asserted email: %w", err)
-		}
-		// A person who is gone or turned off holds nothing a sign-in would
-		// reach, and their tokens are refused by every path that reads them.
-		if agent != nil && agent.Active() {
-			people = append(people, m.AgentID)
-		}
-	}
-	sort.Strings(people)
-	return people, nil
+	return []string{credential.AgentID()}, nil
 }
