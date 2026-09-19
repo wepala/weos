@@ -87,13 +87,7 @@ type TrustedIssuerHandler struct {
 
 // NewTrustedIssuerHandler builds the handler.
 func NewTrustedIssuerHandler(cfg TrustedIssuerHandlerConfig) *TrustedIssuerHandler {
-	origins := make(map[string]struct{}, len(cfg.AllowedOrigins))
-	for _, address := range cfg.AllowedOrigins {
-		if origin := originOf(address); origin != "" {
-			origins[origin] = struct{}{}
-		}
-	}
-	return &TrustedIssuerHandler{cfg: cfg, origins: origins}
+	return &TrustedIssuerHandler{cfg: cfg, origins: originSet(cfg.AllowedOrigins)}
 }
 
 // TrustedIssuerAssertionDeps is what the assertion route takes from the
@@ -239,41 +233,9 @@ func (h *TrustedIssuerHandler) Assert(c echo.Context) error {
 }
 
 // crossSite says why a request came from another site, or "" when it did not.
-//
-// An assertion signs in whoever posts it, so a page on another site that holds
-// a valid assertion for this audience could post it from a victim's browser
-// and sign that browser in as someone else (login CSRF). A browser marks what
-// it sends: Sec-Fetch-Site on every request, and Origin on every POST. The
-// door serves the instance on the door's own origin, so the browser posts the
-// assertion same-origin. A request with neither header is not a browser
-// another site can drive, and passes.
-//
-// The detail is a fixed phrase plus, at most, the normalized origin: no other
-// header text reaches the log.
+// The rule is crossSiteRequest's, shared with the revocation route.
 func (h *TrustedIssuerHandler) crossSite(r *http.Request) string {
-	if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" {
-		switch site {
-		case "cross-site", "same-site", "none":
-			return "the browser marks the request " + site + ", not same-origin"
-		default:
-			return "the request's Sec-Fetch-Site is not same-origin"
-		}
-	}
-	values := r.Header.Values("Origin")
-	if len(values) == 0 {
-		return ""
-	}
-	if len(values) > 1 {
-		return "the request carries more than one Origin"
-	}
-	origin := originOf(values[0])
-	if origin == "" {
-		return "the request's Origin is not an http or https origin"
-	}
-	if _, ok := h.origins[origin]; !ok {
-		return "the request's Origin " + origin + " is neither this instance's nor the trusted issuer's"
-	}
-	return ""
+	return crossSiteRequest(r, h.origins)
 }
 
 // originOf is the origin of an address or of an Origin header's value — the
@@ -318,11 +280,7 @@ func (h *TrustedIssuerHandler) tooLarge(c echo.Context) error {
 
 func (h *TrustedIssuerHandler) refuse(c echo.Context, err error) error {
 	ctx := c.Request().Context()
-	reason, detail := trustedissuer.ReasonSignature, "the assertion could not be verified"
-	var refusal *trustedissuer.Refusal
-	if errors.As(err, &refusal) {
-		reason, detail = refusal.Reason, refusal.Detail
-	}
+	reason, detail := refusalOf(err)
 	if ended := ctx.Err(); ended != nil && errors.Is(err, ended) {
 		// The request ended while it waited for the issuer's key list. The
 		// client went away; the key list did not fail. A warning under the

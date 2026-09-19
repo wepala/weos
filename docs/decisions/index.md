@@ -22,4 +22,5 @@ Architecture Decision Records (ADRs) capture significant technical decisions mad
 | [Release Tag Scheme]({% link decisions/release-tag-scheme.md %}) | Accepted | 2026-08-31 |
 | [What Core Carries for WeHungry — the Food Types, a Folder per Account, and Erasure of an Account]({% link decisions/wehungry-food-types-uploads-and-account-erasure.md %}) | Accepted | 2026-09-10 |
 | [Trusted-Issuer Login Assertion]({% link decisions/trusted-issuer-login-assertion.md %}) | Proposed | 2026-09-12 |
+| [Door-Initiated Token Revocation]({% link decisions/door-initiated-token-revocation.md %}) | Proposed | 2026-09-16 |
 | [An Account Erasure Participant]({% link decisions/account-erasure-participant.md %}) | Accepted (Implemented) | 2026-09-17 |

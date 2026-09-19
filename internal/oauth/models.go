@@ -46,7 +46,7 @@ type OAuthAuthorizationCode struct {
 	CodeChallengeMethod string `gorm:"type:varchar(10);not null;default:'S256'"`
 	Scope               string `gorm:"type:varchar(500)"`
 	State               string `gorm:"type:varchar(255)"`                           // MCP client's state param
-	Status              string `gorm:"type:varchar(20);not null;default:'pending'"` // pending/issued/exchanged
+	Status              string `gorm:"type:varchar(20);not null;default:'pending'"` // pending/issued/exchanged/voided
 	ExpiresAt           time.Time
 	CreatedAt           time.Time
 }

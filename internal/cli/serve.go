@@ -330,6 +330,10 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	// One refresh token store for connectors and native apps: a native sign-in's
 	// refresh token is kept, rotated and revoked there too (wm-lnimb).
 	refreshRepo := weosoauth.NewRefreshTokenRepository(db)
+	// One authorization code store as well, built here rather than beside the
+	// other OAuth handlers below: the door's token revocation voids the codes
+	// it finds unredeemed, and it mounts before them.
+	codeRepo := weosoauth.NewAuthCodeRepository(db)
 	passwordAuthHandlers := handlers.NewPasswordAuthHandler(handlers.PasswordAuthHandlerConfig{
 		AuthService:    authService,
 		SessionManager: sessionManager,
@@ -425,6 +429,34 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 			"remedy", "set JWT_SIGNING_KEY to a PEM-encoded RSA private key that stays the same across restarts and on every instance")
 	}
 
+	// The door, having reset a person's password, ends that person's access
+	// here (wm-fcpzx): every browser session of theirs, every authorization
+	// code of theirs nobody has redeemed, and every refresh token they hold —
+	// each connector's and each native app session's — so nothing issued under
+	// the old password outlives it and nothing left alive can issue more.
+	// Mounted on exactly the condition the assertion route is, and authorized
+	// the same way: an assertion the trusted issuer signed for this instance,
+	// asking to revoke tokens rather than to sign anyone in.
+	handlers.MountTrustedIssuerRevocation(context.Background(), api, appCfg, logger,
+		func() *handlers.TokenRevocationHandler {
+			return handlers.NewTrustedIssuerRevocationHandler(appCfg.TrustedIssuer, appCfg.OAuth.AllowedEmails,
+				handlers.TrustedIssuerRevocationDeps{
+					Revoke: application.NewAssertedTokenRevocation(application.AssertedTokenRevocationConfig{
+						Credentials: credentialRepo,
+						// The browser half. pericarp's sessions are stored
+						// rows, so one person's can be ended without touching
+						// anybody else's — a SESSION_SECRET rotation is no
+						// longer the only lever on them.
+						Sessions: authService,
+						Codes:    codeRepo,
+						Tokens:   refreshRepo,
+						Logger:   logger,
+					}),
+					Logger:        logger,
+					PublicBaseURL: baseURL,
+				})
+		})
+
 	// A native sign-in's access token lasts an hour, and an app in a native
 	// shell holds nothing else, so the refresh token handed back beside it
 	// renews it here (wm-lnimb). Public, like the sign-ins: the caller's access
@@ -453,7 +485,6 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	// register with it, or authorize at all.
 	if appCfg.AuthEnabled() {
 		clientRepo := weosoauth.NewClientRepository(db)
-		codeRepo := weosoauth.NewAuthCodeRepository(db)
 
 		const mcpResourcePath = "/api/mcp"
 		var defaultResource string
