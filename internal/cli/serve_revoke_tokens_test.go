@@ -16,10 +16,13 @@
 package cli
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -196,5 +199,143 @@ func TestServe_AnInstanceWithNoTrustedIssuerHasNoRevocationRoute(t *testing.T) {
 	if revoke.status != never.status || revoke.body != never.body {
 		t.Fatalf("the unmounted route answered %d %q, a never-mounted path %d %q",
 			revoke.status, revoke.body, never.status, never.body)
+	}
+}
+
+// registerConnector registers a connector and answers its client id.
+func registerConnector(t *testing.T, srv *httptest.Server, name string) string {
+	t.Helper()
+	registered := serveCall(t, srv, http.MethodPost, "/oauth/register",
+		`{"client_name":"`+name+`","redirect_uris":["`+connectorRedirectURI+`"],"grant_types":["authorization_code","refresh_token"]}`, nil)
+	var client struct {
+		ClientID string `json:"client_id"`
+	}
+	if registered.status != http.StatusCreated || json.Unmarshal([]byte(registered.body), &client) != nil || client.ClientID == "" {
+		t.Fatalf("POST /oauth/register answered %d %s, want 201 with a client id", registered.status, registered.body)
+	}
+	return client.ClientID
+}
+
+// authorizeWithSession asks for an authorization code with nothing but the
+// browser session in cookies — the request an intruder holding the device
+// makes. It answers the code, or "" when the instance would not hand one over.
+func authorizeWithSession(t *testing.T, srv *httptest.Server, clientID string, cookies []*http.Cookie) string {
+	t.Helper()
+	sum := sha256.Sum256([]byte(connectorVerifier))
+	q := url.Values{}
+	q.Set("client_id", clientID)
+	q.Set("redirect_uri", connectorRedirectURI)
+	q.Set("response_type", "code")
+	q.Set("code_challenge", base64.RawURLEncoding.EncodeToString(sum[:]))
+	q.Set("code_challenge_method", "S256")
+	q.Set("state", "st-4ke17")
+	q.Set("scope", "mcp:read mcp:write")
+	answer := serveCall(t, srv, http.MethodGet, "/oauth/authorize?"+q.Encode(), "", cookies)
+	location, err := url.Parse(answer.header.Get("Location"))
+	if err != nil {
+		return ""
+	}
+	return location.Query().Get("code")
+}
+
+// exchangeCode presents an authorization code at the token endpoint.
+func exchangeCode(t *testing.T, srv *httptest.Server, clientID, code string) serveAnswer {
+	t.Helper()
+	form := url.Values{}
+	form.Set("grant_type", "authorization_code")
+	form.Set("code", code)
+	form.Set("redirect_uri", connectorRedirectURI)
+	form.Set("client_id", clientID)
+	form.Set("code_verifier", connectorVerifier)
+	return postTokenForm(t, srv, form)
+}
+
+// wm-4ke17. The reset is asked for because somebody else holds the device, and
+// what they hold is the browser cookie. Ending the refresh tokens and leaving
+// that cookie alive is undone by one request: GET /oauth/authorize takes the
+// session, mints an authorization code with no re-authentication, and
+// POST /oauth/token buys a fresh 30-day refresh token with it. So the
+// revocation ends the session too, and voids the codes already handed out.
+//
+// This drives the whole path serve mounts: sign in through the door, connect a
+// connector, take a second code and hold it, revoke — then none of the three
+// works.
+func TestServe_ADoorRevocationEndsTheSessionThatWouldMintTokensAgain(t *testing.T) {
+	door := newBootDoor(t)
+	srv := bootServe(t, connectorConfig(door))
+	owner := signInThroughTheDoor(t, srv, door, bootOwnerEmail, bootOwnerSubject, bootOwnerName)
+	connector := connectThroughOAuth(t, srv, owner.cookies)
+
+	// The connector renews before the reset, which rotates its token; the
+	// rotated one is what the revocation has to reach.
+	rotated := decodeTokenAnswer(t, refreshConnector(t, srv, connector), "the refresh grant before the reset")
+	rotated.clientID = connector.clientID
+
+	// A code minted before the reset and not yet redeemed, held the way a
+	// client holds one between the redirect and the exchange.
+	held := authorizeWithSession(t, srv, connector.clientID, owner.cookies)
+	if held == "" {
+		t.Fatal("the session minted no authorization code before the reset, so the test proves nothing")
+	}
+
+	revoked := serveCall(t, srv, http.MethodPost, "/api/auth/revoke-tokens",
+		door.assertionFor(t, bootOwnerEmail, trustedissuer.PurposeRevokeTokens, ""), nil)
+	if revoked.status != http.StatusNoContent || revoked.body != "" {
+		t.Fatalf("the revocation answered %d %q, want 204 and no body", revoked.status, revoked.body)
+	}
+
+	// 1. The connector's token is dead.
+	refused := refreshConnector(t, srv, rotated)
+	if refused.status != http.StatusBadRequest || oauthError(refused.body) != "invalid_grant" {
+		t.Errorf("the connector's refresh token still renews: %d %q", refused.status, oauthError(refused.body))
+	}
+
+	// 2. The code it was already handed buys nothing.
+	exchanged := exchangeCode(t, srv, connector.clientID, held)
+	if exchanged.status == http.StatusOK {
+		t.Error("an authorization code minted before the reset was still exchanged for a token")
+	} else if oauthError(exchanged.body) != "invalid_grant" {
+		t.Errorf("exchanging the held code answered %d %q, want invalid_grant", exchanged.status, oauthError(exchanged.body))
+	}
+
+	// 3. And the cookie mints no new one, which is what would have undone all
+	// of it.
+	if again := authorizeWithSession(t, srv, connector.clientID, owner.cookies); again != "" {
+		t.Error("the browser session survived the reset and minted a fresh authorization code")
+	}
+
+	// The session is ended for every route, not only the OAuth one.
+	reached := serveRequest(t, srv, http.MethodGet, "/api/resource-types", "", "", owner.cookies)
+	if reached.status != http.StatusUnauthorized {
+		t.Errorf("the revoked session still reaches the protected API: %d", reached.status)
+	}
+}
+
+// Another person signing in at the same instance keeps their session and their
+// connector: the reset reaches the one person the assertion names. A
+// SESSION_SECRET rotation, the only lever there used to be on a session, would
+// have signed this person out too.
+func TestServe_ADoorRevocationLeavesAnotherPersonsSessionAlone(t *testing.T) {
+	door := newBootDoor(t)
+	srv := bootServe(t, connectorConfig(door))
+	owner := signInThroughTheDoor(t, srv, door, bootOwnerEmail, bootOwnerSubject, bootOwnerName)
+	other := signInThroughTheDoor(t, srv, door, bootMemberEmail, bootMemberSubject, bootMemberName)
+	clientID := registerConnector(t, srv, "Harbor Notes")
+
+	revoked := serveCall(t, srv, http.MethodPost, "/api/auth/revoke-tokens",
+		door.assertionOf(t, bootOwnerSubject, bootOwnerEmail, trustedissuer.PurposeRevokeTokens, ""), nil)
+	if revoked.status != http.StatusNoContent {
+		t.Fatalf("the revocation answered %d %s, want 204", revoked.status, revoked.body)
+	}
+
+	if authorizeWithSession(t, srv, clientID, owner.cookies) != "" {
+		t.Fatal("the reset person's session still mints authorization codes")
+	}
+	if authorizeWithSession(t, srv, clientID, other.cookies) == "" {
+		t.Fatal("another person's session was ended by a reset that does not name them")
+	}
+	reached := serveRequest(t, srv, http.MethodGet, "/api/resource-types", "", "", other.cookies)
+	if reached.status != http.StatusOK {
+		t.Fatalf("another person's session answered %d on the protected API, want 200", reached.status)
 	}
 }

@@ -35,6 +35,12 @@ const (
 	StatusPending   = "pending"
 	StatusIssued    = "issued"
 	StatusExchanged = "exchanged"
+	// StatusVoided is a code nobody redeemed and nobody now can: the person it
+	// was minted for had their token access ended (wm-fcpzx). Only
+	// StatusIssued exchanges, so a voided row is refused at the token endpoint
+	// exactly as a spent one is, and it stays distinguishable from a code that
+	// was really used.
+	StatusVoided = "voided"
 )
 
 // --- Client Repository ---
@@ -73,6 +79,15 @@ type AuthCodeRepository interface {
 	FindByCode(ctx context.Context, code string) (*OAuthAuthorizationCode, error)
 	MarkExchanged(ctx context.Context, code string) error
 	UpdateIdentity(ctx context.Context, code, agentID, accountID string) error
+	// VoidUnredeemedForAgent voids every authorization code bound to the agent
+	// that nobody has exchanged yet, and answers how many. The door's token
+	// revocation uses it: a code minted before the revocation exchanges for a
+	// fresh 30-day refresh token after it, because the token endpoint checks
+	// the code's status, the membership and the agent, and nothing about a
+	// revocation (wm-fcpzx). A code still pending is not bound to anybody yet
+	// — the sign-in that would bind it has to happen first — so there is none
+	// of the agent's to void.
+	VoidUnredeemedForAgent(ctx context.Context, agentID string) (int64, error)
 }
 
 type gormAuthCodeRepo struct{ db *gorm.DB }
@@ -137,6 +152,22 @@ func (r *gormAuthCodeRepo) UpdateIdentity(
 		return ErrNotFound
 	}
 	return nil
+}
+
+func (r *gormAuthCodeRepo) VoidUnredeemedForAgent(ctx context.Context, agentID string) (int64, error) {
+	if agentID == "" {
+		return 0, nil
+	}
+	// Expired rows are left alone: they are already unexchangeable, and
+	// counting them would report an eviction that had nothing to evict.
+	result := r.db.WithContext(ctx).
+		Model(&OAuthAuthorizationCode{}).
+		Where("agent_id = ? AND status = ? AND expires_at > ?", agentID, StatusIssued, time.Now()).
+		Update("status", StatusVoided)
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	return result.RowsAffected, nil
 }
 
 // --- Refresh Token Repository ---

@@ -137,9 +137,11 @@ type revokeTokensRequest struct {
 	Assertion string `json:"assertion"`
 }
 
-// RevokeTokens ends every refresh token of the person the assertion names —
-// each connector's and each app session's, in every family and account — so
-// nothing issued before the password changed renews again.
+// RevokeTokens ends the access of the person the assertion names: every
+// refresh token of theirs — each connector's and each app session's, in every
+// family and account — every browser session of theirs, and every
+// authorization code of theirs nobody has redeemed. So nothing issued before
+// the password changed renews again, and nothing left alive issues more.
 //
 // An accepted assertion is answered **204, always**: whether the instance
 // knows the person, whether they had any token, and whether this call or an
@@ -248,6 +250,6 @@ func MountTrustedIssuerRevocation(
 	g.POST("/auth/revoke-tokens", build().RevokeTokens)
 	logger.Info(ctx, "trusted-issuer token revocation is on; POST /api/auth/revoke-tokens is mounted",
 		"issuer", cfg.TrustedIssuer.IssuerID(),
-		"consequence", "the trusted issuer can end one person's refresh tokens — every connector and every app session of theirs — after it resets that person's password. Browser sessions are not ended: they are signed cookies, and only a SESSION_SECRET rotation ends those, for everybody at once")
+		"consequence", "the trusted issuer can end one person's access after it resets that person's password: every refresh token of theirs — every connector and every app session — every browser session of theirs, and every authorization code of theirs nobody has redeemed. It reaches that one person and nobody else, so ending a session no longer needs a SESSION_SECRET rotation, which signs everybody out at once. An access token already issued still lives out its hour")
 	return true
 }

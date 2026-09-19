@@ -7,7 +7,7 @@ nav_order: 3
 
 # ADR: Door-Initiated Token Revocation (`POST /auth/revoke-tokens`)
 
-**Status:** Proposed (amended 2026-09-19 when the work resumed: the revocation reaches only the holder of the asserted identity and never resolves by email; issuer-key compromise buying revocation is recorded as an accepted consequence; no rate limit, as on `/auth/assert`; a section on where the code corrects what bead `wm-fcpzx` records)
+**Status:** Proposed (amended 2026-09-19 when the work resumed: the revocation reaches only the holder of the asserted identity and never resolves by email; issuer-key compromise buying revocation is recorded as an accepted consequence; no rate limit, as on `/auth/assert`; a section on where the code corrects what bead `wm-fcpzx` records. Amended again the same day after review, finding `wm-4ke17`: **the revocation ends the person's browser sessions and voids their unredeemed authorization codes as well as their refresh tokens.** The first draft said browser sessions are signed cookies with no store to revoke. That is false — pericarp's sessions are stored rows — and leaving them alive undid the whole route, because a live cookie mints a fresh code and that code buys a fresh 30-day refresh token)
 **Date:** 2026-09-16
 **Ticket:** bead `wm-fcpzx`, from finding `wm-p3h32`; the door's caller is bead `wm-a8yyh` (story `wm-eb4mv.10`)
 **Base:** `v3` (the integration branch the `v3.0.1-beta.*` tags are cut from; `main` is the old line)
@@ -43,6 +43,15 @@ Verified in the code on 2026-09-16, before any of this was written:
 So: browser sessions have a blunt lever, and **token access has none**. The only ways to
 stop a connector today are to edit `oauth_refresh_tokens` by hand or to retire the
 instance.
+
+**Corrected on 2026-09-19 (finding `wm-4ke17`).** "A blunt lever" was the wrong reading of
+the browser half, and the first draft of this ADR turned it into "signed cookies with no
+store to revoke". A pericarp session is a **row**: `DefaultAuthenticationService.
+ValidateSession` reads `sessions.FindByID` and refuses one that is not `Active()` with
+`ErrSessionRevoked`, and `RevokeAllSessions(ctx, agentID)` has always existed over
+`SessionRepository.RevokeAllForAgent`. Core simply never called it. So a session **can** be
+ended for one person, and the bluntness was never a property of sessions — only of the
+lever anybody had reached for.
 
 ## Decision Drivers
 
@@ -139,11 +148,32 @@ knows each person's door identity, because it registers them, so the narrower re
 it nothing. It also narrows what a stolen issuer key buys (see "Consequences"): the thief
 must know each person's opaque door subject, not just an address.
 
-**What it revokes.** Every refresh token of the person reached, in every family, client
-and account — each connector's and each native app session's
-(`RevokeAllForAgent`). The person's own honest clients must authorize or sign in again:
-after a password reset, nothing distinguishes the intruder's client from the owner's, and
-that is the point.
+**What it revokes.** Three things, for the person reached, **in this order**:
+
+1. **Every browser session of theirs** (`AuthenticationService.RevokeAllSessions`, over
+   pericarp's stored sessions). One person's, not the instance's.
+2. **Every authorization code of theirs nobody has redeemed** and that has not expired
+   (`VoidUnredeemedForAgent`). A code still `pending` is bound to nobody yet — the sign-in
+   that binds it has not happened — so there is none of theirs to void.
+3. **Every refresh token of theirs**, in every family, client and account — each
+   connector's and each native app session's (`RevokeAllForAgent`).
+
+**The order is the substance, not a detail.** Ending the tokens first undoes itself within
+seconds: `GET /oauth/authorize` takes a live session cookie, `resolveSession` accepts it,
+`issueCodeForSession` mints an authorization code **with no re-authentication**, and
+`POST /oauth/token` exchanges that code for a brand-new refresh token with a fresh 30-day
+life. The intruder this route exists to stop is exactly the person holding the device, and
+so the cookie. Ending the sessions first closes the mint; voiding the codes next closes
+the ones already handed out; the tokens go last, when nothing left alive can issue
+another. Each step is a plain `UPDATE` and idempotent, so a retry after a failure part-way
+through converges.
+
+A step that fails stops the call and is answered **503**. Nothing after it runs, because
+ending the tokens while the cookie is alive is the state this design exists to prevent.
+
+The person's own honest clients must authorize or sign in again: after a password reset,
+nothing distinguishes the intruder's client from the owner's, and that is the point. Their
+browser is signed out for the same reason.
 
 **Answer.** **204**, always, for an accepted assertion — whether the instance knows the
 person, whether they held any token, and whether this call or an earlier one revoked it.
@@ -159,11 +189,10 @@ idempotent for the same reason it is silent.
 
 **What it does not do.**
 
-- **It does not end browser sessions.** Those are signed cookies with no store to revoke;
-  `SESSION_SECRET` rotation is still the only lever, and it is instance-wide. This route
-  exists because the *token* half had no lever at all.
 - **It does not shorten an access token.** Those are stateless and last their hour, so
-  revocation stops renewal, not the current hour.
+  revocation stops renewal, not the current hour. That is the one window left open.
+- **It does not sign anybody else out.** A `SESSION_SECRET` rotation ends every session on
+  the instance; this ends one person's, and leaves every other person signed in.
 
 ## Consequences
 
@@ -177,8 +206,14 @@ idempotent for the same reason it is silent.
 - Bad: an intruder's access survives for up to one hour on the access token already
   issued. Ending that needs a revocation check on the bearer path, which is a token
   version or a deny list, and is not in this change.
-- Bad: the browser half of the same question is still open — a reset does not end a
-  session already open in a browser.
+- Good: **a browser session can now be ended per person.** Before this, the runbook told an
+  operator that a fleet-wide `SESSION_SECRET` rotation was the only lever on a session, and
+  that it signs everybody out. It is no longer the only lever, and finding `wm-p3h32` and
+  the door's `terraform/door/README.md` ("What a password reset does not do") say otherwise
+  and must be corrected.
+- Bad: the person is signed out of their browser as well as their apps, so a reset they
+  asked for because they forgot the password ends the tab they are reading this in. The
+  door should say so before it makes the call, not after.
 - Bad, accepted: the `purpose` claim is the only thing that separates the two capabilities
   an issuer key holds, so **a stolen issuer signing key now also buys revocation** — an
   availability attack, repeatedly ending the token access of the people it can name, on
@@ -216,6 +251,10 @@ here. Its line numbers are stale, and four things differ:
   holding that person's own live credential, and never a connector's tokens. The person has
   a lever; the door has none. The bead's conclusion stands; its wording overstates the
   absence.
+- **"Browser sessions cannot be revoked" is false, and the bead's scenario needs it to
+  be.** The bead is written for an intruder holding the device — who holds the cookie. A
+  revocation that left the cookie alive was undone by one `GET /oauth/authorize`. See the
+  correction under "Context and Problem Statement" and what the route now ends.
 - **`door` is now an accepted provider key, and owner binding runs with or without
   `OAUTH_ALLOWED_EMAILS`** (`wm-x0l4m`, `wm-6lx6z`). That is what makes "a door sign-in
   always leaves a `door` credential on the person it signed in" true, which is what lets
