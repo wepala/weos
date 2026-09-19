@@ -136,6 +136,19 @@ with the same email into one person, every other token that person holds too. An
 this instance has never seen means the old password never signed anybody in here, and
 there is nothing to revoke.
 
+**Whom it cannot reach, and how that is said** (finding `wm-yhy83`). A person who set this
+instance up with an email and a password **before the door existed** holds no `door`
+credential. `TRUSTED_ISSUER_LINK_PASSWORD_OWNERS` defaults to false
+(`internal/config/trusted_issuer.go`), so a door sign-in of theirs is refused
+`unproven-owner` and never leaves one either. A door password reset therefore cannot reach
+them at all, and — because the answer is 204 whatever was found, so that the route is not
+an account-existence oracle — **the door reports the reset as successful**. That is the
+right answer to the caller and the wrong impression for an operator, so the instance says
+it in its own log, as a **warning**: one when nobody holds the asserted identity, and one
+when the person was found and held no refresh token. An operator can alert on a reset that
+ended nothing; they cannot alert on an information line. What the door should do about an
+unreachable person is bead `wm-a8yyh`'s question, not this route's.
+
 **Why not also by email** (the first draft of this ADR did, and was changed before merge).
 The fallback — every active person whose credential proves the asserted email, and every
 candidate where a sign-in would refuse `ambiguous-owner` — reached further than the reset

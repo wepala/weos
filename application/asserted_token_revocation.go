@@ -140,9 +140,20 @@ func (s *AssertedTokenRevocation) Revoke(
 		return TokenRevocationResult{}, err
 	}
 	if len(people) == 0 {
-		s.cfg.Logger.Info(ctx,
-			"trusted issuer token revocation: nobody on this instance holds the asserted identity, so no token was revoked",
-			identityFields(id, email)...)
+		// A WARNING, not an information line. The route answers 204 whatever it
+		// found, so that it cannot be asked whether an address has an account
+		// here — which means the door reports the reset as successful even when
+		// the reset reached nobody. A person who set this instance up with an
+		// email and a password before the door existed holds no door
+		// credential, and TRUSTED_ISSUER_LINK_PASSWORD_OWNERS defaults to
+		// false, so a door sign-in of theirs is refused unproven-owner and they
+		// can never be reached by a door reset at all. This log line is the
+		// only place that is ever said, so an operator has to be able to alert
+		// on it (wm-yhy83).
+		s.cfg.Logger.Warn(ctx,
+			"trusted issuer token revocation: nobody on this instance holds the asserted identity, so nothing was revoked and the reset ended no access here",
+			append(identityFields(id, email),
+				"consequence", "if this person has an account on this instance under another sign-in, a door password reset cannot reach it")...)
 		return TokenRevocationResult{}, nil
 	}
 
@@ -180,6 +191,18 @@ func (s *AssertedTokenRevocation) Revoke(
 				"a person's refresh tokens were not all revoked; ask again",
 				"revoke the refresh tokens", err)
 		}
+	}
+	if result.Tokens == 0 {
+		// Said as a warning too, and for the same reason. The person was
+		// found, and nothing of theirs was renewing — an earlier call ended it,
+		// or this instance never issued them a token at all. "Every refresh
+		// token of the person is revoked" with a count of zero reads as
+		// success to whoever reads it next (wm-yhy83).
+		s.cfg.Logger.Warn(ctx,
+			"trusted issuer token revocation: the person holds no refresh token here, so this call ended none; their browser sessions are ended and their unredeemed authorization codes are void",
+			append(identityFields(id, email, people...),
+				"revoked", result.Tokens, "codes_voided", result.Codes)...)
+		return result, nil
 	}
 	s.cfg.Logger.Info(ctx,
 		"trusted issuer token revocation: every refresh token of the person is revoked and every browser session of theirs is ended, so no connector, app session or cookie of theirs renews or mints access again",

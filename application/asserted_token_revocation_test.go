@@ -379,3 +379,60 @@ func requireErrorLogged(t *testing.T, logs *signInLogs) {
 	}
 	t.Fatalf("nothing was logged at error level:\n%s", logs.text())
 }
+
+// wm-yhy83. A person who predates the door holds no door credential, so a door
+// reset reaches nobody — and the door is still answered 204, because the
+// answer must not say whether an address has an account here. The instance's
+// own log is where that is said, and it must be a WARNING: an operator alerts
+// on a reset that ended nothing, and cannot alert on an information line.
+func TestRevokeWarnsWhenNobodyHoldsTheAssertedIdentity(t *testing.T) {
+	store := newMemoryAuthStore()
+	store.seedPerson(t, "agent-dana", "Dana Whitfield", OAuthProviderGoogle, "google-108", "dana@harborlegal.example")
+	logs := &signInLogs{}
+
+	if _, err := newRevocation(store, logs).service.Revoke(context.Background(), AssertedIdentity{
+		Provider: OAuthProviderDoor, Subject: "door-1", Email: "dana@harborlegal.example",
+	}); err != nil {
+		t.Fatalf("an identity nobody holds is not an error: %v", err)
+	}
+
+	requireWarnLogged(t, logs)
+}
+
+// The same, one step along: the person was found and held no refresh token.
+// "Every refresh token of the person is revoked" with none revoked reads as
+// success to whoever reads it next, so a count of zero is a warning too.
+func TestRevokeWarnsWhenItEndedNoToken(t *testing.T) {
+	store := newMemoryAuthStore()
+	store.seedPerson(t, "agent-dana", "Dana Whitfield", OAuthProviderDoor, "door-1", "dana@harborlegal.example")
+	logs := &signInLogs{}
+	r := newRevocation(store, logs)
+
+	result, err := r.service.Revoke(context.Background(), AssertedIdentity{
+		Provider: OAuthProviderDoor, Subject: "door-1", Email: "dana@harborlegal.example",
+	})
+
+	if err != nil {
+		t.Fatalf("the revocation failed: %v", err)
+	}
+	if result.Tokens != 0 || len(result.People) != 1 {
+		t.Fatalf("revoked %+v, want the one person and no token", result)
+	}
+	requireWarnLogged(t, logs)
+	// The person was still reached: their sessions are ended even though they
+	// held no token.
+	if r.sessions.endedFor("agent-dana") != 1 {
+		t.Fatal("the person's browser sessions were left alive")
+	}
+}
+
+// requireWarnLogged fails the test unless something was logged at warn level.
+func requireWarnLogged(t *testing.T, logs *signInLogs) {
+	t.Helper()
+	for _, line := range logs.all() {
+		if line.level == "warn" {
+			return
+		}
+	}
+	t.Fatalf("nothing was logged at warning level:\n%s", logs.text())
+}
