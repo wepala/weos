@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -461,5 +462,71 @@ func TestRevokeReachesNoStoreForAnIdentityNobodyHolds(t *testing.T) {
 	if len(r.order) != 3 {
 		// sessions, codes, tokens for the person; nothing at all for nobody.
 		t.Fatalf("the stores were touched %v, want only the three steps for the person the instance holds", r.order)
+	}
+}
+
+// A revocation that cannot reach anybody, or cannot end anything it reached,
+// is a wiring mistake. It stops the build of the revocation rather than
+// panicking at the first door reset with a nil dereference, which names
+// neither the field nor the call site that left it out (Copilot, PR #573).
+func TestNewAssertedTokenRevocationRefusesAMiswire(t *testing.T) {
+	store := newMemoryAuthStore()
+	cases := map[string]struct {
+		cfg  AssertedTokenRevocationConfig
+		says string
+	}{
+		"no credential repository": {
+			cfg:  AssertedTokenRevocationConfig{Tokens: newFakeRevoker()},
+			says: "Credentials",
+		},
+		"no refresh token revoker": {
+			cfg:  AssertedTokenRevocationConfig{Credentials: storeCredentials{s: store}},
+			says: "Tokens",
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				raised := recover()
+				if raised == nil {
+					t.Fatal("a revocation missing a dependency it cannot work without was built")
+				}
+				message, ok := raised.(string)
+				if !ok || !strings.Contains(message, c.says) {
+					t.Fatalf("the refusal does not name %s: %v", c.says, raised)
+				}
+			}()
+
+			NewAssertedTokenRevocation(c.cfg)
+		})
+	}
+}
+
+// Sessions and Codes are optional, so a caller may wire the token half alone —
+// but the revocation order depends on both, and a revocation without them can
+// be undone by the browser seconds later. Say so once, where the wiring
+// happens, instead of leaving it to be discovered in production.
+func TestNewAssertedTokenRevocationWarnsWhenTheBrowserHalfIsNotWired(t *testing.T) {
+	store := newMemoryAuthStore()
+	logs := &signInLogs{}
+
+	NewAssertedTokenRevocation(AssertedTokenRevocationConfig{
+		Credentials: storeCredentials{s: store},
+		Tokens:      newFakeRevoker(),
+		Logger:      logs,
+	})
+
+	lines := logs.all()
+	if len(lines) != 1 || lines[0].level != "warn" {
+		t.Fatalf("a token-only wiring logged %q, want one warning", logs.text())
+	}
+	if !strings.Contains(lines[0].msg, "undo itself") {
+		t.Fatalf("the warning does not say what it costs: %q", lines[0].msg)
+	}
+
+	logs.reset()
+	newRevocation(store, logs)
+	if len(logs.all()) != 0 {
+		t.Fatalf("a whole wiring warned anyway: %q", logs.text())
 	}
 }

@@ -108,9 +108,40 @@ type AssertedTokenRevocation struct {
 }
 
 // NewAssertedTokenRevocation builds an AssertedTokenRevocation.
+//
+// A miswire is refused here rather than at the first reset. Without
+// Credentials the revocation resolves the asserted identity to nobody, and
+// without Tokens it ends nothing it resolved: either one nil is a wiring
+// mistake, and a nil dereference at the first door reset says far less about
+// it than a boot that stops and names the field. Core reports a dependency a
+// constructor cannot work without this way (application.Module,
+// NormalizeEdgeKeysModule), so no new error style is introduced and serve's
+// call site, which supplies all of them, keeps its shape.
+//
+// Sessions and Codes stay OPTIONAL, as their fields say: a caller may wire the
+// token half alone. They are not decoration — the revocation order depends on
+// them, because a session left alive mints a fresh authorization code and that
+// code exchanges for a fresh 30-day refresh token — but a revocation without
+// them still does the thing it is named for, so a wiring that omits them is
+// told what it costs, once, at construction, rather than refused for a
+// configuration this type documents as allowed. Serve wires both.
 func NewAssertedTokenRevocation(cfg AssertedTokenRevocationConfig) *AssertedTokenRevocation {
+	if cfg.Credentials == nil {
+		panic("application.NewAssertedTokenRevocation: Credentials must not be nil — a revocation with no credential repository resolves the asserted identity to nobody and revokes nothing")
+	}
+	if cfg.Tokens == nil {
+		panic("application.NewAssertedTokenRevocation: Tokens must not be nil — a revocation with no refresh token revoker ends no token access")
+	}
 	if cfg.Logger == nil {
 		cfg.Logger = discardSignInLogs{}
+	}
+	if cfg.Sessions == nil || cfg.Codes == nil {
+		cfg.Logger.Warn(context.Background(),
+			"trusted issuer token revocation: wired without the browser half, so a revocation here can undo itself",
+			"sessions", cfg.Sessions != nil,
+			"codes", cfg.Codes != nil,
+			"consequence", "a live browser session mints a fresh authorization code with no re-authentication, and a code nobody has redeemed still exchanges for a fresh 30-day refresh token, so access ended here can come back seconds later",
+			"remedy", "wire Sessions (the authentication service) and Codes (the authorization code repository), the way serve does")
 	}
 	return &AssertedTokenRevocation{cfg: cfg}
 }

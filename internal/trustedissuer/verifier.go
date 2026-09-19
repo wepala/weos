@@ -74,7 +74,9 @@ const (
 	// ReasonClaims: a required claim is missing or unacceptable — jti, sub,
 	// email, provider (verbatim, one of Config.Providers), email_verified == true,
 	// or a purpose other than the one the route the assertion was presented to
-	// serves (see Config.Purpose).
+	// serves (see Config.Purpose). A purpose that is present but is not text,
+	// or is text naming nothing, is refused here too rather than read as the
+	// absent claim that means PurposeLogin.
 	ReasonClaims Reason = "claims"
 	// ReasonAllowlist: the instance has an identity allowlist
 	// (OAUTH_ALLOWED_EMAILS) and it does not name the assertion's email. It is
@@ -117,7 +119,8 @@ const (
 	// PurposeLogin is what POST /api/auth/assert serves. An assertion carrying
 	// no purpose claim asks for it: the claim was added after the route, so an
 	// issuer minting the login assertion the contract has always described
-	// keeps working unchanged.
+	// keeps working unchanged. Only an ABSENT claim asks for it — a claim that
+	// is there but is not text, or is text naming nothing, is refused.
 	PurposeLogin = "login"
 	// PurposeRevokeTokens is what POST /api/auth/revoke-tokens serves: end
 	// every refresh token of the person the assertion names. It is never
@@ -386,9 +389,9 @@ func (v *Verifier) checkClaims(c gojwt.MapClaims) (Identity, error) {
 	// every assertion asked for before the claim existed. Checked before the
 	// jti is spent, like every other claim: an issuer that minted the wrong
 	// kind corrects it and presents the same jti.
-	purpose := textClaim(c, "purpose")
-	if purpose == "" {
-		purpose = PurposeLogin
+	purpose, asks := purposeClaim(c)
+	if !asks {
+		return refuse(ReasonClaims, "the assertion carries a purpose that names nothing this instance serves")
 	}
 	if purpose != v.purpose {
 		return refuse(ReasonClaims, "the assertion does not ask for what this route does")
@@ -434,6 +437,35 @@ func (v *Verifier) admits(email string) bool {
 // apart from its owner.
 func normalizeEmail(email string) string {
 	return repositories.FoldCredentialEmail(email)
+}
+
+// purposeClaim reads what an assertion asks for. An assertion with no purpose
+// claim at all asks to sign its person in: the claim was added after the login
+// route, so an issuer minting the login assertion the contract has always
+// described keeps working unchanged.
+//
+// A claim that IS there and is not text — null, a number, an array, an object —
+// or is text that names nothing, asks for NOTHING, and ok is false. It is not
+// read as an absent claim: the claim's whole job is to keep the two routes
+// apart, so a malformed one must not fall back to the route with the wider
+// reach. Otherwise an assertion the door minted to end a person's access, with
+// a purpose its JSON mangled, would sign that person in instead (Copilot,
+// PR #573).
+//
+// Kept apart from textClaim because textClaim reads iss, sub, email and the
+// rest too: it folds "absent" and "the wrong type" together on purpose, and
+// widening it there would change refusals that have nothing to do with this
+// claim.
+func purposeClaim(c gojwt.MapClaims) (string, bool) {
+	raw, present := c["purpose"]
+	if !present {
+		return PurposeLogin, true
+	}
+	text, isText := raw.(string)
+	if !isText || strings.TrimSpace(text) == "" {
+		return "", false
+	}
+	return text, true
 }
 
 // textClaim reads a string claim. A missing claim, one of another type, and
