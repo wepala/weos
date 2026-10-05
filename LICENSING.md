@@ -28,9 +28,9 @@ contribution both ways. From the date the
 contributors agree to it before their pull requests are merged. See
 [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-Contributions made before the CLA comes into force were made by Wepala's
-founder and by Wepala employees in the course of their employment, so Wepala
-owns them.
+Contributions made before the CLA comes into force were made by the
+founder and by employees of Wepala, LLC in the course of their employment, so
+Wepala, LLC owns them.
 
 ## Third-party modules
 
