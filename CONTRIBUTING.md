@@ -44,10 +44,11 @@
 
 > **Draft for legal review.**
 
-weos is dual-licensed — AGPL v3, or a commercial license from Wepala, LLC (see
-`LICENSING.md`). So that Wepala can license every contribution both ways, each
-contributor must agree to the [Individual Contributor License Agreement](CLA.md)
-before their first pull request is merged.
+weos is dual-licensed — AGPL v3 or (at your option) any later version, or a
+commercial license from Wepala, LLC (see `LICENSING.md`). So that Wepala can
+license every contribution both ways, each contributor must agree to the
+[Individual Contributor License Agreement](CLA.md) before their first pull
+request is merged.
 
 - To agree, put the line from section 5 of `CLA.md` in the description of your
   first pull request.

@@ -5,18 +5,20 @@
 weos is dual-licensed. Its copyright holder is Wepala, LLC. You may use weos
 under either license:
 
-1. **The GNU AGPL v3** — see [`LICENSE`](LICENSE). It is free. If you modify
-   weos and let people use it over a network, you must offer them the source
-   code of your version, and a work based on weos must also be licensed under
-   the AGPL v3.
+1. **The GNU AGPL v3 or (at your option) any later version** — see
+   [`LICENSE`](LICENSE). It is free. If you modify weos and let people use it
+   over a network, you must offer them the source code of your version, and a
+   work based on weos must also be licensed under the AGPL v3 or (at your
+   option) any later version.
 2. **A commercial license from Wepala, LLC.** It lets you use, modify and ship
    weos in your own software without the AGPL obligations, so you need not
    share your source code. The terms are agreed with each licensee.
 
 ## Ask for a commercial license
 
-Contact Wepala at `<contact>`. Tell us what you are building, and how you run
-or ship weos (a hosted service, on-premises, or inside another product).
+Contact Wepala at <akeem.philbert@wepala.com>. Tell us what you are building,
+and how you run or ship weos (a hosted service, on-premises, or inside another
+product).
 
 ## Contributions
 

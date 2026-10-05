@@ -15,8 +15,9 @@ no-charge, royalty-free, irrevocable license to reproduce, prepare derivative
 works of, publicly display, publicly perform, sublicense and distribute your
 Contributions and derivative works of them.
 
-This includes the right to license your Contributions under the GNU AGPL v3,
-under commercial license terms, or under both.
+This includes the right to license your Contributions under the GNU AGPL v3
+or (at your option) any later version, under commercial license terms, or
+under both.
 
 ## 2. Patent license
 
