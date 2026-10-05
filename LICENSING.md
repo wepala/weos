@@ -23,9 +23,13 @@ product).
 ## Contributions
 
 Wepala can offer both licenses only if it has the right to license every
-contribution both ways. Contributors therefore agree to the
-[Individual Contributor License Agreement](CLA.md) before their first pull
-request is merged. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
+contribution both ways. From the date the
+[Individual Contributor License Agreement](CLA.md) comes into force,
+contributors agree to it before their pull requests are merged. See
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+Contributions made before the CLA comes into force are covered by separate
+agreements with those contributors.
 
 ## Third-party modules
 

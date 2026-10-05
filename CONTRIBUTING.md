@@ -47,10 +47,13 @@
 weos is dual-licensed — AGPL v3 or (at your option) any later version, or a
 commercial license from Wepala, LLC (see `LICENSING.md`). So that Wepala can
 license every contribution both ways, each contributor must agree to the
-[Individual Contributor License Agreement](CLA.md) before their first pull
-request is merged.
+[Individual Contributor License Agreement](CLA.md) once it comes into force.
 
-- To agree, put the line from section 5 of `CLA.md` in the description of your
-  first pull request.
-- A pull request from a contributor who has not agreed is not merged.
+- To agree, put the three lines from section 5 of `CLA.md` (statement, name,
+  email) in the description of your first pull request. The pull request
+  template has them. If you contributed before the CLA came into force, put
+  them in your next pull request.
+- From the date the CLA comes into force, a pull request from a contributor
+  who has not agreed is not merged. Until that date, pull requests are not
+  held for the CLA.
 - If you contribute for your employer, make sure it has allowed you to sign.

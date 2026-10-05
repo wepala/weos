@@ -105,3 +105,11 @@ Auto-detects SQLite vs PostgreSQL from DSN format. Use SQLite locally, PostgreSQ
 ## Development
 
 See `CONTRIBUTING.md` for contribution guidelines.
+
+## License
+
+weos is dual-licensed by Wepala, LLC. You may use it under the GNU AGPL v3 or
+(at your option) any later version — see [`LICENSE`](LICENSE) — or under a
+commercial license that lets you ship weos without the AGPL obligations. See
+[`LICENSING.md`](LICENSING.md) for both. To ask for a commercial license,
+contact <akeem.philbert@wepala.com>.

@@ -1,5 +1,7 @@
 # Individual Contributor License Agreement
 
+Version 1.0 — draft, 2026-10-05
+
 > **Draft for legal review.** This agreement is not yet in force.
 
 This agreement is between you and Wepala, LLC ("Wepala"), the copyright
@@ -16,8 +18,7 @@ works of, publicly display, publicly perform, sublicense and distribute your
 Contributions and derivative works of them.
 
 This includes the right to license your Contributions under the GNU AGPL v3
-or (at your option) any later version, under commercial license terms, or
-under both.
+or any later version, under commercial license terms, or under both.
 
 ## 2. Patent license
 
@@ -49,11 +50,12 @@ Contributions "as is", without warranty of any kind.
 
 ## 5. How to accept
 
-Put this line, with your name and email, in the description of your first pull
-request to weos:
+Put these three lines, with your name and email, in the description of your
+first pull request to weos. If you contributed to weos before this agreement
+came into force, put them in your next pull request.
 
 ```
-I have read CLA.md and I agree to it for all my Contributions to weos.
+I agree to the weos Individual Contributor License Agreement, version 1.0, for all my Contributions to weos.
 Name: <your full name>
 Email: <your email>
 ```
