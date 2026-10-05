@@ -28,8 +28,9 @@ contribution both ways. From the date the
 contributors agree to it before their pull requests are merged. See
 [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-Contributions made before the CLA comes into force are covered by separate
-agreements with those contributors.
+Contributions made before the CLA comes into force were made by Wepala's
+founder and by Wepala employees in the course of their employment, so Wepala
+owns them.
 
 ## Third-party modules
 
