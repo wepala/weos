@@ -39,3 +39,17 @@
 - Include context in all function signatures
 - Log with appropriate levels (info, warn, error)
 - Include request IDs and trace context in logs
+
+## Contributor License Agreement
+
+> **Draft for legal review.**
+
+weos is dual-licensed — AGPL v3, or a commercial license from Wepala, LLC (see
+`LICENSING.md`). So that Wepala can license every contribution both ways, each
+contributor must agree to the [Individual Contributor License Agreement](CLA.md)
+before their first pull request is merged.
+
+- To agree, put the line from section 5 of `CLA.md` in the description of your
+  first pull request.
+- A pull request from a contributor who has not agreed is not merged.
+- If you contribute for your employer, make sure it has allowed you to sign.
