@@ -245,6 +245,24 @@ type Config struct {
 
 	// Features tunes feature-flag resolution (epic #480).
 	Features FeaturesConfig
+
+	// InstanceAdminAccountID (INSTANCE_ADMIN_ACCOUNT) names the account whose
+	// owners and admins, acting in it, may change what every account on the
+	// instance shares: create, update and delete resource types, install
+	// presets, and set a type's behaviors over HTTP.
+	//
+	// Resource types are instance-wide, not per account, and on an instance
+	// with sign-in every first sign-in makes its person the owner of an
+	// account of their own. So "owner or admin" alone means "anyone who signed
+	// in". With this set, serve answers 403 to every other caller on those
+	// routes; reads stay open.
+	//
+	// Unset, the routes behave as they always have, and serve logs one warning
+	// at boot when sign-in is on. With no sign-in configured at all (local
+	// development) it is ignored. The command line is not affected: whoever
+	// can run `weos resource-type` already holds the database. Surrounding
+	// spaces are trimmed at load.
+	InstanceAdminAccountID string
 }
 
 // FeaturesConfig tunes the feature-flag resolver. Feature flags themselves are
@@ -814,6 +832,9 @@ func (c *Config) LoadFromEnvironment() {
 	}
 	if v := os.Getenv("FEATURES"); v != "" {
 		c.Features.Declared, c.Features.DeclarationError = parseFeatureDeclarations(v)
+	}
+	if v := strings.TrimSpace(os.Getenv("INSTANCE_ADMIN_ACCOUNT")); v != "" {
+		c.InstanceAdminAccountID = v
 	}
 
 	if v := os.Getenv("OXIGRAPH_USERNAME"); v != "" {

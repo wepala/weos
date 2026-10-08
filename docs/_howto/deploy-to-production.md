@@ -77,6 +77,7 @@ DATABASE_DSN="postgres://..." SESSION_SECRET="..." ./bin/weos serve
 - [ ] Set a strong `SESSION_SECRET` (not the default)
 - [ ] Configure OAuth (`GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`)
 - [ ] Set `FRONTEND_URL` to your public domain
+- [ ] Set `INSTANCE_ADMIN_ACCOUNT` to the operator's account id, so only its owners and admins can change resource types
 - [ ] Set `LOG_LEVEL=info` or `warn` (not `debug`)
 - [ ] Run behind a reverse proxy with TLS termination
 - [ ] Enable BigQuery dual-write if you want event analytics
