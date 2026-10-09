@@ -17,6 +17,7 @@ package cli
 
 import (
 	"context"
+	"strings"
 
 	apimw "github.com/wepala/weos/v3/api/middleware"
 	"github.com/wepala/weos/v3/domain/entities"
@@ -44,7 +45,9 @@ func schemaChangeGuard(
 	appCfg config.Config, accountRepo authrepos.AccountRepository, logger entities.Logger,
 ) echo.MiddlewareFunc {
 	ctx := context.Background()
-	account := appCfg.InstanceAdminAccountID
+	// Trimmed here as the guard trims it, so the boot log and the routes
+	// cannot disagree about whether an account is named (wm-0xf60).
+	account := strings.TrimSpace(appCfg.InstanceAdminAccountID)
 	switch {
 	case !appCfg.AuthEnabled():
 		if account != "" {
@@ -63,6 +66,32 @@ func schemaChangeGuard(
 	default:
 		logger.Info(ctx, "resource type and preset changes are limited to the instance admin account",
 			"account_id", account)
+		checkInstanceAdminAccountExists(ctx, account, accountRepo, logger)
 		return apimw.RequireInstanceAdmin(account, accountRepo, logger)
+	}
+}
+
+// checkInstanceAdminAccountExists warns when account names no account on the
+// instance. A mistyped id — or the operator's agent id in place of their
+// account id — refuses every schema change, the operator's too, and nothing
+// else would say why. It does not stop serve: on a fresh deploy the
+// operator's account exists only after their first sign-in, so the variable
+// may rightly name an account that comes later (wm-0xf60).
+func checkInstanceAdminAccountExists(
+	ctx context.Context, account string, accountRepo authrepos.AccountRepository, logger entities.Logger,
+) {
+	found, err := accountRepo.FindByID(ctx, account)
+	if err != nil {
+		logger.Error(ctx, "INSTANCE_ADMIN_ACCOUNT could not be checked: failed to read the account",
+			"account_id", account, "error", err)
+		return
+	}
+	if found == nil {
+		logger.Warn(ctx,
+			"INSTANCE_ADMIN_ACCOUNT names an account that does not exist, so no one can create, change or "+
+				"delete resource types or install presets over HTTP",
+			"account_id", account,
+			"remedy", "sign in as the operator, read data.account_id (not data.id, the person) from GET /api/auth/me, "+
+				"set INSTANCE_ADMIN_ACCOUNT to it and restart")
 	}
 }

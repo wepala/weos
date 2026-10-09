@@ -359,3 +359,73 @@ func TestServe_InstanceAdminDoesNothingWithoutSignIn(t *testing.T) {
 		})
 	}
 }
+
+// schemaMissingAccount is the text of the boot warning for an
+// INSTANCE_ADMIN_ACCOUNT that names no account on the instance.
+const schemaMissingAccount = "INSTANCE_ADMIN_ACCOUNT names an account that does not exist"
+
+// A mistyped or not-yet-created account locks every schema change, the
+// operator's too. serve still starts — on a fresh deploy the operator's
+// account exists only after their first sign-in — but it warns once, naming
+// the id it looked for (wm-0xf60).
+func TestServe_InstanceAdminWarnsAtBootWhenTheNamedAccountDoesNotExist(t *testing.T) {
+	logs := &bootLogCapture{}
+	cfg := config.Default()
+	cfg.SessionSecret = bootOwnSecret
+	cfg.PasswordAuthEnabled = true
+	cfg.InstanceAdminAccountID = "no-such-account"
+	srv := bootServe(t, cfg, fx.Decorate(func(entities.Logger) entities.Logger { return logs }))
+
+	warned := logs.mentioning(schemaMissingAccount)
+	if len(warned) != 1 || !strings.HasPrefix(warned[0], "warn: ") || !strings.Contains(warned[0], "no-such-account") {
+		t.Fatalf("with INSTANCE_ADMIN_ACCOUNT naming no account, boot logged %q; want one warning naming no-such-account", warned)
+	}
+	if !strings.Contains(warned[0], "/api/auth/me") {
+		t.Errorf("the warning %q does not say where the account id comes from", warned[0])
+	}
+	if got := serveCall(t, srv, http.MethodGet, "/api/resource-types/presets", "", nil); got.status == 0 {
+		t.Fatalf("serve did not answer after the warning")
+	}
+}
+
+// When the named account exists at boot, serve does not warn about it.
+func TestServe_InstanceAdminDoesNotWarnWhenTheNamedAccountExists(t *testing.T) {
+	cfg := config.Default()
+	cfg.SessionSecret = bootOwnSecret
+	cfg.PasswordAuthEnabled = true
+	dir := t.TempDir()
+
+	var accounts authrepos.AccountRepository
+	first := bootServeOn(t, cfg, dir, fx.Populate(&accounts))
+	instance, err := (&authentities.Account{}).With(schemaAdminAccount, "Instance operators",
+		authentities.AccountTypeOrganization)
+	if err != nil {
+		t.Fatalf("build the instance admin account: %v", err)
+	}
+	if err := accounts.Save(context.Background(), instance); err != nil {
+		t.Fatalf("save the instance admin account: %v", err)
+	}
+	first.stop(t)
+
+	logs := &bootLogCapture{}
+	cfg.InstanceAdminAccountID = schemaAdminAccount
+	bootServeOn(t, cfg, dir, fx.Decorate(func(entities.Logger) entities.Logger { return logs }))
+	if got := logs.mentioning(schemaMissingAccount); len(got) != 0 {
+		t.Errorf("with the named account present, boot logged %q; want no warning", got)
+	}
+	if got := logs.mentioning("limited to the instance admin account"); len(got) != 1 {
+		t.Errorf("boot logged %q; want one line saying changes are limited to the instance admin account", got)
+	}
+}
+
+// A value of spaces names no account. serve treats it as unset at boot, the
+// same as the guard does, so the boot log and the routes cannot disagree.
+func TestServe_InstanceAdminTreatsSpacesAsUnset(t *testing.T) {
+	s := newSchemaScope(t, "   ")
+	if warned := s.logs.mentioning(schemaWarning); len(warned) != 1 {
+		t.Errorf("with INSTANCE_ADMIN_ACCOUNT of spaces, boot logged %q; want the one not-set warning", warned)
+	}
+	if got := s.logs.mentioning("limited to the instance admin account"); len(got) != 0 {
+		t.Errorf("with INSTANCE_ADMIN_ACCOUNT of spaces, boot logged %q; want no claim that changes are limited", got)
+	}
+}
