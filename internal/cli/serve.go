@@ -615,9 +615,11 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	protected.POST("/notifications/mark-all-read", notificationHandler.MarkAllRead)
 	protected.POST("/notifications/:id/read", notificationHandler.MarkRead)
 
-	// Resource types, presets and behaviors are shared by every account on the
-	// instance, so changing them is guarded by instanceAdmin (wm-gu3pm). Reads
-	// stay open.
+	// Resource types and presets are shared by every account on the instance,
+	// so changing them is guarded by instanceAdmin (wm-gu3pm). Reads stay
+	// open. Behaviors are not guarded: PUT .../behaviors writes the caller's
+	// own account's setting, and the service already requires an owner or
+	// admin of that account (wm-9m6sj).
 	instanceAdmin := schemaChangeGuard(appCfg, accountRepo, logger)
 
 	rtHandler := handlers.NewResourceTypeHandler(resourceTypeService, authzChecker, accountRepo, logger)
@@ -631,7 +633,7 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	protected.GET("/resource-types/presets", presetHandler.List)
 	protected.POST("/resource-types/presets/:name", presetHandler.Install, instanceAdmin)
 	protected.GET("/resource-types/:typeSlug/behaviors", presetHandler.ListBehaviors)
-	protected.PUT("/resource-types/:typeSlug/behaviors", presetHandler.SetBehaviors, instanceAdmin)
+	protected.PUT("/resource-types/:typeSlug/behaviors", presetHandler.SetBehaviors)
 
 	screenHandler := handlers.NewPresetScreenHandler(registry)
 	protected.GET("/resource-types/presets/:name/screens/*", screenHandler.Serve)

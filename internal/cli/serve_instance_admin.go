@@ -28,8 +28,9 @@ import (
 
 // schemaChangeGuard is the middleware serve puts on every route that changes
 // what all accounts share — creating, updating and deleting resource types,
-// installing presets, setting behaviors (wm-gu3pm) — and says at boot what it
-// does.
+// and installing presets (wm-gu3pm) — and says at boot what it does. Setting
+// a type's behaviors is not one of them: it writes the caller's own account's
+// setting only (wm-9m6sj).
 //
 //   - Sign-in on, INSTANCE_ADMIN_ACCOUNT set: only an owner or admin of that
 //     account, acting in it, gets through (apimw.RequireInstanceAdmin).
@@ -56,11 +57,11 @@ func schemaChangeGuard(
 	case account == "":
 		logger.Warn(ctx,
 			"INSTANCE_ADMIN_ACCOUNT is not set, so any signed-in account can create, change or delete "+
-				"the resource types, presets and behaviors every account on this instance shares",
+				"the resource types and presets every account on this instance shares",
 			"remedy", "set INSTANCE_ADMIN_ACCOUNT to the id of the account whose owners and admins run the instance")
 		return apimw.RequireInstanceAdmin("", accountRepo, logger)
 	default:
-		logger.Info(ctx, "resource type, preset and behavior changes are limited to the instance admin account",
+		logger.Info(ctx, "resource type and preset changes are limited to the instance admin account",
 			"account_id", account)
 		return apimw.RequireInstanceAdmin(account, accountRepo, logger)
 	}

@@ -248,8 +248,9 @@ type Config struct {
 
 	// InstanceAdminAccountID (INSTANCE_ADMIN_ACCOUNT) names the account whose
 	// owners and admins, acting in it, may change what every account on the
-	// instance shares: create, update and delete resource types, install
-	// presets, and set a type's behaviors over HTTP.
+	// instance shares: create, update and delete resource types, and install
+	// presets over HTTP. A type's behaviors are set per account, so they are
+	// not covered: each account's owners and admins set their own.
 	//
 	// Resource types are instance-wide, not per account, and on an instance
 	// with sign-in every first sign-in makes its person the owner of an

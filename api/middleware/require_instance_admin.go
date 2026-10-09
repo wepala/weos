@@ -33,8 +33,8 @@ import (
 const InstanceAdminRequiredCode = "instance_admin_required"
 
 // RequireInstanceAdmin returns Echo middleware for the routes that change what
-// every account on the instance shares: resource types, presets and
-// behaviors. It admits only a caller whose active account is
+// every account on the instance shares: resource types and presets. A type's
+// behaviors are set per account, so their route does not use it. It admits only a caller whose active account is
 // instanceAccountID and who is an owner or admin there.
 //
 // Owning an account is not enough on its own. Resource types are
@@ -80,7 +80,7 @@ func RequireInstanceAdmin(
 					"path", c.Path())
 				return c.JSON(http.StatusForbidden, map[string]string{
 					"error": "only an owner or admin of this instance's admin account, acting in it, " +
-						"may change resource types, presets or behaviors",
+						"may change resource types or install presets",
 					"code": InstanceAdminRequiredCode,
 				})
 			}

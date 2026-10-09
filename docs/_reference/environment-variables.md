@@ -54,11 +54,13 @@ Set `SESSION_SECRET` to a real value before enabling either one — with the def
 
 ## Instance administration
 
-Resource types, presets and behaviors are shared by every account on an instance. On an instance with sign-in, every first sign-in makes its person the owner of a new account, so "owner or admin" alone means "anyone who signed in".
+Resource types and presets are shared by every account on an instance. On an instance with sign-in, every first sign-in makes its person the owner of a new account, so "owner or admin" alone means "anyone who signed in".
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `INSTANCE_ADMIN_ACCOUNT` | string | | The id of the account whose owners and admins run the instance. When set, `POST /api/resource-types`, `PUT` and `DELETE /api/resource-types/:id`, `POST /api/resource-types/presets/:name` and `PUT /api/resource-types/:typeSlug/behaviors` admit only an owner or admin of this account who is acting in it. Anyone else gets `403` with code `instance_admin_required`; a request with no session gets `401`. The `GET` routes are not affected |
+| `INSTANCE_ADMIN_ACCOUNT` | string | | The id of the account whose owners and admins run the instance. When set, `POST /api/resource-types`, `PUT` and `DELETE /api/resource-types/:id`, and `POST /api/resource-types/presets/:name` admit only an owner or admin of this account who is acting in it. Anyone else gets `403` with code `instance_admin_required`; a request with no session gets `401`. The `GET` routes are not affected |
+
+Behaviors are not covered. `PUT /api/resource-types/:typeSlug/behaviors` sets the behaviors of the caller's own active account only, and an owner or admin of that account may set them, whether or not this variable is set.
 
 When it is unset, those routes behave as before — any signed-in account can change the resource types — and `serve` logs one warning at boot if sign-in is configured. With no sign-in configured at all (local development) it is ignored. The command line (`weos resource-type ...`) is not affected: whoever can run it already has the database.
 

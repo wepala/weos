@@ -33,8 +33,8 @@ import (
 	"go.uber.org/fx"
 )
 
-// wm-gu3pm. Resource types, presets and behaviors are shared by every account
-// on an instance. With INSTANCE_ADMIN_ACCOUNT set, only an owner or admin of
+// wm-gu3pm. Resource types and presets are shared by every account on an
+// instance. With INSTANCE_ADMIN_ACCOUNT set, only an owner or admin of
 // that account, acting in it, may change them over HTTP. These tests boot
 // buildServer, because the property under test is serve's own wiring of those
 // routes, not the middleware alone.
@@ -119,15 +119,15 @@ func newSchemaScope(t *testing.T, configured string) *schemaScope {
 // schemaRequest is one call on a schema route.
 type schemaRequest struct{ method, path, body string }
 
-// schemaMutations are the five routes that change what every account shares,
-// aimed at the resource type typeID / typeSlug.
-func schemaMutations(typeID, typeSlug string) []schemaRequest {
+// schemaMutations are the four routes that change what every account shares,
+// aimed at the resource type typeID. Behaviors are per account and are not
+// among them (wm-9m6sj).
+func schemaMutations(typeID string) []schemaRequest {
 	return []schemaRequest{
 		{http.MethodPost, "/api/resource-types", `{"name":"Cedar Listing","slug":"cedar-listing"}`},
 		{http.MethodPut, "/api/resource-types/" + typeID, `{"name":"Renamed By Someone Else","slug":"harbor-ledger"}`},
 		{http.MethodDelete, "/api/resource-types/" + typeID, ""},
 		{http.MethodPost, "/api/resource-types/presets/website", ""},
-		{http.MethodPut, "/api/resource-types/" + typeSlug + "/behaviors", `{"slugs":[]}`},
 	}
 }
 
@@ -184,12 +184,12 @@ func schemaRefusalCode(t *testing.T, answer serveAnswer) string {
 }
 
 // The owner of an account of their own — what every first sign-in makes — is
-// refused all five schema routes, and the instance's types are left as they were.
+// refused all four schema routes, and the instance's types are left as they were.
 func TestServe_InstanceAdminRefusesTheOwnerOfAnotherAccountEverySchemaChange(t *testing.T) {
 	s := newSchemaScope(t, schemaAdminAccount)
 	typeID := s.createType(t, "Harbor Ledger", "harbor-ledger")
 
-	for _, req := range schemaMutations(typeID, "harbor-ledger") {
+	for _, req := range schemaMutations(typeID) {
 		got := s.call(t, req.method, req.path, req.body, s.outsider)
 		if got.status != http.StatusForbidden || schemaRefusalCode(t, got) != middleware.InstanceAdminRequiredCode {
 			t.Errorf("the outsider's %s %s answered %d %s; want 403 %s",
@@ -210,7 +210,7 @@ func TestServe_InstanceAdminRefusesAPlainMemberOfTheInstanceAdminAccount(t *test
 	s := newSchemaScope(t, schemaAdminAccount)
 	typeID := s.createType(t, "Harbor Ledger", "harbor-ledger")
 
-	for _, req := range schemaMutations(typeID, "harbor-ledger") {
+	for _, req := range schemaMutations(typeID) {
 		got := s.call(t, req.method, req.path, req.body, s.member)
 		if got.status != http.StatusForbidden {
 			t.Errorf("the plain member's %s %s answered %d %s; want 403", req.method, req.path, got.status, got.body)
@@ -226,7 +226,7 @@ func TestServe_InstanceAdminRefusesTheOperatorActingInTheirOwnAccount(t *testing
 	s := newSchemaScope(t, schemaAdminAccount)
 	typeID := s.createType(t, "Harbor Ledger", "harbor-ledger")
 
-	for _, req := range schemaMutations(typeID, "harbor-ledger") {
+	for _, req := range schemaMutations(typeID) {
 		got := s.call(t, req.method, req.path, req.body, s.operatorAtHome)
 		if got.status != http.StatusForbidden {
 			t.Errorf("the operator's %s %s from their own account answered %d %s, want 403",
@@ -243,7 +243,7 @@ func TestServe_InstanceAdminAsksARequestWithNoSessionToSignIn(t *testing.T) {
 	s := newSchemaScope(t, schemaAdminAccount)
 	typeID := s.createType(t, "Harbor Ledger", "harbor-ledger")
 
-	for _, req := range schemaMutations(typeID, "harbor-ledger") {
+	for _, req := range schemaMutations(typeID) {
 		got := s.call(t, req.method, req.path, req.body, usersPerson{})
 		if got.status != http.StatusUnauthorized {
 			t.Errorf("%s %s with no session answered %d %s; want 401", req.method, req.path, got.status, got.body)
@@ -258,7 +258,7 @@ func TestServe_InstanceAdminAdmitsTheOperatorAndAnAdminOfTheInstanceAdminAccount
 	typeID := s.createType(t, "Harbor Ledger", "harbor-ledger")
 
 	for _, as := range []usersPerson{s.operator, s.admin} {
-		for _, req := range schemaMutations(typeID, "harbor-ledger")[3:] {
+		for _, req := range schemaMutations(typeID)[3:] {
 			got := s.call(t, req.method, req.path, req.body, as)
 			if got.status == http.StatusUnauthorized || got.status == http.StatusForbidden {
 				t.Errorf("%s's %s %s answered %d %s; want it admitted", as.email, req.method, req.path, got.status, got.body)
@@ -276,6 +276,20 @@ func TestServe_InstanceAdminAdmitsTheOperatorAndAnAdminOfTheInstanceAdminAccount
 	deleted := s.call(t, http.MethodDelete, "/api/resource-types/"+typeID, "", s.operator)
 	if deleted.status != http.StatusNoContent {
 		t.Fatalf("the operator's DELETE answered %d %s, want 204", deleted.status, deleted.body)
+	}
+}
+
+// Behaviors are set per account, not for the instance: the service writes the
+// caller's own account's override, and only an owner or admin of that account
+// may write it. So the instance admin guard does not cover that route, and the
+// owner of an account of their own still sets behaviors on it (wm-9m6sj).
+func TestServe_InstanceAdminLeavesBehaviorsToTheOwnerOfEachAccount(t *testing.T) {
+	s := newSchemaScope(t, schemaAdminAccount)
+	s.createType(t, "Harbor Ledger", "harbor-ledger")
+
+	got := s.call(t, http.MethodPut, "/api/resource-types/harbor-ledger/behaviors", `{"slugs":[]}`, s.outsider)
+	if got.status != http.StatusOK {
+		t.Fatalf("the outsider's PUT behaviors on their own account answered %d %s; want 200", got.status, got.body)
 	}
 }
 
