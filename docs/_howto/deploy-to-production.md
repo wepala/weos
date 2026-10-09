@@ -77,8 +77,21 @@ DATABASE_DSN="postgres://..." SESSION_SECRET="..." ./bin/weos serve
 - [ ] Set a strong `SESSION_SECRET` (not the default)
 - [ ] Configure OAuth (`GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`)
 - [ ] Set `FRONTEND_URL` to your public domain
+- [ ] Set `INSTANCE_ADMIN_ACCOUNT` to the operator's account id, so only its owners and admins can change resource types (see [Set the instance admin account](#set-the-instance-admin-account) — the account exists only after the operator's first sign-in)
 - [ ] Set `LOG_LEVEL=info` or `warn` (not `debug`)
 - [ ] Run behind a reverse proxy with TLS termination
 - [ ] Enable BigQuery dual-write if you want event analytics
 
 See [Environment Variables]({% link _reference/environment-variables.md %}) for the full list.
+
+## Set the instance admin account
+
+`INSTANCE_ADMIN_ACCOUNT` names an account, and on a fresh instance that account does not exist until the operator signs in for the first time. Set it in this order, before you announce the instance:
+
+1. Deploy without `INSTANCE_ADMIN_ACCOUNT`. `serve` logs a warning that any signed-in account can change the resource types; that is expected for now.
+2. Sign in as the operator. The first sign-in makes an account that the operator owns.
+3. Call `GET /api/auth/me` with that session. Copy `data.account_id`. Do not copy `data.id`: that is the operator's own id, not the account's.
+4. Set `INSTANCE_ADMIN_ACCOUNT` to that value.
+5. Restart `serve`. It logs that resource type and preset changes are limited to the instance admin account.
+
+Until step 5, anyone who signs in can change the resource types, so keep the gap short and do not let others sign in during it. If `serve` logs that `INSTANCE_ADMIN_ACCOUNT` names an account that does not exist, the value is wrong: every change to resource types is refused, the operator's too. Do the steps again from step 3.

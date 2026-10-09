@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	apimw "github.com/wepala/weos/v3/api/middleware"
 	"github.com/wepala/weos/v3/domain/entities"
 
 	"github.com/labstack/echo/v4"
@@ -28,11 +29,10 @@ type PaginatedEnvelope struct {
 // Code, when set, is a stable machine-readable name for the failure, for the
 // cases a client must tell apart from the generic one — the same field the
 // auth middleware writes on its refusals.
-type ErrorEnvelope struct {
-	Error    string             `json:"error"`
-	Code     string             `json:"code,omitempty"`
-	Messages []entities.Message `json:"messages,omitempty"`
-}
+//
+// It is the middleware package's type, so a middleware refusal and a handler
+// error are one shape (wm-poxmk).
+type ErrorEnvelope = apimw.ErrorEnvelope
 
 // respond sends a JSON response wrapped in the standard envelope.
 // Messages accumulated on the request context are included automatically.

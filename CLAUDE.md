@@ -174,6 +174,7 @@ The `ResourceRepository` routes CRUD operations to projection tables when availa
 | `SERVER_PORT` / `PORT` | HTTP server port | `8080` |
 | `SERVER_HOST` | HTTP server bind address | `0.0.0.0` |
 | `SESSION_SECRET` | Session cookie secret | `change-me-in-production` |
+| `INSTANCE_ADMIN_ACCOUNT` | Account whose owners/admins, acting in it, may change resource types and install presets over HTTP. Unset: any signed-in account may | (unset) |
 
 ### Database
 

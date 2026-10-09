@@ -52,6 +52,22 @@ Set `SESSION_SECRET` to a real value before enabling either one — with the def
 
 > **Upgrading:** `PASSWORD_AUTH_ENABLED` used to mount registration as well. A deployment that sets only that variable keeps working for sign-in, but its register route is now closed. That is the intended change; set `PASSWORD_REGISTRATION_ENABLED=true` to restore the old behaviour on an instance that genuinely wants open self-service signup.
 
+## Instance administration
+
+Resource types and presets are shared by every account on an instance. On an instance with sign-in, every first sign-in makes its person the owner of a new account, so "owner or admin" alone means "anyone who signed in".
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `INSTANCE_ADMIN_ACCOUNT` | string | | The id of the account whose owners and admins run the instance. When set, `POST /api/resource-types`, `PUT` and `DELETE /api/resource-types/:id`, and `POST /api/resource-types/presets/:name` admit only an owner or admin of this account who is acting in it. Anyone else gets `403` with code `instance_admin_required`, whose message says to act in the instance admin account and to end any impersonation first; a request with no session gets `401`; a role that cannot be read gets `500` with code `instance_admin_check_failed`. Each is the standard error envelope (`error`, `code`, `messages`). The `GET` routes are not affected |
+
+Behaviors are not covered. `PUT /api/resource-types/:typeSlug/behaviors` sets the behaviors of the caller's own active account only, and an owner or admin of that account may set them, whether or not this variable is set.
+
+The account must exist. On a fresh instance it exists only after the operator's first sign-in: deploy, sign in as the operator, read `data.account_id` from `GET /api/auth/me`, set the variable, and restart (see [Deploy to Production]({% link _howto/deploy-to-production.md %})). When the named account does not exist, `serve` still starts but logs a warning, and every change to resource types and presets is refused.
+
+When it is unset, those routes behave as before — any signed-in account can change the resource types — and `serve` logs one warning at boot if sign-in is configured. With no sign-in configured at all (local development) it is ignored. The command line (`weos resource-type ...`) is not affected: whoever can run it already has the database.
+
+The variable does not yet cover the MCP tools (`/api/mcp`) or the role and sidebar settings routes, which share the same problem.
+
 ## MCP Server
 
 | Variable | Type | Default | Description |
