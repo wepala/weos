@@ -257,13 +257,21 @@ func TestServe_InstanceAdminAdmitsTheOperatorAndAnAdminOfTheInstanceAdminAccount
 	s := newSchemaScope(t, schemaAdminAccount)
 	typeID := s.createType(t, "Harbor Ledger", "harbor-ledger")
 
+	// An admitted call must succeed, not merely escape a refusal: a 404 from
+	// a route that is no longer mounted, or a 500, is a failure (wm-4w1h6).
 	for _, as := range []usersPerson{s.operator, s.admin} {
-		for _, req := range schemaMutations(typeID)[3:] {
-			got := s.call(t, req.method, req.path, req.body, as)
-			if got.status == http.StatusUnauthorized || got.status == http.StatusForbidden {
-				t.Errorf("%s's %s %s answered %d %s; want it admitted", as.email, req.method, req.path, got.status, got.body)
-			}
+		got := s.call(t, http.MethodPost, "/api/resource-types/presets/website", "", as)
+		if got.status != http.StatusOK {
+			t.Errorf("%s's POST /api/resource-types/presets/website answered %d %s; want 200", as.email, got.status, got.body)
 		}
+	}
+	if name := s.typeName(t, "urn:type:web-page"); name == "" {
+		t.Errorf("after the admitted preset installs, the instance holds no web-page type")
+	}
+
+	created := s.call(t, http.MethodPost, "/api/resource-types", `{"name":"Cedar Listing","slug":"cedar-listing"}`, s.admin)
+	if created.status != http.StatusCreated {
+		t.Fatalf("the admin's POST answered %d %s, want 201", created.status, created.body)
 	}
 
 	renamed := s.call(t, http.MethodPut, "/api/resource-types/"+typeID, `{"name":"Harbor Ledger Renamed","slug":"harbor-ledger"}`, s.admin)
@@ -290,6 +298,42 @@ func TestServe_InstanceAdminLeavesBehaviorsToTheOwnerOfEachAccount(t *testing.T)
 	got := s.call(t, http.MethodPut, "/api/resource-types/harbor-ledger/behaviors", `{"slugs":[]}`, s.outsider)
 	if got.status != http.StatusOK {
 		t.Fatalf("the outsider's PUT behaviors on their own account answered %d %s; want 200", got.status, got.body)
+	}
+}
+
+// The guard runs after Impersonation, so an admin of the instance admin
+// account who impersonates a plain member of it is judged as that member, and
+// refused: an impersonation never carries the impersonator's role (wm-4w1h6).
+func TestServe_InstanceAdminRefusesAnAdminImpersonatingAPlainMember(t *testing.T) {
+	s := newSchemaScope(t, schemaAdminAccount)
+	typeID := s.createType(t, "Harbor Ledger", "harbor-ledger")
+
+	started := s.call(t, http.MethodPost, "/api/admin/impersonate",
+		`{"agent_id":"`+s.member.agentID+`"}`, s.admin)
+	if started.status != http.StatusOK {
+		t.Fatalf("the admin's impersonation of a plain member answered %d %s, want 200", started.status, started.body)
+	}
+	impersonating := s.admin
+	impersonating.cookies = withCookies(s.admin.cookies, started.cookies)
+
+	for _, req := range schemaMutations(typeID) {
+		got := s.call(t, req.method, req.path, req.body, impersonating)
+		if got.status != http.StatusForbidden || schemaRefusalCode(t, got) != middleware.InstanceAdminRequiredCode {
+			t.Errorf("the admin impersonating a member: %s %s answered %d %s; want 403 %s",
+				req.method, req.path, got.status, got.body, middleware.InstanceAdminRequiredCode)
+		}
+	}
+	if name := s.typeName(t, typeID); name != "Harbor Ledger" {
+		t.Errorf("after the impersonated requests the type is named %q, want it unchanged as Harbor Ledger", name)
+	}
+	var judged []string
+	for _, line := range s.logs.mentioning("instance admin required") {
+		if strings.Contains(line, "caller_agent_id "+s.member.agentID) {
+			judged = append(judged, line)
+		}
+	}
+	if len(judged) == 0 {
+		t.Errorf("no refusal recorded the impersonated member as the caller")
 	}
 }
 
