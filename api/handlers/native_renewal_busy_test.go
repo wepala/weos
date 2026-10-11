@@ -66,6 +66,11 @@ func (s *busyNativeRenewalStore) FindByTokenHash(context.Context, string) (*weos
 	}
 }
 
+// FamilyCap reports no cap: the busy store's family is uncapped.
+func (s *busyNativeRenewalStore) FamilyCap(context.Context, string) (*time.Time, error) {
+	return nil, nil
+}
+
 func (s *busyNativeRenewalStore) Rotate(context.Context, string, *weosoauth.OAuthRefreshToken, string) error {
 	if s.rotateErr != nil {
 		return s.rotateErr

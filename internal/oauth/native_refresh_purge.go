@@ -19,6 +19,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 // NativeRefreshTokenPurgeHorizon is how long past its expiry a native refresh
@@ -35,15 +37,47 @@ const NativeRefreshTokenPurgeInterval = time.Hour
 
 // PurgeExpired deletes the refresh tokens held for clientID that expired before
 // before, revoked or not, and answers how many it deleted.
+//
+// A family's cap (family_expires_at) can live on its deleted rows alone: a
+// renewal a binary from before the cap served wrote a successor with no cap and
+// a 30-day life, which outlives the capped row by more than the horizon. So in
+// the same transaction, before the delete, every row that stays and carries no
+// cap is given the earliest cap its family's deleted rows carry. Without that a
+// renewal of the successor would find no cap and outlive the session's end.
 func (r *gormRefreshTokenRepo) PurgeExpired(ctx context.Context, clientID string, before time.Time) (int64, error) {
 	if clientID == "" {
 		return 0, nil
 	}
-	result := r.db.WithContext(ctx).
-		Where("client_id = ? AND expires_at < ?", clientID, before).
-		Delete(&OAuthRefreshToken{})
-	return result.RowsAffected, result.Error
+	var purged int64
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		backfill := tx.Exec(purgeCapBackfillSQL, clientID, before, clientID, before)
+		if backfill.Error != nil {
+			return backfill.Error
+		}
+		result := tx.Where("client_id = ? AND expires_at < ?", clientID, before).Delete(&OAuthRefreshToken{})
+		if result.Error != nil {
+			return result.Error
+		}
+		purged = result.RowsAffected
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return purged, nil
 }
+
+// purgeCapBackfillSQL gives every row of clientID that the purge before
+// before leaves, and that carries no cap, the earliest cap of its family — when
+// a row the purge deletes carries one. Its arguments are clientID, before,
+// clientID, before. The table is oauth_refresh_tokens (OAuthRefreshToken).
+const purgeCapBackfillSQL = `UPDATE oauth_refresh_tokens SET family_expires_at = (
+	SELECT MIN(c.family_expires_at) FROM oauth_refresh_tokens c
+	WHERE c.family_id = oauth_refresh_tokens.family_id AND c.family_expires_at IS NOT NULL
+) WHERE client_id = ? AND family_expires_at IS NULL AND expires_at >= ? AND family_id IN (
+	SELECT p.family_id FROM oauth_refresh_tokens p
+	WHERE p.client_id = ? AND p.family_expires_at IS NOT NULL AND p.expires_at < ?
+)`
 
 // NativeRefreshTokenPurger purges native refresh token rows past the horizon
 // from where native refresh tokens are written — a native sign-in and a

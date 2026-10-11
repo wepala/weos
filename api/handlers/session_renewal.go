@@ -17,6 +17,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -62,8 +63,12 @@ type sessionRenewalResponse struct {
 }
 
 // MountSessionRenewal registers POST /auth/refresh when h can renew a native
-// session, and reports whether it did. serve mounts it wherever a native
-// sign-in is mounted.
+// session, and reports whether it did. serve mounts it whenever renewal is
+// possible, whichever sign-ins are on (wm-xbd5h): a downstream binary's own
+// sign-in may start native sessions with password sign-in and the trusted
+// issuer both off. Mounting it makes no sign-in reachable — the password
+// routes are mounted by MountPasswordAuth alone — and it renews only refresh
+// tokens a native sign-in issued.
 func MountSessionRenewal(g *echo.Group, h *PasswordAuthHandler) bool {
 	if !h.renews() {
 		return false
@@ -72,12 +77,11 @@ func MountSessionRenewal(g *echo.Group, h *PasswordAuthHandler) bool {
 	return true
 }
 
-// renews reports whether the handler has everything a renewal reads. A sign-in
-// hands back a refresh token only when it does, so no app holds one that
-// cannot be used.
+// renews reports whether the handler has everything a renewal reads, which is
+// what its native session issuer has. A sign-in hands back a refresh token only
+// when it does, so no app holds one that cannot be used.
 func (h *PasswordAuthHandler) renews() bool {
-	return h.cfg.RefreshTokens != nil && h.cfg.AgentRepo != nil &&
-		h.cfg.AccountRepo != nil && h.cfg.ErasureLocks != nil
+	return h.cfg.NativeSessions.CanRenew()
 }
 
 // Refresh renews a native session: POST /auth/refresh with the body
@@ -142,6 +146,23 @@ func (h *PasswordAuthHandler) Refresh(c echo.Context) error {
 	if now.After(stored.ExpiresAt) {
 		return refuseRenewal(c, CodeInvalidRefreshToken)
 	}
+	// The family's cap, read from the rest of the family when this row carries
+	// none: a renewal a binary from before the cap served copied no cap onto
+	// its successor (wm-5u9q7). A family whose cap has passed renews nothing,
+	// whatever the row's own expiry says.
+	familyCap, err := weosoauth.NativeFamilyCap(ctx, tokens, stored)
+	if err != nil {
+		h.cfg.Logger.Error(ctx, "session renewal: the refresh token family's cap could not be read",
+			"token", stored.ID, "family", stored.FamilyID, "error", err)
+		return renewalUnavailable(c, "could not read the refresh token")
+	}
+	var capAt time.Time
+	if familyCap != nil {
+		capAt = *familyCap
+		if !now.Before(capAt) {
+			return refuseRenewal(c, CodeInvalidRefreshToken)
+		}
+	}
 
 	standing, err := h.sessionStandingOf(c, stored.AgentID, stored.AccountID)
 	if err != nil {
@@ -179,20 +200,59 @@ func (h *PasswordAuthHandler) Refresh(c echo.Context) error {
 	// same request, just above. The token is issued exactly as a sign-in issues
 	// one, so it carries no connector mark and the protected API takes it, and
 	// it names the session it renews, so a sign-out with it ends that session.
-	token, err := h.cfg.AuthService.IssueIdentityToken(weosoauth.WithNativeSession(ctx, stored.FamilyID),
-		agent, stored.AccountID, authapp.AccountAlreadyVerified())
+	// A capped session's access token ends at the cap when the cap comes
+	// before its hour (wm-vdax2).
+	issueCtx := weosoauth.WithNativeSession(ctx, stored.FamilyID)
+	if !capAt.IsZero() {
+		issueCtx = weosoauth.WithAccessTokenNotAfter(issueCtx, capAt)
+	}
+	token, err := h.cfg.AuthService.IssueIdentityToken(issueCtx, agent, stored.AccountID, authapp.AccountAlreadyVerified())
 	if err != nil || token == "" {
 		h.cfg.Logger.Error(ctx, "session renewal: access token issuance failed", "agent", stored.AgentID, "error", err)
 		return respondError(c, http.StatusInternalServerError, "failed to renew the session")
 	}
+	tokenExpiresAt := tokenExpiry(token)
+	if accessTokenOutlivesCap(tokenExpiresAt, capAt) {
+		// The token service did not end the token at the cap. Refused before
+		// the rotation, so nothing is spent; handing the token back would let
+		// the session last past its fixed end.
+		h.cfg.Logger.Error(ctx, "session renewal: the access token would outlive the session's cap; the token service did not end it there, so nothing was renewed",
+			"agent", stored.AgentID, "family", stored.FamilyID, "token_expires_at", tokenExpiresAt, "cap", capAt)
+		return respondError(c, http.StatusInternalServerError, "failed to renew the session")
+	}
+	if !capAt.IsZero() && !time.Now().Before(capAt) {
+		// The cap passed while the access token was signed. That token ends at
+		// the cap, and so would any successor: the renewal is refused as one
+		// after the cap is, before the rotation, so nothing is spent (PR 576
+		// review).
+		return refuseRenewal(c, CodeInvalidRefreshToken)
+	}
 
 	next := graceRefresh
-	if next.Raw == "" {
-		rotated, err := weosoauth.RotateNativeRefreshToken(ctx, tokens, presented, raw, h.cfg.RefreshSuccessorKey)
-		if err == nil {
+	if next.Raw != "" {
+		next = h.capGraceSuccessor(ctx, stored, next, familyCap)
+	} else {
+		// A row that lost its family's cap is rotated with the cap set again,
+		// so the successor carries it and every later renewal keeps to it
+		// (wm-5u9q7).
+		rotateFrom := presented
+		if presented.FamilyExpiresAt == nil && familyCap != nil {
+			healed := *presented
+			healed.FamilyExpiresAt = familyCap
+			rotateFrom = &healed
+			h.cfg.Logger.Warn(ctx, "session renewal: a refresh token carried no cap though its family has one — a binary from before the cap renewed it; the cap is written back on its successor",
+				"token", presented.ID, "family", presented.FamilyID)
+		}
+		rotated, err := weosoauth.RotateNativeRefreshToken(ctx, tokens, rotateFrom, raw, h.cfg.RefreshSuccessorKey)
+		switch {
+		case err == nil:
 			next = rotated
 			h.purgeNativeRefreshTokens(ctx)
-		} else {
+		case errors.Is(err, weosoauth.ErrNativeRefreshCapPassed):
+			// The cap passed between the check above and the rotation, which
+			// wrote nothing: refused as a renewal after the cap is.
+			return refuseRenewal(c, CodeInvalidRefreshToken)
+		default:
 			// The rotation did not spend the token for this renewal: another
 			// renewal with the same token spent it a moment ago, the token
 			// expired while the rotation waited, or the store failed — a busy or
@@ -222,8 +282,9 @@ func (h *PasswordAuthHandler) Refresh(c echo.Context) error {
 			// the successor, because a rotation spends the token and saves its
 			// successor in one transaction.
 			inGrace := false
+			var successor *weosoauth.OAuthRefreshToken
 			if lookupErr == nil {
-				_, next, inGrace, lookupErr = weosoauth.NativeRefreshSuccessorInGrace(ctx, tokens, again, raw,
+				successor, next, inGrace, lookupErr = weosoauth.NativeRefreshSuccessorInGrace(ctx, tokens, again, raw,
 					h.cfg.RefreshSuccessorKey, now, weosoauth.NativeRefreshGraceWindow)
 			}
 			if lookupErr != nil {
@@ -234,6 +295,7 @@ func (h *PasswordAuthHandler) Refresh(c echo.Context) error {
 			if !inGrace {
 				return h.refuseReusedRefreshToken(c, again)
 			}
+			next = h.capGraceSuccessor(ctx, successor, next, familyCap)
 		}
 	}
 
@@ -241,7 +303,7 @@ func (h *PasswordAuthHandler) Refresh(c echo.Context) error {
 	answer := sessionRenewalResponse{
 		Account:               authAccountResponse{ID: account.GetID(), Name: account.Name()},
 		Token:                 token,
-		TokenExpiresAt:        tokenExpiry(token),
+		TokenExpiresAt:        tokenExpiresAt,
 		RefreshToken:          next.Raw,
 		RefreshTokenExpiresAt: next.ExpiresAt,
 	}
@@ -250,6 +312,35 @@ func (h *PasswordAuthHandler) Refresh(c echo.Context) error {
 		answer.Code = apimw.CodeAccountErasurePending
 	}
 	return respond(c, http.StatusOK, answer)
+}
+
+// capGraceSuccessor keeps a successor answered inside the grace window to its
+// family's cap (familyCap; nil caps nothing). The rotation that made the
+// successor may have been served by a binary from before the cap, which wrote it
+// with no cap and the full 30 days: the answer then ends it at the cap, and the
+// cap is written on the row, so the row ends there too and every later renewal
+// reads the cap from it (wm-5u9q7). A write that fails leaves the answer capped
+// and is logged: a renewal of the successor still reads the cap from the family.
+func (h *PasswordAuthHandler) capGraceSuccessor(
+	ctx context.Context, successor *weosoauth.OAuthRefreshToken, next weosoauth.NativeRefreshToken, familyCap *time.Time,
+) weosoauth.NativeRefreshToken {
+	if familyCap == nil {
+		return next
+	}
+	if next.ExpiresAt.After(*familyCap) {
+		next.ExpiresAt = *familyCap
+	}
+	if successor == nil || (successor.FamilyExpiresAt != nil && !successor.FamilyExpiresAt.After(*familyCap) &&
+		!successor.ExpiresAt.After(*familyCap)) {
+		return next
+	}
+	h.cfg.Logger.Warn(ctx, "session renewal: the successor answered inside the grace window carried no cap, or a later one, though its family has one — a binary from before the cap renewed it; the cap is written on it",
+		"token", successor.ID, "family", successor.FamilyID)
+	if err := h.cfg.RefreshTokens.CapExpiry(ctx, successor.ID, *familyCap); err != nil {
+		h.cfg.Logger.Warn(ctx, "session renewal: could not write the family's cap on the grace successor; a renewal of it still reads the cap from the family",
+			"token", successor.ID, "family", successor.FamilyID, "error", err)
+	}
+	return next
 }
 
 // refuseReusedRefreshToken refuses spent, a native refresh token presented

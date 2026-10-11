@@ -18,7 +18,9 @@ package handlers
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 
@@ -69,26 +71,26 @@ type PasswordAuthHandlerConfig struct {
 	// renewal repeated inside the grace window gets the same one (wm-3dgs0).
 	// Optional: it defaults to weosoauth.NativeRefreshSuccessorKey(JWTService).
 	RefreshSuccessorKey []byte
+	// NativeSessions starts the native sessions a sign-in hands back, so every
+	// sign-in that starts one — this handler's, the trusted issuer's, a
+	// downstream binary's — starts it the same way (wm-xbd5h). serve passes the
+	// issuer its fx graph provides. When it is set, its RefreshTokens,
+	// AgentRepo, AccountRepo and ErasureLocks are the handler's, replacing any
+	// set here, and a different one set here is logged as a warning
+	// (wm-9uc01). When it is nil the handler builds one from AuthService and
+	// the fields above, so a handler built without it answers as it always did.
+	NativeSessions *NativeSessionIssuer
 }
 
 type PasswordAuthHandler struct {
 	cfg PasswordAuthHandlerConfig
-	// purger removes native refresh token rows past the purge horizon when a
-	// native refresh token is written (wm-sa7wv). Nil without RefreshTokens.
-	purger *weosoauth.NativeRefreshTokenPurger
 }
 
 // purgeNativeRefreshTokens runs the native refresh token purge when it is due.
-// It never fails the request that runs it.
+// It never fails the request that runs it. The issuer holds the purger, so a
+// renewal and a sign-in share one interval.
 func (h *PasswordAuthHandler) purgeNativeRefreshTokens(ctx context.Context) {
-	ran, purged, err := h.purger.MaybePurge(ctx)
-	if err != nil {
-		h.cfg.Logger.Warn(ctx, "native refresh tokens: purge failed; it runs again after the interval", "error", err)
-		return
-	}
-	if ran && purged > 0 {
-		h.cfg.Logger.Info(ctx, "native refresh tokens: purged rows past the horizon", "rows", purged)
-	}
+	h.cfg.NativeSessions.purge(ctx)
 }
 
 func NewPasswordAuthHandler(cfg PasswordAuthHandlerConfig) *PasswordAuthHandler {
@@ -108,11 +110,41 @@ func NewPasswordAuthHandler(cfg PasswordAuthHandlerConfig) *PasswordAuthHandler 
 	if cfg.JWTCookieMaxAge == 0 {
 		cfg.JWTCookieMaxAge = int(cfg.SessionDuration.Seconds())
 	}
-	h := &PasswordAuthHandler{cfg: cfg}
-	if cfg.RefreshTokens != nil {
-		h.purger = weosoauth.NewNativeRefreshTokenPurger(cfg.RefreshTokens, nil)
+	if cfg.NativeSessions == nil {
+		cfg.NativeSessions = NewNativeSessionIssuer(NativeSessionIssuerConfig{
+			AuthService:   cfg.AuthService,
+			RefreshTokens: cfg.RefreshTokens,
+			AgentRepo:     cfg.AgentRepo,
+			AccountRepo:   cfg.AccountRepo,
+			ErasureLocks:  cfg.ErasureLocks,
+			Logger:        cfg.Logger,
+		})
+	} else {
+		// One set of stores: a renewal reads the very stores the issuer wrote.
+		// A store set here that the issuer's replaces is warned about, never
+		// dropped silently (wm-9uc01).
+		sessions := cfg.NativeSessions.cfg
+		for _, f := range []struct {
+			name                 string
+			configured, replaced any
+		}{
+			{"RefreshTokens", cfg.RefreshTokens, sessions.RefreshTokens},
+			{"AgentRepo", cfg.AgentRepo, sessions.AgentRepo},
+			{"AccountRepo", cfg.AccountRepo, sessions.AccountRepo},
+			{"ErasureLocks", cfg.ErasureLocks, sessions.ErasureLocks},
+		} {
+			if f.configured != nil && !sameInstance(f.configured, f.replaced) {
+				warnf(context.Background(), cfg.Logger,
+					"password auth: NativeSessions is set, so its store replaces the one configured — sign-in and renewal read the issuer's",
+					"field", f.name)
+			}
+		}
+		cfg.RefreshTokens = sessions.RefreshTokens
+		cfg.AgentRepo = sessions.AgentRepo
+		cfg.AccountRepo = sessions.AccountRepo
+		cfg.ErasureLocks = sessions.ErasureLocks
 	}
-	return h
+	return &PasswordAuthHandler{cfg: cfg}
 }
 
 // DefaultDisplayName picks the name to register an account under. Registration
@@ -446,22 +478,35 @@ func (h *PasswordAuthHandler) completeAuthAs(
 	// account_erasure_pending on every route except DELETE /api/account, which
 	// admits it as it admits a session scoped to the locked account.
 	//
-	// A native session's id is chosen before its token is issued, so the token
-	// names the session (weosoauth.NativeSessionClaim) and a sign-out with only
-	// the token can end that session and no other (wm-utb5c).
-	nativeSessionID := ""
-	if native && accountID != "" && h.renews() {
-		nativeSessionID = weosoauth.NewNativeSessionID()
-	}
+	// A sign-in that asked for a native session, on an instance that can renew
+	// one, starts it through the issuer (wm-lnimb, wm-nybvk, wm-xbd5h): an
+	// access token naming the session, so a sign-out with only the token ends
+	// that session and no other (wm-utb5c), and a refresh token beside it. The
+	// token lasts an hour, and an app in a native shell holds nothing else to
+	// renew it with. A browser's sign-in gets a plain token and no refresh
+	// token; its cookie session is what it renews with. The same rule as the
+	// token, so a locked account's owner gets one for the deletion too, and the
+	// renewal applies the same limit to it. The refresh token is best-effort
+	// like the token: without it the app signs in again when the token expires,
+	// which is where it was before refresh tokens existed.
 	var tokenString string
-	if accountID != "" {
-		tokenCtx := ctx
-		if nativeSessionID != "" {
-			tokenCtx = weosoauth.WithNativeSession(ctx, nativeSessionID)
+	var refresh NativeSessionTokens
+	if accountID != "" && native && h.renews() {
+		var issueErr error
+		refresh, issueErr = h.cfg.NativeSessions.IssueNativeSession(ctx, agent, accountID,
+			WithAccountTrust(authapp.AccountAlreadyVerified()))
+		switch {
+		case errors.Is(issueErr, ErrNativeRefreshTokenNotIssued):
+			h.cfg.Logger.Warn(ctx, "password auth: failed to issue a refresh token; the app signs in again when the token expires",
+				"error", issueErr)
+		case issueErr != nil:
+			h.cfg.Logger.Warn(ctx, "password auth: failed to issue identity token", "error", issueErr)
 		}
+		tokenString = refresh.Token
+	} else if accountID != "" {
 		var issueErr error
 		tokenString, issueErr = h.cfg.AuthService.IssueIdentityToken(
-			tokenCtx, agent, accountID, authapp.AccountAlreadyVerified(),
+			ctx, agent, accountID, authapp.AccountAlreadyVerified(),
 		)
 		if issueErr != nil {
 			h.cfg.Logger.Warn(ctx, "password auth: failed to issue identity token", "error", issueErr)
@@ -480,27 +525,6 @@ func (h *PasswordAuthHandler) completeAuthAs(
 		})
 	}
 
-	// A refresh token goes back wherever the token does on a sign-in that asked
-	// for a native session (wm-lnimb, wm-nybvk): the token lasts an hour, and an
-	// app in a native shell holds nothing else to renew it with. A browser's
-	// sign-in gets none; its cookie session is what it renews with. The same
-	// rule as the token, so a locked account's owner gets one for the deletion
-	// too, and the renewal applies the same limit to it. Like the token it is
-	// best-effort: without it the app signs in again when the token expires,
-	// which is where it was before refresh tokens existed.
-	var refresh weosoauth.NativeRefreshToken
-	if nativeSessionID != "" && tokenString != "" {
-		var refreshErr error
-		refresh, refreshErr = weosoauth.IssueNativeRefreshToken(ctx, h.cfg.RefreshTokens, agent.GetID(), accountID, nativeSessionID)
-		if refreshErr != nil {
-			h.cfg.Logger.Warn(ctx, "password auth: failed to issue a refresh token; the app signs in again when the token expires",
-				"error", refreshErr)
-			refresh = weosoauth.NativeRefreshToken{}
-		} else {
-			h.purgeNativeRefreshTokens(ctx)
-		}
-	}
-
 	response := authSuccessResponse{
 		Agent: authAgentResponse{
 			ID:    agent.GetID(),
@@ -510,13 +534,13 @@ func (h *PasswordAuthHandler) completeAuthAs(
 		Account:               accountResp,
 		Token:                 tokenString,
 		ExpiresAt:             authSession.ExpiresAt(),
-		RefreshToken:          refresh.Raw,
-		RefreshTokenExpiresAt: refresh.ExpiresAt,
+		RefreshToken:          refresh.RefreshToken,
+		RefreshTokenExpiresAt: refresh.RefreshTokenExpiresAt,
 	}
-	if refresh.Raw != "" {
+	if refresh.RefreshToken != "" {
 		// When to renew goes with what renews it: an instance that hands back no
 		// refresh token answers with exactly the fields it always did.
-		response.TokenExpiresAt = tokenExpiry(tokenString)
+		response.TokenExpiresAt = refresh.TokenExpiresAt
 	}
 	if erasurePending {
 		response.ErasurePending = true
@@ -532,4 +556,29 @@ func (h *PasswordAuthHandler) completeAuthAs(
 // from an unscoped session just the same.
 func (h *PasswordAuthHandler) lockedAccountFor(ctx context.Context, agentID string) *authentities.Account {
 	return apimw.LockedAccountFor(ctx, agentID, h.cfg.AccountRepo, h.cfg.ErasureLocks, h.cfg.Logger)
+}
+
+// sameInstance reports whether a and b are the same store: equal values of one
+// comparable type, which for a pointer is one instance. A value whose type
+// cannot be compared is never the same, so a replacement is warned about
+// rather than missed.
+func sameInstance(a, b any) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	ta := reflect.TypeOf(a)
+	if ta != reflect.TypeOf(b) || !ta.Comparable() {
+		return false
+	}
+	return a == b
+}
+
+// warnf warns through logger, or through the process's default logger when
+// there is none.
+func warnf(ctx context.Context, logger entities.Logger, msg string, args ...any) {
+	if logger == nil {
+		slog.WarnContext(ctx, msg, args...)
+		return
+	}
+	logger.Warn(ctx, msg, args...)
 }
