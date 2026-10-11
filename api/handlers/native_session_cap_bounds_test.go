@@ -115,9 +115,14 @@ func cappedSessionHandler(t *testing.T, auth *issuerAuthService, logger *warnRec
 	})
 	h := handlers.NewPasswordAuthHandler(handlers.PasswordAuthHandlerConfig{
 		AuthService: auth, Logger: logger, NativeSessions: issuer,
+		RefreshSuccessorKey: cappedSessionSuccessorKey,
 	})
 	return store, issuer, h, agent
 }
+
+// cappedSessionSuccessorKey is the successor key cappedSessionHandler's handler
+// holds, so a test can rotate as another binary that shares the signing key.
+var cappedSessionSuccessorKey = []byte("the successor key a capped session test holds")
 
 // wm-vdax2. A session capped 20 minutes out hands back an access token that
 // expires at the cap, not an hour on, and its answer says so.
@@ -153,28 +158,86 @@ func TestRefresh_ACapInsideTheHourEndsTheRenewedAccessTokenAtTheCap(t *testing.T
 	}
 }
 
-// wm-vdax2. A token service that cannot end the token at the cap is not hidden:
-// the answer carries the token's real expiry, and a warning names the gap.
-func TestNativeSessionIssuer_WarnsWhenTheTokenOutlivesTheCap(t *testing.T) {
-	logger := &warnRecorder{}
-	_, issuer, _, agent := cappedSessionHandler(t, &issuerAuthService{ignoresNotAfter: true}, logger)
-	capAt := time.Now().Add(20 * time.Minute)
+// PR 576 review. A token service that cannot end the access token at the cap
+// would hand back a token that outlives the session, so a capped sign-in issues
+// nothing: neither that token nor a refresh token. A token whose expiry cannot
+// be read is refused the same way, since nothing says it ends by the cap.
+func TestNativeSessionIssuer_RefusesAnAccessTokenThatOutlivesTheCap(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		auth *issuerAuthService
+	}{
+		{"a token service that ignores the cap", &issuerAuthService{ignoresNotAfter: true}},
+		{"a token with no expiry", &issuerAuthService{omitExp: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, store := issuerStore(t)
+			agent := newAgent(t, "agent-ops", "Dana Whitfield")
+			issuer := handlers.NewNativeSessionIssuer(handlers.NativeSessionIssuerConfig{
+				AuthService:   tc.auth,
+				RefreshTokens: store,
+				AgentRepo:     busyRenewalAgents{agent: agent},
+				AccountRepo:   busyRenewalAccounts{account: newAccount(t, "acct-harbor", "Harbor Legal")},
+				ErasureLocks:  busyRenewalLocks{},
+				Logger:        &warnRecorder{},
+			})
+			capAt := time.Now().Add(20 * time.Minute)
 
-	tokens, err := issuer.IssueNativeSession(context.Background(), agent, "acct-harbor", handlers.WithRefreshExpiresAt(capAt))
+			tokens, err := issuer.IssueNativeSession(context.Background(), agent, "acct-harbor", handlers.WithRefreshExpiresAt(capAt))
+			if !errors.Is(err, handlers.ErrNativeAccessTokenOutlivesCap) {
+				t.Fatalf("a capped sign-in whose access token may outlive the cap answered %v, want ErrNativeAccessTokenOutlivesCap", err)
+			}
+			if tokens != (handlers.NativeSessionTokens{}) {
+				t.Fatalf("a capped sign-in whose access token may outlive the cap handed back %+v, want nothing", tokens)
+			}
+			var rows int64
+			if err := db.Model(&weosoauth.OAuthRefreshToken{}).Count(&rows).Error; err != nil {
+				t.Fatalf("count the refresh tokens: %v", err)
+			}
+			if rows != 0 {
+				t.Fatalf("a refused capped sign-in stored %d refresh tokens, want none", rows)
+			}
+		})
+	}
+}
+
+// An uncapped session has no end for its access token to outlive: a token whose
+// expiry cannot be read is handed back as before.
+func TestNativeSessionIssuer_AnUncappedSessionTakesATokenWithNoExpiry(t *testing.T) {
+	_, issuer, _, agent := cappedSessionHandler(t, &issuerAuthService{omitExp: true}, &warnRecorder{})
+
+	tokens, err := issuer.IssueNativeSession(context.Background(), agent, "acct-harbor")
+	if err != nil {
+		t.Fatalf("issue an uncapped native session: %v", err)
+	}
+	if tokens.Token == "" || tokens.RefreshToken == "" {
+		t.Fatalf("an uncapped native session handed back %+v, want both tokens", tokens)
+	}
+}
+
+// PR 576 review. A renewal whose access token would outlive the cap hands back
+// nothing and spends nothing: the refresh token is still live.
+func TestRefresh_RefusesARenewedAccessTokenThatOutlivesTheCap(t *testing.T) {
+	auth := &issuerAuthService{}
+	store, issuer, h, agent := cappedSessionHandler(t, auth, &warnRecorder{})
+	ctx := context.Background()
+	capAt := time.Now().Add(20 * time.Minute)
+	tokens, err := issuer.IssueNativeSession(ctx, agent, "acct-harbor", handlers.WithRefreshExpiresAt(capAt))
 	if err != nil {
 		t.Fatalf("issue a capped native session: %v", err)
 	}
-	if !tokens.TokenExpiresAt.After(capAt) {
-		t.Fatalf("the access token expires at %v; the test's token service should ignore the cap %v", tokens.TokenExpiresAt, capAt)
+	auth.ignoresNotAfter = true
+
+	rec := renew(t, h, tokens.RefreshToken)
+	if rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), `"token"`) {
+		t.Fatalf("a renewal whose access token outlives the cap answered %d %s, want 500 and no token", rec.Code, rec.Body.String())
 	}
-	warned := false
-	for _, w := range logger.warnings() {
-		if strings.Contains(w, "outlives") {
-			warned = true
-		}
+	presented, err := store.FindByTokenHash(ctx, weosoauth.HashToken(tokens.RefreshToken))
+	if err != nil {
+		t.Fatalf("read the presented refresh token back: %v", err)
 	}
-	if !warned {
-		t.Fatalf("no warning said the access token outlives the session's cap; got %q", logger.warnings())
+	if presented.Revoked {
+		t.Fatal("a renewal refused before its rotation spent the refresh token")
 	}
 }
 
@@ -272,6 +335,49 @@ func TestRefresh_APreCapSuccessorOfAFamilyWhoseCapHasPassedDoesNotRenew(t *testi
 	if rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), handlers.CodeInvalidRefreshToken) {
 		t.Fatalf("a successor past its family's cap answered %d %s, want 401 %s",
 			rec.Code, rec.Body.String(), handlers.CodeInvalidRefreshToken)
+	}
+}
+
+// PR 576 review. A pre-cap binary rotated a capped token, and its answer was
+// lost; the app repeats the token here inside the grace window. It is answered
+// that same successor, which the pre-cap binary wrote with no cap and 30 days:
+// the answer ends it at the family's cap, and the cap is written on the row.
+func TestRefresh_AGraceRepeatOfAPreCapRotationKeepsTheFamilyCap(t *testing.T) {
+	store, issuer, h, agent := cappedSessionHandler(t, &issuerAuthService{}, &warnRecorder{})
+	ctx := context.Background()
+	capAt := time.Now().Add(90 * time.Minute)
+	tokens, err := issuer.IssueNativeSession(ctx, agent, "acct-harbor", handlers.WithRefreshExpiresAt(capAt))
+	if err != nil {
+		t.Fatalf("issue a capped native session: %v", err)
+	}
+	root, err := store.FindByTokenHash(ctx, weosoauth.HashToken(tokens.RefreshToken))
+	if err != nil {
+		t.Fatalf("read the capped refresh token back: %v", err)
+	}
+	stripped := *root
+	stripped.FamilyExpiresAt = nil
+	oldBinary, err := weosoauth.RotateNativeRefreshToken(ctx, store, &stripped, tokens.RefreshToken, cappedSessionSuccessorKey)
+	if err != nil {
+		t.Fatalf("rotate as a pre-cap binary: %v", err)
+	}
+
+	answer := decodeRenewal(t, renew(t, h, tokens.RefreshToken))
+	if answer.Data.RefreshToken != oldBinary.Raw {
+		t.Fatal("the repeat inside the grace window was not answered the pre-cap binary's successor")
+	}
+	if !closeTo(answer.Data.RefreshTokenExpiresAt, capAt) || answer.Data.RefreshTokenExpiresAt.After(capAt) {
+		t.Fatalf("the grace answer's refresh_token_expires_at is %v, want the family cap %v",
+			answer.Data.RefreshTokenExpiresAt, capAt)
+	}
+	successor, err := store.FindByTokenHash(ctx, weosoauth.HashToken(oldBinary.Raw))
+	if err != nil {
+		t.Fatalf("read the successor back: %v", err)
+	}
+	if successor.FamilyExpiresAt == nil || !closeTo(*successor.FamilyExpiresAt, capAt) {
+		t.Fatalf("the grace successor carries cap %v, want %v written on", successor.FamilyExpiresAt, capAt)
+	}
+	if !closeTo(successor.ExpiresAt, capAt) || successor.ExpiresAt.After(capAt) {
+		t.Fatalf("the grace successor expires at %v, want the family cap %v", successor.ExpiresAt, capAt)
 	}
 }
 

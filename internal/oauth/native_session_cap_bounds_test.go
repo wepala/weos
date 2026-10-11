@@ -164,3 +164,86 @@ func TestNativeFamilyCap_ARowWithItsCapIsAnsweredFromTheRow(t *testing.T) {
 		t.Fatalf("the cap reads %v, want %v", got, capAt)
 	}
 }
+
+// PR 576 review. A pre-cap binary's successor carries no cap and lives 30 days;
+// its capped ancestor is purged a week after its capped expiry. The purge writes
+// the family's cap onto the rows it leaves behind first, so the cap outlives the
+// row that carried it and a later renewal of the successor still keeps to it.
+func TestPurgeExpired_KeepsTheFamilyCapOnTheRowsItLeaves(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewRefreshTokenRepository(db)
+	ctx := context.Background()
+	now := time.Now()
+	capAt := now.Add(-8 * 24 * time.Hour).Truncate(time.Second)
+
+	mustNoErr(t, repo.Create(ctx, &OAuthRefreshToken{
+		ID: "family-capped", FamilyID: "family-capped", AgentID: "agent-dana", ClientID: NativeClientID,
+		ExpiresAt: capAt, FamilyExpiresAt: &capAt, Revoked: true,
+	}, "raw-capped-root"), "store the capped root")
+	mustNoErr(t, repo.Create(ctx, &OAuthRefreshToken{
+		FamilyID: "family-capped", AgentID: "agent-dana", ClientID: NativeClientID,
+		ExpiresAt: now.Add(20 * 24 * time.Hour),
+	}, "raw-pre-cap-successor"), "store the pre-cap successor")
+	mustNoErr(t, repo.Create(ctx, &OAuthRefreshToken{
+		ID: "family-open", FamilyID: "family-open", AgentID: "agent-dana", ClientID: NativeClientID,
+		ExpiresAt: now.Add(20 * 24 * time.Hour),
+	}, "raw-uncapped"), "store an uncapped family")
+
+	purged, err := repo.PurgeExpired(ctx, NativeClientID, now.Add(-NativeRefreshTokenPurgeHorizon))
+	mustNoErr(t, err, "purge")
+	if purged != 1 {
+		t.Fatalf("the purge deleted %d rows, want the capped root alone", purged)
+	}
+
+	successor, err := repo.FindByTokenHash(ctx, HashToken("raw-pre-cap-successor"))
+	mustNoErr(t, err, "read the pre-cap successor back")
+	if successor.FamilyExpiresAt == nil || !withinASecond(*successor.FamilyExpiresAt, capAt) {
+		t.Fatalf("after the purge the pre-cap successor carries cap %v, want the family cap %v",
+			successor.FamilyExpiresAt, capAt)
+	}
+	got, err := NativeFamilyCap(ctx, repo, successor)
+	mustNoErr(t, err, "read the family's cap")
+	if got == nil || !withinASecond(*got, capAt) {
+		t.Fatalf("after the purge the family's cap reads %v, want %v", got, capAt)
+	}
+	open, err := repo.FindByTokenHash(ctx, HashToken("raw-uncapped"))
+	mustNoErr(t, err, "read the uncapped family back")
+	if open.FamilyExpiresAt != nil {
+		t.Fatalf("the purge gave an uncapped family cap %v, want none", *open.FamilyExpiresAt)
+	}
+}
+
+// PR 576 review. CapExpiry gives a row its family's cap: the cap is written on,
+// and an expiry past it is moved back to it. An earlier cap or expiry is kept.
+func TestRefreshTokenRepository_CapExpiryEndsTheRowByTheCap(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewRefreshTokenRepository(db)
+	ctx := context.Background()
+	now := time.Now()
+	capAt := now.Add(2 * time.Hour).Truncate(time.Second)
+	earlier := now.Add(time.Hour).Truncate(time.Second)
+
+	mustNoErr(t, repo.Create(ctx, &OAuthRefreshToken{
+		ID: "row-uncapped", FamilyID: "family-x", AgentID: "agent-dana", ClientID: NativeClientID,
+		ExpiresAt: now.Add(NativeRefreshTokenTTL),
+	}, "raw-uncapped-row"), "store an uncapped row")
+	mustNoErr(t, repo.Create(ctx, &OAuthRefreshToken{
+		ID: "row-earlier", FamilyID: "family-y", AgentID: "agent-dana", ClientID: NativeClientID,
+		ExpiresAt: earlier, FamilyExpiresAt: &earlier,
+	}, "raw-earlier-row"), "store a row capped earlier")
+
+	mustNoErr(t, repo.CapExpiry(ctx, "row-uncapped", capAt), "cap the uncapped row")
+	mustNoErr(t, repo.CapExpiry(ctx, "row-earlier", capAt), "cap the earlier row")
+
+	row, err := repo.FindByTokenHash(ctx, HashToken("raw-uncapped-row"))
+	mustNoErr(t, err, "read the capped row back")
+	if row.FamilyExpiresAt == nil || !withinASecond(*row.FamilyExpiresAt, capAt) || !withinASecond(row.ExpiresAt, capAt) {
+		t.Fatalf("the row carries cap %v and expires at %v, want both at %v", row.FamilyExpiresAt, row.ExpiresAt, capAt)
+	}
+	row, err = repo.FindByTokenHash(ctx, HashToken("raw-earlier-row"))
+	mustNoErr(t, err, "read the earlier row back")
+	if row.FamilyExpiresAt == nil || !withinASecond(*row.FamilyExpiresAt, earlier) || !withinASecond(row.ExpiresAt, earlier) {
+		t.Fatalf("the row capped earlier carries cap %v and expires at %v, want both kept at %v",
+			row.FamilyExpiresAt, row.ExpiresAt, earlier)
+	}
+}

@@ -51,6 +51,14 @@ var (
 	// ErrNativeRefreshCapPassed is what IssueNativeSession answers for a
 	// WithRefreshExpiresAt time that is not in the future. Nothing was issued.
 	ErrNativeRefreshCapPassed = weosoauth.ErrNativeRefreshCapPassed
+	// ErrNativeAccessTokenOutlivesCap is what IssueNativeSession answers for a
+	// capped session whose access token would outlive the cap: the token
+	// service did not end it at the cap, or its expiry cannot be read. Nothing
+	// was issued — neither that token nor a refresh token — because handing it
+	// back would let the session last past its fixed end. Core's token service
+	// always ends the token at the cap; a token service a downstream binary
+	// provides must too, or its capped sign-ins fail here.
+	ErrNativeAccessTokenOutlivesCap = errors.New("native session: the access token would outlive the session's cap")
 )
 
 // NativeSessionIssuerConfig is what a NativeSessionIssuer is built from. A
@@ -126,9 +134,11 @@ type nativeSessionOptions struct {
 // after the full 30-day lifetime when that comes first, and no renewal hands
 // back a refresh token that outlives t. The access token ends at t too, when t
 // comes before its hour, at sign-in and at every renewal (wm-vdax2), so the
-// session never outlives t. A sign-in whose session has a fixed end passes that
-// end. A zero t caps nothing; a t that is not in the future issues nothing
-// (ErrNativeRefreshCapPassed).
+// session never outlives t: an access token that would expire after t, or whose
+// expiry cannot be read, is never handed back (ErrNativeAccessTokenOutlivesCap
+// at sign-in, a 500 that spends nothing at renewal). A sign-in whose session has
+// a fixed end passes that end. A zero t caps nothing; a t that is not in the
+// future issues nothing (ErrNativeRefreshCapPassed).
 //
 // Near the cap a renewal still answers 200, with refresh_token_expires_at — and
 // token_expires_at, when the cap comes first — equal to the cap, which may be
@@ -157,8 +167,9 @@ func WithAccountTrust(opts ...authapp.AccountTrustOption) NativeSessionOption {
 // account; this hands back the credentials and sets no cookie.
 //
 // It answers ErrNativeSessionUnavailable when the issuer cannot renew, and an
-// error with empty tokens when the access token could not be issued: nothing
-// was issued then. When the access token was issued and the refresh token was
+// error with empty tokens when the access token could not be issued, or would
+// outlive the session's cap (ErrNativeAccessTokenOutlivesCap): nothing was
+// issued then. When the access token was issued and the refresh token was
 // not, it answers the access token alone and an error wrapping
 // ErrNativeRefreshTokenNotIssued.
 func (i *NativeSessionIssuer) IssueNativeSession(
@@ -198,7 +209,13 @@ func (i *NativeSessionIssuer) IssueNativeSession(
 		return NativeSessionTokens{}, errors.New("native session: the authentication service issued no access token")
 	}
 	tokens := NativeSessionTokens{Token: token, TokenExpiresAt: tokenExpiry(token)}
-	warnTokenOutlivesCap(ctx, i.cfg.Logger, tokens.TokenExpiresAt, o.refreshCap)
+	if accessTokenOutlivesCap(tokens.TokenExpiresAt, o.refreshCap) {
+		// Checked before the refresh token is issued, so a refused sign-in
+		// starts no family.
+		warnf(ctx, i.cfg.Logger, "native session: the access token would outlive the session's cap; the token service did not end it there, so nothing was issued",
+			"token_expires_at", tokens.TokenExpiresAt, "cap", o.refreshCap)
+		return NativeSessionTokens{}, ErrNativeAccessTokenOutlivesCap
+	}
 
 	refresh, err := weosoauth.IssueNativeRefreshTokenUntil(ctx, i.cfg.RefreshTokens, agent.GetID(), accountID,
 		sessionID, o.refreshCap)
@@ -229,15 +246,13 @@ func (i *NativeSessionIssuer) purge(ctx context.Context) {
 	}
 }
 
-// warnTokenOutlivesCap warns when an access token expires after its session's
-// cap: the token service did not end it there (wm-vdax2). Core's token service
-// always does; a token service a downstream binary provides may not. The answer
-// still carries the token's real expiry, so the app is never told the token
-// ends sooner than it does.
-func warnTokenOutlivesCap(ctx context.Context, logger entities.Logger, expires, capAt time.Time) {
-	if capAt.IsZero() || expires.IsZero() || !expires.After(capAt) {
-		return
+// accessTokenOutlivesCap reports whether an access token expiring at expires
+// would outlive its session's cap capAt (wm-vdax2): it expires after the cap, or
+// its expiry could not be read (zero), so nothing says it ends by the cap. A
+// zero capAt caps nothing.
+func accessTokenOutlivesCap(expires, capAt time.Time) bool {
+	if capAt.IsZero() {
+		return false
 	}
-	warnf(ctx, logger, "native session: the access token outlives the session's cap; the token service could not end it there",
-		"token_expires_at", expires, "cap", capAt)
+	return expires.IsZero() || expires.After(capAt)
 }

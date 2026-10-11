@@ -208,6 +208,11 @@ type RefreshTokenRepository interface {
 	// carries, revoked or not, or nil when none carries one (wm-5u9q7; see
 	// NativeFamilyCap).
 	FamilyCap(ctx context.Context, familyID string) (*time.Time, error)
+	// CapExpiry gives the token id its family's cap capAt: family_expires_at
+	// becomes capAt unless the row carries an earlier cap, and an expires_at
+	// after capAt is moved back to it. A row a binary from before the cap wrote
+	// is healed with it (see NativeFamilyCap).
+	CapExpiry(ctx context.Context, id string, capAt time.Time) error
 	// Rotate atomically revokes the old token (only if active) and creates
 	// the new token in a single transaction. If the old token is already
 	// revoked, or has expired by the clock read inside that transaction,
@@ -443,4 +448,21 @@ func (r *gormRefreshTokenRepo) FamilyCap(ctx context.Context, familyID string) (
 		return nil, nil
 	}
 	return rows[0].FamilyExpiresAt, nil
+}
+
+// CapExpiry gives the token id the cap capAt, in one transaction: the row's
+// family_expires_at becomes capAt unless it already carries an earlier one, and
+// its expires_at is moved back to capAt when it is later. A row with no id
+// matching changes nothing and is not an error.
+func (r *gormRefreshTokenRepo) CapExpiry(ctx context.Context, id string, capAt time.Time) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&OAuthRefreshToken{}).
+			Where("id = ? AND (family_expires_at IS NULL OR family_expires_at > ?)", id, capAt).
+			Update("family_expires_at", capAt).Error; err != nil {
+			return err
+		}
+		return tx.Model(&OAuthRefreshToken{}).
+			Where("id = ? AND expires_at > ?", id, capAt).
+			Update("expires_at", capAt).Error
+	})
 }
