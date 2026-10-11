@@ -73,7 +73,13 @@ type OAuthRefreshToken struct {
 	// successor (wm-3dgs0). The successor itself is kept by hash like any token.
 	SuccessorID string `gorm:"type:varchar(255)"`
 	RotatedAt   *time.Time
-	CreatedAt   time.Time
+	// FamilyExpiresAt, when set, is the latest any token of the family may
+	// expire: a rotation gives the successor the full lifetime or this,
+	// whichever comes first, and copies it on (wm-xbd5h). A sign-in whose
+	// session has a fixed end sets it, so renewing cannot outlive the
+	// session. Nil, as on every row written before it existed, caps nothing.
+	FamilyExpiresAt *time.Time
+	CreatedAt       time.Time
 }
 
 func (OAuthRefreshToken) TableName() string { return "oauth_refresh_tokens" }

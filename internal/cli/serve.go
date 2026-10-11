@@ -184,6 +184,8 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	var memberQuery repositories.AccountMemberQuery
 	var memberDirectory repositories.AccountMemberDirectory
 	var resourceRepo repositories.ResourceRepository
+	var refreshRepo weosoauth.RefreshTokenRepository
+	var nativeSessions *handlers.NativeSessionIssuer
 
 	registry := presets.NewDefaultRegistry()
 
@@ -191,6 +193,8 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 		fx.NopLogger,
 		application.Module(appCfg, registry),
 		fx.Provide(weosoauth.ProvideJWTService),
+		nativeSessionOptions(),
+		fx.Populate(&refreshRepo, &nativeSessions),
 		fx.Populate(&orchestrator),
 		fx.Populate(&skillRegistry),
 		fx.Populate(&featureInvalidator),
@@ -327,9 +331,11 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	// SESSION_SECRET is unset) so the JWT cookie is accepted in plain-HTTP
 	// local dev and stays Secure in any real deployment.
 	secureCookies := appCfg.SessionSecret != config.DefaultSessionSecret
-	// One refresh token store for connectors and native apps: a native sign-in's
-	// refresh token is kept, rotated and revoked there too (wm-lnimb).
-	refreshRepo := weosoauth.NewRefreshTokenRepository(db)
+	// refreshRepo is the graph's one refresh token store for connectors and
+	// native apps, and nativeSessions the issuer over it that every native
+	// sign-in starts its session through — a downstream binary's included
+	// (wm-lnimb, wm-xbd5h). See nativeSessionOptions.
+	//
 	// One authorization code store as well, built here rather than beside the
 	// other OAuth handlers below: the door's token revocation voids the codes
 	// it finds unredeemed, and it mounts before them.
@@ -341,9 +347,8 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 		Logger:         logger,
 		AccountRepo:    accountRepo,
 		ErasureLocks:   erasureLocks,
-		RefreshTokens:  refreshRepo,
-		AgentRepo:      agentRepo,
 		JWTService:     jwtService,
+		NativeSessions: nativeSessions,
 	})
 	handlers.MountPasswordAuth(api, passwordAuthHandlers, handlers.PasswordAuthRoutes{
 		SignIn:       appCfg.PasswordAuthEnabled,
@@ -460,9 +465,15 @@ func buildServer(appCfg config.Config, extra ...fx.Option) (_ *echo.Echo, _ *fx.
 	// A native sign-in's access token lasts an hour, and an app in a native
 	// shell holds nothing else, so the refresh token handed back beside it
 	// renews it here (wm-lnimb). Public, like the sign-ins: the caller's access
-	// token may already have expired. Mounted wherever a native sign-in is.
-	if appCfg.PasswordAuthEnabled || assertMounted {
-		handlers.MountSessionRenewal(api, passwordAuthHandlers)
+	// token may already have expired. Mounted whenever renewal is possible,
+	// whichever sign-ins are on (wm-xbd5h): a downstream binary's own sign-in
+	// starts native sessions through the graph's issuer with password sign-in
+	// and the trusted issuer both off. It makes no sign-in reachable — the
+	// password routes are mounted above, by their own settings alone — and it
+	// renews only a refresh token a native sign-in issued.
+	if !handlers.MountSessionRenewal(api, passwordAuthHandlers) {
+		logger.Warn(context.Background(),
+			"native session renewal is unavailable; POST /api/auth/refresh is not mounted and no sign-in hands back a refresh token")
 	}
 
 	// Logout must clear BOTH the gorilla session (pericarp Logout) AND the

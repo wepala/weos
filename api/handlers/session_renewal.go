@@ -62,8 +62,12 @@ type sessionRenewalResponse struct {
 }
 
 // MountSessionRenewal registers POST /auth/refresh when h can renew a native
-// session, and reports whether it did. serve mounts it wherever a native
-// sign-in is mounted.
+// session, and reports whether it did. serve mounts it whenever renewal is
+// possible, whichever sign-ins are on (wm-xbd5h): a downstream binary's own
+// sign-in may start native sessions with password sign-in and the trusted
+// issuer both off. Mounting it makes no sign-in reachable — the password
+// routes are mounted by MountPasswordAuth alone — and it renews only refresh
+// tokens a native sign-in issued.
 func MountSessionRenewal(g *echo.Group, h *PasswordAuthHandler) bool {
 	if !h.renews() {
 		return false
@@ -72,12 +76,11 @@ func MountSessionRenewal(g *echo.Group, h *PasswordAuthHandler) bool {
 	return true
 }
 
-// renews reports whether the handler has everything a renewal reads. A sign-in
-// hands back a refresh token only when it does, so no app holds one that
-// cannot be used.
+// renews reports whether the handler has everything a renewal reads, which is
+// what its native session issuer has. A sign-in hands back a refresh token only
+// when it does, so no app holds one that cannot be used.
 func (h *PasswordAuthHandler) renews() bool {
-	return h.cfg.RefreshTokens != nil && h.cfg.AgentRepo != nil &&
-		h.cfg.AccountRepo != nil && h.cfg.ErasureLocks != nil
+	return h.cfg.NativeSessions.CanRenew()
 }
 
 // Refresh renews a native session: POST /auth/refresh with the body

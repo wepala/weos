@@ -17,6 +17,7 @@ package oauth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -105,21 +106,48 @@ func NativeSessionOf(claims *authapp.PericarpClaims) string {
 
 // IssueNativeRefreshToken starts the family of native refresh tokens sessionID
 // names (see NewNativeSessionID), for the person in the account. An empty
-// sessionID starts a family with a new id.
+// sessionID starts a family with a new id. The family has no cap: every
+// rotation hands back the full lifetime.
 func IssueNativeRefreshToken(
 	ctx context.Context, repo RefreshTokenRepository, agentID, accountID, sessionID string,
 ) (NativeRefreshToken, error) {
+	return IssueNativeRefreshTokenUntil(ctx, repo, agentID, accountID, sessionID, time.Time{})
+}
+
+// ErrNativeRefreshCapPassed is what IssueNativeRefreshTokenUntil answers for a
+// cap that is not in the future: the family could never renew.
+var ErrNativeRefreshCapPassed = errors.New("native refresh token: the cap has already passed")
+
+// IssueNativeRefreshTokenUntil is IssueNativeRefreshToken for a sign-in whose
+// session has a fixed end (wm-xbd5h). No token of the family it starts expires
+// after capAt: the first expires at capAt or after the full lifetime, whichever
+// comes first, and every rotation keeps to the same cap (see
+// RotateNativeRefreshToken). A zero capAt caps nothing. A capAt that is not in
+// the future issues nothing and answers ErrNativeRefreshCapPassed.
+func IssueNativeRefreshTokenUntil(
+	ctx context.Context, repo RefreshTokenRepository, agentID, accountID, sessionID string, capAt time.Time,
+) (NativeRefreshToken, error) {
+	now := time.Now()
+	var familyCap *time.Time
+	if !capAt.IsZero() {
+		if !capAt.After(now) {
+			return NativeRefreshToken{}, ErrNativeRefreshCapPassed
+		}
+		c := capAt
+		familyCap = &c
+	}
 	raw, err := GenerateRefreshToken()
 	if err != nil {
 		return NativeRefreshToken{}, fmt.Errorf("native refresh token: generate: %w", err)
 	}
 	token := &OAuthRefreshToken{
-		ID:        sessionID,
-		FamilyID:  sessionID,
-		AgentID:   agentID,
-		AccountID: accountID,
-		ClientID:  NativeClientID,
-		ExpiresAt: time.Now().Add(NativeRefreshTokenTTL),
+		ID:              sessionID,
+		FamilyID:        sessionID,
+		AgentID:         agentID,
+		AccountID:       accountID,
+		ClientID:        NativeClientID,
+		ExpiresAt:       cappedNativeExpiry(now, familyCap),
+		FamilyExpiresAt: familyCap,
 	}
 	if err := repo.Create(ctx, token, raw); err != nil {
 		return NativeRefreshToken{}, fmt.Errorf("native refresh token: store: %w", err)
@@ -127,8 +155,20 @@ func IssueNativeRefreshToken(
 	return NativeRefreshToken{Raw: raw, ExpiresAt: token.ExpiresAt}, nil
 }
 
+// cappedNativeExpiry is when a native refresh token written at now expires:
+// after the full lifetime, or at the family's cap when that comes first.
+func cappedNativeExpiry(now time.Time, familyCap *time.Time) time.Time {
+	expires := now.Add(NativeRefreshTokenTTL)
+	if familyCap != nil && familyCap.Before(expires) {
+		return *familyCap
+	}
+	return expires
+}
+
 // RotateNativeRefreshToken replaces stored, presented as presentedRaw, with a new
 // refresh token in the same family, with the full lifetime, in one transaction.
+// A family with a cap (see IssueNativeRefreshTokenUntil) keeps it: the new token
+// expires at the cap when that comes first, and carries the cap on.
 // With a successor key the new token is derived from the presented one, so a
 // repeat inside the grace window can be answered it again (see
 // NativeRefreshSuccessorInGrace); without one it is random. It answers
@@ -149,12 +189,18 @@ func RotateNativeRefreshToken(
 			return NativeRefreshToken{}, fmt.Errorf("native refresh token: generate: %w", err)
 		}
 	}
+	var familyCap *time.Time
+	if stored.FamilyExpiresAt != nil {
+		c := *stored.FamilyExpiresAt
+		familyCap = &c
+	}
 	next := &OAuthRefreshToken{
-		AgentID:   stored.AgentID,
-		AccountID: stored.AccountID,
-		ClientID:  NativeClientID,
-		FamilyID:  stored.FamilyID,
-		ExpiresAt: time.Now().Add(NativeRefreshTokenTTL),
+		AgentID:         stored.AgentID,
+		AccountID:       stored.AccountID,
+		ClientID:        NativeClientID,
+		FamilyID:        stored.FamilyID,
+		ExpiresAt:       cappedNativeExpiry(time.Now(), familyCap),
+		FamilyExpiresAt: familyCap,
 	}
 	if err := repo.Rotate(ctx, stored.ID, next, raw); err != nil {
 		return NativeRefreshToken{}, err
