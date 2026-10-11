@@ -49,7 +49,10 @@ var (
 	// expires.
 	ErrNativeRefreshTokenNotIssued = errors.New("native session: the refresh token was not issued")
 	// ErrNativeRefreshCapPassed is what IssueNativeSession answers for a
-	// WithRefreshExpiresAt time that is not in the future. Nothing was issued.
+	// WithRefreshExpiresAt time that is not in the future — when the sign-in
+	// begins, or by the time the refresh token is written, when the cap passes
+	// while the access token is signed. Nothing is handed back either way: an
+	// access token that ends at a cap that has passed has already expired.
 	ErrNativeRefreshCapPassed = weosoauth.ErrNativeRefreshCapPassed
 	// ErrNativeAccessTokenOutlivesCap is what IssueNativeSession answers for a
 	// capped session whose access token would outlive the cap: the token
@@ -169,8 +172,10 @@ func WithAccountTrust(opts ...authapp.AccountTrustOption) NativeSessionOption {
 // It answers ErrNativeSessionUnavailable when the issuer cannot renew, and an
 // error with empty tokens when the access token could not be issued, or would
 // outlive the session's cap (ErrNativeAccessTokenOutlivesCap): nothing was
-// issued then. When the access token was issued and the refresh token was
-// not, it answers the access token alone and an error wrapping
+// issued then. It answers empty tokens and ErrNativeRefreshCapPassed when the
+// cap has passed, before the access token is issued or after. When the access
+// token was issued and the refresh token was not for any other reason, it
+// answers the access token alone and an error wrapping
 // ErrNativeRefreshTokenNotIssued.
 func (i *NativeSessionIssuer) IssueNativeSession(
 	ctx context.Context, agent *authentities.Agent, accountID string, opts ...NativeSessionOption,
@@ -219,6 +224,13 @@ func (i *NativeSessionIssuer) IssueNativeSession(
 
 	refresh, err := weosoauth.IssueNativeRefreshTokenUntil(ctx, i.cfg.RefreshTokens, agent.GetID(), accountID,
 		sessionID, o.refreshCap)
+	if errors.Is(err, ErrNativeRefreshCapPassed) {
+		// The cap passed while the access token was signed. That token ends at
+		// the cap, so it has expired: it is not handed back, and the answer is
+		// the cap's, not a refresh token failure a caller would answer the
+		// access token alone for (PR 576 review).
+		return NativeSessionTokens{}, ErrNativeRefreshCapPassed
+	}
 	if err != nil {
 		return tokens, fmt.Errorf("%w: %w", ErrNativeRefreshTokenNotIssued, err)
 	}

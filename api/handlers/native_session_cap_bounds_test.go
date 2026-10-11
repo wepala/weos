@@ -276,6 +276,71 @@ func TestRefresh_AtTheCapTheAnswerEndsBothTokensAtTheCap(t *testing.T) {
 	}
 }
 
+// PR 576 review. The cap passes while the renewed access token is signed. The
+// renewal is refused as one after the cap is, and nothing is spent: the
+// presented refresh token is not rotated and no successor is written, so the
+// app is never handed a token pair that is already dead. It holds for a token
+// that carries the cap and for a pre-cap successor whose family carries it.
+func TestRefresh_ACapThatPassesWhileTheAccessTokenIsSignedRenewsNothing(t *testing.T) {
+	for _, preCap := range []bool{false, true} {
+		name := "a capped refresh token"
+		if preCap {
+			name = "a pre-cap successor"
+		}
+		t.Run(name, func(t *testing.T) {
+			db, store := issuerStore(t)
+			auth := &issuerAuthService{}
+			agent := newAgent(t, "agent-ops", "Dana Whitfield")
+			issuer := newTestIssuer(auth, store, agent, newAccount(t, "acct-harbor", "Harbor Legal"))
+			h := handlers.NewPasswordAuthHandler(handlers.PasswordAuthHandlerConfig{
+				AuthService: auth, Logger: nopLogger{}, NativeSessions: issuer,
+				RefreshSuccessorKey: cappedSessionSuccessorKey,
+			})
+			ctx := context.Background()
+			capAt := time.Now().Add(500 * time.Millisecond)
+			tokens, err := issuer.IssueNativeSession(ctx, agent, "acct-harbor", handlers.WithRefreshExpiresAt(capAt))
+			if err != nil {
+				t.Fatalf("issue a capped native session: %v", err)
+			}
+			refresh, wantRows := tokens.RefreshToken, int64(1)
+			if preCap {
+				root, err := store.FindByTokenHash(ctx, weosoauth.HashToken(refresh))
+				if err != nil {
+					t.Fatalf("read the capped refresh token back: %v", err)
+				}
+				stripped := *root
+				stripped.FamilyExpiresAt = nil
+				oldBinary, err := weosoauth.RotateNativeRefreshToken(ctx, store, &stripped, refresh, nil)
+				if err != nil {
+					t.Fatalf("rotate as a pre-cap binary: %v", err)
+				}
+				refresh, wantRows = oldBinary.Raw, 2
+			}
+			auth.onIssue = func() { time.Sleep(time.Until(capAt) + 20*time.Millisecond) }
+
+			rec := renew(t, h, refresh)
+			if rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), handlers.CodeInvalidRefreshToken) {
+				t.Fatalf("a renewal whose cap passed mid-issue answered %d %s, want 401 %s",
+					rec.Code, rec.Body.String(), handlers.CodeInvalidRefreshToken)
+			}
+			presented, err := store.FindByTokenHash(ctx, weosoauth.HashToken(refresh))
+			if err != nil {
+				t.Fatalf("read the presented refresh token back: %v", err)
+			}
+			if presented.Revoked {
+				t.Fatal("a renewal refused because its cap passed mid-issue spent the refresh token")
+			}
+			var rows int64
+			if err := db.Model(&weosoauth.OAuthRefreshToken{}).Count(&rows).Error; err != nil {
+				t.Fatalf("count refresh tokens: %v", err)
+			}
+			if rows != wantRows {
+				t.Fatalf("the store holds %d refresh token(s), want %d: a successor was written", rows, wantRows)
+			}
+		})
+	}
+}
+
 // wm-5u9q7. A renewal served by a binary from before the cap wrote a successor
 // with no cap and a 30-day life. Renewing that successor here still keeps to the
 // family's cap, and writes it back on.

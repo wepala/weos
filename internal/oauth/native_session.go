@@ -115,7 +115,9 @@ func IssueNativeRefreshToken(
 }
 
 // ErrNativeRefreshCapPassed is what IssueNativeRefreshTokenUntil answers for a
-// cap that is not in the future: the family could never renew.
+// cap that is not in the future: the family could never renew. It is also what
+// RotateNativeRefreshToken answers for a family whose cap has passed: the
+// successor would be dead on arrival, so none is written and nothing is spent.
 var ErrNativeRefreshCapPassed = errors.New("native refresh token: the cap has already passed")
 
 // IssueNativeRefreshTokenUntil is IssueNativeRefreshToken for a sign-in whose
@@ -175,7 +177,9 @@ func cappedNativeExpiry(now time.Time, familyCap *time.Time) time.Time {
 // repeat inside the grace window can be answered it again (see
 // NativeRefreshSuccessorInGrace); without one it is random. It answers
 // ErrNotFound when stored was already rotated or revoked, which a concurrent
-// renewal with the same token also gets.
+// renewal with the same token also gets, and ErrNativeRefreshCapPassed, before
+// it touches the store, when the family's cap is not in the future — a cap can
+// pass between a caller's check and the rotation.
 func RotateNativeRefreshToken(
 	ctx context.Context, repo RefreshTokenRepository, stored *OAuthRefreshToken, presentedRaw string, successorKey []byte,
 ) (NativeRefreshToken, error) {
@@ -191,8 +195,12 @@ func RotateNativeRefreshToken(
 			return NativeRefreshToken{}, fmt.Errorf("native refresh token: generate: %w", err)
 		}
 	}
+	now := time.Now()
 	var familyCap *time.Time
 	if stored.FamilyExpiresAt != nil {
+		if !stored.FamilyExpiresAt.After(now) {
+			return NativeRefreshToken{}, ErrNativeRefreshCapPassed
+		}
 		c := *stored.FamilyExpiresAt
 		familyCap = &c
 	}
@@ -201,7 +209,7 @@ func RotateNativeRefreshToken(
 		AccountID:       stored.AccountID,
 		ClientID:        NativeClientID,
 		FamilyID:        stored.FamilyID,
-		ExpiresAt:       cappedNativeExpiry(time.Now(), familyCap),
+		ExpiresAt:       cappedNativeExpiry(now, familyCap),
 		FamilyExpiresAt: familyCap,
 	}
 	if err := repo.Rotate(ctx, stored.ID, next, raw); err != nil {

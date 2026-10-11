@@ -46,13 +46,15 @@ import (
 // session the context names, the way core's claims enricher does, with an exp
 // an hour out — or at the context's weosoauth.AccessTokenNotAfter when that
 // comes first, the way core's token service does, unless ignoresNotAfter —
-// or with no exp at all when omitExp.
+// or with no exp at all when omitExp. onIssue, when set, runs after the token
+// is signed and before it is handed back, so a test can let time pass mid-issue.
 type issuerAuthService struct {
 	authapp.AuthenticationService
 	tokenErr        error
 	emptyToken      bool
 	ignoresNotAfter bool
 	omitExp         bool
+	onIssue         func()
 	gotVouched      bool
 	gotAccount      string
 	gotSessions     []string
@@ -83,6 +85,9 @@ func (s *issuerAuthService) IssueIdentityToken(
 	claims, err := json.Marshal(body)
 	if err != nil {
 		return "", err
+	}
+	if s.onIssue != nil {
+		s.onIssue()
 	}
 	enc := base64.RawURLEncoding
 	return enc.EncodeToString([]byte(`{"alg":"none"}`)) + "." + enc.EncodeToString(claims) + ".sig", nil
@@ -249,6 +254,39 @@ func TestNativeSessionIssuer_ACapThatHasPassedIssuesNothing(t *testing.T) {
 	}
 	if tokens.Token != "" || tokens.RefreshToken != "" || len(auth.gotSessions) != 0 {
 		t.Fatal("a cap that has passed still issued a token")
+	}
+	var rows int64
+	if err := db.Model(&weosoauth.OAuthRefreshToken{}).Count(&rows).Error; err != nil {
+		t.Fatalf("count refresh tokens: %v", err)
+	}
+	if rows != 0 {
+		t.Fatalf("the store holds %d refresh token(s), want 0", rows)
+	}
+}
+
+// PR 576 review. The cap passes while the access token is signed: the cap was
+// in the future when the sign-in began, and is not by the time the refresh
+// token is written. Nothing is handed back — not the access token, which ends
+// at the cap and so has already expired — and the answer says the cap passed,
+// not that the refresh token failed, so no caller hands the dead token back
+// alone.
+func TestNativeSessionIssuer_ACapThatPassesWhileTheAccessTokenIsSignedIssuesNothing(t *testing.T) {
+	db, store := issuerStore(t)
+	capAt := time.Now().Add(300 * time.Millisecond)
+	auth := &issuerAuthService{onIssue: func() { time.Sleep(time.Until(capAt) + 20*time.Millisecond) }}
+	agent := newAgent(t, "agent-ops", "Dana Whitfield")
+	issuer := newTestIssuer(auth, store, agent, newAccount(t, "acct-harbor", "Harbor Legal"))
+
+	tokens, err := issuer.IssueNativeSession(context.Background(), agent, "acct-harbor", handlers.WithRefreshExpiresAt(capAt))
+	if !errors.Is(err, handlers.ErrNativeRefreshCapPassed) {
+		t.Fatalf("a cap that passed mid-issue answered %v, want ErrNativeRefreshCapPassed", err)
+	}
+	if errors.Is(err, handlers.ErrNativeRefreshTokenNotIssued) {
+		t.Fatal("a cap that passed mid-issue answered ErrNativeRefreshTokenNotIssued, which says the access token is good alone")
+	}
+	if tokens != (handlers.NativeSessionTokens{}) {
+		t.Fatalf("a cap that passed mid-issue handed back token %v, refresh token %v; want neither",
+			tokens.Token != "", tokens.RefreshToken != "")
 	}
 	var rows int64
 	if err := db.Model(&weosoauth.OAuthRefreshToken{}).Count(&rows).Error; err != nil {

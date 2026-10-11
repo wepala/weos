@@ -17,6 +17,7 @@ package oauth
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -151,5 +152,36 @@ func TestIssueNativeRefreshTokenUntil_RefusesACapThatHasPassed(t *testing.T) {
 	}
 	if rows != 0 {
 		t.Fatalf("the store holds %d refresh token(s) after a refused issuance, want 0", rows)
+	}
+}
+
+// PR 576 review. A rotation that runs after its family's cap has passed writes
+// no successor — one would be dead on arrival — and answers
+// ErrNativeRefreshCapPassed, so the caller refuses the renewal and nothing is
+// spent.
+func TestRotateNativeRefreshToken_RefusesAFamilyWhoseCapHasPassed(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewRefreshTokenRepository(db)
+	ctx := context.Background()
+	capAt := time.Now().Add(200 * time.Millisecond)
+
+	issued, err := IssueNativeRefreshTokenUntil(ctx, repo, "agent-ops", "acct-harbor", "", capAt)
+	mustNoErr(t, err, "issue a capped native refresh token")
+	stored, err := repo.FindByTokenHash(ctx, HashToken(issued.Raw))
+	mustNoErr(t, err, "read the capped refresh token back")
+	time.Sleep(time.Until(capAt) + 20*time.Millisecond)
+
+	if _, err := RotateNativeRefreshToken(ctx, repo, stored, issued.Raw, nil); !errors.Is(err, ErrNativeRefreshCapPassed) {
+		t.Fatalf("rotating past the family cap answered %v, want ErrNativeRefreshCapPassed", err)
+	}
+	again, err := repo.FindByTokenHash(ctx, HashToken(issued.Raw))
+	mustNoErr(t, err, "read the refresh token after the refused rotation")
+	if again.Revoked {
+		t.Fatal("a rotation refused past the family cap spent the refresh token")
+	}
+	var rows int64
+	mustNoErr(t, db.Model(&OAuthRefreshToken{}).Count(&rows).Error, "count refresh tokens")
+	if rows != 1 {
+		t.Fatalf("the store holds %d refresh token(s), want the presented one alone", rows)
 	}
 }

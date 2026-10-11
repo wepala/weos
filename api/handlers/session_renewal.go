@@ -220,6 +220,13 @@ func (h *PasswordAuthHandler) Refresh(c echo.Context) error {
 			"agent", stored.AgentID, "family", stored.FamilyID, "token_expires_at", tokenExpiresAt, "cap", capAt)
 		return respondError(c, http.StatusInternalServerError, "failed to renew the session")
 	}
+	if !capAt.IsZero() && !time.Now().Before(capAt) {
+		// The cap passed while the access token was signed. That token ends at
+		// the cap, and so would any successor: the renewal is refused as one
+		// after the cap is, before the rotation, so nothing is spent (PR 576
+		// review).
+		return refuseRenewal(c, CodeInvalidRefreshToken)
+	}
 
 	next := graceRefresh
 	if next.Raw != "" {
@@ -237,10 +244,15 @@ func (h *PasswordAuthHandler) Refresh(c echo.Context) error {
 				"token", presented.ID, "family", presented.FamilyID)
 		}
 		rotated, err := weosoauth.RotateNativeRefreshToken(ctx, tokens, rotateFrom, raw, h.cfg.RefreshSuccessorKey)
-		if err == nil {
+		switch {
+		case err == nil:
 			next = rotated
 			h.purgeNativeRefreshTokens(ctx)
-		} else {
+		case errors.Is(err, weosoauth.ErrNativeRefreshCapPassed):
+			// The cap passed between the check above and the rotation, which
+			// wrote nothing: refused as a renewal after the cap is.
+			return refuseRenewal(c, CodeInvalidRefreshToken)
+		default:
 			// The rotation did not spend the token for this renewal: another
 			// renewal with the same token spent it a moment ago, the token
 			// expired while the rotation waited, or the store failed — a busy or
