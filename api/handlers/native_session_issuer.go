@@ -124,10 +124,19 @@ type nativeSessionOptions struct {
 
 // WithRefreshExpiresAt caps the session: its refresh token expires at t, or
 // after the full 30-day lifetime when that comes first, and no renewal hands
-// back a refresh token that outlives t. A sign-in whose session has a fixed
-// end passes that end, so renewing keeps the hour-long access token alive only
-// inside the session. A zero t caps nothing; a t that is not in the future
-// issues nothing (ErrNativeRefreshCapPassed).
+// back a refresh token that outlives t. The access token ends at t too, when t
+// comes before its hour, at sign-in and at every renewal (wm-vdax2), so the
+// session never outlives t. A sign-in whose session has a fixed end passes that
+// end. A zero t caps nothing; a t that is not in the future issues nothing
+// (ErrNativeRefreshCapPassed).
+//
+// Near the cap a renewal still answers 200, with refresh_token_expires_at — and
+// token_expires_at, when the cap comes first — equal to the cap, which may be
+// seconds away (wm-2yq9p). That is the session's end, not a prompt to renew:
+// an app that renews some margin before expiry stops renewing when
+// refresh_token_expires_at is within its margin, and signs the person in again
+// once the token expires. A renewal after the cap is refused with
+// invalid_refresh_token.
 func WithRefreshExpiresAt(t time.Time) NativeSessionOption {
 	return func(o *nativeSessionOptions) { o.refreshCap = t }
 }
@@ -175,8 +184,13 @@ func (i *NativeSessionIssuer) IssueNativeSession(
 	// names the session (weosoauth.NativeSessionClaim) and a sign-out with
 	// only the token can end that session and no other (wm-utb5c).
 	sessionID := weosoauth.NewNativeSessionID()
-	token, err := i.cfg.AuthService.IssueIdentityToken(weosoauth.WithNativeSession(ctx, sessionID),
-		agent, accountID, o.trust...)
+	issueCtx := weosoauth.WithNativeSession(ctx, sessionID)
+	if !o.refreshCap.IsZero() {
+		// A capped session's access token ends at the cap when the cap comes
+		// before its hour (wm-vdax2).
+		issueCtx = weosoauth.WithAccessTokenNotAfter(issueCtx, o.refreshCap)
+	}
+	token, err := i.cfg.AuthService.IssueIdentityToken(issueCtx, agent, accountID, o.trust...)
 	if err != nil {
 		return NativeSessionTokens{}, fmt.Errorf("native session: issue the access token: %w", err)
 	}
@@ -184,6 +198,7 @@ func (i *NativeSessionIssuer) IssueNativeSession(
 		return NativeSessionTokens{}, errors.New("native session: the authentication service issued no access token")
 	}
 	tokens := NativeSessionTokens{Token: token, TokenExpiresAt: tokenExpiry(token)}
+	warnTokenOutlivesCap(ctx, i.cfg.Logger, tokens.TokenExpiresAt, o.refreshCap)
 
 	refresh, err := weosoauth.IssueNativeRefreshTokenUntil(ctx, i.cfg.RefreshTokens, agent.GetID(), accountID,
 		sessionID, o.refreshCap)
@@ -202,14 +217,27 @@ func (i *NativeSessionIssuer) purge(ctx context.Context) {
 		return
 	}
 	ran, purged, err := i.purger.MaybePurge(ctx)
-	if i.cfg.Logger == nil {
-		return
-	}
+	// The error is checked before the logger, so an issuer built with no
+	// logger still reports a purge that failed, through the process's default
+	// logger (wm-sbevq).
 	if err != nil {
-		i.cfg.Logger.Warn(ctx, "native refresh tokens: purge failed; it runs again after the interval", "error", err)
+		warnf(ctx, i.cfg.Logger, "native refresh tokens: purge failed; it runs again after the interval", "error", err)
 		return
 	}
-	if ran && purged > 0 {
+	if ran && purged > 0 && i.cfg.Logger != nil {
 		i.cfg.Logger.Info(ctx, "native refresh tokens: purged rows past the horizon", "rows", purged)
 	}
+}
+
+// warnTokenOutlivesCap warns when an access token expires after its session's
+// cap: the token service did not end it there (wm-vdax2). Core's token service
+// always does; a token service a downstream binary provides may not. The answer
+// still carries the token's real expiry, so the app is never told the token
+// ends sooner than it does.
+func warnTokenOutlivesCap(ctx context.Context, logger entities.Logger, expires, capAt time.Time) {
+	if capAt.IsZero() || expires.IsZero() || !expires.After(capAt) {
+		return
+	}
+	warnf(ctx, logger, "native session: the access token outlives the session's cap; the token service could not end it there",
+		"token_expires_at", expires, "cap", capAt)
 }

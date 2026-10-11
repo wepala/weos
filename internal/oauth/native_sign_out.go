@@ -26,12 +26,16 @@ import (
 )
 
 // instanceJWTService is the token service ProvideJWTService builds: pericarp's
-// RSA service, which keeps its key to itself, and the public half of that key,
-// so a sign-out can check the signature of a token whose hour has passed
-// (wm-ehtnq). Every method of the RSA service is its own.
+// RSA service, which keeps its key to itself, and a copy of that key pair, so a
+// sign-out can check the signature of a token whose hour has passed
+// (wm-ehtnq). Every method of the RSA service is its own but IssueToken, which
+// can end a token at a native session's cap (wm-vdax2).
 type instanceJWTService struct {
 	*authjwt.RSAJWTService
 	publicKey *rsa.PublicKey
+	// signingKey is the key the RSA service signs with, kept so a token can be
+	// signed again with an earlier exp (see IssueToken, wm-vdax2).
+	signingKey *rsa.PrivateKey
 	// successorKey derives native refresh token successors (see
 	// NativeRefreshSuccessorKey). It comes from the signing key, so every
 	// process that signs with that key derives the same successors.

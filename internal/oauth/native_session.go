@@ -168,7 +168,9 @@ func cappedNativeExpiry(now time.Time, familyCap *time.Time) time.Time {
 // RotateNativeRefreshToken replaces stored, presented as presentedRaw, with a new
 // refresh token in the same family, with the full lifetime, in one transaction.
 // A family with a cap (see IssueNativeRefreshTokenUntil) keeps it: the new token
-// expires at the cap when that comes first, and carries the cap on.
+// expires at the cap when that comes first, and carries the cap on. The cap is
+// the one stored carries; a caller whose row may have lost it to a pre-cap
+// binary reads it with NativeFamilyCap first and sets it on a copy of stored.
 // With a successor key the new token is derived from the presented one, so a
 // repeat inside the grace window can be answered it again (see
 // NativeRefreshSuccessorInGrace); without one it is random. It answers
@@ -206,4 +208,48 @@ func RotateNativeRefreshToken(
 		return NativeRefreshToken{}, err
 	}
 	return NativeRefreshToken{Raw: raw, ExpiresAt: next.ExpiresAt}, nil
+}
+
+type accessTokenNotAfterCtxKey struct{}
+
+// WithAccessTokenNotAfter marks ctx as issuing an access token that must not
+// expire after t: the token service ProvideJWTService builds ends the token at
+// t when t comes before its hour (wm-vdax2). A capped native session passes its
+// cap, so neither a sign-in nor a renewal hands back an access token that
+// outlives the session. A zero t changes nothing.
+func WithAccessTokenNotAfter(ctx context.Context, t time.Time) context.Context {
+	return context.WithValue(ctx, accessTokenNotAfterCtxKey{}, t)
+}
+
+// AccessTokenNotAfter is the time WithAccessTokenNotAfter put on ctx, or zero
+// when it put none.
+func AccessTokenNotAfter(ctx context.Context) time.Time {
+	t, _ := ctx.Value(accessTokenNotAfterCtxKey{}).(time.Time)
+	return t
+}
+
+// NativeFamilyCap is the cap of the native refresh token family stored belongs
+// to, or nil when the family has none (wm-5u9q7). A row that carries the cap is
+// answered from the row. A row that carries none is checked against the rest of
+// its family, in one query on the indexed family_id: a renewal served by a
+// binary from before the cap existed copies no cap, so its successor carries
+// none, and without this read every later renewal would lose the cap too. A
+// caller that rotates stored gives the row the cap this answers, so the
+// successor carries it again (see RotateNativeRefreshToken).
+func NativeFamilyCap(ctx context.Context, repo RefreshTokenRepository, stored *OAuthRefreshToken) (*time.Time, error) {
+	if stored == nil {
+		return nil, nil
+	}
+	if stored.FamilyExpiresAt != nil {
+		c := *stored.FamilyExpiresAt
+		return &c, nil
+	}
+	if repo == nil || stored.FamilyID == "" {
+		return nil, nil
+	}
+	familyCap, err := repo.FamilyCap(ctx, stored.FamilyID)
+	if err != nil {
+		return nil, fmt.Errorf("native refresh token: read the family's cap: %w", err)
+	}
+	return familyCap, nil
 }

@@ -18,7 +18,9 @@ package handlers
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 
@@ -74,8 +76,9 @@ type PasswordAuthHandlerConfig struct {
 	// downstream binary's — starts it the same way (wm-xbd5h). serve passes the
 	// issuer its fx graph provides. When it is set, its RefreshTokens,
 	// AgentRepo, AccountRepo and ErasureLocks are the handler's, replacing any
-	// set here. When it is nil the handler builds one from AuthService and the
-	// fields above, so a handler built without it answers as it always did.
+	// set here, and a different one set here is logged as a warning
+	// (wm-9uc01). When it is nil the handler builds one from AuthService and
+	// the fields above, so a handler built without it answers as it always did.
 	NativeSessions *NativeSessionIssuer
 }
 
@@ -118,7 +121,24 @@ func NewPasswordAuthHandler(cfg PasswordAuthHandlerConfig) *PasswordAuthHandler 
 		})
 	} else {
 		// One set of stores: a renewal reads the very stores the issuer wrote.
+		// A store set here that the issuer's replaces is warned about, never
+		// dropped silently (wm-9uc01).
 		sessions := cfg.NativeSessions.cfg
+		for _, f := range []struct {
+			name                 string
+			configured, replaced any
+		}{
+			{"RefreshTokens", cfg.RefreshTokens, sessions.RefreshTokens},
+			{"AgentRepo", cfg.AgentRepo, sessions.AgentRepo},
+			{"AccountRepo", cfg.AccountRepo, sessions.AccountRepo},
+			{"ErasureLocks", cfg.ErasureLocks, sessions.ErasureLocks},
+		} {
+			if f.configured != nil && !sameInstance(f.configured, f.replaced) {
+				warnf(context.Background(), cfg.Logger,
+					"password auth: NativeSessions is set, so its store replaces the one configured — sign-in and renewal read the issuer's",
+					"field", f.name)
+			}
+		}
 		cfg.RefreshTokens = sessions.RefreshTokens
 		cfg.AgentRepo = sessions.AgentRepo
 		cfg.AccountRepo = sessions.AccountRepo
@@ -536,4 +556,29 @@ func (h *PasswordAuthHandler) completeAuthAs(
 // from an unscoped session just the same.
 func (h *PasswordAuthHandler) lockedAccountFor(ctx context.Context, agentID string) *authentities.Account {
 	return apimw.LockedAccountFor(ctx, agentID, h.cfg.AccountRepo, h.cfg.ErasureLocks, h.cfg.Logger)
+}
+
+// sameInstance reports whether a and b are the same store: equal values of one
+// comparable type, which for a pointer is one instance. A value whose type
+// cannot be compared is never the same, so a replacement is warned about
+// rather than missed.
+func sameInstance(a, b any) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	ta := reflect.TypeOf(a)
+	if ta != reflect.TypeOf(b) || !ta.Comparable() {
+		return false
+	}
+	return a == b
+}
+
+// warnf warns through logger, or through the process's default logger when
+// there is none.
+func warnf(ctx context.Context, logger entities.Logger, msg string, args ...any) {
+	if logger == nil {
+		slog.WarnContext(ctx, msg, args...)
+		return
+	}
+	logger.Warn(ctx, msg, args...)
 }

@@ -44,14 +44,16 @@ import (
 
 // issuerAuthService issues an access token whose claims carry the native
 // session the context names, the way core's claims enricher does, with an exp
-// an hour out.
+// an hour out — or at the context's weosoauth.AccessTokenNotAfter when that
+// comes first, the way core's token service does, unless ignoresNotAfter.
 type issuerAuthService struct {
 	authapp.AuthenticationService
-	tokenErr    error
-	emptyToken  bool
-	gotVouched  bool
-	gotAccount  string
-	gotSessions []string
+	tokenErr        error
+	emptyToken      bool
+	ignoresNotAfter bool
+	gotVouched      bool
+	gotAccount      string
+	gotSessions     []string
 }
 
 func (s *issuerAuthService) IssueIdentityToken(
@@ -68,8 +70,12 @@ func (s *issuerAuthService) IssueIdentityToken(
 	extras, _ := weosoauth.NativeSessionClaims(ctx, agent, nil, accountID)
 	session, _ := extras[weosoauth.NativeSessionClaim].(string)
 	s.gotSessions = append(s.gotSessions, session)
+	exp := time.Now().Add(time.Hour)
+	if notAfter := weosoauth.AccessTokenNotAfter(ctx); !s.ignoresNotAfter && !notAfter.IsZero() && notAfter.Before(exp) {
+		exp = notAfter
+	}
 	claims, err := json.Marshal(map[string]any{
-		"sub": agent.GetID(), "exp": time.Now().Add(time.Hour).Unix(), weosoauth.NativeSessionClaim: session,
+		"sub": agent.GetID(), "exp": exp.Unix(), weosoauth.NativeSessionClaim: session,
 	})
 	if err != nil {
 		return "", err

@@ -204,6 +204,10 @@ type RefreshTokenRepository interface {
 	// before, revoked or not, and answers how many (wm-sa7wv; see
 	// NativeRefreshTokenPurger).
 	PurgeExpired(ctx context.Context, clientID string, before time.Time) (int64, error)
+	// FamilyCap answers the earliest family_expires_at any token of familyID
+	// carries, revoked or not, or nil when none carries one (wm-5u9q7; see
+	// NativeFamilyCap).
+	FamilyCap(ctx context.Context, familyID string) (*time.Time, error)
 	// Rotate atomically revokes the old token (only if active) and creates
 	// the new token in a single transaction. If the old token is already
 	// revoked, or has expired by the clock read inside that transaction,
@@ -419,4 +423,24 @@ func MaskCode(code string) string {
 		return ""
 	}
 	return HashToken(code)[:8]
+}
+
+// FamilyCap answers the cap of familyID: the earliest family_expires_at any of
+// its tokens carries, revoked or not, or nil when none carries one. One query on
+// the indexed family_id (wm-5u9q7).
+func (r *gormRefreshTokenRepo) FamilyCap(ctx context.Context, familyID string) (*time.Time, error) {
+	var rows []OAuthRefreshToken
+	err := r.db.WithContext(ctx).
+		Select("family_expires_at").
+		Where("family_id = ? AND family_expires_at IS NOT NULL", familyID).
+		Order("family_expires_at ASC").
+		Limit(1).
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	return rows[0].FamilyExpiresAt, nil
 }
