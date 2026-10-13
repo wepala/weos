@@ -22,7 +22,8 @@
 // $fetch('/api/...') in the admin went to '/admin/api/...', which a host
 // answers with the SPA's index.html. These tests build the client $fetch the
 // way Nuxt does, run the real plugin over it, and record the URL each call
-// is sent to.
+// is sent to. The pin covers /api calls only: every other relative call
+// keeps app.baseURL (Copilot review on wepala/weos#577).
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -124,6 +125,51 @@ test('the session-refusal interceptor created after the plugin keeps the origin 
   await assert.rejects(g.$fetch!('/api/auth/me'))
   assert.deepEqual(seen, ['/api/auth/me'])
   assert.deepEqual(refused, [{ request: '/api/auth/me', status: 401, code: 'account_deactivated' }])
+})
+
+test('a relative call that is not to the API keeps app.baseURL', async () => {
+  const seen = installNuxtFetch('/admin/')
+  apiOrigin.setup()
+  await g.$fetch!('/config.json')
+  await g.$fetch!('/apidocs/index.json')
+  await g.$fetch!('assets/manifest.json')
+  assert.deepEqual(seen, ['/admin/config.json', '/admin/apidocs/index.json', '/admin/assets/manifest.json'])
+})
+
+test('the bare /api path and an /api path with only a query go to the origin', async () => {
+  const seen = installNuxtFetch('/admin/')
+  apiOrigin.setup()
+  await g.$fetch!('/api')
+  await g.$fetch!('/api?x=1')
+  assert.deepEqual(seen, ['/api', '/api?x=1'])
+})
+
+test('an onRequest hook added later, per call or by $fetch.create, does not drop the pin', async () => {
+  const seen = installNuxtFetch('/admin/')
+  apiOrigin.setup()
+  let hooks = 0
+  g.$fetch = g.$fetch!.create({ onRequest() { hooks++ } })
+  await g.$fetch!('/api/auth/me')
+  await g.$fetch!('/api/features', { onRequest() { hooks++ } })
+  await g.$fetch!('/config.json')
+  assert.equal(hooks, 3)
+  assert.deepEqual(seen, ['/api/auth/me', '/api/features', '/admin/config.json'])
+})
+
+test('$fetch.raw is pinned the same way, and $fetch.native is kept', async () => {
+  const seen = installNuxtFetch('/admin/')
+  apiOrigin.setup()
+  assert.equal(typeof g.$fetch!.native, 'function')
+  await g.$fetch!.raw('/api/auth/me')
+  await g.$fetch!.raw('/config.json')
+  assert.deepEqual(seen, ['/api/auth/me', '/admin/config.json'])
+})
+
+test('a call that names its own baseURL keeps it', async () => {
+  const seen = installNuxtFetch('/admin/')
+  apiOrigin.setup()
+  await g.$fetch!('/api/health', { baseURL: '/tools/' })
+  assert.deepEqual(seen, ['/tools/api/health'])
 })
 
 test('a URL that already names a full origin is left alone', async () => {
