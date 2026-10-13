@@ -43,9 +43,10 @@ export function useFeatures() {
   const unavailable = useState<boolean>('featureSetUnavailable', () => false)
 
   /**
-   * Fetches the set. Goes through useApi so it uses the one request seam every
-   * other composable will be moved onto, which is how #352's non-root baseURL
-   * fix reaches this without touching it again.
+   * Fetches the set through useApi, the one request seam every other
+   * composable will be moved onto. Under a non-root app.baseURL the call still
+   * reaches the origin's /api: #352's fix pins the global $fetch to the origin
+   * root (plugins/api-origin.client.ts), not useApi.
    */
   async function load(): Promise<void> {
     const { request } = useApi()

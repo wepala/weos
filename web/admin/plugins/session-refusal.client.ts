@@ -36,6 +36,8 @@ import { applyRefusal } from '../composables/useRefusedResponse'
  * invisibly and leave a half-empty page.
  */
 export default defineNuxtPlugin(() => {
+  // Created from the $fetch the api-origin plugin already pinned to the
+  // origin's /api (it runs first), so that pin carries over (wepala/weos#352).
   globalThis.$fetch = $fetch.create({
     // Deliberately no onResponse hook clearing the refusal.
     //

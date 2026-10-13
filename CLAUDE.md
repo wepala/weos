@@ -48,6 +48,7 @@ make test               # Run all tests with race detection and coverage
 make test-unit          # Run unit tests only (tests/unit/)
 make test-integration   # Run integration tests only (tests/integration/)
 make test-e2e           # Run E2E tests (tests/e2e/)
+make test-admin-unit    # Run the admin SPA's unit tests (web/admin/tests/unit/; Node 23.6+, npm ci first)
 go test -v -run TestName ./path/to/package  # Run a single test
 ```
 
