@@ -14,8 +14,9 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * Sends every admin $fetch call to the origin's /api, whatever app.baseURL
- * the admin is served under (wepala/weos#352).
+ * Resolves every relative admin $fetch call against the origin's root, not
+ * app.baseURL, so '/api/...' reaches the API whatever path the admin is
+ * served under (wepala/weos#352).
  *
  * Nuxt creates the client $fetch with baseURL = app.baseURL. Served at '/',
  * that changes nothing. But a host app that extends this admin as a Nuxt
@@ -24,6 +25,15 @@
  * the SPA's index.html and a 200. The admin then reads HTML as its data and
  * loads nothing. The API is mounted at the origin's root, not under the
  * admin's path, so its calls must not follow app.baseURL.
+ *
+ * This assumes the API is at the origin's root. A deploy behind a proxy that
+ * serves the whole service under a path prefix (API at /tools/api/) is not
+ * supported by this pin: its calls go to the origin's /api.
+ *
+ * The pin covers EVERY relative $fetch call, not only /api ones. A host page
+ * that fetches a file from its own bundle must give an absolute path that
+ * includes app.baseURL ('/admin/config.json'); '/config.json' now goes to the
+ * origin's root.
  *
  * Pinning the base here, once, is what lets every caller keep writing
  * '/api/...': useApi, the composables and pages that call $fetch directly,
@@ -34,8 +44,11 @@
  * enforce 'pre' runs this before every default plugin, the session-refusal
  * plugin and a host layer's plugins included. They replace $fetch with
  * $fetch.create(...), which keeps the defaults of the $fetch it is called on,
- * so the pin and their interceptors both hold. The plugin is kept free of
- * imports so Node's test runner can load it directly (tests/unit).
+ * so the pin and their interceptors both hold. That holds only for a create
+ * that runs after this setup: a $fetch.create at module scope runs at import,
+ * before any plugin, and keeps app.baseURL. Create derived fetchers inside a
+ * plugin or a composable. The plugin is kept free of imports so Node's test
+ * runner can load it directly (tests/unit).
  */
 export default defineNuxtPlugin({
   name: 'weos:api-origin',
