@@ -172,6 +172,17 @@ test('a call that names its own baseURL keeps it', async () => {
   assert.deepEqual(seen, ['/tools/api/health'])
 })
 
+test('a fetcher derived with its own baseURL keeps it, and its own derived fetchers do too', async () => {
+  const seen = installNuxtFetch('/admin/')
+  apiOrigin.setup()
+  const tools = g.$fetch!.create({ baseURL: '/tools/' })
+  await tools('/api/x')
+  await tools.create({ onRequest() {} })('/api/y')
+  // The global $fetch keeps the pin beside it.
+  await g.$fetch!('/api/auth/me')
+  assert.deepEqual(seen, ['/tools/api/x', '/tools/api/y', '/api/auth/me'])
+})
+
 test('a URL that already names a full origin is left alone', async () => {
   const seen = installNuxtFetch('/admin/')
   apiOrigin.setup()

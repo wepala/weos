@@ -34,13 +34,16 @@
  * The pin covers relative /api calls ONLY. A host page that fetches a file
  * from its own bundle ($fetch('/config.json') under '/admin/') still gets
  * '/admin/config.json', as Nuxt resolves it. A URL with an origin, a Request
- * object, and a call that names its own baseURL are left alone.
+ * object, and a call that names its own baseURL are left alone. So is a
+ * fetcher derived with its own base ($fetch.create({ baseURL: '/tools/' })):
+ * its '/api/x' goes to '/tools/api/x', as the caller configured it.
  *
  * It wraps $fetch rather than adding an onRequest hook: ofetch replaces a
  * default hook with any onRequest given later — per call, or by a
  * $fetch.create({ onRequest }) in a host plugin — and the pin would be lost
- * without a sign. The wrapper's create wraps what it creates, so a derived
- * fetcher keeps the pin whatever options it adds.
+ * without a sign. The wrapper's create wraps what it creates unless the
+ * create names a baseURL, so a derived fetcher that only adds hooks or
+ * headers keeps the pin whatever options it adds.
  *
  * Pinning here, once, is what lets every caller keep writing '/api/...':
  * useApi, the composables and pages that call $fetch directly, and a host
@@ -85,9 +88,12 @@ function pinApiOrigin(base: Fetch): Fetch {
   const pinned = Object.assign(call, base) as Fetch
   pinned.raw = ((request: Parameters<Fetch['raw']>[0], options?: FetchOptions) =>
     base.raw(request, pinOptions(request, options))) as Fetch['raw']
+  // A derived fetcher with its own baseURL keeps it: no pin is put on it.
   // Rest arguments pass ofetch's second argument (global options) through too.
-  pinned.create = ((...args: Parameters<Fetch['create']>) =>
-    pinApiOrigin(base.create(...args))) as Fetch['create']
+  pinned.create = ((...args: Parameters<Fetch['create']>) => {
+    const derived = base.create(...args)
+    return args[0]?.baseURL !== undefined ? derived : pinApiOrigin(derived)
+  }) as Fetch['create']
   return pinned
 }
 
