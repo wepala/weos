@@ -18,6 +18,14 @@ test-integration: ## Run integration tests only
 test-e2e: ## Run E2E tests
 	go test -v ./tests/e2e/...
 
+# The admin's unit tests are TypeScript run by Node's own test runner, which
+# strips types itself from Node 23.6 on. An older Node fails on the first type
+# annotation with a syntax error, so say what is wrong instead. Needs `npm ci`
+# in web/admin first (CI's admin-unit job does it).
+test-admin-unit: ## Run the admin SPA's unit tests (web/admin/tests/unit; Node 23.6+)
+	@node -e 'const [a, b] = process.versions.node.split(".").map(Number); if (a < 23 || (a === 23 && b < 6)) { console.error("test-admin-unit needs Node 23.6 or later (TypeScript type stripping); found " + process.version); process.exit(1) }'
+	cd web/admin && npm run test:unit
+
 test-ui: dev-build-frontend build ## Run Playwright BDD tests against the embedded admin SPA (requires: npx playwright install chromium)
 	cd web/admin && npm run test:e2e
 
