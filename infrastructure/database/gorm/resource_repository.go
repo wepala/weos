@@ -735,6 +735,34 @@ func (r *ResourceRepository) FindAccessibleIDs(
 	return rows, nil
 }
 
+// FindAllByTypeAndIDs reads the named resources of a type from the canonical
+// resources table, which holds their stored documents, in one
+// `WHERE id IN (...)` query under the same visibility scope a listing applies.
+func (r *ResourceRepository) FindAllByTypeAndIDs(
+	ctx context.Context, typeSlug string, ids []string, scope *repositories.VisibilityScope,
+) ([]*entities.Resource, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	query := r.db.WithContext(ctx).Where("type_slug = ? AND id IN ?", typeSlug, ids)
+	query = applyVisibilityScope(query, scope, "")
+	var dbModels []models.Resource
+	if err := query.Find(&dbModels).Error; err != nil {
+		return nil, fmt.Errorf("failed to read resources of type %q by id: %w", typeSlug, err)
+	}
+	result := make([]*entities.Resource, 0, len(dbModels))
+	for _, m := range dbModels {
+		e, err := m.ToResource()
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, e)
+	}
+	return result, nil
+}
+
+var _ repositories.ResourceIDFinder = (*ResourceRepository)(nil)
+
 // applyVisibilityScope adds ownership filtering to a query when a non-nil scope
 // is provided and the caller is not an admin.
 func applyVisibilityScope(query *gorm.DB, scope *repositories.VisibilityScope, tablePrefix string) *gorm.DB {

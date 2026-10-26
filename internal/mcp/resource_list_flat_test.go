@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -18,53 +19,83 @@ import (
 )
 
 // flatRecordingResources serves flat rows, or the error flatErr, and records
-// which listing method resource_list called and with what filters. Its entity
-// listings return docs, one resource per identifier.
+// every read resource_list makes, each with its own arguments, so a test can
+// tell the flat read from a later read of documents. Its entity listings and
+// its read by id return docs, one resource per identifier; the read by id
+// returns only the identifiers it was asked for.
 type flatRecordingResources struct {
 	stubResourceService
 	rows    []map[string]any
 	flatErr error
 	docs    map[string]string
 
-	calls      []string
-	gotFilters []repositories.FilterCondition
+	calls []string
+	reads []resourceRead
+}
+
+// resourceRead is one call resource_list made to the service.
+type resourceRead struct {
+	method  string
+	filters []repositories.FilterCondition
+	cursor  string
+	limit   int
+	sort    repositories.SortOptions
+	ids     []string
+}
+
+func (s *flatRecordingResources) record(r resourceRead) {
+	s.calls = append(s.calls, r.method)
+	s.reads = append(s.reads, r)
 }
 
 func (s *flatRecordingResources) ListFlat(
-	_ context.Context, _, _ string, _ int, _ repositories.SortOptions,
+	_ context.Context, _, cursor string, limit int, sort repositories.SortOptions,
 ) (repositories.PaginatedResponse[map[string]any], error) {
-	s.calls = append(s.calls, "ListFlat")
+	s.record(resourceRead{method: "ListFlat", cursor: cursor, limit: limit, sort: sort})
 	return repositories.PaginatedResponse[map[string]any]{Data: s.rows, Cursor: "next", HasMore: true}, s.flatErr
 }
 
 func (s *flatRecordingResources) ListFlatWithFilters(
-	_ context.Context, _ string, filters []repositories.FilterCondition, _ string, _ int,
-	_ repositories.SortOptions,
+	_ context.Context, _ string, filters []repositories.FilterCondition, cursor string, limit int,
+	sort repositories.SortOptions,
 ) (repositories.PaginatedResponse[map[string]any], error) {
-	s.calls = append(s.calls, "ListFlatWithFilters")
-	s.gotFilters = filters
+	s.record(resourceRead{method: "ListFlatWithFilters", filters: filters, cursor: cursor, limit: limit, sort: sort})
 	return repositories.PaginatedResponse[map[string]any]{Data: s.rows, Cursor: "next", HasMore: true}, s.flatErr
 }
 
 func (s *flatRecordingResources) List(
-	_ context.Context, slug, _ string, _ int, _ repositories.SortOptions,
+	_ context.Context, slug, cursor string, limit int, sort repositories.SortOptions,
 ) (repositories.PaginatedResponse[*entities.Resource], error) {
-	s.calls = append(s.calls, "List")
-	return s.entities(slug)
+	s.record(resourceRead{method: "List", cursor: cursor, limit: limit, sort: sort})
+	return s.entities(slug, nil)
 }
 
 func (s *flatRecordingResources) ListWithFilters(
-	_ context.Context, slug string, filters []repositories.FilterCondition, _ string, _ int,
-	_ repositories.SortOptions,
+	_ context.Context, slug string, filters []repositories.FilterCondition, cursor string, limit int,
+	sort repositories.SortOptions,
 ) (repositories.PaginatedResponse[*entities.Resource], error) {
-	s.calls = append(s.calls, "ListWithFilters")
-	s.gotFilters = filters
-	return s.entities(slug)
+	s.record(resourceRead{method: "ListWithFilters", filters: filters, cursor: cursor, limit: limit, sort: sort})
+	return s.entities(slug, nil)
 }
 
-func (s *flatRecordingResources) entities(slug string) (repositories.PaginatedResponse[*entities.Resource], error) {
+func (s *flatRecordingResources) ListByIDs(
+	_ context.Context, slug string, ids []string,
+) ([]*entities.Resource, error) {
+	s.record(resourceRead{method: "ListByIDs", ids: ids})
+	page, err := s.entities(slug, ids)
+	return page.Data, err
+}
+
+// entities returns a resource for each of docs, or, when only is not nil, for
+// each of docs that only names.
+func (s *flatRecordingResources) entities(
+	slug string, only []string,
+) (repositories.PaginatedResponse[*entities.Resource], error) {
 	page := repositories.PaginatedResponse[*entities.Resource]{}
 	for id, doc := range s.docs {
+		if only != nil && !slices.Contains(only, id) {
+			continue
+		}
 		e := &entities.Resource{}
 		if err := e.Restore(id, slug, "active", json.RawMessage(doc), "", "", time.Now(), 1); err != nil {
 			return page, err
@@ -169,8 +200,8 @@ func TestResourceList_FlatWithFiltersPassesTheConditions(t *testing.T) {
 	}
 	want := repositories.FilterCondition{Field: "priority", Operator: "ne", Value: "high",
 		ValueType: repositories.FilterValueString, NeIncludesMissing: true}
-	if len(svc.gotFilters) != 1 || svc.gotFilters[0] != want {
-		t.Errorf("filters = %+v, want [%+v]", svc.gotFilters, want)
+	if got := svc.reads[0].filters; len(got) != 1 || got[0] != want {
+		t.Errorf("filters = %+v, want [%+v]", got, want)
 	}
 }
 
@@ -191,8 +222,8 @@ func TestResourceList_FlatFallbackKeepsTheFilters(t *testing.T) {
 	if strings.Join(svc.calls, ",") != "ListFlatWithFilters,ListWithFilters" {
 		t.Fatalf("calls = %v, want [ListFlatWithFilters ListWithFilters]", svc.calls)
 	}
-	if len(svc.gotFilters) != 1 || svc.gotFilters[0].Field != "priority" {
-		t.Errorf("the fallback got filters %+v, want the priority condition", svc.gotFilters)
+	if got := svc.reads[1].filters; len(got) != 1 || got[0].Field != "priority" {
+		t.Errorf("the fallback got filters %+v, want the priority condition", got)
 	}
 	if _, ok := answer["rows"]; ok {
 		t.Errorf("the fallback answer carries rows: %s", answer["rows"])
@@ -248,8 +279,57 @@ func TestResourceList_FlatRowCarriesTheShadowedProperty(t *testing.T) {
 			t.Errorf("row %v has status %v, want %v", row["id"], got, want[fmt.Sprint(row["id"])])
 		}
 	}
-	if strings.Join(svc.calls, ",") != "ListFlat,ListWithFilters" {
-		t.Errorf("calls = %v, want one flat read and one read of the page's documents", svc.calls)
+	if strings.Join(svc.calls, ",") != "ListFlat,ListByIDs" {
+		t.Errorf("calls = %v, want one flat read and one read of the page's documents by id", svc.calls)
+	}
+}
+
+// TestResourceList_FlatReadsThePagesDocumentsByID pins wm-yh1xt5: the
+// documents for a filtered flat page are read by the page's identifiers —
+// exactly those — and the filtered listing is not run a second time, so a
+// write landing between the two reads cannot move a row off the page.
+func TestResourceList_FlatReadsThePagesDocumentsByID(t *testing.T) {
+	t.Parallel()
+	svc := &flatRecordingResources{
+		rows: []map[string]any{
+			{"id": "urn:task:7", "name": "Chase invoices", "status": "active"},
+			{"id": "urn:task:9", "name": "Renew lease", "status": "active"},
+		},
+		docs: map[string]string{
+			"urn:task:7": `{"@graph":[{"@id":"urn:task:7","status":"open"}]}`,
+			"urn:task:8": `{"@graph":[{"@id":"urn:task:8","status":"open"}]}`,
+			"urn:task:9": `{"@graph":[{"@id":"urn:task:9","status":"open"}]}`,
+		},
+	}
+	_, res := callFlatResourceList(t, svc, taskSchema, `{"type_slug":"task","flat":true,"cursor":"c1","limit":2,`+
+		`"sort_by":"name","filters":[{"field":"status","operator":"eq","value":"open"}]}`)
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %s", resultText(res))
+	}
+	if strings.Join(svc.calls, ",") != "ListFlatWithFilters,ListByIDs" {
+		t.Fatalf("calls = %v, want [ListFlatWithFilters ListByIDs]", svc.calls)
+	}
+	flat := svc.reads[0]
+	if flat.cursor != "c1" || flat.limit != 2 || flat.sort.SortBy != "name" || len(flat.filters) != 1 {
+		t.Errorf("the flat read got %+v, want the call's cursor, limit, sort and filter", flat)
+	}
+	if got := svc.reads[1].ids; strings.Join(got, ",") != "urn:task:7,urn:task:9" {
+		t.Errorf("the documents were read for %v, want exactly the page's [urn:task:7 urn:task:9]", got)
+	}
+}
+
+// TestResourceList_FlatRefusesARowWithNoDocument pins that a row whose
+// resource the read by id does not return — deleted between the two reads —
+// fails the call naming it, rather than answering with a null property.
+func TestResourceList_FlatRefusesARowWithNoDocument(t *testing.T) {
+	t.Parallel()
+	svc := &flatRecordingResources{
+		rows: []map[string]any{{"id": "urn:task:1", "status": "active"}, {"id": "urn:task:2", "status": "active"}},
+		docs: map[string]string{"urn:task:1": `{"@graph":[{"@id":"urn:task:1","status":"open"}]}`},
+	}
+	_, res := callFlatResourceList(t, svc, taskSchema, `{"type_slug":"task","flat":true}`)
+	if !res.IsError || !strings.Contains(resultText(res), "urn:task:2") {
+		t.Fatalf("expected an error naming urn:task:2, got: %s", resultText(res))
 	}
 }
 
@@ -311,4 +391,7 @@ func TestResourceList_RowsMayBeAbsentUnderFlat(t *testing.T) {
 	}
 }
 
-var _ application.ResourceService = (*flatRecordingResources)(nil)
+var (
+	_ application.ResourceService  = (*flatRecordingResources)(nil)
+	_ application.ResourceIDLister = (*flatRecordingResources)(nil)
+)

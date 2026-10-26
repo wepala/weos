@@ -55,6 +55,18 @@ type ResourceService interface {
 	Delete(ctx context.Context, cmd DeleteResourceCommand) error
 }
 
+// ResourceIDLister is implemented by a ResourceService that reads many
+// resources of one type by identifier in a single query, under the caller's
+// visibility scope. It is an interface of its own rather than a
+// ResourceService method so that adding it breaks no service implemented
+// outside this module; a caller type-asserts for it.
+type ResourceIDLister interface {
+	// ListByIDs returns the resources of typeSlug among ids that the caller
+	// can read, with their stored documents, in no set order. An identifier
+	// with no such resource is left out.
+	ListByIDs(ctx context.Context, typeSlug string, ids []string) ([]*entities.Resource, error)
+}
+
 type resourceService struct {
 	repo             repositories.ResourceRepository
 	typeRepo         repositories.ResourceTypeRepository
@@ -520,6 +532,21 @@ func (s *resourceService) ListWithFilters(
 	scope := s.buildVisibilityScope(ctx)
 	return s.repo.FindAllByTypeWithFilters(ctx, typeSlug, filters, cursor, limit, sort, scope)
 }
+
+// ListByIDs reads the named resources through the repository's
+// ResourceIDFinder, with the same visibility scope a listing applies. A
+// repository without that read is an error, never an empty answer.
+func (s *resourceService) ListByIDs(
+	ctx context.Context, typeSlug string, ids []string,
+) ([]*entities.Resource, error) {
+	finder, ok := s.repo.(repositories.ResourceIDFinder)
+	if !ok {
+		return nil, fmt.Errorf("the resource repository cannot read resources of type %q by id", typeSlug)
+	}
+	return finder.FindAllByTypeAndIDs(ctx, typeSlug, ids, s.buildVisibilityScope(ctx))
+}
+
+var _ ResourceIDLister = (*resourceService)(nil)
 
 func (s *resourceService) Update(
 	ctx context.Context, cmd UpdateResourceCommand,

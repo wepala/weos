@@ -20,7 +20,8 @@ import (
 // value (the resource lifecycle). A condition on such a name reads the
 // property, so the row does too: shadowedProperties lists them, and the row
 // carries each one's value from the stored document, or null when the
-// document has none. That costs one more read of the same page.
+// document has none. The documents are read by the page's identifiers, one
+// more query.
 func listFlat(
 	ctx context.Context, svc application.ResourceService, types application.ResourceTypeService,
 	typeSlug string, filters []repositories.FilterCondition, cursor string, limit int,
@@ -43,7 +44,7 @@ func listFlat(
 		rows = []map[string]any{}
 	}
 	if len(rows) > 0 {
-		if err := overlayShadowedProperties(ctx, svc, types, typeSlug, filters, cursor, limit, sort, rows); err != nil {
+		if err := overlayShadowedProperties(ctx, svc, types, typeSlug, rows); err != nil {
 			return ListResourcesOutput{}, err
 		}
 	}
@@ -51,32 +52,44 @@ func listFlat(
 }
 
 // overlayShadowedProperties sets each shadowed schema property on the rows
-// from the resources' stored documents. The documents come from the entity
-// listing of the same page — the same table, conditions, order, cursor and
-// limit — and are matched to the rows by identifier, so a row whose document
-// is not on that page (a write landed between the two reads) carries null
-// rather than another resource's value.
+// from the resources' stored documents, read by the rows' identifiers rather
+// than by running the listing again: a write that lands between the two reads
+// can then change a value, but cannot move a row off the page. A row whose
+// resource the read does not return — deleted in between — fails the call,
+// because a null in its place would be a quiet wrong answer.
 func overlayShadowedProperties(
 	ctx context.Context, svc application.ResourceService, types application.ResourceTypeService,
-	typeSlug string, filters []repositories.FilterCondition, cursor string, limit int,
-	sort repositories.SortOptions, rows []map[string]any,
+	typeSlug string, rows []map[string]any,
 ) error {
 	shadowed, err := shadowedProperties(ctx, types, typeSlug)
 	if err != nil || len(shadowed) == 0 {
 		return err
 	}
-	page, err := svc.ListWithFilters(ctx, typeSlug, filters, cursor, limit, sort)
+	lister, ok := svc.(application.ResourceIDLister)
+	if !ok {
+		return fmt.Errorf("read the documents of the flat page: the resource service cannot read resources by id")
+	}
+	ids := make([]string, len(rows))
+	for i, row := range rows {
+		ids[i] = fmt.Sprint(row["id"])
+	}
+	found, err := lister.ListByIDs(ctx, typeSlug, ids)
 	if err != nil {
 		return fmt.Errorf("read the documents of the flat page: %w", err)
 	}
-	docs := make(map[string]json.RawMessage, len(page.Data))
-	for _, e := range page.Data {
+	docs := make(map[string]json.RawMessage, len(found))
+	for _, e := range found {
 		docs[e.GetID()] = e.Data()
 	}
-	for _, row := range rows {
-		id := fmt.Sprint(row["id"])
+	for i, row := range rows {
+		id := ids[i]
+		doc, ok := docs[id]
+		if !ok {
+			return fmt.Errorf("resource %q is on the flat page but its stored document was not found; "+
+				"it may have been deleted during the listing, so list again", id)
+		}
 		for _, name := range shadowed {
-			v, err := documentProperty(docs[id], name)
+			v, err := documentProperty(doc, name)
 			if err != nil {
 				return fmt.Errorf("resource %q: read %q from its stored document: %w", id, name, err)
 			}
