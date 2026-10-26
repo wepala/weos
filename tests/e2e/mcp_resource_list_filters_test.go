@@ -448,6 +448,46 @@ func TestMCPResourceListFiltersSchemalessTypeFiltersTheRows(t *testing.T) {
 	}
 }
 
+// TestMCPResourceListFiltersNullableTypeFiltersTheRows pins that a type whose
+// schema gives a property a list of types, such as ["number","null"], is
+// still filtered. The projection reads each property's type as one name, so it
+// makes no property columns from such a schema, and a column condition on any
+// property would be skipped and return every resource.
+func TestMCPResourceListFiltersNullableTypeFiltersTheRows(t *testing.T) {
+	ctx := context.Background()
+	w := &listFiltersWorld{mcpWorld: &mcpWorld{}, ids: map[string]string{}}
+	t.Cleanup(w.teardown)
+	if err := w.aCleanKnowledgeGraph(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.createType(ctx, "venue-review", `{"type":"object","properties":{"name":{"type":"string"},`+
+		`"rating":{"type":["number","null"]}},"required":["name"]}`); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []map[string]any{
+		{"name": "Harbor Cafe", "rating": 4.5},
+		{"name": "Night Market Stall", "rating": 2},
+		{"name": "Corner Bakery"},
+	} {
+		if _, err := w.createResource(ctx, "venue-review", r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		filters string
+		want    []string
+	}{
+		{`[{"field":"name","operator":"eq","value":"Harbor Cafe"}]`, []string{"Harbor Cafe"}},
+		{`[{"field":"rating","operator":"gt","value":3}]`, []string{"Harbor Cafe"}},
+		{`[{"field":"rating","operator":"ne","value":2}]`, []string{"Harbor Cafe", "Corner Bakery"}},
+	} {
+		w.callList(ctx, "venue-review", tc.filters, "")
+		if err := w.listingNamesExactly(tc.want); err != nil {
+			t.Errorf("%s: %v", tc.filters, err)
+		}
+	}
+}
+
 // --- Helpers ---
 
 type listOutput struct {

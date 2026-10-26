@@ -80,7 +80,8 @@ const resourceListDescription = "List resources of a given type with cursor-base
 	"sequenceNo, updatedAt); when the schema declares a property with a standard column's name " +
 	"(such as a task's status), the condition is on the property. A property that holds an array " +
 	"or an object is not filterable, except a reference, where eq matches a resource that holds " +
-	"the identifier. value is a string, number or boolean. A condition the listing cannot apply " +
+	"the identifier. A reference with a standard column's name is not filterable. value is a " +
+	"string, number or boolean. A condition the listing cannot apply " +
 	"is refused with an error that lists the valid fields or operators. ne also matches a " +
 	"resource that has no value for the field. A type with no JSON Schema has no property list, " +
 	"so its fields are not checked. To read the next page of a filtered listing, send the cursor " +

@@ -108,11 +108,27 @@ A column condition goes through the old path, including the skip when the column
 |---|---|
 | declared by the schema **and** a standard column's name | `DocumentProperty` — **the schema property wins over the column** |
 | declared by the schema, not a standard name | the projection column |
+| declared, in a schema the projection reads no columns from | `DocumentProperty` |
 | declared, an `array` or `object`, and not a reference | refused: a condition compares one value |
-| declared, a reference (`x-resource-type`) | the column; `eq` on one identifier matches a list-valued reference, as before |
+| declared, a reference (`x-resource-type`) with a column of its own | the column; `eq` on one identifier matches a list-valued reference, as before |
+| declared, a reference with no column — a standard column's name, or a schema the projection reads no columns from | refused, and left out of the filterable fields |
 | not declared, a standard column | the column |
 | not declared, on a type that has a schema | refused, with the list of filterable fields |
 | any non-standard field, on a type with **no** schema | `DocumentProperty` |
+
+**A schema the projection reads no columns from.** `schemaToColumns` reads each property's `type`
+as a single name. A schema that gives any property a list of types, such as `["number","null"]`,
+fails that read, and the projection makes no property columns for the whole type — only the
+standard columns, as for a type with no schema. The tool decodes the same shape to detect this, and
+reads every declared property from the document. Making the projection read a list of types would
+add columns to live tables, with NULL on every existing row until a reproject, and would change
+what REST `_filter` returns for those fields; that is out of this record.
+
+**A reference is never read from the document.** The stored document keeps a reference as an edge
+in `@graph[1]`, an `@id` object or a list of them, keyed by property name or, on records older than
+issue #515, by predicate IRI. The document read looks only at the entity node, so `eq` would match
+nothing and `ne` would match every resource. A reference with no column of its own is therefore
+refused (option 2, for references only). No preset declares one today.
 
 Every condition also sets `NeIncludesMissing`, and the value is converted to the property's declared
 JSON type (a value that type cannot hold is refused). An unknown operator is refused, because the
@@ -154,7 +170,8 @@ carry the filters, so the next page needs the same filters sent again.
   database only where `TEST_POSTGRES_DSN` is set, and CI does not set it.
 - **Hand-copied constant lists.** The MCP tool keeps `filterOperators`, `projectionSkippedKeys` and
   `standardColumns` equal to the gorm package's `operatorMap`, `jsonLDKeys` and
-  `standardColumnNames` by a comment only. If they drift, a condition the tool accepts can be
+  `standardColumnNames` by a comment only, and `projectionReadsColumns` decodes the same schema
+  shape as `schemaToColumns` the same way. If they drift, a condition the tool accepts can be
   silently skipped again. Follow-up **wm-c1nbkm**: export the sets from `domain/repositories`.
 - **The cursor does not carry the filters.** A model that sends only the cursor for page two gets
   the unfiltered listing. The tool description tells it to resend the filters; no fingerprint check

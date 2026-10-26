@@ -54,10 +54,13 @@ var standardColumns = map[string]bool{
 // A condition on a field the type's schema declares wins over a standard
 // column of the same name: on a task, "status" is the task's own state, not
 // the resource lifecycle. Such a condition is marked DocumentProperty, because
-// the projection has no column for it. A type with no schema has nothing to
-// check a field against, so its fields are not checked; a condition on one
-// that is not a standard column is marked DocumentProperty too, because that
-// type's projection has only the standard columns.
+// the projection has no column for it. So is a condition on any property of a
+// schema the projection reads no columns from. A reference with no column is
+// refused instead: the document keeps it as an edge the document read does not
+// follow. A type with no schema has nothing to check a field against, so its
+// fields are not checked; a condition on one that is not a standard column is
+// marked DocumentProperty too, because that type's projection has only the
+// standard columns.
 //
 // A value is compared as the JSON type the schema declares for the property,
 // else as the value's own type, so a number sent as "3" still matches a stored
@@ -99,12 +102,10 @@ func buildListFilters(
 		}
 		switch {
 		case declared && !prop.filterable():
-			return nil, fmt.Errorf(
-				"filter validation failed: field %q is not filterable on type %q: it holds %s, and a condition "+
-					"compares a single value; filterable fields: %s",
-				c.Field, typeSlug, article(prop.jsonType), strings.Join(filterableFields(props), ", "))
+			return nil, fmt.Errorf("filter validation failed: field %q is not filterable on type %q: %s; "+
+				"filterable fields: %s", c.Field, typeSlug, prop.refusal(), strings.Join(filterableFields(props), ", "))
 		case declared:
-			cond.DocumentProperty = standardColumns[utils.CamelToSnake(c.Field)]
+			cond.DocumentProperty = !prop.column
 		case isStandardFilterField(c.Field):
 		case hasSchema:
 			return nil, fmt.Errorf(
@@ -129,15 +130,33 @@ type schemaProperty struct {
 	// reference is true for an x-resource-type property, which holds resource
 	// identifiers.
 	reference bool
+	// column is true when the projection keeps the property in a column of its
+	// own: its name is not a standard column's, and the projection reads
+	// property columns from the schema at all.
+	column bool
 }
 
 // filterable reports whether a condition can compare the property. The
 // projection stores an array or an object as JSON text, so eq on one element
 // never matches it. A reference is the exception: a list-valued reference is
 // a JSON array of identifiers, and the repository matches eq on an identifier
-// it holds.
+// it holds. That match needs the reference's column. The stored document keeps
+// a reference as an edge in @graph[1], an @id object or a list of them, and the
+// document read looks only at the entity node, so a reference with no column
+// is not filterable.
 func (p schemaProperty) filterable() bool {
-	return p.reference || (p.jsonType != "array" && p.jsonType != "object")
+	if p.reference {
+		return p.column
+	}
+	return p.jsonType != "array" && p.jsonType != "object"
+}
+
+// refusal says why a condition cannot compare the property, for an error.
+func (p schemaProperty) refusal() string {
+	if p.reference {
+		return "it is a reference with no projection column, and a reference cannot be read from the stored document"
+	}
+	return "it holds " + article(p.jsonType) + ", and a condition compares a single value"
 }
 
 // article names a JSON type with its indefinite article, for an error.
@@ -164,13 +183,34 @@ func schemaProperties(schema json.RawMessage) (props map[string]schemaProperty, 
 	if err := json.Unmarshal(schema, &s); err != nil {
 		return nil, false, fmt.Errorf("schema is not valid JSON: %w", err)
 	}
+	columns := projectionReadsColumns(schema)
 	props = make(map[string]schemaProperty, len(s.Properties))
 	for name, p := range s.Properties {
 		if !projectionSkippedKeys[name] {
-			props[name] = schemaProperty{jsonType: declaredType(p.Type), reference: p.XResourceType != ""}
+			props[name] = schemaProperty{
+				jsonType:  declaredType(p.Type),
+				reference: p.XResourceType != "",
+				column:    columns && !standardColumns[utils.CamelToSnake(name)],
+			}
 		}
 	}
 	return props, true, nil
+}
+
+// projectionReadsColumns reports whether the projection makes property columns
+// from the schema. It reads each property's "type" as one name, so a schema
+// that gives any property a list of types, such as ["number","null"], leaves
+// the projection with only the standard columns. Keep the shape decoded here
+// equal to the one schemaToColumns decodes in
+// infrastructure/database/gorm/projection_manager.go.
+func projectionReadsColumns(schema json.RawMessage) bool {
+	var s struct {
+		Properties map[string]struct {
+			Type          string `json:"type"`
+			XResourceType string `json:"x-resource-type"`
+		} `json:"properties"`
+	}
+	return json.Unmarshal(schema, &s) == nil
 }
 
 // declaredType reads a JSON Schema "type", which is a name or a list of names.

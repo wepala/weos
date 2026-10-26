@@ -263,13 +263,15 @@ func TestResourceList_ValueTypeFollowsTheDeclaredPropertyType(t *testing.T) {
 		vt    repositories.FilterValueType
 		doc   bool
 	}
+	// marks declares a list of types, so the projection makes no property
+	// columns from this schema and every declared property reads the document.
 	want := []typed{
 		{"3", repositories.FilterValueNumber, true},
 		{"12", repositories.FilterValueNumber, true},
 		{"1", repositories.FilterValueBoolean, true},
 		{"0", repositories.FilterValueBoolean, true},
-		{"2.5", repositories.FilterValueNumber, false},
-		{"42", repositories.FilterValueString, false},
+		{"2.5", repositories.FilterValueNumber, true},
+		{"42", repositories.FilterValueString, true},
 		{"dana", repositories.FilterValueString, false},
 	}
 	if len(svc.gotFilters) != len(want) {
@@ -371,6 +373,83 @@ func TestResourceList_ListValuedReferenceIsFilterable(t *testing.T) {
 	if len(svc.gotFilters) != 1 || svc.gotFilters[0].DocumentProperty ||
 		svc.gotFilters[0].ValueType != repositories.FilterValueString {
 		t.Errorf("filters = %+v; want one string column condition", svc.gotFilters)
+	}
+}
+
+// TestResourceList_ReferenceWithNoColumnIsRefused pins that a reference the
+// projection gives no column of its own is refused, not read from the stored
+// document. The document keeps a reference as an edge in @graph[1], as an @id
+// object or a list of them, and the document read looks only at the entity
+// node, so eq would match nothing and ne would match every resource. That
+// happens when the reference shares a standard column's name, or when the
+// projection reads no property columns from the schema at all.
+func TestResourceList_ReferenceWithNoColumnIsRefused(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, schema, field, fields string
+	}{
+		{
+			name: "shares a standard column's name",
+			schema: `{"type":"object","properties":{"name":{"type":"string"},` +
+				`"createdBy":{"type":"string","x-resource-type":"person"}}}`,
+			field:  "createdBy",
+			fields: "filterable fields: name, id, status, createdAt, accountId, sequenceNo, updatedAt",
+		},
+		{
+			name: "in a schema the projection reads no columns from",
+			schema: `{"type":"object","properties":{"name":{"type":"string"},` +
+				`"rating":{"type":["number","null"]},"project":{"type":"string","x-resource-type":"project"}}}`,
+			field:  "project",
+			fields: "filterable fields: name, rating, id, status,",
+		},
+	} {
+		svc, res := callResourceList(t, tc.schema,
+			`{"type_slug":"task","filters":[{"field":"`+tc.field+`","operator":"eq","value":"urn:x:1"}]}`)
+		if !res.IsError {
+			t.Errorf("%s: expected a tool error, got: %s", tc.name, resultText(res))
+			continue
+		}
+		msg := resultText(res)
+		for _, want := range []string{"filter validation failed", `"` + tc.field + `" is not filterable`,
+			"reference", tc.fields} {
+			if !strings.Contains(msg, want) {
+				t.Errorf("%s: error %q does not contain %q", tc.name, msg, want)
+			}
+		}
+		if svc.filteredCalls != 0 {
+			t.Errorf("%s: the service was called for a refused condition", tc.name)
+		}
+	}
+}
+
+// TestResourceList_SchemaTheProjectionCannotReadTargetsTheDocument pins that a
+// type whose schema gives a property a list of types, such as
+// ["number","null"], is filtered from the stored document. The projection
+// reads a property's type as a single name, so such a schema leaves it with
+// only the standard columns, and a column condition on any other property
+// would be skipped and return every resource.
+func TestResourceList_SchemaTheProjectionCannotReadTargetsTheDocument(t *testing.T) {
+	t.Parallel()
+	svc, res := callResourceList(t,
+		`{"type":"object","properties":{"name":{"type":"string"},"rating":{"type":["number","null"]}}}`,
+		`{"type_slug":"review","filters":[{"field":"name","operator":"eq","value":"Harbor Cafe"},`+
+			`{"field":"rating","operator":"gt","value":3},{"field":"status","operator":"eq","value":"active"}]}`)
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %s", resultText(res))
+	}
+	if len(svc.gotFilters) != 3 {
+		t.Fatalf("filters = %+v; want 3 conditions", svc.gotFilters)
+	}
+	for i, field := range []string{"name", "rating"} {
+		if !svc.gotFilters[i].DocumentProperty {
+			t.Errorf("%s condition = %+v; want it marked DocumentProperty", field, svc.gotFilters[i])
+		}
+	}
+	if svc.gotFilters[1].ValueType != repositories.FilterValueNumber {
+		t.Errorf("rating condition = %+v; want it compared as a number", svc.gotFilters[1])
+	}
+	if svc.gotFilters[2].DocumentProperty {
+		t.Errorf("status condition = %+v; want the standard column", svc.gotFilters[2])
 	}
 }
 
