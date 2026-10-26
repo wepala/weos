@@ -1,0 +1,249 @@
+package mcp
+
+import (
+	"context"
+	"encoding/json"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/wepala/weos/v3/application"
+	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+// listRecordingResources records which listing method resource_list called,
+// and with what filters.
+type listRecordingResources struct {
+	stubResourceService
+	listCalls     int
+	filteredCalls int
+	gotFilters    []repositories.FilterCondition
+	gotCursor     string
+}
+
+func (s *listRecordingResources) List(
+	_ context.Context, _, _ string, _ int, _ repositories.SortOptions,
+) (repositories.PaginatedResponse[*entities.Resource], error) {
+	s.listCalls++
+	return repositories.PaginatedResponse[*entities.Resource]{}, nil
+}
+
+func (s *listRecordingResources) ListWithFilters(
+	_ context.Context, _ string, filters []repositories.FilterCondition, cursor string, _ int,
+	_ repositories.SortOptions,
+) (repositories.PaginatedResponse[*entities.Resource], error) {
+	s.filteredCalls++
+	s.gotFilters = filters
+	s.gotCursor = cursor
+	return repositories.PaginatedResponse[*entities.Resource]{}, nil
+}
+
+// schemaTypes serves one resource type with the given schema.
+type schemaTypes struct {
+	stubResourceTypeService
+	schema string
+}
+
+func (s *schemaTypes) GetBySlug(_ context.Context, slug string) (*entities.ResourceType, error) {
+	rt := &entities.ResourceType{}
+	var schema json.RawMessage
+	if s.schema != "" {
+		schema = json.RawMessage(s.schema)
+	}
+	if err := rt.Restore("urn:type:"+slug, "Task", slug, "", "active",
+		json.RawMessage(`{"@vocab":"https://schema.org/"}`), schema, time.Now(), 1); err != nil {
+		return nil, err
+	}
+	return rt, nil
+}
+
+const taskSchema = `{"type":"object","properties":{"@type":{"type":"string"},"name":{"type":"string"},` +
+	`"status":{"type":"string"},"priority":{"type":"string"},"dueDate":{"type":"string"}}}`
+
+func callResourceList(t *testing.T, schema, args string) (*listRecordingResources, *mcp.CallToolResult) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	svc := &listRecordingResources{}
+	server := mcp.NewServer(&mcp.Implementation{Name: "test"}, nil)
+	registerResourceTools(server, svc, &schemaTypes{schema: schema})
+	cs := connectForGate(t, ctx, server)
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "resource_list", Arguments: json.RawMessage(args)})
+	if err != nil {
+		t.Fatalf("call resource_list: %v", err)
+	}
+	return svc, res
+}
+
+func resultText(res *mcp.CallToolResult) string {
+	var b strings.Builder
+	for _, c := range res.Content {
+		if tc, ok := c.(*mcp.TextContent); ok {
+			b.WriteString(tc.Text)
+		}
+	}
+	return b.String()
+}
+
+func TestResourceList_ValidFilterReachesListWithFilters(t *testing.T) {
+	t.Parallel()
+	svc, res := callResourceList(t, taskSchema, `{"type_slug":"task","cursor":"c1","filters":[`+
+		`{"field":"priority","operator":"eq","value":"high"},`+
+		`{"field":"createdAt","operator":"gte","value":"2026-06-01T00:00:00Z"}]}`)
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %s", resultText(res))
+	}
+	if svc.filteredCalls != 1 || svc.listCalls != 0 {
+		t.Fatalf("ListWithFilters calls = %d, List calls = %d; want 1 and 0", svc.filteredCalls, svc.listCalls)
+	}
+	want := []repositories.FilterCondition{
+		{Field: "priority", Operator: "eq", Value: "high"},
+		{Field: "createdAt", Operator: "gte", Value: "2026-06-01T00:00:00Z"},
+	}
+	if len(svc.gotFilters) != len(want) {
+		t.Fatalf("filters = %+v, want %+v", svc.gotFilters, want)
+	}
+	for i := range want {
+		if svc.gotFilters[i] != want[i] {
+			t.Errorf("filter %d = %+v, want %+v", i, svc.gotFilters[i], want[i])
+		}
+	}
+	if svc.gotCursor != "c1" {
+		t.Errorf("cursor = %q, want c1", svc.gotCursor)
+	}
+}
+
+func TestResourceList_UnknownFieldErrorsWithoutCallingService(t *testing.T) {
+	t.Parallel()
+	svc, res := callResourceList(t, taskSchema,
+		`{"type_slug":"task","filters":[{"field":"assignee","operator":"eq","value":"dana"}]}`)
+	if !res.IsError {
+		t.Fatalf("expected a tool error, got: %s", resultText(res))
+	}
+	if svc.filteredCalls != 0 || svc.listCalls != 0 {
+		t.Errorf("the service was called (filtered %d, unfiltered %d); want no call", svc.filteredCalls, svc.listCalls)
+	}
+	msg := resultText(res)
+	for _, want := range []string{`"assignee" is not filterable`,
+		"filterable fields: dueDate, name, priority, status, id, createdAt, createdBy, accountId, sequenceNo, updatedAt"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error %q does not contain %q", msg, want)
+		}
+	}
+	if strings.Contains(msg, "@type") {
+		t.Errorf("error lists the JSON-LD key @type as filterable: %q", msg)
+	}
+}
+
+func TestResourceList_FilterRefusals(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name, filter, want string
+	}{
+		{"unsupported operator", `{"field":"status","operator":"contains","value":"op"}`,
+			"supported operators: eq, ne, gt, gte, lt, lte"},
+		{"missing operator", `{"field":"status","operator":"","value":"open"}`,
+			"supported operators: eq, ne, gt, gte, lt, lte"},
+		{"JSON-LD key", `{"field":"@type","operator":"eq","value":"Action"}`, `"@type" is not filterable`},
+		{"object value", `{"field":"status","operator":"eq","value":{"state":"open"}}`,
+			"value must be a string, a number or a boolean"},
+		{"array value", `{"field":"status","operator":"eq","value":["open"]}`,
+			"value must be a string, a number or a boolean"},
+		{"null value", `{"field":"status","operator":"eq","value":null}`,
+			"value must be a string, a number or a boolean"},
+		{"empty field", `{"field":"","operator":"eq","value":"open"}`, "has no field"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			svc, res := callResourceList(t, taskSchema, `{"type_slug":"task","filters":[`+tc.filter+`]}`)
+			if !res.IsError {
+				t.Fatalf("expected a tool error, got: %s", resultText(res))
+			}
+			msg := resultText(res)
+			if !strings.Contains(msg, "validation") || !strings.Contains(msg, tc.want) {
+				t.Errorf("error %q does not name a validation failure containing %q", msg, tc.want)
+			}
+			if svc.filteredCalls != 0 || svc.listCalls != 0 {
+				t.Errorf("the service was called for a refused condition")
+			}
+		})
+	}
+}
+
+func TestResourceList_SchemaPropertyShadowingAStandardColumnTargetsTheDocument(t *testing.T) {
+	t.Parallel()
+	svc, res := callResourceList(t, taskSchema,
+		`{"type_slug":"task","filters":[{"field":"status","operator":"eq","value":"open"}]}`)
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %s", resultText(res))
+	}
+	if len(svc.gotFilters) != 1 || !svc.gotFilters[0].DocumentProperty {
+		t.Errorf("filters = %+v; want one condition marked DocumentProperty", svc.gotFilters)
+	}
+}
+
+func TestResourceList_StandardColumnNotInSchemaTargetsTheColumn(t *testing.T) {
+	t.Parallel()
+	svc, res := callResourceList(t, `{"type":"object","properties":{"name":{"type":"string"}}}`,
+		`{"type_slug":"note","filters":[{"field":"status","operator":"eq","value":"active"}]}`)
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %s", resultText(res))
+	}
+	if len(svc.gotFilters) != 1 || svc.gotFilters[0].DocumentProperty {
+		t.Errorf("filters = %+v; want one column condition", svc.gotFilters)
+	}
+}
+
+func TestResourceList_SchemalessTypeSkipsTheFieldCheck(t *testing.T) {
+	t.Parallel()
+	svc, res := callResourceList(t, "",
+		`{"type_slug":"scratchpad","filters":[{"field":"topic","operator":"eq","value":"pricing"}]}`)
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %s", resultText(res))
+	}
+	if svc.filteredCalls != 1 {
+		t.Errorf("ListWithFilters calls = %d, want 1", svc.filteredCalls)
+	}
+}
+
+func TestResourceList_NumberAndBooleanValuesAreFormatted(t *testing.T) {
+	t.Parallel()
+	svc, res := callResourceList(t,
+		`{"type":"object","properties":{"amountDue":{"type":"number"},"paid":{"type":"boolean"}}}`,
+		`{"type_slug":"invoice","filters":[{"field":"amountDue","operator":"gte","value":1000.5},`+
+			`{"field":"paid","operator":"eq","value":true},{"field":"paid","operator":"ne","value":false}]}`)
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %s", resultText(res))
+	}
+	got := make([]string, 0, len(svc.gotFilters))
+	for _, f := range svc.gotFilters {
+		got = append(got, f.Value)
+	}
+	if strings.Join(got, ",") != "1000.5,1,0" {
+		t.Errorf("values = %v, want [1000.5 1 0]", got)
+	}
+}
+
+func TestResourceList_NoFiltersUsesTheUnfilteredList(t *testing.T) {
+	t.Parallel()
+	for _, args := range []string{`{"type_slug":"task"}`, `{"type_slug":"task","filters":[]}`} {
+		svc, res := callResourceList(t, taskSchema, args)
+		if res.IsError {
+			t.Fatalf("%s: unexpected tool error: %s", args, resultText(res))
+		}
+		if svc.listCalls != 1 || svc.filteredCalls != 0 {
+			t.Errorf("%s: List calls = %d, ListWithFilters calls = %d; want 1 and 0",
+				args, svc.listCalls, svc.filteredCalls)
+		}
+	}
+}
+
+// Compile-time check that the recording stubs still satisfy the interfaces.
+var (
+	_ application.ResourceService     = (*listRecordingResources)(nil)
+	_ application.ResourceTypeService = (*schemaTypes)(nil)
+)

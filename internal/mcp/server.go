@@ -199,7 +199,7 @@ func newServerWithGates(
 		registerResourceTypePresetTools(server, resourceTypeService)
 	}
 	if enabled[ServiceResource] {
-		registerResourceTools(server, resourceService)
+		registerResourceTools(server, resourceService, resourceTypeService)
 	}
 	if enabled[ServiceKnowledgeGraph] && !isNilInterface(kgService) {
 		registerKnowledgeGraphTools(server, kgService)
