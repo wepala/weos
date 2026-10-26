@@ -55,7 +55,9 @@ var standardColumns = map[string]bool{
 // column of the same name: on a task, "status" is the task's own state, not
 // the resource lifecycle. Such a condition is marked DocumentProperty, because
 // the projection has no column for it. A type with no schema has nothing to
-// check a field against, so its fields are not checked.
+// check a field against, so its fields are not checked; a condition on one
+// that is not a standard column is marked DocumentProperty too, because that
+// type's projection has only the standard columns.
 //
 // A value is compared as the JSON type the schema declares for the property,
 // else as the value's own type, so a number sent as "3" still matches a stored
@@ -95,12 +97,19 @@ func buildListFilters(
 			// done, including one with no status at all.
 			NeIncludesMissing: true,
 		}
-		if declared {
+		switch {
+		case declared:
 			cond.DocumentProperty = standardColumns[utils.CamelToSnake(c.Field)]
-		} else if hasSchema && !isStandardFilterField(c.Field) {
+		case isStandardFilterField(c.Field):
+		case hasSchema:
 			return nil, fmt.Errorf(
 				"filter validation failed: field %q is not filterable on type %q; filterable fields: %s",
 				c.Field, typeSlug, strings.Join(filterableFields(props), ", "))
+		default:
+			// A type with no schema has only the standard columns, so the
+			// repository would drop a condition on any other field for want of
+			// a column and return every resource. Read it from the document.
+			cond.DocumentProperty = true
 		}
 		out = append(out, cond)
 	}

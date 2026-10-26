@@ -200,15 +200,25 @@ func TestResourceList_StandardColumnNotInSchemaTargetsTheColumn(t *testing.T) {
 	}
 }
 
+// TestResourceList_SchemalessTypeSkipsTheFieldCheck pins that a type with no
+// schema is not refused a field, and that the condition still filters: its
+// projection has only the standard columns, so any other field is read from
+// the stored document rather than dropped for want of a column.
 func TestResourceList_SchemalessTypeSkipsTheFieldCheck(t *testing.T) {
 	t.Parallel()
-	svc, res := callResourceList(t, "",
-		`{"type_slug":"scratchpad","filters":[{"field":"topic","operator":"eq","value":"pricing"}]}`)
+	svc, res := callResourceList(t, "", `{"type_slug":"scratchpad","filters":[`+
+		`{"field":"topic","operator":"eq","value":"pricing"},{"field":"status","operator":"eq","value":"active"}]}`)
 	if res.IsError {
 		t.Fatalf("unexpected tool error: %s", resultText(res))
 	}
-	if svc.filteredCalls != 1 {
-		t.Errorf("ListWithFilters calls = %d, want 1", svc.filteredCalls)
+	if svc.filteredCalls != 1 || len(svc.gotFilters) != 2 {
+		t.Fatalf("ListWithFilters calls = %d with %+v, want 1 call with 2 conditions", svc.filteredCalls, svc.gotFilters)
+	}
+	if !svc.gotFilters[0].DocumentProperty {
+		t.Errorf("topic condition = %+v; want it marked DocumentProperty", svc.gotFilters[0])
+	}
+	if svc.gotFilters[1].DocumentProperty {
+		t.Errorf("status condition = %+v; want the standard column", svc.gotFilters[1])
 	}
 }
 

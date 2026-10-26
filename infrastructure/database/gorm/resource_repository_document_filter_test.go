@@ -200,3 +200,21 @@ func TestFindAllWithFilters_ColumnNeIncludesMissing(t *testing.T) {
 		}
 	}
 }
+
+// TestFindAllWithFilters_DocumentPropertyOnASchemalessType pins the condition
+// the MCP tool sends for a field of a type with no JSON Schema: its projection
+// has only the standard columns, so the field is read from the document.
+func TestFindAllWithFilters_DocumentPropertyOnASchemalessType(t *testing.T) {
+	t.Parallel()
+	repo := newDocumentFilterRepo(t, newTestDB(t), "scratchpad", "", [][2]string{
+		{"urn:scratchpad:1", `{"@graph":[{"@id":"urn:scratchpad:1","name":"Tier ideas","topic":"pricing"}]}`},
+		{"urn:scratchpad:2", `{"@graph":[{"@id":"urn:scratchpad:2","name":"Interview notes","topic":"hiring"}]}`},
+	})
+	pricing := repositories.FilterCondition{Field: "topic", Operator: "eq", Value: "pricing",
+		DocumentProperty: true, ValueType: repositories.FilterValueString}
+	for _, flat := range []bool{false, true} {
+		if got := listIDs(t, repo, "scratchpad", flat, pricing); strings.Join(got, ",") != "urn:scratchpad:1" {
+			t.Errorf("flat=%v: topic=pricing matched %v, want [urn:scratchpad:1]", flat, got)
+		}
+	}
+}

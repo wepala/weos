@@ -380,9 +380,11 @@ func (w *listFiltersWorld) errorStatesValueMustBeScalar() error {
 	return nil
 }
 
-// toolDoesNotRefuseField checks the call reached the tool and was not refused
-// for its field. What the projection then does with a column it does not
-// have is not pinned here.
+// toolDoesNotRefuseField checks the call reached the tool, was not refused
+// for its field, and returned a listing in which every resource meets each eq
+// condition — the condition was applied, not dropped. The scenario seeds no
+// resource, so the matching rows themselves are pinned by
+// TestMCPResourceListFiltersSchemalessTypeFiltersTheRows below.
 func (w *listFiltersWorld) toolDoesNotRefuseField() error {
 	if w.lastErr != nil {
 		return fmt.Errorf("the call did not reach the tool: %v", w.lastErr)
@@ -390,7 +392,60 @@ func (w *listFiltersWorld) toolDoesNotRefuseField() error {
 	if msg := w.errMessage(); strings.Contains(msg, "not filterable") {
 		return fmt.Errorf("the condition was refused as an unfilterable field: %s", msg)
 	}
+	out, err := w.listing()
+	if err != nil {
+		return err
+	}
+	var conds []struct {
+		Field    string `json:"field"`
+		Operator string `json:"operator"`
+		Value    any    `json:"value"`
+	}
+	if err := json.Unmarshal([]byte(w.lastFilters), &conds); err != nil {
+		return fmt.Errorf("the filters sent are not JSON: %w", err)
+	}
+	for _, item := range out.Data {
+		for _, c := range conds {
+			if c.Operator == "eq" && propertyOf(item.Data, c.Field) != fmt.Sprint(c.Value) {
+				return fmt.Errorf("resource %q does not meet %s eq %v: the condition was dropped",
+					propertyOf(item.Data, "name"), c.Field, c.Value)
+			}
+		}
+	}
 	return nil
+}
+
+// TestMCPResourceListFiltersSchemalessTypeFiltersTheRows pins what the
+// scenario "A type that declares no JSON Schema is not refused a condition on
+// an undeclared field" cannot: with two resources of such a type stored, the
+// condition returns the one that matches and not the other (wm-iqtlo5). The
+// scenario's Gherkin seeds no resource, and the contract is not edited here.
+func TestMCPResourceListFiltersSchemalessTypeFiltersTheRows(t *testing.T) {
+	ctx := context.Background()
+	w := &listFiltersWorld{mcpWorld: &mcpWorld{}, ids: map[string]string{}}
+	t.Cleanup(w.teardown)
+	if err := w.aCleanKnowledgeGraph(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.typeWithNoSchema(ctx, "scratchpad"); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []map[string]any{
+		{"name": "Tier ideas for the annual plan", "topic": "pricing"},
+		{"name": "Interview notes for the support lead", "topic": "hiring"},
+	} {
+		if _, err := w.createResource(ctx, "scratchpad", r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w.callList(ctx, "scratchpad", `[{"field":"topic","operator":"eq","value":"pricing"}]`, "")
+	if err := w.listingNamesExactly([]string{"Tier ideas for the annual plan"}); err != nil {
+		t.Error(err)
+	}
+	w.callList(ctx, "scratchpad", `[{"field":"topic","operator":"ne","value":"pricing"}]`, "")
+	if err := w.listingNamesExactly([]string{"Interview notes for the support lead"}); err != nil {
+		t.Error(err)
+	}
 }
 
 // --- Helpers ---
