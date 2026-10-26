@@ -326,6 +326,54 @@ func TestResourceList_NeIncludesMissing(t *testing.T) {
 	}
 }
 
+// listSchema declares an array and an object property, which the projection
+// stores as JSON text, beside a scalar and a list-valued reference.
+const listSchema = `{"type":"object","properties":{"name":{"type":"string"},` +
+	`"tags":{"type":"array","items":{"type":"string"}},"address":{"type":"object"},` +
+	`"suppliers":{"type":"array","x-resource-type":"vendor","items":{"type":"string"}},` +
+	`"project":{"type":"string","x-resource-type":"project"}}}`
+
+// TestResourceList_ArrayOrObjectPropertyIsRefused pins that a condition on a
+// property stored as JSON text is refused: eq on one element never matches
+// the whole array, so the listing would come back empty with no word why.
+func TestResourceList_ArrayOrObjectPropertyIsRefused(t *testing.T) {
+	t.Parallel()
+	for _, field := range []string{"tags", "address"} {
+		svc, res := callResourceList(t, listSchema,
+			`{"type_slug":"task","filters":[{"field":"`+field+`","operator":"eq","value":"urgent"}]}`)
+		if !res.IsError {
+			t.Errorf("%s: expected a tool error, got: %s", field, resultText(res))
+			continue
+		}
+		msg := resultText(res)
+		for _, want := range []string{"filter validation failed", `"` + field + `" is not filterable`,
+			"filterable fields: name, project, suppliers, id, status, createdAt, createdBy, accountId, sequenceNo, updatedAt"} {
+			if !strings.Contains(msg, want) {
+				t.Errorf("%s: error %q does not contain %q", field, msg, want)
+			}
+		}
+		if svc.filteredCalls != 0 {
+			t.Errorf("%s: the service was called for a refused condition", field)
+		}
+	}
+}
+
+// TestResourceList_ListValuedReferenceIsFilterable pins the exception: a
+// reference property may hold a JSON array of identifiers, and eq on it
+// matches a resource whose array holds the value.
+func TestResourceList_ListValuedReferenceIsFilterable(t *testing.T) {
+	t.Parallel()
+	svc, res := callResourceList(t, listSchema,
+		`{"type_slug":"task","filters":[{"field":"suppliers","operator":"eq","value":"urn:vendor:1"}]}`)
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %s", resultText(res))
+	}
+	if len(svc.gotFilters) != 1 || svc.gotFilters[0].DocumentProperty ||
+		svc.gotFilters[0].ValueType != repositories.FilterValueString {
+		t.Errorf("filters = %+v; want one string column condition", svc.gotFilters)
+	}
+}
+
 func TestResourceList_NoFiltersUsesTheUnfilteredList(t *testing.T) {
 	t.Parallel()
 	for _, args := range []string{`{"type_slug":"task"}`, `{"type_slug":"task","filters":[]}`} {

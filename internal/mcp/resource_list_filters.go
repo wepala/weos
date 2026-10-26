@@ -98,6 +98,11 @@ func buildListFilters(
 			NeIncludesMissing: true,
 		}
 		switch {
+		case declared && !prop.filterable():
+			return nil, fmt.Errorf(
+				"filter validation failed: field %q is not filterable on type %q: it holds %s, and a condition "+
+					"compares a single value; filterable fields: %s",
+				c.Field, typeSlug, article(prop.jsonType), strings.Join(filterableFields(props), ", "))
 		case declared:
 			cond.DocumentProperty = standardColumns[utils.CamelToSnake(c.Field)]
 		case isStandardFilterField(c.Field):
@@ -121,6 +126,26 @@ type schemaProperty struct {
 	// jsonType is the declared JSON Schema type, or empty when the property
 	// declares none, or more than one besides "null".
 	jsonType string
+	// reference is true for an x-resource-type property, which holds resource
+	// identifiers.
+	reference bool
+}
+
+// filterable reports whether a condition can compare the property. The
+// projection stores an array or an object as JSON text, so eq on one element
+// never matches it. A reference is the exception: a list-valued reference is
+// a JSON array of identifiers, and the repository matches eq on an identifier
+// it holds.
+func (p schemaProperty) filterable() bool {
+	return p.reference || (p.jsonType != "array" && p.jsonType != "object")
+}
+
+// article names a JSON type with its indefinite article, for an error.
+func article(jsonType string) string {
+	if jsonType == "array" || jsonType == "object" {
+		return "an " + jsonType
+	}
+	return "a " + jsonType
 }
 
 // schemaProperties returns the schema's properties that the projection can
@@ -132,7 +157,8 @@ func schemaProperties(schema json.RawMessage) (props map[string]schemaProperty, 
 	}
 	var s struct {
 		Properties map[string]struct {
-			Type json.RawMessage `json:"type"`
+			Type          json.RawMessage `json:"type"`
+			XResourceType string          `json:"x-resource-type"`
 		} `json:"properties"`
 	}
 	if err := json.Unmarshal(schema, &s); err != nil {
@@ -141,7 +167,7 @@ func schemaProperties(schema json.RawMessage) (props map[string]schemaProperty, 
 	props = make(map[string]schemaProperty, len(s.Properties))
 	for name, p := range s.Properties {
 		if !projectionSkippedKeys[name] {
-			props[name] = schemaProperty{jsonType: declaredType(p.Type)}
+			props[name] = schemaProperty{jsonType: declaredType(p.Type), reference: p.XResourceType != ""}
 		}
 	}
 	return props, true, nil
@@ -171,12 +197,14 @@ func declaredType(raw json.RawMessage) string {
 	return declared
 }
 
-// filterableFields lists the schema properties in name order, then the
-// standard columns a property does not already name.
+// filterableFields lists the filterable schema properties in name order, then
+// the standard columns a property does not already name.
 func filterableFields(props map[string]schemaProperty) []string {
 	fields := make([]string, 0, len(props)+len(standardFilterFields))
-	for name := range props {
-		fields = append(fields, name)
+	for name, p := range props {
+		if p.filterable() {
+			fields = append(fields, name)
+		}
 	}
 	sort.Strings(fields)
 	for _, f := range standardFilterFields {

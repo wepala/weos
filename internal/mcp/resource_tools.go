@@ -78,11 +78,12 @@ const resourceListDescription = "List resources of a given type with cursor-base
 	"which a resource must meet. operator is one of eq, ne, gt, gte, lt, lte. field is one of the " +
 	"type's schema properties or a standard column (id, status, createdAt, createdBy, accountId, " +
 	"sequenceNo, updatedAt); when the schema declares a property with a standard column's name " +
-	"(such as a task's status), the condition is on the property. value is a string, number or " +
-	"boolean. A condition the listing cannot apply is refused with an error that lists the valid " +
-	"fields or operators. ne also matches a resource that has no value for the field. A type with no " +
-	"JSON Schema has no property list, so its fields are not checked. Pass the same filters with the " +
-	"cursor to read the next page."
+	"(such as a task's status), the condition is on the property. A property that holds an array " +
+	"or an object is not filterable, except a reference, where eq matches a resource that holds " +
+	"the identifier. value is a string, number or boolean. A condition the listing cannot apply " +
+	"is refused with an error that lists the valid fields or operators. ne also matches a " +
+	"resource that has no value for the field. A type with no JSON Schema has no property list, " +
+	"so its fields are not checked. Pass the same filters with the cursor to read the next page."
 
 func registerResourceTools(
 	server *mcp.Server, svc application.ResourceService, types application.ResourceTypeService,
