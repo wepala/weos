@@ -1583,6 +1583,44 @@ func (r *ResourceRepository) referenceProperties(ctx context.Context, typeSlug s
 	return refs, nil
 }
 
+// genericFilterClause builds the WHERE fragment for one condition on the
+// canonical resources table, for a type with no projection table. ok is false
+// when the operator is unknown, and the caller skips the condition, as the
+// REST listing always has. A condition from the MCP tool on a reference is an
+// error; isReference reports whether a field is one, and is asked only for a
+// condition that reads the document.
+func genericFilterClause(
+	dialect, typeSlug string, f repositories.FilterCondition, isReference func(field string) (bool, error),
+) (clause string, args []any, ok bool, err error) {
+	sqlOp, ok := operatorMap[f.Operator]
+	if !ok {
+		return "", nil, false, nil
+	}
+	if !typedFilterCondition(f) {
+		// The REST listing's reading, kept as it was: the top level of the
+		// document, compared as SQLite compares it.
+		return "json_extract(data, ?) " + sqlOp + " ?", []any{"$." + f.Field, f.Value}, true, nil
+	}
+	if col := utils.CamelToSnake(f.Field); !f.DocumentProperty && genericFilterColumns[col] {
+		clause = col + " " + sqlOp + " ?"
+		if sqlOp == "!=" && f.NeIncludesMissing {
+			clause = "(" + col + " IS NULL OR " + clause + ")"
+		}
+		return clause, []any{f.Value}, true, nil
+	}
+	ref, err := isReference(f.Field)
+	if err != nil {
+		return "", nil, false, err
+	}
+	if ref {
+		return "", nil, false, fmt.Errorf(
+			"filter on %q cannot be applied: it is a reference, and type %q has no projection table "+
+				"to match a reference in", f.Field, typeSlug)
+	}
+	clause, args = documentFilterClause(dialect, "data", f)
+	return clause, args, true, nil
+}
+
 // findAllFromGenericWithFilters lists a type that has no projection table from
 // the canonical resources table. A condition from the MCP resource_list tool
 // (typedFilterCondition) is applied the way the projection applies it: a
@@ -1605,38 +1643,23 @@ func (r *ResourceRepository) findAllFromGenericWithFilters(
 	query = applyVisibilityScope(query, scope, "")
 
 	var references map[string]bool
-	for _, f := range filters {
-		sqlOp, ok := operatorMap[f.Operator]
-		if !ok {
-			continue
-		}
-		if !typedFilterCondition(f) {
-			// The REST listing's reading, kept as it was: the top level of
-			// the document, compared as SQLite compares it.
-			query = query.Where("json_extract(data, ?) "+sqlOp+" ?", "$."+f.Field, f.Value)
-			continue
-		}
-		if col := utils.CamelToSnake(f.Field); !f.DocumentProperty && genericFilterColumns[col] {
-			clause := col + " " + sqlOp + " ?"
-			if sqlOp == "!=" && f.NeIncludesMissing {
-				clause = "(" + col + " IS NULL OR " + clause + ")"
-			}
-			query = query.Where(clause, f.Value)
-			continue
-		}
+	isReference := func(field string) (bool, error) {
 		if references == nil {
 			var err error
 			if references, err = r.referenceProperties(ctx, typeSlug); err != nil {
-				return repositories.PaginatedResponse[*entities.Resource]{}, err
+				return false, err
 			}
 		}
-		if references[f.Field] {
-			return repositories.PaginatedResponse[*entities.Resource]{}, fmt.Errorf(
-				"filter on %q cannot be applied: it is a reference, and type %q has no projection table "+
-					"to match a reference in", f.Field, typeSlug)
+		return references[field], nil
+	}
+	for _, f := range filters {
+		clause, args, ok, err := genericFilterClause(r.db.Name(), typeSlug, f, isReference)
+		if err != nil {
+			return repositories.PaginatedResponse[*entities.Resource]{}, err
 		}
-		clause, args := documentFilterClause(r.db.Name(), "data", f)
-		query = query.Where(clause, args...)
+		if ok {
+			query = query.Where(clause, args...)
+		}
 	}
 
 	if cursor != "" {
