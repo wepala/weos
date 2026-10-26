@@ -11,6 +11,7 @@ import (
 
 	"github.com/wepala/weos/v3/application"
 	"github.com/wepala/weos/v3/application/presets"
+	"github.com/wepala/weos/v3/domain/repositories"
 	"github.com/wepala/weos/v3/internal/config"
 	mcpserver "github.com/wepala/weos/v3/internal/mcp"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.uber.org/fx"
+	"gorm.io/gorm"
 )
 
 // TestMCPResourceCreate runs the resource_create MCP-tool acceptance scenarios
@@ -62,6 +64,11 @@ type mcpWorld struct {
 	// (projections like event-references); manager drives checkpoint rebuilds.
 	runWorkers bool
 	manager    *application.Manager
+	// rs, db and projMgr back fixtures the MCP surface cannot express, such as
+	// a resource whose projection row carries a chosen createdAt.
+	rs      application.ResourceService
+	db      *gorm.DB
+	projMgr repositories.ProjectionManager
 
 	pendingContext string
 	pendingSchema  string
@@ -130,6 +137,7 @@ func (w *mcpWorld) aCleanKnowledgeGraph(_ context.Context) error {
 		fx.NopLogger,
 		application.Module(cfg, presets.NewDefaultRegistry()),
 		fx.Populate(&rts, &rs, &kg, &episodic, &eventStore, &manager),
+		fx.Populate(&w.db, &w.projMgr),
 	)
 	startCtx, startCancel := context.WithTimeout(sessCtx, fx.DefaultTimeout)
 	defer startCancel()
@@ -139,6 +147,7 @@ func (w *mcpWorld) aCleanKnowledgeGraph(_ context.Context) error {
 	w.app = app
 	w.eventStore = eventStore
 	w.manager = manager
+	w.rs = rs
 
 	server, err := mcpserver.NewMCPServer(rts, rs, kg, nil, episodic, nil, nil, nil)
 	if err != nil {

@@ -28,7 +28,7 @@ Feature: Filter an MCP resource_list call on projection columns
     Given a clean WeOS knowledge graph
     And the "tasks" preset is installed
 
-  @wip @story-wm-xtpky.1
+  @story-wm-xtpky.1
   Scenario: A condition on a schema property returns only the resources it matches
     Given the following "task" resources exist:
       | name                     | status | priority |
@@ -44,7 +44,7 @@ Feature: Filter an MCP resource_list call on projection columns
       | Chase overdue invoices   |
       | Draft Q3 invoice summary |
 
-  @wip @story-wm-xtpky.1
+  @story-wm-xtpky.1
   Scenario: Two conditions narrow the listing together
     Given the following "task" resources exist:
       | name                     | status | priority |
@@ -61,7 +61,7 @@ Feature: Filter an MCP resource_list call on projection columns
       | name                   |
       | Chase overdue invoices |
 
-  @wip @story-wm-xtpky.1
+  @story-wm-xtpky.1
   Scenario Outline: A comparison condition on a due date returns only the tasks it matches
     Given the following "task" resources exist:
       | name                     | status | dueDate    |
@@ -82,7 +82,7 @@ Feature: Filter an MCP resource_list call on projection columns
       | lt       | Chase overdue invoices                           |
       | lte      | Chase overdue invoices, Draft Q3 invoice summary |
 
-  @wip @story-wm-xtpky.1
+  @story-wm-xtpky.1
   Scenario: A condition that matches nothing returns an empty listing rather than every resource
     Given the following "task" resources exist:
       | name                     | status | priority |
@@ -94,7 +94,7 @@ Feature: Filter an MCP resource_list call on projection columns
     Then the call succeeds
     And the listing returns no resources
 
-  @wip @story-wm-xtpky.1
+  @story-wm-xtpky.1
   Scenario: A condition on a field the projection has no column for is refused rather than ignored
     Given the following "task" resources exist:
       | name                     | status | priority |
@@ -107,7 +107,7 @@ Feature: Filter an MCP resource_list call on projection columns
     And the error names the field "assignee" as not filterable
     And no resources are returned
 
-  @wip @story-wm-xtpky.1
+  @story-wm-xtpky.1
   Scenario: The refusal for an unfilterable field lists the fields the type accepts
     When I call resource_list for type "task" with the filters:
       | field    | operator | value               |
@@ -128,7 +128,7 @@ Feature: Filter an MCP resource_list call on projection columns
       | sequenceNo  |
       | updatedAt   |
 
-  @wip @story-wm-xtpky.1
+  @story-wm-xtpky.1
   Scenario Outline: A condition on a JSON-LD key is refused because it is not a projection column
     When I call resource_list for type "task" with the filters:
       | field | operator | value   |
@@ -141,7 +141,7 @@ Feature: Filter an MCP resource_list call on projection columns
       | @id   | urn:weos:resource:task:4f1ac8d2 |
       | @type | https://schema.org/Action       |
 
-  @wip @story-wm-xtpky.1
+  @story-wm-xtpky.1
   Scenario: An unsupported operator is refused and the refusal names the operators that are supported
     Given the following "task" resources exist:
       | name                   | status | priority |
@@ -160,7 +160,7 @@ Feature: Filter an MCP resource_list call on projection columns
       | lte      |
     And no resources are returned
 
-  @wip @story-wm-xtpky.1
+  @story-wm-xtpky.1
   Scenario: A condition on a standard column the type's schema does not declare narrows the listing
     Given the following "task" resources exist:
       | name                     | status | created-at           |
@@ -176,7 +176,7 @@ Feature: Filter an MCP resource_list call on projection columns
       | Chase overdue invoices   |
       | Draft Q3 invoice summary |
 
-  @wip @story-wm-xtpky.1
+  @story-wm-xtpky.1
   Scenario: An eq condition on a reference field matches a task that holds that reference
     Given a "project" resource named "Client onboarding" exists
     And the following "task" resources exist:
@@ -189,7 +189,7 @@ Feature: Filter an MCP resource_list call on projection columns
       | name                   |
       | Chase overdue invoices |
 
-  @wip @story-wm-xtpky.1
+  @story-wm-xtpky.1
   Scenario: A type that declares no JSON Schema is not refused a condition on an undeclared field
     Given a resource type "scratchpad" exists with no JSON Schema
     When I call resource_list for type "scratchpad" with the filters:
@@ -197,7 +197,7 @@ Feature: Filter an MCP resource_list call on projection columns
       | topic | eq       | pricing |
     Then the tool does not refuse the condition as an unfilterable field
 
-  @wip @story-wm-xtpky.1
+  @story-wm-xtpky.1
   Scenario: A call with no conditions returns every resource of the type
     Given the following "task" resources exist:
       | name                     | status | priority |
@@ -212,7 +212,7 @@ Feature: Filter an MCP resource_list call on projection columns
       | Draft Q3 invoice summary |
       | Archive 2025 contracts   |
 
-  @wip @story-wm-xtpky.1
+  @story-wm-xtpky.1
   Scenario: An empty list of conditions returns every resource of the type
     Given the following "task" resources exist:
       | name                     | status | priority |
@@ -230,7 +230,7 @@ Feature: Filter an MCP resource_list call on projection columns
       | Draft Q3 invoice summary |
       | Archive 2025 contracts   |
 
-  @wip @story-wm-xtpky.1
+  @story-wm-xtpky.1
   Scenario: A filtered listing reports a cursor while more matches remain
     Given 25 "task" resources with status "open" exist
     And 5 "task" resources with status "done" exist
@@ -242,7 +242,7 @@ Feature: Filter an MCP resource_list call on projection columns
     And every returned resource has status "open"
     And the listing provides a cursor for the next page
 
-  @wip @story-wm-xtpky.1
+  @story-wm-xtpky.1
   Scenario: The cursor continues a filtered listing with the condition still applied
     Given 25 "task" resources with status "open" exist
     And 5 "task" resources with status "done" exist
@@ -253,7 +253,7 @@ Feature: Filter an MCP resource_list call on projection columns
     And every returned resource has status "open"
     And no resource from the first page is repeated
 
-  @wip @story-wm-xtpky.1
+  @story-wm-xtpky.1
   Scenario: A condition value given as a JSON number matches the stored number
     Given a resource type "invoice" exists with a numeric "amountDue" property
     And the following "invoice" resources exist:
@@ -269,7 +269,7 @@ Feature: Filter an MCP resource_list call on projection columns
       | name                   |
       | Harbor Legal June fees |
 
-  @wip @story-wm-xtpky.1
+  @story-wm-xtpky.1
   Scenario: A condition value given as a JSON boolean matches the stored boolean
     Given a resource type "invoice" exists with a boolean "paid" property
     And the following "invoice" resources exist:
@@ -285,7 +285,7 @@ Feature: Filter an MCP resource_list call on projection columns
       | name                   |
       | Harbor Legal June fees |
 
-  @wip @story-wm-xtpky.1
+  @story-wm-xtpky.1
   Scenario Outline: A condition value that is not a single value is refused
     When I call resource_list for type "task" with the JSON filters:
       """
