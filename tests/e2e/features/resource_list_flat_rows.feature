@@ -26,7 +26,7 @@ Feature: Read an MCP resource_list call as flat projection rows
     Given a clean WeOS knowledge graph
     And the "tasks" preset is installed
 
-  @wip @story-wm-xtpky.2
+  @story-wm-xtpky.2
   Scenario: A flat listing answers with projection rows instead of JSON-LD documents
     Given the following "task" resources exist:
       | name                     | status | priority |
@@ -42,7 +42,7 @@ Feature: Read an MCP resource_list call as flat projection rows
       | status   | open                   |
       | priority | high                   |
 
-  @wip @story-wm-xtpky.2
+  @story-wm-xtpky.2
   Scenario: Every flat row carries the standard projection columns
     Given the following "task" resources exist:
       | name                   | status | priority |
@@ -59,13 +59,13 @@ Feature: Read an MCP resource_list call as flat projection rows
       | sequenceNo |
       | updatedAt  |
 
-  @wip @story-wm-xtpky.2
+  @story-wm-xtpky.2
   Scenario: A flat listing of a type with no resources returns no rows
     When I call resource_list for type "task" asking for flat rows
     Then the call succeeds
     And the listing returns no rows
 
-  @wip @story-wm-xtpky.2
+  @story-wm-xtpky.2
   Scenario: A flat listing reports a cursor while more rows remain
     Given 25 "task" resources with status "open" exist
     When I call resource_list for type "task" asking for flat rows
@@ -73,7 +73,7 @@ Feature: Read an MCP resource_list call as flat projection rows
     And the listing returns 20 rows
     And the listing provides a cursor for the next page
 
-  @wip @story-wm-xtpky.2
+  @story-wm-xtpky.2
   Scenario: The cursor continues a flat listing without repeating a row
     Given 25 "task" resources with status "open" exist
     And I have listed the first page of "task" flat rows
@@ -82,7 +82,7 @@ Feature: Read an MCP resource_list call as flat projection rows
     And the listing returns 5 rows
     And no row from the first page is repeated
 
-  @wip @story-wm-xtpky.2
+  @story-wm-xtpky.2
   Scenario: A condition narrows a flat listing to the rows it matches
     Given the following "task" resources exist:
       | name                     | status | priority |
@@ -98,7 +98,7 @@ Feature: Read an MCP resource_list call as flat projection rows
       | Chase overdue invoices   |
       | Draft Q3 invoice summary |
 
-  @wip @story-wm-xtpky.2
+  @story-wm-xtpky.2
   Scenario: The cursor continues a filtered flat listing with the condition still applied
     Given 25 "task" resources with status "open" exist
     And 5 "task" resources with status "done" exist
@@ -109,7 +109,7 @@ Feature: Read an MCP resource_list call as flat projection rows
     And every returned row has status "open"
     And no row from the first page is repeated
 
-  @wip @story-wm-xtpky.2
+  @story-wm-xtpky.2
   Scenario: A condition on an unfilterable field is refused under flat rows as well
     Given the following "task" resources exist:
       | name                   | status | priority |
@@ -121,7 +121,7 @@ Feature: Read an MCP resource_list call as flat projection rows
     And the error names the field "assignee" as not filterable
     And no rows are returned
 
-  @wip @story-wm-xtpky.2
+  @story-wm-xtpky.2
   Scenario: A type with no projection table answers from the entity path instead of failing
     Given a resource type "briefing" exists with no projection table
     And the following "briefing" resources exist:
@@ -136,7 +136,7 @@ Feature: Read an MCP resource_list call as flat projection rows
       | Monday partner briefing   |
       | Quarterly lender briefing |
 
-  @wip @story-wm-xtpky.2
+  @story-wm-xtpky.2
   Scenario: The fallback for a type with no projection table keeps the condition it was given
     Given a resource type "briefing" exists with no projection table
     And the "briefing" type declares a "status" property
@@ -152,7 +152,7 @@ Feature: Read an MCP resource_list call as flat projection rows
       | name                    |
       | Monday partner briefing |
 
-  @wip @story-wm-xtpky.2
+  @story-wm-xtpky.2
   Scenario: A call that does not ask for flat rows answers with JSON-LD documents as before
     Given the following "task" resources exist:
       | name                     | status | priority |
@@ -166,7 +166,7 @@ Feature: Read an MCP resource_list call as flat projection rows
       | Chase overdue invoices   |
       | Draft Q3 invoice summary |
 
-  @wip @story-wm-xtpky.2
+  @story-wm-xtpky.2
   Scenario: A call that turns flat rows off answers with JSON-LD documents
     Given the following "task" resources exist:
       | name                   | status | priority |
