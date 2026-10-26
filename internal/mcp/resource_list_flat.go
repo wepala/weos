@@ -98,6 +98,11 @@ var sameMeaningColumns = map[string]bool{"createdAt": true, "updatedAt": true}
 // then change a value, but cannot move a row off the page. A row whose
 // resource the read does not return — deleted in between — fails the call,
 // because a null in its place would be a quiet wrong answer.
+//
+// Each row's document is read under the row's own type: an ancestor's
+// projection also holds its subtypes' rows, each keeping its own typeSlug,
+// and the read by id finds a resource only under that type. So the page is
+// read in one query per type it holds — one for a page with no subtype rows.
 func overlayDocumentProperties(
 	ctx context.Context, svc application.ResourceService, typeSlug string, names []string,
 	rows []map[string]any,
@@ -107,16 +112,28 @@ func overlayDocumentProperties(
 		return fmt.Errorf("read the documents of the flat page: the resource service cannot read resources by id")
 	}
 	ids := make([]string, len(rows))
+	byType := map[string][]string{}
+	var slugs []string
 	for i, row := range rows {
 		ids[i] = fmt.Sprint(row["id"])
+		slug := typeSlug
+		if s, ok := row["typeSlug"].(string); ok && s != "" {
+			slug = s
+		}
+		if _, seen := byType[slug]; !seen {
+			slugs = append(slugs, slug)
+		}
+		byType[slug] = append(byType[slug], ids[i])
 	}
-	found, err := lister.ListByIDs(ctx, typeSlug, ids)
-	if err != nil {
-		return fmt.Errorf("read the documents of the flat page: %w", err)
-	}
-	docs := make(map[string]json.RawMessage, len(found))
-	for _, e := range found {
-		docs[e.GetID()] = e.Data()
+	docs := make(map[string]json.RawMessage, len(rows))
+	for _, slug := range slugs {
+		found, err := lister.ListByIDs(ctx, slug, byType[slug])
+		if err != nil {
+			return fmt.Errorf("read the documents of the flat page: %w", err)
+		}
+		for _, e := range found {
+			docs[e.GetID()] = e.Data()
+		}
 	}
 	for i, row := range rows {
 		id := ids[i]
@@ -186,14 +203,18 @@ func documentProperties(
 // entity node of an @graph or, for a legacy flat record, from the top level —
 // the same places a DocumentProperty condition reads. It returns nil when the
 // document has no value for it, and an error when the document is not a JSON
-// object: a null there would be a quiet wrong answer.
+// object — including an empty document and JSON null: a null there would be a
+// quiet wrong answer.
 func documentProperty(doc json.RawMessage, name string) (any, error) {
 	if len(doc) == 0 {
-		return nil, nil
+		return nil, errors.New("the document is empty")
 	}
 	var d map[string]any
 	if err := json.Unmarshal(doc, &d); err != nil {
 		return nil, fmt.Errorf("the document is not a JSON object: %w", err)
+	}
+	if d == nil {
+		return nil, errors.New("the document is JSON null, not a JSON object")
 	}
 	if graph, ok := d["@graph"].([]any); ok && len(graph) > 0 {
 		if node, ok := graph[0].(map[string]any); ok {

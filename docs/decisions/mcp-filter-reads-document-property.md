@@ -259,11 +259,15 @@ it applied), or to **honour the flags** — chosen.
    `DocumentProperty` condition reads. A document with no value gives null. So **an MCP flat row's
    `status` on a task is the task's status, while a REST flat row's `status` for the same task is
    the lifecycle**; the lifecycle value is not in an MCP flat row for such a type.
-2. **The page's documents are read by id, under the same visibility scope.** One
+2. **The page's documents are read by id, under the same visibility scope.** A
    `WHERE type_slug = ? AND id IN (…)` query over the page's identifiers, through `ListByIDs` →
-   `FindAllByTypeAndIDs`, with the scope `buildVisibilityScope` gives the listing. A row whose
+   `FindAllByTypeAndIDs`, with the scope `buildVisibilityScope` gives the listing. **Each row is
+   read under its own `typeSlug`**, so the page takes one query per type it holds: an ancestor's
+   projection also holds its subtypes' rows (dual projection), each keeping the subtype's
+   `type_slug`, and a read under the listed ancestor's slug would not find them. A row whose
    document the read does not return (deleted in between), or a document that is not a JSON
-   object, **fails the call** with the resource's id. It never becomes a null.
+   object — empty and JSON `null` included — **fails the call** with the resource's id. It never
+   becomes a null.
 3. **A row that cannot carry the type's values answers under `data`.** A type with no JSON Schema
    (nothing names its properties), or with a reference that has no column (the document keeps a
    reference as an edge the overlay does not read), returns `errFlatAnswersWithDocuments`. The tool
@@ -322,8 +326,8 @@ it applied), or to **honour the flags** — chosen.
   above from conditions to the row shape. Moving the overlay into the repository (option 2) is the
   fix, once REST is allowed to change.
 - **One more query per flat page** for a type with a shadowed or column-less property — every task
-  listing, because `status` is shadowed. It reads at most `limit` rows by primary key, so its cost
-  is bounded by the page, not the table.
+  listing, because `status` is shadowed — and one more again for each subtype the page holds. It
+  reads at most `limit` rows by primary key, so its cost is bounded by the page, not the table.
 - **A `createdAt` row and a `createdAt` condition can disagree.** When the document lacks
   `createdAt`, the row shows the column's value, but a condition on `createdAt` still reads the
   document and finds no value. Accepted as a residual: the alternative is a null in the row for a

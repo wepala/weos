@@ -22,12 +22,16 @@ import (
 // every read resource_list makes, each with its own arguments, so a test can
 // tell the flat read from a later read of documents. Its entity listings and
 // its read by id return docs, one resource per identifier; the read by id
-// returns only the identifiers it was asked for.
+// returns only the identifiers it was asked for, and — as the repository's
+// FindAllByTypeAndIDs does — only those whose resource is of the type it was
+// asked for. A resource's type is types[id], or the requested type when types
+// does not name it.
 type flatRecordingResources struct {
 	stubResourceService
 	rows    []map[string]any
 	flatErr error
 	docs    map[string]string
+	types   map[string]string
 
 	calls []string
 	reads []resourceRead
@@ -36,6 +40,7 @@ type flatRecordingResources struct {
 // resourceRead is one call resource_list made to the service.
 type resourceRead struct {
 	method  string
+	slug    string
 	filters []repositories.FilterCondition
 	cursor  string
 	limit   int
@@ -81,9 +86,18 @@ func (s *flatRecordingResources) ListWithFilters(
 func (s *flatRecordingResources) ListByIDs(
 	_ context.Context, slug string, ids []string,
 ) ([]*entities.Resource, error) {
-	s.record(resourceRead{method: "ListByIDs", ids: ids})
+	s.record(resourceRead{method: "ListByIDs", slug: slug, ids: ids})
 	page, err := s.entities(slug, ids)
-	return page.Data, err
+	if err != nil {
+		return nil, err
+	}
+	var found []*entities.Resource
+	for _, e := range page.Data {
+		if e.TypeSlug() == slug {
+			found = append(found, e)
+		}
+	}
+	return found, nil
 }
 
 // entities returns a resource for each of docs, or, when only is not nil, for
@@ -96,8 +110,12 @@ func (s *flatRecordingResources) entities(
 		if only != nil && !slices.Contains(only, id) {
 			continue
 		}
+		typ := slug
+		if t, ok := s.types[id]; ok {
+			typ = t
+		}
 		e := &entities.Resource{}
-		if err := e.Restore(id, slug, "active", json.RawMessage(doc), "", "", time.Now(), 1); err != nil {
+		if err := e.Restore(id, typ, "active", json.RawMessage(doc), "", "", time.Now(), 1); err != nil {
 			return page, err
 		}
 		page.Data = append(page.Data, e)
@@ -536,6 +554,73 @@ func TestResourceList_FlatRefusesADocumentThatDoesNotParse(t *testing.T) {
 	_, res := callFlatResourceList(t, svc, taskSchema, `{"type_slug":"task","flat":true}`)
 	if !res.IsError || !strings.Contains(resultText(res), "urn:task:1") {
 		t.Fatalf("expected an error naming urn:task:1, got: %s", resultText(res))
+	}
+}
+
+// TestResourceList_FlatRefusesAnEmptyOrNullDocument pins that a stored
+// document that is empty or JSON null is the call's error, naming the
+// resource, like one that does not parse: there is no object to read the
+// property from, so a null in the row would be a quiet wrong answer.
+func TestResourceList_FlatRefusesAnEmptyOrNullDocument(t *testing.T) {
+	t.Parallel()
+	for name, doc := range map[string]string{"empty": ``, "null": `null`, "null with spaces": ` null `} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			svc := &flatRecordingResources{
+				rows: []map[string]any{{"id": "urn:task:1", "name": "Chase invoices", "status": "active"}},
+				docs: map[string]string{"urn:task:1": doc},
+			}
+			_, res := callFlatResourceList(t, svc, taskSchema, `{"type_slug":"task","flat":true}`)
+			if !res.IsError || !strings.Contains(resultText(res), "urn:task:1") {
+				t.Fatalf("expected an error naming urn:task:1, got: %s", resultText(res))
+			}
+		})
+	}
+}
+
+// TestResourceList_FlatReadsASubtypeRowsDocumentUnderItsOwnType pins that a
+// flat listing of a type whose page holds resources of a subtype — rows the
+// projection keeps in the ancestor's table under their own type — reads each
+// row's document under the row's own type, so it finds them. Read under the
+// listed type, the subtype's documents are not found and the call fails.
+func TestResourceList_FlatReadsASubtypeRowsDocumentUnderItsOwnType(t *testing.T) {
+	t.Parallel()
+	svc := &flatRecordingResources{
+		rows: []map[string]any{
+			{"id": "urn:task:1", "typeSlug": "task", "name": "Chase invoices", "status": "active"},
+			{"id": "urn:chore:1", "typeSlug": "chore", "name": "Take out bins", "status": "active"},
+			{"id": "urn:task:2", "typeSlug": "task", "name": "Renew lease", "status": "active"},
+		},
+		docs: map[string]string{
+			"urn:task:1":  `{"@graph":[{"@id":"urn:task:1","status":"open"}]}`,
+			"urn:chore:1": `{"@graph":[{"@id":"urn:chore:1","status":"done"}]}`,
+			"urn:task:2":  `{"@graph":[{"@id":"urn:task:2","status":"open"}]}`,
+		},
+		types: map[string]string{"urn:chore:1": "chore"},
+	}
+	answer, res := callFlatResourceList(t, svc, taskSchema, `{"type_slug":"task","flat":true}`)
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %s", resultText(res))
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(answer["rows"], &rows); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{"urn:task:1": "open", "urn:chore:1": "done", "urn:task:2": "open"}
+	if len(rows) != len(want) {
+		t.Fatalf("got %d rows, want %d", len(rows), len(want))
+	}
+	for _, row := range rows {
+		if got := row["status"]; got != want[fmt.Sprint(row["id"])] {
+			t.Errorf("row %v has status %v, want %v", row["id"], got, want[fmt.Sprint(row["id"])])
+		}
+	}
+	reads := map[string]string{}
+	for _, r := range svc.reads[1:] {
+		reads[r.slug] = strings.Join(r.ids, ",")
+	}
+	if !reflect.DeepEqual(reads, map[string]string{"task": "urn:task:1,urn:task:2", "chore": "urn:chore:1"}) {
+		t.Errorf("documents read by type = %v, want each row's id under its own type", reads)
 	}
 }
 

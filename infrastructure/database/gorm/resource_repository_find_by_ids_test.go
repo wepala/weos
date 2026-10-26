@@ -71,3 +71,36 @@ func TestFindAllByTypeAndIDs_NoIdentifiersReadsNothing(t *testing.T) {
 		t.Errorf("got %d resources, %v; want none and no error", len(got), err)
 	}
 }
+
+// TestFindAllByTypeAndIDs_AnAncestorsFlatRowNamesTheSubtypeToReadItBy pins
+// the facts the MCP flat overlay relies on to read a subtype row's document:
+// the ancestor's flat row carries the subtype's own typeSlug, and the read by
+// id finds the resource under that type — not under the ancestor's.
+func TestFindAllByTypeAndIDs_AnAncestorsFlatRowNamesTheSubtypeToReadItBy(t *testing.T) {
+	t.Parallel()
+	repo, _, ctx := setupDualProjectionTest(t)
+	if err := repo.Save(ctx, makeTestResource(t, "urn:loan:1", "loan", `{"name":"Home Loan"}`)); err != nil {
+		t.Fatal(err)
+	}
+	page, err := repo.FindAllByTypeFlat(ctx, "instrument", "", 10, repositories.SortOptions{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Data) != 1 || page.Data[0]["typeSlug"] != "loan" {
+		t.Fatalf("instrument flat page = %v, want one row with typeSlug loan", page.Data)
+	}
+	asAncestor, err := repo.FindAllByTypeAndIDs(ctx, "instrument", []string{"urn:loan:1"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(asAncestor) != 0 {
+		t.Errorf("read under the ancestor found %d resources, want none", len(asAncestor))
+	}
+	asSubtype, err := repo.FindAllByTypeAndIDs(ctx, "loan", []string{"urn:loan:1"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(asSubtype) != 1 || asSubtype[0].GetID() != "urn:loan:1" {
+		t.Errorf("read under the row's typeSlug found %d resources, want urn:loan:1", len(asSubtype))
+	}
+}
