@@ -425,6 +425,51 @@ func TestResourceList_FlatAnswersAColumnlessReferenceWithDocuments(t *testing.T)
 	}
 }
 
+// shoppingListSchema declares createdAt and status, as the mealplanning
+// shopping-list type does, so standard columns shadow both.
+const shoppingListSchema = `{"type":"object","properties":{"name":{"type":"string"},` +
+	`"createdAt":{"type":"string","format":"date-time"},"status":{"type":"string"}}}`
+
+// TestResourceList_FlatRowKeepsTheTimestampADocumentLacks pins wm-v6au3o: a
+// shadowed createdAt holds the document's value when it has one, and keeps
+// the row's own creation time when it has none, rather than turning a list's
+// creation date into null. A shadowed status still reads null, because the
+// lifecycle column is not the list's status.
+func TestResourceList_FlatRowKeepsTheTimestampADocumentLacks(t *testing.T) {
+	t.Parallel()
+	const column = "2026-10-01T09:00:00Z"
+	svc := &flatRecordingResources{
+		rows: []map[string]any{
+			{"id": "urn:shopping-list:1", "name": "Weekly", "createdAt": column, "status": "active"},
+			{"id": "urn:shopping-list:2", "name": "Party", "createdAt": column, "status": "active"},
+		},
+		docs: map[string]string{
+			"urn:shopping-list:1": `{"@graph":[{"@id":"urn:shopping-list:1","createdAt":"2026-09-30T08:00:00Z",` +
+				`"status":"draft"}]}`,
+			"urn:shopping-list:2": `{"@graph":[{"@id":"urn:shopping-list:2","name":"Party"}]}`,
+		},
+	}
+	answer, res := callFlatResourceList(t, svc, shoppingListSchema, `{"type_slug":"shopping-list","flat":true}`)
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %s", resultText(res))
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(answer["rows"], &rows); err != nil || len(rows) != 2 {
+		t.Fatalf("rows = %s, want the two rows", answer["rows"])
+	}
+	want := map[string][2]any{
+		"urn:shopping-list:1": {"2026-09-30T08:00:00Z", "draft"},
+		"urn:shopping-list:2": {column, nil},
+	}
+	for _, row := range rows {
+		w := want[fmt.Sprint(row["id"])]
+		if row["createdAt"] != w[0] || row["status"] != w[1] {
+			t.Errorf("row %v has createdAt %v and status %v, want %v and %v",
+				row["id"], row["createdAt"], row["status"], w[0], w[1])
+		}
+	}
+}
+
 // TestResourceList_FlatRefusesADocumentThatDoesNotParse pins wm-3vzk32: a
 // stored document that is not JSON is the call's error, naming the resource,
 // not a row whose shadowed property quietly reads null.

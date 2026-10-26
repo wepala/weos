@@ -25,9 +25,10 @@ var errFlatAnswersWithDocuments = errors.New("the type's flat rows cannot carry 
 // standard column shadows, such as a task's status, or any property of a
 // schema the projection reads no columns from — is read by a condition from
 // the stored document, so the row reads it there too: documentProperties
-// lists them, and the row carries each one's value from the document, or null
-// when the document has none. The documents are read by the page's
-// identifiers, one more query.
+// lists them, and the row carries each one's value from the document, or,
+// when the document has none, null (a timestamp keeps its column's value; see
+// sameMeaningColumns). The documents are read by the page's identifiers, one
+// more query.
 func listFlat(
 	ctx context.Context, svc application.ResourceService, types application.ResourceTypeService,
 	typeSlug string, filters []repositories.FilterCondition, cursor string, limit int,
@@ -57,6 +58,14 @@ func listFlat(
 	}
 	return ListResourcesOutput{Rows: rows, Cursor: page.Cursor, HasMore: page.HasMore}, nil
 }
+
+// sameMeaningColumns are the standard columns that mean what a schema
+// property of the same name means — when the resource was created or last
+// updated — so a row keeps the column's value when the document has none
+// (the mealplanning shopping-list declares createdAt). Any other shadowed
+// name reads null instead: a task with no status of its own is not "active",
+// which is what the lifecycle column holds.
+var sameMeaningColumns = map[string]bool{"createdAt": true, "updatedAt": true}
 
 // overlayDocumentProperties sets each named property on the rows from the
 // resources' stored documents, read by the rows' identifiers rather than by
@@ -95,6 +104,9 @@ func overlayDocumentProperties(
 			v, err := documentProperty(doc, name)
 			if err != nil {
 				return fmt.Errorf("resource %q: read %q from its stored document: %w", id, name, err)
+			}
+			if v == nil && sameMeaningColumns[name] {
+				continue
 			}
 			row[name] = v
 		}
