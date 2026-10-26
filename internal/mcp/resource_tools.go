@@ -60,7 +60,7 @@ type ResourceOutput struct {
 // ask for while keeping an empty page as [] rather than dropping the key.
 type ListResourcesOutput struct {
 	Data    []ResourceOutput `json:"data,omitzero" jsonschema:"resources as JSON-LD documents"`
-	Rows    []map[string]any `json:"rows,omitzero" jsonschema:"resources as flat projection rows, when flat was asked for"`
+	Rows    []map[string]any `json:"rows,omitzero" jsonschema:"resources as flat projection rows; may be absent even when flat was asked for, and data then holds the same listing"`
 	Cursor  string           `json:"cursor,omitempty"`
 	HasMore bool             `json:"has_more"`
 }
@@ -101,7 +101,8 @@ const resourceListDescription = "List resources of a given type with cursor-base
 	"question, follow `cursor` until `has_more` is false and count every page. " +
 	"filters, cursor and limit work the same with flat. In a row, a property whose name " +
 	"a standard column shadows (such as a task's status) holds the property, as a condition on it " +
-	"does. A type with no projection table answers with `data` even when flat is set."
+	"does. Even with flat set, `rows` may be absent: a type with no projection table answers " +
+	"with `data`, which then holds the same listing, so read `data` whenever `rows` is missing."
 
 func registerResourceTools(
 	server *mcp.Server, svc application.ResourceService, types application.ResourceTypeService,

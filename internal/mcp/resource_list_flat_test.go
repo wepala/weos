@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -272,6 +273,26 @@ func TestResourceList_DescriptionSaysACountNeedsEveryPage(t *testing.T) {
 	const want = "follow `cursor` until `has_more` is false"
 	if !strings.Contains(resourceListDescription, want) {
 		t.Errorf("the resource_list description does not say %q", want)
+	}
+}
+
+// TestResourceList_RowsMayBeAbsentUnderFlat pins wm-i7zc78: a flat call can
+// answer under data, so neither the output schema nor the description may
+// promise rows whenever flat is set. A client that reads only rows would
+// report an empty listing over a full one.
+func TestResourceList_RowsMayBeAbsentUnderFlat(t *testing.T) {
+	t.Parallel()
+	field, _ := reflect.TypeOf(ListResourcesOutput{}).FieldByName("Rows")
+	tag := field.Tag.Get("jsonschema")
+	for _, want := range []string{"may be absent", "data"} {
+		if !strings.Contains(tag, want) {
+			t.Errorf("the rows schema line %q does not say %q", tag, want)
+		}
+	}
+	for _, want := range []string{"`rows` may be absent", "read `data`"} {
+		if !strings.Contains(resourceListDescription, want) {
+			t.Errorf("the resource_list description does not say %q", want)
+		}
 	}
 }
 
