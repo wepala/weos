@@ -89,7 +89,12 @@ func buildListFilters(
 		if err != nil {
 			return nil, fmt.Errorf("filter validation failed: condition %d on %q: %w", i+1, c.Field, err)
 		}
-		cond := repositories.FilterCondition{Field: c.Field, Operator: c.Operator, Value: value, ValueType: valueType}
+		cond := repositories.FilterCondition{
+			Field: c.Field, Operator: c.Operator, Value: value, ValueType: valueType,
+			// A client asking for "status ne done" means every resource not
+			// done, including one with no status at all.
+			NeIncludesMissing: true,
+		}
 		if declared {
 			cond.DocumentProperty = standardColumns[utils.CamelToSnake(c.Field)]
 		} else if hasSchema && !isStandardFilterField(c.Field) {

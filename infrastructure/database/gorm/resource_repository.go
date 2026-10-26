@@ -1139,8 +1139,8 @@ func escapeLikeLiteral(s string) string {
 // types would answer by type rank instead of by value. PostgreSQL compares
 // jsonb with jsonb, so no stored value is ever cast and none can fail a cast.
 //
-// ne is the negation of eq over the resources that hold a value; a resource
-// with no value for the property never matches it.
+// ne is the negation of eq. It matches a resource with no value for the
+// property only when the condition sets NeIncludesMissing.
 func documentFilterClause(dialect, dataExpr string, f repositories.FilterCondition) (string, []any) {
 	sqlOp := operatorMap[f.Operator]
 	var valueSQL, typeSQL, presentSQL, placeholder string
@@ -1176,7 +1176,11 @@ func documentFilterClause(dialect, dataExpr string, f repositories.FilterConditi
 		return compare(sqlOp)
 	}
 	eq, eqArgs := compare("=")
-	return "(" + presentSQL + " AND NOT " + eq + ")", append(append([]any{}, pathArgs...), eqArgs...)
+	args := append(append([]any{}, pathArgs...), eqArgs...)
+	if f.NeIncludesMissing {
+		return "(NOT (" + presentSQL + ") OR NOT " + eq + ")", args
+	}
+	return "(" + presentSQL + " AND NOT " + eq + ")", args
 }
 
 // sqliteFilterValue returns the json_type names a condition's value type
@@ -1221,6 +1225,34 @@ var operatorMap = map[string]string{
 	"eq": "=", "ne": "!=", "gt": ">", "gte": ">=", "lt": "<", "lte": "<=",
 }
 
+// projectionFilterClause builds the WHERE fragment for one condition on a
+// projection listing. qualifier prefixes a projection column ("" or
+// "<table>."), and dataExpr yields the stored document for a DocumentProperty
+// condition. ok is false when the condition cannot be applied — an unknown
+// operator, or a field with no projection column — and the caller skips it,
+// which is what the REST listing has always done.
+func (r *ResourceRepository) projectionFilterClause(
+	typeSlug, tableName, qualifier, dataExpr string, f repositories.FilterCondition,
+) (clause string, args []any, ok bool) {
+	sqlOp, ok := operatorMap[f.Operator]
+	if !ok {
+		return "", nil, false
+	}
+	if f.DocumentProperty {
+		clause, args = documentFilterClause(r.db.Name(), dataExpr, f)
+		return clause, args, true
+	}
+	fc := utils.CamelToSnake(f.Field)
+	if !standardColumnNames[fc] && fc != "id" && !r.db.Migrator().HasColumn(tableName, fc) {
+		return "", nil, false
+	}
+	clause, args = r.referenceFilterClause(typeSlug, qualifier, fc, sqlOp, f.Value)
+	if sqlOp == "!=" && f.NeIncludesMissing {
+		clause = "(" + qualifier + fc + " IS NULL OR " + clause + ")"
+	}
+	return clause, args, true
+}
+
 func (r *ResourceRepository) FindAllByTypeWithFilters(
 	ctx context.Context, typeSlug string, filters []repositories.FilterCondition,
 	cursor string, limit int, sort repositories.SortOptions, scope *repositories.VisibilityScope,
@@ -1263,23 +1295,9 @@ func (r *ResourceRepository) findAllFromProjectionWithFilters(
 	query = applyVisibilityScope(query, scope, tbl)
 
 	for _, f := range filters {
-		sqlOp, ok := operatorMap[f.Operator]
-		if !ok {
-			continue
-		}
-		if f.DocumentProperty {
-			clause, args := documentFilterClause(r.db.Name(), "resources.data", f)
+		if clause, args, ok := r.projectionFilterClause(typeSlug, tableName, tbl+".", "resources.data", f); ok {
 			query = query.Where(clause, args...)
-			continue
 		}
-		fc := utils.CamelToSnake(f.Field)
-		if !standardColumnNames[fc] && fc != "id" {
-			if !r.db.Migrator().HasColumn(tableName, fc) {
-				continue
-			}
-		}
-		clause, args := r.referenceFilterClause(typeSlug, tbl+".", fc, sqlOp, f.Value)
-		query = query.Where(clause, args...)
 	}
 
 	if cursor != "" {
@@ -1436,27 +1454,13 @@ func (r *ResourceRepository) findAllFlatFromProjection(
 	query := r.db.WithContext(ctx).Table(tableName)
 	query = applyVisibilityScope(query, scope, "")
 
+	// The flat listing reads the projection alone, so a document property's
+	// document comes from the resources row through a scalar subquery.
+	dataExpr := "(SELECT resources.data FROM resources WHERE resources.id = " + tableName + ".id)"
 	for _, f := range filters {
-		sqlOp, ok := operatorMap[f.Operator]
-		if !ok {
-			continue
-		}
-		if f.DocumentProperty {
-			// The flat listing reads the projection alone, so the document
-			// comes from the resources row through a scalar subquery.
-			clause, args := documentFilterClause(r.db.Name(),
-				"(SELECT resources.data FROM resources WHERE resources.id = "+tableName+".id)", f)
+		if clause, args, ok := r.projectionFilterClause(typeSlug, tableName, "", dataExpr, f); ok {
 			query = query.Where(clause, args...)
-			continue
 		}
-		fc := utils.CamelToSnake(f.Field)
-		if !standardColumnNames[fc] && fc != "id" {
-			if !r.db.Migrator().HasColumn(tableName, fc) {
-				continue
-			}
-		}
-		clause, args := r.referenceFilterClause(typeSlug, "", fc, sqlOp, f.Value)
-		query = query.Where(clause, args...)
 	}
 
 	if cursor != "" {

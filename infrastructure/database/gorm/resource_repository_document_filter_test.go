@@ -141,13 +141,19 @@ func documentTypedCases(slug string) []documentFilterCase {
 		return repositories.FilterCondition{Field: "status", Operator: op, Value: v,
 			DocumentProperty: true, ValueType: repositories.FilterValueBoolean}
 	}
+	withMissing := func(c repositories.FilterCondition) repositories.FilterCondition {
+		c.NeIncludesMissing = true
+		return c
+	}
 	return []documentFilterCase{
 		{"integer eq", num("eq", "3"), id(1)},
 		{"integer gt", num("gt", "3"), id(2, 3)},
 		{"integer lte", num("lte", "7"), id(1, 2)},
 		{"integer ne", num("ne", "3"), id(2, 3)},
+		{"integer ne including missing", withMissing(num("ne", "3")), id(2, 3, 4)},
 		{"boolean eq true", flag("eq", "1"), id(1, 3)},
 		{"boolean eq false", flag("eq", "0"), id(2)},
+		{"boolean ne true including missing", withMissing(flag("ne", "1")), id(2, 4)},
 	}
 }
 
@@ -169,4 +175,28 @@ func TestFindAllWithFilters_DocumentPropertyComparesInItsJSONType(t *testing.T) 
 	repo := newDocumentFilterRepo(t, newTestDB(t), "question", documentTypedSchema,
 		documentTypedRecords("question"))
 	runDocumentFilterCases(t, repo, "question", documentTypedCases("question"))
+}
+
+// TestFindAllWithFilters_ColumnNeIncludesMissing pins that ne on a projection
+// column matches an empty column only when the condition asks for it, so the
+// REST listing, which never asks, returns what it always did.
+func TestFindAllWithFilters_ColumnNeIncludesMissing(t *testing.T) {
+	t.Parallel()
+	repo := newDocumentFilterRepo(t, newTestDB(t), "task",
+		`{"type":"object","properties":{"name":{"type":"string"},"priority":{"type":"string"}}}`,
+		[][2]string{
+			{"urn:task:1", `{"@graph":[{"@id":"urn:task:1","name":"Chase invoices","priority":"high"}]}`},
+			{"urn:task:2", `{"@graph":[{"@id":"urn:task:2","name":"Draft summary","priority":"normal"}]}`},
+			{"urn:task:3", `{"@graph":[{"@id":"urn:task:3","name":"Renew lease"}]}`},
+		})
+	mcp := repositories.FilterCondition{Field: "priority", Operator: "ne", Value: "high", NeIncludesMissing: true}
+	rest := repositories.FilterCondition{Field: "priority", Operator: "ne", Value: "high"}
+	for _, flat := range []bool{false, true} {
+		if got := listIDs(t, repo, "task", flat, mcp); strings.Join(got, ",") != "urn:task:2,urn:task:3" {
+			t.Errorf("flat=%v: ne including missing matched %v, want [urn:task:2 urn:task:3]", flat, got)
+		}
+		if got := listIDs(t, repo, "task", flat, rest); strings.Join(got, ",") != "urn:task:2" {
+			t.Errorf("flat=%v: REST ne matched %v, want [urn:task:2]", flat, got)
+		}
+	}
 }

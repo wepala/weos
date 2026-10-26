@@ -80,8 +80,9 @@ const resourceListDescription = "List resources of a given type with cursor-base
 	"sequenceNo, updatedAt); when the schema declares a property with a standard column's name " +
 	"(such as a task's status), the condition is on the property. value is a string, number or " +
 	"boolean. A condition the listing cannot apply is refused with an error that lists the valid " +
-	"fields or operators. A type with no JSON Schema has no property list, so its fields are not " +
-	"checked. Pass the same filters with the cursor to read the next page."
+	"fields or operators. ne also matches a resource that has no value for the field. A type with no " +
+	"JSON Schema has no property list, so its fields are not checked. Pass the same filters with the " +
+	"cursor to read the next page."
 
 func registerResourceTools(
 	server *mcp.Server, svc application.ResourceService, types application.ResourceTypeService,

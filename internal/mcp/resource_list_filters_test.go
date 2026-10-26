@@ -100,8 +100,10 @@ func TestResourceList_ValidFilterReachesListWithFilters(t *testing.T) {
 		t.Fatalf("ListWithFilters calls = %d, List calls = %d; want 1 and 0", svc.filteredCalls, svc.listCalls)
 	}
 	want := []repositories.FilterCondition{
-		{Field: "priority", Operator: "eq", Value: "high", ValueType: repositories.FilterValueString},
-		{Field: "createdAt", Operator: "gte", Value: "2026-06-01T00:00:00Z", ValueType: repositories.FilterValueString},
+		{Field: "priority", Operator: "eq", Value: "high",
+			ValueType: repositories.FilterValueString, NeIncludesMissing: true},
+		{Field: "createdAt", Operator: "gte", Value: "2026-06-01T00:00:00Z",
+			ValueType: repositories.FilterValueString, NeIncludesMissing: true},
 	}
 	if len(svc.gotFilters) != len(want) {
 		t.Fatalf("filters = %+v, want %+v", svc.gotFilters, want)
@@ -291,6 +293,26 @@ func TestResourceList_ValueTheDeclaredTypeCannotHoldIsRefused(t *testing.T) {
 		if svc.filteredCalls != 0 {
 			t.Errorf("%s: the service was called for a refused condition", tc.filter)
 		}
+	}
+}
+
+// TestResourceList_NeIncludesMissing pins that ne from the tool also matches
+// a resource with no value: "status ne done" must keep a task nobody has set a
+// status on.
+func TestResourceList_NeIncludesMissing(t *testing.T) {
+	t.Parallel()
+	svc, res := callResourceList(t, taskSchema, `{"type_slug":"task","filters":[`+
+		`{"field":"priority","operator":"ne","value":"low"},{"field":"status","operator":"ne","value":"done"}]}`)
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %s", resultText(res))
+	}
+	for _, f := range svc.gotFilters {
+		if !f.NeIncludesMissing {
+			t.Errorf("condition on %q does not include missing values: %+v", f.Field, f)
+		}
+	}
+	if !strings.Contains(resourceListDescription, "ne also matches") {
+		t.Errorf("the tool description does not say that ne matches a resource with no value")
 	}
 }
 

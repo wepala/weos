@@ -32,6 +32,11 @@ type FilterCondition struct {
 	// comparison never matches it: "3" is not the number 3. Empty compares as a
 	// string. A projection column condition ignores it.
 	ValueType FilterValueType
+	// NeIncludesMissing makes ne also match a resource that has no value for
+	// Field. SQL's `col != ?` is never true for NULL, so without it ne drops
+	// every resource that leaves the field empty. The REST listing never sets
+	// it, so its results are unchanged.
+	NeIncludesMissing bool
 }
 
 // FilterValueType names the JSON type a FilterCondition's Value holds.
