@@ -101,8 +101,9 @@ const resourceListDescription = "List resources of a given type with cursor-base
 	"question, follow `cursor` until `has_more` is false and count every page. " +
 	"filters, cursor and limit work the same with flat. In a row, a property whose name " +
 	"a standard column shadows (such as a task's status) holds the property, as a condition on it " +
-	"does. Even with flat set, `rows` may be absent: a type with no projection table answers " +
-	"with `data`, which then holds the same listing, so read `data` whenever `rows` is missing."
+	"does. Even with flat set, `rows` may be absent: a type with no projection table, or with no " +
+	"JSON Schema, answers with `data`, which then holds the same listing, so read `data` whenever " +
+	"`rows` is missing."
 
 func registerResourceTools(
 	server *mcp.Server, svc application.ResourceService, types application.ResourceTypeService,
@@ -162,10 +163,12 @@ func registerResourceTools(
 		}
 		if input.Flat {
 			out, err := listFlat(ctx, svc, types, input.TypeSlug, filters, input.Cursor, limit, sort)
-			// A type with no projection table has no rows to return, so it
-			// answers from the entity path, keeping the conditions — the same
-			// fallback the REST listing makes. Any other failure is reported.
-			if !errors.Is(err, repositories.ErrNoProjectionTable) {
+			// A type with no projection table has no rows to return, and a
+			// type whose rows cannot carry its values has none worth
+			// returning, so either answers from the entity path, keeping the
+			// conditions — the same fallback the REST listing makes for the
+			// first. Any other failure is reported.
+			if !errors.Is(err, repositories.ErrNoProjectionTable) && !errors.Is(err, errFlatAnswersWithDocuments) {
 				return nil, out, err
 			}
 		}

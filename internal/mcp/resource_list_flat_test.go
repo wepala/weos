@@ -333,6 +333,98 @@ func TestResourceList_FlatRefusesARowWithNoDocument(t *testing.T) {
 	}
 }
 
+// listTypedSchema gives a property a list of types, so the projection reads
+// no property columns from it and its table holds only the standard columns.
+const listTypedSchema = `{"type":"object","properties":{"name":{"type":"string"},` +
+	`"amount":{"type":["number","null"]}}}`
+
+// TestResourceList_FlatRowCarriesEveryPropertyOfAColumnlessProjection pins
+// wm-ndlt9y: when the projection keeps no property columns for a type, a row
+// carries every schema property from the stored document — not a row of
+// standard columns that a sum then reads as nothing.
+func TestResourceList_FlatRowCarriesEveryPropertyOfAColumnlessProjection(t *testing.T) {
+	t.Parallel()
+	svc := &flatRecordingResources{
+		rows: []map[string]any{
+			{"id": "urn:payment:1", "status": "active"},
+			{"id": "urn:payment:2", "status": "active"},
+		},
+		docs: map[string]string{
+			"urn:payment:1": `{"@graph":[{"@id":"urn:payment:1","name":"Rent","amount":1200.5}]}`,
+			"urn:payment:2": `{"name":"Power","amount":null}`,
+		},
+	}
+	answer, res := callFlatResourceList(t, svc, listTypedSchema, `{"type_slug":"payment","flat":true}`)
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %s", resultText(res))
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(answer["rows"], &rows); err != nil || len(rows) != 2 {
+		t.Fatalf("rows = %s, want the two rows", answer["rows"])
+	}
+	want := map[string][2]any{"urn:payment:1": {"Rent", 1200.5}, "urn:payment:2": {"Power", nil}}
+	for _, row := range rows {
+		w := want[fmt.Sprint(row["id"])]
+		if _, has := row["amount"]; !has || row["name"] != w[0] || row["amount"] != w[1] {
+			t.Errorf("row %v = %v, want name %v and amount %v", row["id"], row, w[0], w[1])
+		}
+		if row["status"] != "active" {
+			t.Errorf("row %v has status %v, want the column's active", row["id"], row["status"])
+		}
+	}
+}
+
+// TestResourceList_FlatAnswersATypeWithNoSchemaWithDocuments pins wm-ndlt9y
+// for a type with no JSON Schema: its projection has only the standard
+// columns and nothing names its properties, so a flat call answers with its
+// documents, keeping the conditions, rather than with rows that carry none of
+// its values.
+func TestResourceList_FlatAnswersATypeWithNoSchemaWithDocuments(t *testing.T) {
+	t.Parallel()
+	svc := &flatRecordingResources{
+		rows: []map[string]any{{"id": "urn:note:1", "status": "active"}},
+		docs: map[string]string{"urn:note:1": `{"@graph":[{"@id":"urn:note:1","topic":"pricing"}]}`},
+	}
+	answer, res := callFlatResourceList(t, svc, "",
+		`{"type_slug":"note","flat":true,"filters":[{"field":"topic","operator":"eq","value":"pricing"}]}`)
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %s", resultText(res))
+	}
+	if strings.Join(svc.calls, ",") != "ListWithFilters" {
+		t.Fatalf("calls = %v, want [ListWithFilters]", svc.calls)
+	}
+	if got := svc.reads[0].filters; len(got) != 1 || got[0].Field != "topic" {
+		t.Errorf("the documents read got filters %+v, want the topic condition", got)
+	}
+	if _, ok := answer["rows"]; ok {
+		t.Errorf("a type with no schema answered with rows: %s", answer["rows"])
+	}
+	if !strings.Contains(string(answer["data"]), "pricing") {
+		t.Errorf("data = %s, want the note's document", answer["data"])
+	}
+}
+
+// TestResourceList_FlatAnswersAColumnlessReferenceWithDocuments pins that a
+// reference the projection keeps no column for sends a flat call to the
+// documents: the stored document keeps a reference as an edge the row cannot
+// read, so the row would carry null for it.
+func TestResourceList_FlatAnswersAColumnlessReferenceWithDocuments(t *testing.T) {
+	t.Parallel()
+	const schema = `{"type":"object","properties":{"amount":{"type":["number","null"]},` +
+		`"payee":{"type":"string","x-resource-type":"person"}}}`
+	svc := &flatRecordingResources{docs: map[string]string{"urn:payment:1": `{"amount":3}`}}
+	answer, res := callFlatResourceList(t, svc, schema, `{"type_slug":"payment","flat":true}`)
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %s", resultText(res))
+	}
+	if strings.Join(svc.calls, ",") != "List" {
+		t.Fatalf("calls = %v, want [List]", svc.calls)
+	}
+	if !strings.Contains(string(answer["data"]), "urn:payment:1") {
+		t.Errorf("data = %s, want the payment's document", answer["data"])
+	}
+}
+
 // TestResourceList_FlatRefusesADocumentThatDoesNotParse pins wm-3vzk32: a
 // stored document that is not JSON is the call's error, naming the resource,
 // not a row whose shadowed property quietly reads null.
@@ -384,7 +476,7 @@ func TestResourceList_RowsMayBeAbsentUnderFlat(t *testing.T) {
 			t.Errorf("the rows schema line %q does not say %q", tag, want)
 		}
 	}
-	for _, want := range []string{"`rows` may be absent", "read `data`"} {
+	for _, want := range []string{"`rows` may be absent", "read `data`", "no JSON Schema"} {
 		if !strings.Contains(resourceListDescription, want) {
 			t.Errorf("the resource_list description does not say %q", want)
 		}
