@@ -97,7 +97,9 @@ const resourceListDescription = "List resources of a given type with cursor-base
 	"columns and the standard columns, named in camelCase — instead of a JSON-LD document under " +
 	"`data`. A row costs a fraction of a document's tokens, so prefer flat for a large result set " +
 	"and for a counting or summing question; leave it off when you need a resource's full " +
-	"document. filters, cursor and limit work the same with flat. In a row, a property whose name " +
+	"document. A page holds at most `limit` resources, so before you answer a counting or summing " +
+	"question, follow `cursor` until `has_more` is false and count every page. " +
+	"filters, cursor and limit work the same with flat. In a row, a property whose name " +
 	"a standard column shadows (such as a task's status) holds the property, as a condition on it " +
 	"does. A type with no projection table answers with `data` even when flat is set."
 

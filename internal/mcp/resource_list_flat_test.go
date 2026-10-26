@@ -264,4 +264,15 @@ func TestResourceList_DescriptionTellsWhenToPreferFlat(t *testing.T) {
 	}
 }
 
+// TestResourceList_DescriptionSaysACountNeedsEveryPage pins wm-2nzj3z: a
+// model steered to flat for a count answers from the first page unless the
+// description says to follow the cursor to the end.
+func TestResourceList_DescriptionSaysACountNeedsEveryPage(t *testing.T) {
+	t.Parallel()
+	const want = "follow `cursor` until `has_more` is false"
+	if !strings.Contains(resourceListDescription, want) {
+		t.Errorf("the resource_list description does not say %q", want)
+	}
+}
+
 var _ application.ResourceService = (*flatRecordingResources)(nil)
