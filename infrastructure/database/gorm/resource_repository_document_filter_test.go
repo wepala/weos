@@ -3,10 +3,12 @@ package gorm
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -124,7 +126,8 @@ type documentFilterCase struct {
 
 // documentTypedCases are the comparisons a stored number and boolean must
 // answer in their JSON type. A text comparison fails every one: "3" is not 3,
-// "12" sorts before "3", and true is not "1".
+// "12" sorts before "3", and true is not "1". The string cases pin that a
+// string is compared only with a stored string.
 func documentTypedCases(slug string) []documentFilterCase {
 	id := func(ns ...int) []string {
 		out := make([]string, 0, len(ns))
@@ -141,6 +144,10 @@ func documentTypedCases(slug string) []documentFilterCase {
 		return repositories.FilterCondition{Field: "status", Operator: op, Value: v,
 			DocumentProperty: true, ValueType: repositories.FilterValueBoolean}
 	}
+	text := func(field, op, v string) repositories.FilterCondition {
+		return repositories.FilterCondition{Field: field, Operator: op, Value: v,
+			DocumentProperty: true, ValueType: repositories.FilterValueString}
+	}
 	withMissing := func(c repositories.FilterCondition) repositories.FilterCondition {
 		c.NeIncludesMissing = true
 		return c
@@ -154,6 +161,8 @@ func documentTypedCases(slug string) []documentFilterCase {
 		{"boolean eq true", flag("eq", "1"), id(1, 3)},
 		{"boolean eq false", flag("eq", "0"), id(2)},
 		{"boolean ne true including missing", withMissing(flag("ne", "1")), id(2, 4)},
+		{"string eq", text("name", "eq", "Decimals"), id(2)},
+		{"a string never equals a stored number", text("sequenceNo", "eq", "3"), id()},
 	}
 }
 
@@ -217,4 +226,99 @@ func TestFindAllWithFilters_DocumentPropertyOnASchemalessType(t *testing.T) {
 			t.Errorf("flat=%v: topic=pricing matched %v, want [urn:scratchpad:1]", flat, got)
 		}
 	}
+}
+
+// TestDocumentFilterClause_Postgres pins the PostgreSQL clause, which no
+// SQLite suite builds: the property is read as jsonb, its JSON type is
+// checked, and the value is compared as jsonb, so no stored value is cast.
+func TestDocumentFilterClause_Postgres(t *testing.T) {
+	t.Parallel()
+	const doc = "resources.data::jsonb"
+	val := "COALESCE(jsonb_extract_path(" + doc + ", ?, ?, ?), jsonb_extract_path(" + doc + ", ?))"
+	path := func(p string) []any { return []any{"@graph", "0", p, p} }
+	args := func(parts ...[]any) []any {
+		var out []any
+		for _, p := range parts {
+			out = append(out, p...)
+		}
+		return out
+	}
+	cases := []struct {
+		name     string
+		cond     repositories.FilterCondition
+		wantSQL  string
+		wantArgs []any
+	}{
+		{
+			"number gt",
+			repositories.FilterCondition{Field: "sequenceNo", Operator: "gt", Value: "3",
+				ValueType: repositories.FilterValueNumber},
+			"(jsonb_typeof(" + val + ") IN ('number') AND " + val + " > CAST(? AS jsonb))",
+			args(path("sequenceNo"), path("sequenceNo"), []any{"3"}),
+		},
+		{
+			"boolean eq",
+			repositories.FilterCondition{Field: "status", Operator: "eq", Value: "1",
+				ValueType: repositories.FilterValueBoolean},
+			"(jsonb_typeof(" + val + ") IN ('boolean') AND " + val + " = CAST(? AS jsonb))",
+			args(path("status"), path("status"), []any{"true"}),
+		},
+		{
+			"string ne including missing",
+			repositories.FilterCondition{Field: "status", Operator: "ne", Value: `say "done"`,
+				ValueType: repositories.FilterValueString, NeIncludesMissing: true},
+			"(NOT (COALESCE(jsonb_typeof(" + val + "), 'null') <> 'null') OR NOT " +
+				"(jsonb_typeof(" + val + ") IN ('string') AND " + val + " = CAST(? AS jsonb)))",
+			args(path("status"), path("status"), path("status"), []any{`"say \"done\""`}),
+		},
+		{
+			"number ne without missing",
+			repositories.FilterCondition{Field: "sequenceNo", Operator: "ne", Value: "2.5",
+				ValueType: repositories.FilterValueNumber},
+			"(COALESCE(jsonb_typeof(" + val + "), 'null') <> 'null' AND NOT " +
+				"(jsonb_typeof(" + val + ") IN ('number') AND " + val + " = CAST(? AS jsonb)))",
+			args(path("sequenceNo"), path("sequenceNo"), path("sequenceNo"), []any{"2.5"}),
+		},
+		{
+			"untyped compares as a string",
+			repositories.FilterCondition{Field: "topic", Operator: "eq", Value: "pricing"},
+			"(jsonb_typeof(" + val + ") IN ('string') AND " + val + " = CAST(? AS jsonb))",
+			args(path("topic"), path("topic"), []any{`"pricing"`}),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			gotSQL, gotArgs := documentFilterClause("postgres", "resources.data", tc.cond)
+			if gotSQL != tc.wantSQL {
+				t.Errorf("SQL\n got: %s\nwant: %s", gotSQL, tc.wantSQL)
+			}
+			if !reflect.DeepEqual(gotArgs, tc.wantArgs) {
+				t.Errorf("args\n got: %#v\nwant: %#v", gotArgs, tc.wantArgs)
+			}
+		})
+	}
+}
+
+// TestFindAllWithFilters_DocumentPropertyComparesInItsJSONType_Postgres runs
+// the typed comparisons, and ne with and without missing values, against a
+// real PostgreSQL database. Set TEST_POSTGRES_DSN to run it.
+func TestFindAllWithFilters_DocumentPropertyComparesInItsJSONType_Postgres(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set — the PostgreSQL document filter is skipped")
+	}
+	db := openPostgresReplica(t, dsn)
+	slug := fmt.Sprintf("docfilter%d", time.Now().UnixNano())
+	t.Cleanup(func() {
+		// Best-effort cleanup of a shared database: whatever is left sits
+		// under a slug no other test uses.
+		_ = db.Exec("DROP TABLE IF EXISTS " + slugToTableName(slug)).Error
+		_ = db.Where("type_slug = ?", slug).Delete(&models.Resource{}).Error
+	})
+	repo := newDocumentFilterRepo(t, db, slug, documentTypedSchema, documentTypedRecords(slug))
+	if repo.db.Name() != "postgres" {
+		t.Fatalf("dialect = %q, want postgres", repo.db.Name())
+	}
+	runDocumentFilterCases(t, repo, slug, documentTypedCases(slug))
 }
