@@ -374,6 +374,18 @@ func TestResourceList_ListValuedReferenceIsFilterable(t *testing.T) {
 	}
 }
 
+// TestResourceList_DescriptionSaysToResendTheFilters pins the guidance a
+// paged, filtered listing depends on: the cursor does not carry the filters,
+// so a model that sends the cursor alone reads unfiltered rows.
+func TestResourceList_DescriptionSaysToResendTheFilters(t *testing.T) {
+	t.Parallel()
+	for _, want := range []string{"send the cursor together with the same filters", "does not carry them"} {
+		if !strings.Contains(resourceListDescription, want) {
+			t.Errorf("the resource_list description does not say %q", want)
+		}
+	}
+}
+
 func TestResourceList_NoFiltersUsesTheUnfilteredList(t *testing.T) {
 	t.Parallel()
 	for _, args := range []string{`{"type_slug":"task"}`, `{"type_slug":"task","filters":[]}`} {

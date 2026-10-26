@@ -83,7 +83,9 @@ const resourceListDescription = "List resources of a given type with cursor-base
 	"the identifier. value is a string, number or boolean. A condition the listing cannot apply " +
 	"is refused with an error that lists the valid fields or operators. ne also matches a " +
 	"resource that has no value for the field. A type with no JSON Schema has no property list, " +
-	"so its fields are not checked. Pass the same filters with the cursor to read the next page."
+	"so its fields are not checked. To read the next page of a filtered listing, send the cursor " +
+	"together with the same filters again: the cursor does not carry them, and a cursor sent " +
+	"without them continues the unfiltered listing."
 
 func registerResourceTools(
 	server *mcp.Server, svc application.ResourceService, types application.ResourceTypeService,
