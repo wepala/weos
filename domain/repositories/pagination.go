@@ -20,6 +20,13 @@ type FilterCondition struct {
 	Field    string // camelCase field name (e.g. "courseInstanceId")
 	Operator string // one of: eq, ne, gt, gte, lt, lte
 	Value    string // the filter value
+	// DocumentProperty compares the property in the resource's stored JSON-LD
+	// document instead of the projection column named Field. It is for a schema
+	// property whose name a standard column shadows — a task's "status" is the
+	// task's own state, while the projection's status column is the resource
+	// lifecycle — so the projection never stores the property as a column.
+	// The REST listing never sets it.
+	DocumentProperty bool
 }
 
 // PaginatedResponse represents a paginated response with cursor-based pagination.

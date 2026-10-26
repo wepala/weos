@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1125,6 +1126,26 @@ func escapeLikeLiteral(s string) string {
 	return replacer.Replace(s)
 }
 
+// documentFilterClause compares a property read out of a stored JSON-LD
+// document, for a FilterCondition marked DocumentProperty. The property sits on
+// the entity node — the first node of an @graph — or, in a legacy flat record,
+// at the top level; COALESCE takes whichever the document has. dataExpr is a
+// SQL expression yielding the document text. Every path element is a bound
+// parameter, so the property name never reaches the SQL text.
+func (r *ResourceRepository) documentFilterClause(
+	dataExpr, property, sqlOp string, value any,
+) (string, []any) {
+	if r.db.Name() == "postgres" {
+		doc := dataExpr + "::jsonb"
+		return "COALESCE(jsonb_extract_path_text(" + doc + ", ?, ?, ?), " +
+				"jsonb_extract_path_text(" + doc + ", ?)) " + sqlOp + " ?",
+			[]any{"@graph", "0", property, property, value}
+	}
+	quoted := strconv.Quote(property)
+	return "COALESCE(json_extract(" + dataExpr + ", ?), json_extract(" + dataExpr + ", ?)) " + sqlOp + " ?",
+		[]any{`$."@graph"[0].` + quoted, "$." + quoted, value}
+}
+
 var operatorMap = map[string]string{
 	"eq": "=", "ne": "!=", "gt": ">", "gte": ">=", "lt": "<", "lte": "<=",
 }
@@ -1173,6 +1194,11 @@ func (r *ResourceRepository) findAllFromProjectionWithFilters(
 	for _, f := range filters {
 		sqlOp, ok := operatorMap[f.Operator]
 		if !ok {
+			continue
+		}
+		if f.DocumentProperty {
+			clause, args := r.documentFilterClause("resources.data", f.Field, sqlOp, f.Value)
+			query = query.Where(clause, args...)
 			continue
 		}
 		fc := utils.CamelToSnake(f.Field)
@@ -1342,6 +1368,15 @@ func (r *ResourceRepository) findAllFlatFromProjection(
 	for _, f := range filters {
 		sqlOp, ok := operatorMap[f.Operator]
 		if !ok {
+			continue
+		}
+		if f.DocumentProperty {
+			// The flat listing reads the projection alone, so the document
+			// comes from the resources row through a scalar subquery.
+			clause, args := r.documentFilterClause(
+				"(SELECT resources.data FROM resources WHERE resources.id = "+tableName+".id)",
+				f.Field, sqlOp, f.Value)
+			query = query.Where(clause, args...)
 			continue
 		}
 		fc := utils.CamelToSnake(f.Field)
