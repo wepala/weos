@@ -101,7 +101,9 @@ const resourceListDescription = "List resources of a given type with cursor-base
 	"question, follow `cursor` until `has_more` is false and count every page. " +
 	"filters, cursor and limit work the same with flat. In a row, a property whose name " +
 	"a standard column shadows (such as a task's status) holds the property, as a condition on it " +
-	"does. Even with flat set, `rows` may be absent: a type with no projection table, or with no " +
+	"does. With flat, `sort_by` cannot name a property the row reads from the stored document " +
+	"(such as a task's status), because the sort reads the projection column; such a call is " +
+	"refused. Even with flat set, `rows` may be absent: a type with no projection table, or with no " +
 	"JSON Schema, answers with `data`, which then holds the same listing, so read `data` whenever " +
 	"`rows` is missing."
 

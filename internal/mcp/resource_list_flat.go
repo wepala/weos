@@ -10,6 +10,7 @@ import (
 	"github.com/wepala/weos/v3/application"
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
+	"github.com/wepala/weos/v3/pkg/utils"
 )
 
 // errFlatAnswersWithDocuments is returned by listFlat when the type's rows
@@ -38,6 +39,9 @@ func listFlat(
 	if err != nil {
 		return ListResourcesOutput{}, err
 	}
+	if err := checkFlatSort(typeSlug, sort, fromDocument); err != nil {
+		return ListResourcesOutput{}, err
+	}
 	var page repositories.PaginatedResponse[map[string]any]
 	if len(filters) == 0 {
 		page, err = svc.ListFlat(ctx, typeSlug, cursor, limit, sort)
@@ -57,6 +61,27 @@ func listFlat(
 		}
 	}
 	return ListResourcesOutput{Rows: rows, Cursor: page.Cursor, HasMore: page.HasMore}, nil
+}
+
+// checkFlatSort refuses a flat call that sorts by a property the row reads
+// from the stored document. The sort reads the projection column — for a
+// task's status, the resource lifecycle; for a property with no column, no
+// column at all, so the repository falls back to id — and the rows would
+// arrive in an order their values do not show. A call without flat is not
+// checked: its sort is what it always was, and a caller relies on it.
+func checkFlatSort(typeSlug string, sort repositories.SortOptions, fromDocument []string) error {
+	if sort.SortBy == "" {
+		return nil
+	}
+	col := utils.CamelToSnake(sort.SortBy)
+	for _, name := range fromDocument {
+		if utils.CamelToSnake(name) == col {
+			return fmt.Errorf("sort_by %q is not supported with flat on type %q: the row reads %q from the "+
+				"stored document, while the sort reads the projection column; sort by another field, "+
+				"or sort the rows yourself", sort.SortBy, typeSlug, name)
+		}
+	}
+	return nil
 }
 
 // sameMeaningColumns are the standard columns that mean what a schema

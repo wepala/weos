@@ -470,6 +470,60 @@ func TestResourceList_FlatRowKeepsTheTimestampADocumentLacks(t *testing.T) {
 	}
 }
 
+// TestResourceList_FlatRefusesASortOnADocumentProperty pins wm-rx0g7l: under
+// flat, a row reads a shadowed status from the document while the sort reads
+// the lifecycle column, so the rows would arrive in an order their values do
+// not show. The call is refused with an error naming the field, the way a
+// condition the listing cannot apply is refused, and nothing is read.
+func TestResourceList_FlatRefusesASortOnADocumentProperty(t *testing.T) {
+	t.Parallel()
+	cases := []struct{ schema, args, field string }{
+		{taskSchema, `{"type_slug":"task","flat":true,"sort_by":"status"}`, "status"},
+		{shoppingListSchema, `{"type_slug":"shopping-list","flat":true,"sort_by":"created_at"}`, "created_at"},
+		{listTypedSchema, `{"type_slug":"payment","flat":true,"sort_by":"amount","sort_order":"desc"}`, "amount"},
+	}
+	for _, tc := range cases {
+		svc := &flatRecordingResources{}
+		_, res := callFlatResourceList(t, svc, tc.schema, tc.args)
+		if !res.IsError || !strings.Contains(resultText(res), `sort_by "`+tc.field+`"`) {
+			t.Errorf("%s: expected a refusal naming sort_by %q, got: %s", tc.args, tc.field, resultText(res))
+		}
+		if len(svc.calls) != 0 {
+			t.Errorf("%s: calls = %v, want none", tc.args, svc.calls)
+		}
+	}
+}
+
+// TestResourceList_SortOnAShadowedNameWithoutFlatIsUnchanged pins that the
+// refusal is scoped to flat: a call without flat that sorts tasks by status
+// is answered as before, sorting the lifecycle column its documents' status
+// field shows.
+func TestResourceList_SortOnAShadowedNameWithoutFlatIsUnchanged(t *testing.T) {
+	t.Parallel()
+	svc := &flatRecordingResources{}
+	_, res := callFlatResourceList(t, svc, taskSchema, `{"type_slug":"task","sort_by":"status","sort_order":"desc"}`)
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %s", resultText(res))
+	}
+	if strings.Join(svc.calls, ",") != "List" || svc.reads[0].sort.SortBy != "status" {
+		t.Errorf("reads = %+v, want one List sorted by status", svc.reads)
+	}
+}
+
+// TestResourceList_FlatSortsOnAColumn pins that a sort on a property the
+// projection keeps a column for still reaches the flat read.
+func TestResourceList_FlatSortsOnAColumn(t *testing.T) {
+	t.Parallel()
+	svc := &flatRecordingResources{}
+	_, res := callFlatResourceList(t, svc, taskSchema, `{"type_slug":"task","flat":true,"sort_by":"priority"}`)
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %s", resultText(res))
+	}
+	if strings.Join(svc.calls, ",") != "ListFlat" || svc.reads[0].sort.SortBy != "priority" {
+		t.Errorf("reads = %+v, want one ListFlat sorted by priority", svc.reads)
+	}
+}
+
 // TestResourceList_FlatRefusesADocumentThatDoesNotParse pins wm-3vzk32: a
 // stored document that is not JSON is the call's error, naming the resource,
 // not a row whose shadowed property quietly reads null.
@@ -494,6 +548,16 @@ func TestResourceList_DescriptionTellsWhenToPreferFlat(t *testing.T) {
 		if !strings.Contains(resourceListDescription, want) {
 			t.Errorf("the resource_list description does not say %q", want)
 		}
+	}
+}
+
+// TestResourceList_DescriptionSaysFlatRefusesSomeSorts pins that the model is
+// told which sort a flat call refuses before it sends one.
+func TestResourceList_DescriptionSaysFlatRefusesSomeSorts(t *testing.T) {
+	t.Parallel()
+	const want = "With flat, `sort_by` cannot name a property the row reads from the stored document"
+	if !strings.Contains(resourceListDescription, want) {
+		t.Errorf("the resource_list description does not say %q", want)
 	}
 }
 
