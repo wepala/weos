@@ -74,9 +74,13 @@ func overlayShadowedProperties(
 		docs[e.GetID()] = e.Data()
 	}
 	for _, row := range rows {
-		doc := docs[fmt.Sprint(row["id"])]
+		id := fmt.Sprint(row["id"])
 		for _, name := range shadowed {
-			row[name] = documentProperty(doc, name)
+			v, err := documentProperty(docs[id], name)
+			if err != nil {
+				return fmt.Errorf("resource %q: read %q from its stored document: %w", id, name, err)
+			}
+			row[name] = v
 		}
 	}
 	return nil
@@ -112,23 +116,24 @@ func shadowedProperties(
 // documentProperty reads a property from a stored JSON-LD document: from the
 // entity node of an @graph or, for a legacy flat record, from the top level —
 // the same places a DocumentProperty condition reads. It returns nil when the
-// document has no value for it.
-func documentProperty(doc json.RawMessage, name string) any {
+// document has no value for it, and an error when the document is not a JSON
+// object: a null there would be a quiet wrong answer.
+func documentProperty(doc json.RawMessage, name string) (any, error) {
 	if len(doc) == 0 {
-		return nil
+		return nil, nil
 	}
 	var d map[string]any
-	if json.Unmarshal(doc, &d) != nil {
-		return nil
+	if err := json.Unmarshal(doc, &d); err != nil {
+		return nil, fmt.Errorf("the document is not a JSON object: %w", err)
 	}
 	if graph, ok := d["@graph"].([]any); ok && len(graph) > 0 {
 		if node, ok := graph[0].(map[string]any); ok {
 			if v, ok := node[name]; ok && v != nil {
-				return v
+				return v, nil
 			}
 		}
 	}
-	return d[name]
+	return d[name], nil
 }
 
 // listEntities answers a listing with JSON-LD documents.

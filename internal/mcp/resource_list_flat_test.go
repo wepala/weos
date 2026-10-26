@@ -253,6 +253,21 @@ func TestResourceList_FlatRowCarriesTheShadowedProperty(t *testing.T) {
 	}
 }
 
+// TestResourceList_FlatRefusesADocumentThatDoesNotParse pins wm-3vzk32: a
+// stored document that is not JSON is the call's error, naming the resource,
+// not a row whose shadowed property quietly reads null.
+func TestResourceList_FlatRefusesADocumentThatDoesNotParse(t *testing.T) {
+	t.Parallel()
+	svc := &flatRecordingResources{
+		rows: []map[string]any{{"id": "urn:task:1", "name": "Chase invoices", "status": "active"}},
+		docs: map[string]string{"urn:task:1": `{"@graph":[{"@id":"urn:task:1","status":"open"`},
+	}
+	_, res := callFlatResourceList(t, svc, taskSchema, `{"type_slug":"task","flat":true}`)
+	if !res.IsError || !strings.Contains(resultText(res), "urn:task:1") {
+		t.Fatalf("expected an error naming urn:task:1, got: %s", resultText(res))
+	}
+}
+
 // TestResourceList_DescriptionTellsWhenToPreferFlat pins the fourth
 // acceptance criterion of story wm-xtpky.2: the tool description says what
 // flat answers with and when a model should ask for it.
