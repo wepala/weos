@@ -1511,6 +1511,57 @@ func (r *ResourceRepository) findAllFlatFromProjection(
 	}, nil
 }
 
+// genericFilterColumns are the canonical resources table's columns a
+// condition can name, in snake_case.
+var genericFilterColumns = map[string]bool{
+	"id": true, "status": true, "created_by": true, "account_id": true,
+	"sequence_no": true, "created_at": true, "updated_at": true,
+}
+
+// typedFilterCondition reports whether a condition carries any of the flags
+// only the MCP resource_list tool sets. The REST listing sets none of them,
+// so a condition without them keeps the reading the REST listing has always
+// had.
+func typedFilterCondition(f repositories.FilterCondition) bool {
+	return f.DocumentProperty || f.ValueType != "" || f.NeIncludesMissing
+}
+
+// referenceProperties returns the names of a type's x-resource-type
+// properties. A document keeps a reference in its edges node rather than on
+// the entity node, so the generic path cannot compare one.
+func (r *ResourceRepository) referenceProperties(ctx context.Context, typeSlug string) (map[string]bool, error) {
+	var rt models.ResourceType
+	err := r.db.WithContext(ctx).Where("slug = ? AND deleted_at IS NULL", typeSlug).Limit(1).Find(&rt).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the schema of type %q: %w", typeSlug, err)
+	}
+	refs := map[string]bool{}
+	if strings.TrimSpace(rt.Schema) == "" {
+		return refs, nil
+	}
+	var schema struct {
+		Properties map[string]struct {
+			XResourceType string `json:"x-resource-type"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal([]byte(rt.Schema), &schema); err != nil {
+		return nil, fmt.Errorf("schema of type %q is not valid JSON: %w", typeSlug, err)
+	}
+	for name, p := range schema.Properties {
+		if p.XResourceType != "" {
+			refs[name] = true
+		}
+	}
+	return refs, nil
+}
+
+// findAllFromGenericWithFilters lists a type that has no projection table from
+// the canonical resources table. A condition from the MCP resource_list tool
+// (typedFilterCondition) is applied the way the projection applies it: a
+// standard column is compared as a column, and any other field is read from
+// the stored document by documentFilterClause, in its JSON type, on SQLite and
+// PostgreSQL alike. A condition on a reference is refused rather than
+// dropped. A condition without those flags keeps the REST listing's reading.
 func (r *ResourceRepository) findAllFromGenericWithFilters(
 	ctx context.Context, typeSlug string, filters []repositories.FilterCondition,
 	cursor string, limit int, sort repositories.SortOptions, scope *repositories.VisibilityScope,
@@ -1525,12 +1576,39 @@ func (r *ResourceRepository) findAllFromGenericWithFilters(
 		Where("type_slug = ?", typeSlug)
 	query = applyVisibilityScope(query, scope, "")
 
+	var references map[string]bool
 	for _, f := range filters {
 		sqlOp, ok := operatorMap[f.Operator]
 		if !ok {
 			continue
 		}
-		query = query.Where("json_extract(data, ?) "+sqlOp+" ?", "$."+f.Field, f.Value)
+		if !typedFilterCondition(f) {
+			// The REST listing's reading, kept as it was: the top level of
+			// the document, compared as SQLite compares it.
+			query = query.Where("json_extract(data, ?) "+sqlOp+" ?", "$."+f.Field, f.Value)
+			continue
+		}
+		if col := utils.CamelToSnake(f.Field); !f.DocumentProperty && genericFilterColumns[col] {
+			clause := col + " " + sqlOp + " ?"
+			if sqlOp == "!=" && f.NeIncludesMissing {
+				clause = "(" + col + " IS NULL OR " + clause + ")"
+			}
+			query = query.Where(clause, f.Value)
+			continue
+		}
+		if references == nil {
+			var err error
+			if references, err = r.referenceProperties(ctx, typeSlug); err != nil {
+				return repositories.PaginatedResponse[*entities.Resource]{}, err
+			}
+		}
+		if references[f.Field] {
+			return repositories.PaginatedResponse[*entities.Resource]{}, fmt.Errorf(
+				"filter on %q cannot be applied: it is a reference, and type %q has no projection table "+
+					"to match a reference in", f.Field, typeSlug)
+		}
+		clause, args := documentFilterClause(r.db.Name(), "data", f)
+		query = query.Where(clause, args...)
 	}
 
 	if cursor != "" {
