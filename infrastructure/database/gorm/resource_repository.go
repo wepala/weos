@@ -1132,18 +1132,89 @@ func escapeLikeLiteral(s string) string {
 // at the top level; COALESCE takes whichever the document has. dataExpr is a
 // SQL expression yielding the document text. Every path element is a bound
 // parameter, so the property name never reaches the SQL text.
-func (r *ResourceRepository) documentFilterClause(
-	dataExpr, property, sqlOp string, value any,
-) (string, []any) {
-	if r.db.Name() == "postgres" {
+//
+// The value is compared in the JSON type the condition names, and only with a
+// stored value of that type. A document keeps a number or a boolean as one, so
+// a text comparison never matches it ("3" is not 3), and an ordering across
+// types would answer by type rank instead of by value. PostgreSQL compares
+// jsonb with jsonb, so no stored value is ever cast and none can fail a cast.
+//
+// ne is the negation of eq over the resources that hold a value; a resource
+// with no value for the property never matches it.
+func documentFilterClause(dialect, dataExpr string, f repositories.FilterCondition) (string, []any) {
+	sqlOp := operatorMap[f.Operator]
+	var valueSQL, typeSQL, presentSQL, placeholder string
+	var pathArgs []any
+	var typeNames []string
+	var arg any
+	if dialect == "postgres" {
 		doc := dataExpr + "::jsonb"
-		return "COALESCE(jsonb_extract_path_text(" + doc + ", ?, ?, ?), " +
-				"jsonb_extract_path_text(" + doc + ", ?)) " + sqlOp + " ?",
-			[]any{"@graph", "0", property, property, value}
+		valueSQL = "COALESCE(jsonb_extract_path(" + doc + ", ?, ?, ?), jsonb_extract_path(" + doc + ", ?))"
+		pathArgs = []any{"@graph", "0", f.Field, f.Field}
+		typeSQL = "jsonb_typeof(" + valueSQL + ")"
+		// jsonb_extract_path yields a JSON null rather than SQL NULL for an
+		// explicit null, so presence is read from the type.
+		presentSQL = "COALESCE(" + typeSQL + ", 'null') <> 'null'"
+		placeholder = "CAST(? AS jsonb)"
+		typeNames, arg = postgresFilterValue(f)
+	} else {
+		quoted := strconv.Quote(f.Field)
+		pathArgs = []any{`$."@graph"[0].` + quoted, "$." + quoted}
+		valueSQL = "COALESCE(json_extract(" + dataExpr + ", ?), json_extract(" + dataExpr + ", ?))"
+		typeSQL = "COALESCE(json_type(" + dataExpr + ", ?), json_type(" + dataExpr + ", ?))"
+		presentSQL = valueSQL + " IS NOT NULL"
+		placeholder = "?"
+		typeNames, arg = sqliteFilterValue(f)
 	}
-	quoted := strconv.Quote(property)
-	return "COALESCE(json_extract(" + dataExpr + ", ?), json_extract(" + dataExpr + ", ?)) " + sqlOp + " ?",
-		[]any{`$."@graph"[0].` + quoted, "$." + quoted, value}
+
+	compare := func(op string) (string, []any) {
+		args := append(append(append([]any{}, pathArgs...), pathArgs...), arg)
+		return "(" + typeSQL + " IN ('" + strings.Join(typeNames, "', '") + "') AND " +
+			valueSQL + " " + op + " " + placeholder + ")", args
+	}
+	if sqlOp != "!=" {
+		return compare(sqlOp)
+	}
+	eq, eqArgs := compare("=")
+	return "(" + presentSQL + " AND NOT " + eq + ")", append(append([]any{}, pathArgs...), eqArgs...)
+}
+
+// sqliteFilterValue returns the json_type names a condition's value type
+// matches, and the value bound in SQLite's terms: json_extract yields a number
+// as a number and a boolean as 1 or 0.
+func sqliteFilterValue(f repositories.FilterCondition) ([]string, any) {
+	switch f.ValueType {
+	case repositories.FilterValueNumber:
+		if n, err := strconv.ParseFloat(f.Value, 64); err == nil {
+			return []string{"integer", "real"}, n
+		}
+	case repositories.FilterValueBoolean:
+		if b, err := strconv.ParseBool(f.Value); err == nil {
+			if b {
+				return []string{"true", "false"}, 1
+			}
+			return []string{"true", "false"}, 0
+		}
+	}
+	return []string{"text"}, f.Value
+}
+
+// postgresFilterValue returns the jsonb_typeof name a condition's value type
+// matches, and the value as JSON text for a jsonb comparison.
+func postgresFilterValue(f repositories.FilterCondition) ([]string, any) {
+	switch f.ValueType {
+	case repositories.FilterValueNumber:
+		if n, err := strconv.ParseFloat(f.Value, 64); err == nil {
+			return []string{"number"}, strconv.FormatFloat(n, 'f', -1, 64)
+		}
+	case repositories.FilterValueBoolean:
+		if b, err := strconv.ParseBool(f.Value); err == nil {
+			return []string{"boolean"}, strconv.FormatBool(b)
+		}
+	}
+	// Marshaling a Go string cannot fail.
+	text, _ := json.Marshal(f.Value)
+	return []string{"string"}, string(text)
 }
 
 var operatorMap = map[string]string{
@@ -1197,7 +1268,7 @@ func (r *ResourceRepository) findAllFromProjectionWithFilters(
 			continue
 		}
 		if f.DocumentProperty {
-			clause, args := r.documentFilterClause("resources.data", f.Field, sqlOp, f.Value)
+			clause, args := documentFilterClause(r.db.Name(), "resources.data", f)
 			query = query.Where(clause, args...)
 			continue
 		}
@@ -1373,9 +1444,8 @@ func (r *ResourceRepository) findAllFlatFromProjection(
 		if f.DocumentProperty {
 			// The flat listing reads the projection alone, so the document
 			// comes from the resources row through a scalar subquery.
-			clause, args := r.documentFilterClause(
-				"(SELECT resources.data FROM resources WHERE resources.id = "+tableName+".id)",
-				f.Field, sqlOp, f.Value)
+			clause, args := documentFilterClause(r.db.Name(),
+				"(SELECT resources.data FROM resources WHERE resources.id = "+tableName+".id)", f)
 			query = query.Where(clause, args...)
 			continue
 		}

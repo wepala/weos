@@ -100,8 +100,8 @@ func TestResourceList_ValidFilterReachesListWithFilters(t *testing.T) {
 		t.Fatalf("ListWithFilters calls = %d, List calls = %d; want 1 and 0", svc.filteredCalls, svc.listCalls)
 	}
 	want := []repositories.FilterCondition{
-		{Field: "priority", Operator: "eq", Value: "high"},
-		{Field: "createdAt", Operator: "gte", Value: "2026-06-01T00:00:00Z"},
+		{Field: "priority", Operator: "eq", Value: "high", ValueType: repositories.FilterValueString},
+		{Field: "createdAt", Operator: "gte", Value: "2026-06-01T00:00:00Z", ValueType: repositories.FilterValueString},
 	}
 	if len(svc.gotFilters) != len(want) {
 		t.Fatalf("filters = %+v, want %+v", svc.gotFilters, want)
@@ -225,6 +225,72 @@ func TestResourceList_NumberAndBooleanValuesAreFormatted(t *testing.T) {
 	}
 	if strings.Join(got, ",") != "1000.5,1,0" {
 		t.Errorf("values = %v, want [1000.5 1 0]", got)
+	}
+}
+
+// questionSchema declares an integer and a boolean property whose names
+// standard columns shadow, so the repository reads both from the document.
+const questionSchema = `{"type":"object","properties":{"name":{"type":"string"},` +
+	`"sequenceNo":{"type":"integer"},"status":{"type":"boolean"},"marks":{"type":["number","null"]}}}`
+
+func TestResourceList_ValueTypeFollowsTheDeclaredPropertyType(t *testing.T) {
+	t.Parallel()
+	svc, res := callResourceList(t, questionSchema, `{"type_slug":"question","filters":[`+
+		`{"field":"sequenceNo","operator":"eq","value":3},`+
+		`{"field":"sequenceNo","operator":"gt","value":"12"},`+
+		`{"field":"status","operator":"eq","value":true},`+
+		`{"field":"status","operator":"ne","value":"false"},`+
+		`{"field":"marks","operator":"gte","value":2.5},`+
+		`{"field":"name","operator":"eq","value":42},`+
+		`{"field":"createdBy","operator":"eq","value":"dana"}]}`)
+	if res.IsError {
+		t.Fatalf("unexpected tool error: %s", resultText(res))
+	}
+	type typed struct {
+		value string
+		vt    repositories.FilterValueType
+		doc   bool
+	}
+	want := []typed{
+		{"3", repositories.FilterValueNumber, true},
+		{"12", repositories.FilterValueNumber, true},
+		{"1", repositories.FilterValueBoolean, true},
+		{"0", repositories.FilterValueBoolean, true},
+		{"2.5", repositories.FilterValueNumber, false},
+		{"42", repositories.FilterValueString, false},
+		{"dana", repositories.FilterValueString, false},
+	}
+	if len(svc.gotFilters) != len(want) {
+		t.Fatalf("filters = %+v, want %d conditions", svc.gotFilters, len(want))
+	}
+	for i, w := range want {
+		f := svc.gotFilters[i]
+		if got := (typed{f.Value, f.ValueType, f.DocumentProperty}); got != w {
+			t.Errorf("condition %d on %q = %+v, want %+v", i+1, f.Field, got, w)
+		}
+	}
+}
+
+func TestResourceList_ValueTheDeclaredTypeCannotHoldIsRefused(t *testing.T) {
+	t.Parallel()
+	cases := []struct{ filter, want string }{
+		{`{"field":"sequenceNo","operator":"eq","value":"three"}`, "value must be a number"},
+		{`{"field":"sequenceNo","operator":"eq","value":true}`, "value must be a number"},
+		{`{"field":"status","operator":"eq","value":"maybe"}`, "value must be a boolean"},
+		{`{"field":"status","operator":"eq","value":1}`, "value must be a boolean"},
+	}
+	for _, tc := range cases {
+		svc, res := callResourceList(t, questionSchema, `{"type_slug":"question","filters":[`+tc.filter+`]}`)
+		if !res.IsError {
+			t.Errorf("%s: expected a tool error, got: %s", tc.filter, resultText(res))
+			continue
+		}
+		if msg := resultText(res); !strings.Contains(msg, "filter validation failed") || !strings.Contains(msg, tc.want) {
+			t.Errorf("%s: error %q does not contain %q", tc.filter, msg, tc.want)
+		}
+		if svc.filteredCalls != 0 {
+			t.Errorf("%s: the service was called for a refused condition", tc.filter)
+		}
 	}
 }
 

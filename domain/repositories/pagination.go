@@ -27,7 +27,22 @@ type FilterCondition struct {
 	// lifecycle — so the projection never stores the property as a column.
 	// The REST listing never sets it.
 	DocumentProperty bool
+	// ValueType is the JSON type a DocumentProperty condition compares Value
+	// as. A stored document keeps a number or a boolean as one, so a text
+	// comparison never matches it: "3" is not the number 3. Empty compares as a
+	// string. A projection column condition ignores it.
+	ValueType FilterValueType
 }
+
+// FilterValueType names the JSON type a FilterCondition's Value holds.
+type FilterValueType string
+
+// The JSON types a FilterCondition's Value can hold.
+const (
+	FilterValueString  FilterValueType = "string"
+	FilterValueNumber  FilterValueType = "number"
+	FilterValueBoolean FilterValueType = "boolean"
+)
 
 // PaginatedResponse represents a paginated response with cursor-based pagination.
 type PaginatedResponse[T any] struct {
