@@ -37,11 +37,12 @@ type GetResourceInput struct {
 }
 
 type ListResourcesInput struct {
-	TypeSlug  string `json:"type_slug" jsonschema:"resource type slug"`
-	Cursor    string `json:"cursor,omitempty" jsonschema:"pagination cursor from previous call"`
-	Limit     int    `json:"limit,omitempty" jsonschema:"max items (1-100) defaults to 20"`
-	SortBy    string `json:"sort_by,omitempty" jsonschema:"column to sort by (e.g. submittedAt, createdAt)"`
-	SortOrder string `json:"sort_order,omitempty" jsonschema:"sort order: asc or desc"`
+	TypeSlug  string            `json:"type_slug" jsonschema:"resource type slug"`
+	Cursor    string            `json:"cursor,omitempty" jsonschema:"pagination cursor from previous call"`
+	Limit     int               `json:"limit,omitempty" jsonschema:"max items (1-100) defaults to 20"`
+	SortBy    string            `json:"sort_by,omitempty" jsonschema:"column to sort by (e.g. submittedAt, createdAt)"`
+	SortOrder string            `json:"sort_order,omitempty" jsonschema:"sort order: asc or desc"`
+	Filters   []ListFilterInput `json:"filters,omitempty" jsonschema:"conditions a resource must all meet to be listed"`
 }
 
 type ResourceOutput struct {
@@ -70,7 +71,26 @@ func toResourceOutput(e *entities.Resource) ResourceOutput {
 	}
 }
 
-func registerResourceTools(server *mcp.Server, svc application.ResourceService) {
+// resourceListDescription tells the model how to filter, because the tool's
+// input schema cannot carry the rules a refused condition would teach it.
+const resourceListDescription = "List resources of a given type with cursor-based pagination. " +
+	"Optional `filters` narrow the listing: an array of {field, operator, value} conditions, all of " +
+	"which a resource must meet. operator is one of eq, ne, gt, gte, lt, lte. field is one of the " +
+	"type's schema properties or a standard column (id, status, createdAt, createdBy, accountId, " +
+	"sequenceNo, updatedAt); when the schema declares a property with a standard column's name " +
+	"(such as a task's status), the condition is on the property. A property that holds an array " +
+	"or an object is not filterable, except a reference, where eq matches a resource that holds " +
+	"the identifier. A reference with a standard column's name is not filterable. value is a " +
+	"string, number or boolean. A condition the listing cannot apply " +
+	"is refused with an error that lists the valid fields or operators. ne also matches a " +
+	"resource that has no value for the field. A type with no JSON Schema has no property list, " +
+	"so its fields are not checked. To read the next page of a filtered listing, send the cursor " +
+	"together with the same filters again: the cursor does not carry them, and a cursor sent " +
+	"without them continues the unfiltered listing."
+
+func registerResourceTools(
+	server *mcp.Server, svc application.ResourceService, types application.ResourceTypeService,
+) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "resource_create",
 		Description: "Create a new resource of a given type. Data is validated against the type's JSON Schema if defined.",
@@ -107,7 +127,7 @@ func registerResourceTools(server *mcp.Server, svc application.ResourceService) 
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "resource_list",
-		Description: "List resources of a given type with cursor-based pagination.",
+		Description: resourceListDescription,
 		Annotations: annReadOnly(),
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, input ListResourcesInput,
@@ -117,7 +137,19 @@ func registerResourceTools(server *mcp.Server, svc application.ResourceService) 
 			limit = 20
 		}
 		sort := repositories.SortOptions{SortBy: input.SortBy, SortOrder: input.SortOrder}
-		result, err := svc.List(ctx, input.TypeSlug, input.Cursor, limit, sort)
+		var (
+			result repositories.PaginatedResponse[*entities.Resource]
+			err    error
+		)
+		if len(input.Filters) == 0 {
+			result, err = svc.List(ctx, input.TypeSlug, input.Cursor, limit, sort)
+		} else {
+			var filters []repositories.FilterCondition
+			if filters, err = buildListFilters(ctx, types, input.TypeSlug, input.Filters); err != nil {
+				return nil, ListResourcesOutput{}, err
+			}
+			result, err = svc.ListWithFilters(ctx, input.TypeSlug, filters, input.Cursor, limit, sort)
+		}
 		if err != nil {
 			return nil, ListResourcesOutput{}, err
 		}
