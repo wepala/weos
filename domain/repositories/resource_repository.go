@@ -42,6 +42,18 @@ type VisibilityScope struct {
 	IsAdmin   bool
 }
 
+// ResourceIDFinder is implemented by a ResourceRepository that reads many
+// resources of one type by identifier in a single query. It is an interface of
+// its own rather than a ResourceRepository method so that adding it breaks no
+// repository implemented outside this module; a caller type-asserts for it.
+type ResourceIDFinder interface {
+	// FindAllByTypeAndIDs returns the resources of typeSlug among ids that
+	// scope can read, with their stored documents, in no set order. An
+	// identifier with no such resource is left out.
+	FindAllByTypeAndIDs(ctx context.Context, typeSlug string, ids []string, scope *VisibilityScope) (
+		[]*entities.Resource, error)
+}
+
 type ResourceRepository interface {
 	Save(ctx context.Context, entity *entities.Resource) error
 	FindByID(ctx context.Context, id string) (*entities.Resource, error)

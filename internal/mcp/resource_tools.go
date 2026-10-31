@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -43,6 +44,7 @@ type ListResourcesInput struct {
 	SortBy    string            `json:"sort_by,omitempty" jsonschema:"column to sort by (e.g. submittedAt, createdAt)"`
 	SortOrder string            `json:"sort_order,omitempty" jsonschema:"sort order: asc or desc"`
 	Filters   []ListFilterInput `json:"filters,omitempty" jsonschema:"conditions a resource must all meet to be listed"`
+	Flat      bool              `json:"flat,omitempty" jsonschema:"answer with projection rows instead of JSON-LD documents"`
 }
 
 type ResourceOutput struct {
@@ -53,8 +55,12 @@ type ResourceOutput struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// ListResourcesOutput carries one of two shapes: Data holds JSON-LD documents,
+// Rows holds flat projection rows. omitzero leaves out the one a call did not
+// ask for while keeping an empty page as [] rather than dropping the key.
 type ListResourcesOutput struct {
-	Data    []ResourceOutput `json:"data"`
+	Data    []ResourceOutput `json:"data,omitzero" jsonschema:"resources as JSON-LD documents"`
+	Rows    []map[string]any `json:"rows,omitzero" jsonschema:"resources as flat projection rows; may be absent even when flat was asked for, and data then holds the same listing"`
 	Cursor  string           `json:"cursor,omitempty"`
 	HasMore bool             `json:"has_more"`
 }
@@ -86,7 +92,20 @@ const resourceListDescription = "List resources of a given type with cursor-base
 	"resource that has no value for the field. A type with no JSON Schema has no property list, " +
 	"so its fields are not checked. To read the next page of a filtered listing, send the cursor " +
 	"together with the same filters again: the cursor does not carry them, and a cursor sent " +
-	"without them continues the unfiltered listing."
+	"without them continues the unfiltered listing. " +
+	"Set `flat` to true to get each resource as its projection row under `rows` — the type's " +
+	"columns and the standard columns, named in camelCase — instead of a JSON-LD document under " +
+	"`data`. A row costs a fraction of a document's tokens, so prefer flat for a large result set " +
+	"and for a counting or summing question; leave it off when you need a resource's full " +
+	"document. A page holds at most `limit` resources, so before you answer a counting or summing " +
+	"question, follow `cursor` until `has_more` is false and count every page. " +
+	"filters, cursor and limit work the same with flat. In a row, a property whose name " +
+	"a standard column shadows (such as a task's status) holds the property, as a condition on it " +
+	"does. With flat, `sort_by` cannot name a property the row reads from the stored document " +
+	"(such as a task's status), because the sort reads the projection column; such a call is " +
+	"refused. Even with flat set, `rows` may be absent: a type with no projection table, or with no " +
+	"JSON Schema, answers with `data`, which then holds the same listing, so read `data` whenever " +
+	"`rows` is missing."
 
 func registerResourceTools(
 	server *mcp.Server, svc application.ResourceService, types application.ResourceTypeService,
@@ -137,31 +156,26 @@ func registerResourceTools(
 			limit = 20
 		}
 		sort := repositories.SortOptions{SortBy: input.SortBy, SortOrder: input.SortOrder}
-		var (
-			result repositories.PaginatedResponse[*entities.Resource]
-			err    error
-		)
-		if len(input.Filters) == 0 {
-			result, err = svc.List(ctx, input.TypeSlug, input.Cursor, limit, sort)
-		} else {
-			var filters []repositories.FilterCondition
+		var filters []repositories.FilterCondition
+		if len(input.Filters) > 0 {
+			var err error
 			if filters, err = buildListFilters(ctx, types, input.TypeSlug, input.Filters); err != nil {
 				return nil, ListResourcesOutput{}, err
 			}
-			result, err = svc.ListWithFilters(ctx, input.TypeSlug, filters, input.Cursor, limit, sort)
 		}
-		if err != nil {
-			return nil, ListResourcesOutput{}, err
+		if input.Flat {
+			out, err := listFlat(ctx, svc, types, input.TypeSlug, filters, input.Cursor, limit, sort)
+			// A type with no projection table has no rows to return, and a
+			// type whose rows cannot carry its values has none worth
+			// returning, so either answers from the entity path, keeping the
+			// conditions — the same fallback the REST listing makes for the
+			// first. Any other failure is reported.
+			if !errors.Is(err, repositories.ErrNoProjectionTable) && !errors.Is(err, errFlatAnswersWithDocuments) {
+				return nil, out, err
+			}
 		}
-		out := ListResourcesOutput{
-			Data:    make([]ResourceOutput, 0, len(result.Data)),
-			Cursor:  result.Cursor,
-			HasMore: result.HasMore,
-		}
-		for _, e := range result.Data {
-			out.Data = append(out.Data, toResourceOutput(e))
-		}
-		return nil, out, nil
+		out, err := listEntities(ctx, svc, input.TypeSlug, filters, input.Cursor, limit, sort)
+		return nil, out, err
 	})
 
 	mcp.AddTool(server, &mcp.Tool{

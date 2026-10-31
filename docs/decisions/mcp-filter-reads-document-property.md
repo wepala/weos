@@ -10,6 +10,8 @@ nav_order: 13
 **Status:** Accepted — Implemented
 **Date:** 2026-10-26
 **Story:** wm-xtpky.1 — `resource_list` filters, and a bad filter fails loudly (epic wm-xtpky)
+**Extended:** 2026-10-26, story wm-xtpky.2 — `resource_list` answers with flat projection rows.
+See the section "Flat rows and the table-less listing" below.
 
 ## Problem
 
@@ -176,6 +178,166 @@ carry the filters, so the next page needs the same filters sent again.
 - **The cursor does not carry the filters.** A model that sends only the cursor for page two gets
   the unfiltered listing. The tool description tells it to resend the filters; no fingerprint check
   was added.
+
+## Flat rows and the table-less listing (story wm-xtpky.2)
+
+### Problem
+
+`resource_list` gained `flat`: a call that sets it is answered with each resource's projection row
+under `rows` instead of its JSON-LD document under `data`. A row costs a fraction of a document's
+tokens, so a model counting open tasks or adding up amounts can read a large listing whole. The
+filters above apply to a flat call unchanged.
+
+Two things the decision above did not cover then became visible.
+
+1. **What a flat row holds for a property the projection keeps no column for.** That is every
+   property the table above marks `DocumentProperty`: a schema property a standard column shadows
+   (a task's `status`), and every property of a schema the projection reads no columns from.
+2. **A type with no projection table.** A flat call on such a type has no rows, so it is answered
+   from the entity path — the same fallback the REST listing makes — and keeps its conditions.
+   That path is `findAllFromGenericWithFilters`, which reads the canonical `resources` table.
+
+### How it worked before story 2
+
+- **The flat listing was REST-only.** `ResourceService.ListFlat` / `ListFlatWithFilters` returned
+  the projection row as it is stored. For a task, `status` is the lifecycle column, `active` for
+  every live task, and the task's own status is in no column at all. The REST flat listing still
+  returns that row; nothing in this story changes it.
+- **The table-less listing ignored the MCP flags.** `findAllFromGenericWithFilters` compared every
+  condition as `json_extract(data, '$.<field>') <op> ?`: the top level of the document, which a
+  JSON-LD record does not use (its properties are under `@graph[0]`), with no JSON type check and
+  no `NeIncludesMissing`. So the decision table above was **not true** for a type with no
+  projection table: a condition the tool accepted matched nothing, or every resource, with no
+  error.
+
+### Decision Drivers
+
+- **A row and a condition read the same value.** In one call, `status eq open` must return rows
+  whose `status` reads `open`. A row that says `active` beside a condition that matched `open` is a
+  confident wrong answer for a model to repeat (Article XI).
+- **REST results do not change** — still a published behavior, as in story 1.
+- **No null where a value exists.** A row whose value cannot be read fails the call; it never
+  carries a null that the model reads as "no value".
+- **No silent drop on any path the MCP tool reaches**, including the table-less fallback.
+- **No break for code built against this module.** Thin-wrap binaries and their test fakes
+  implement `ResourceRepository` and `ResourceService`; a new method on either breaks their build.
+
+### Considered Options
+
+1. **Rows straight from the projection, with no overlay.** The wording of the feature file's
+   preamble ("the columns the projection keeps … and nothing else"). Rejected: the scenarios
+   *A flat listing answers with projection rows instead of JSON-LD documents* and *The cursor
+   continues a filtered flat listing with the condition still applied* need a task row's `status`
+   to be the task's status, and a condition on `status` reads the document (story 1), so the row
+   and the condition would disagree in the same call.
+2. **Overlay in the repository, so REST and MCP flat rows agree.** `ListFlat` would return the
+   document's value for a shadowed name on every surface. Rejected for this epic: the REST flat
+   row's `status` would change from the lifecycle to the task's status, and REST must not change.
+3. **Promote a shadowed property to its own column** (story 1's option 3). Still rejected for the
+   same reasons — DDL change, backfill and reproject on live instances — and still the route to an
+   index (wm-pcebea).
+4. **Overlay from a second run of the entity listing for the same page.** The first implementation
+   (08197bb5). Rejected after review (wm-yh1xt5): the two listings run at different moments, so a
+   write between them can move a resource onto or off the page and leave a row with a null; and
+   the second listing evaluates every condition on the documents again, doubling the cost.
+5. **Overlay in the MCP tool from the page's documents, read by id** — chosen.
+
+For the table-less listing, the options were to keep ignoring the flags (rejected: the silent drop
+this record exists to stop), to refuse every MCP condition on a table-less type (rejected: the
+scenario *The fallback for a type with no projection table keeps the condition it was given* needs
+it applied), or to **honour the flags** — chosen.
+
+### Decision Outcome
+
+**Flat rows** (`internal/mcp/resource_list_flat.go`, `listFlat`):
+
+1. **A property the projection keeps no column for is read from the stored document.**
+   `documentProperties` lists, from the type's JSON Schema, every property that is not a column
+   (except `id`, the row's identity). After the projection page is read,
+   `overlayDocumentProperties` sets each of those on every row from the resource's stored document
+   — from `@graph[0]`, or the top level of a legacy flat record, the same places a
+   `DocumentProperty` condition reads. A document with no value gives null. So **an MCP flat row's
+   `status` on a task is the task's status, while a REST flat row's `status` for the same task is
+   the lifecycle**; the lifecycle value is not in an MCP flat row for such a type.
+2. **The page's documents are read by id, under the same visibility scope.** A
+   `WHERE type_slug = ? AND id IN (…)` query over the page's identifiers, through `ListByIDs` →
+   `FindAllByTypeAndIDs`, with the scope `buildVisibilityScope` gives the listing. **Each row is
+   read under its own `typeSlug`**, so the page takes one query per type it holds: an ancestor's
+   projection also holds its subtypes' rows (dual projection), each keeping the subtype's
+   `type_slug`, and a read under the listed ancestor's slug would not find them. A row whose
+   document the read does not return (deleted in between), or a document that is not a JSON
+   object — empty and JSON `null` included — **fails the call** with the resource's id. It never
+   becomes a null.
+3. **A row that cannot carry the type's values answers under `data`.** A type with no JSON Schema
+   (nothing names its properties), or with a reference that has no column (the document keeps a
+   reference as an edge the overlay does not read), returns `errFlatAnswersWithDocuments`. The tool
+   then answers from the entity path, as for `ErrNoProjectionTable`, **with its filters kept**. The
+   tool description tells the model to read `data` whenever `rows` is absent.
+4. **A flat sort on a document-read property is refused, by name.** The sort reads the projection
+   column — the lifecycle for a task's `status`, and no column at all (falling back to `id`) for a
+   property with none — so the rows would arrive in an order their values do not show.
+   `checkFlatSort` returns an error that names the property. A call without `flat` is not checked:
+   its sort is what it always was.
+5. **Shadowed `createdAt` and `updatedAt` keep the column when the document lacks them.** These two
+   standard columns mean what the property means (`sameMeaningColumns`; the mealplanning shopping
+   list declares `createdAt`), so a row keeps the column's value instead of a null. Any other
+   shadowed name reads null: a task with no status of its own is not `active`.
+
+**The table-less listing** (`genericFilterClause` in
+`infrastructure/database/gorm/resource_repository.go`; d5fd7af1, wm-ugv8y7):
+
+6. **The table-less listing honours the MCP flags.** A condition carrying any of them is applied
+   the way the projection applies it: a standard column of the `resources` table
+   (`genericFilterColumns`), unless the tool marked it `DocumentProperty`, is compared as a column,
+   with `NeIncludesMissing`; any other field is read by `documentFilterClause` from `data`, in its
+   JSON type, on SQLite and PostgreSQL alike. A condition on a reference (`x-resource-type` in the
+   type's schema) is **refused**: there is no projection column to match it in, and the document
+   keeps it as an edge. A condition without the flags — every REST condition — keeps the old
+   top-level `json_extract` reading, pinned by
+   `TestFindAllWithFilters_GenericPathKeepsTheRESTReading`. `TestGenericFilterClause_Postgres`
+   pins the PostgreSQL SQL text of the flagged path (e7a86b10).
+
+**Two optional interfaces:**
+
+7. `repositories.ResourceIDFinder` (`FindAllByTypeAndIDs`) and `application.ResourceIDLister`
+   (`ListByIDs`) are interfaces of their own, **not methods on `ResourceRepository` or
+   `ResourceService`**, so no repository or service implemented outside this module — a downstream
+   binary's stub or test fake — stops building. The caller type-asserts for each. A service or
+   repository without one is an error on a flat call that needs the overlay, never an empty answer.
+
+### Consequences
+
+#### Good
+
+- In one MCP call, a flat row and a condition on the same name read the same value.
+- A row never carries a quiet null in place of a value: a missing or unreadable document fails the
+  call.
+- The decision table above is now true for every type, with or without a projection table.
+- REST flat rows, REST `_filter` on table-less types and the unflat MCP sort are unchanged.
+- The by-id read cannot move a row off the page; a concurrent write can only make a value newer
+  than the row's columns.
+- No new method on a published interface; no table, column or migration change.
+
+#### Costs and risks
+
+- **The app and the assistant can disagree about a task's status.** A REST flat row (what the app
+  reads) holds the lifecycle under `status`; an MCP flat row holds the task's status. A user who
+  compares the two sees two answers for one task. This extends "The same name means two things"
+  above from conditions to the row shape. Moving the overlay into the repository (option 2) is the
+  fix, once REST is allowed to change.
+- **One more query per flat page** for a type with a shadowed or column-less property — every task
+  listing, because `status` is shadowed — and one more again for each subtype the page holds. It
+  reads at most `limit` rows by primary key, so its cost is bounded by the page, not the table.
+- **A `createdAt` row and a `createdAt` condition can disagree.** When the document lacks
+  `createdAt`, the row shows the column's value, but a condition on `createdAt` still reads the
+  document and finds no value. Accepted as a residual: the alternative is a null in the row for a
+  value that exists.
+- **A flat call cannot sort by a document-read property.** The model must sort the rows itself or
+  drop `flat`. A column (option 3) would lift this.
+- **The REST table-less listing on PostgreSQL still uses SQLite's `json_extract`.** Pre-existing,
+  and not changed here because REST must not change; follow-up **wm-stihh3**.
+- **Document reads still have no index** (wm-pcebea), and **drifted columns are still not covered**
+  (wm-j9ninh); both apply to flat rows as they do to conditions.
 
 ## Further Reading
 

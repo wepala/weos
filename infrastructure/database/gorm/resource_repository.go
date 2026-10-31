@@ -735,6 +735,34 @@ func (r *ResourceRepository) FindAccessibleIDs(
 	return rows, nil
 }
 
+// FindAllByTypeAndIDs reads the named resources of a type from the canonical
+// resources table, which holds their stored documents, in one
+// `WHERE id IN (...)` query under the same visibility scope a listing applies.
+func (r *ResourceRepository) FindAllByTypeAndIDs(
+	ctx context.Context, typeSlug string, ids []string, scope *repositories.VisibilityScope,
+) ([]*entities.Resource, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	query := r.db.WithContext(ctx).Where("type_slug = ? AND id IN ?", typeSlug, ids)
+	query = applyVisibilityScope(query, scope, "")
+	var dbModels []models.Resource
+	if err := query.Find(&dbModels).Error; err != nil {
+		return nil, fmt.Errorf("failed to read resources of type %q by id: %w", typeSlug, err)
+	}
+	result := make([]*entities.Resource, 0, len(dbModels))
+	for _, m := range dbModels {
+		e, err := m.ToResource()
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, e)
+	}
+	return result, nil
+}
+
+var _ repositories.ResourceIDFinder = (*ResourceRepository)(nil)
+
 // applyVisibilityScope adds ownership filtering to a query when a non-nil scope
 // is provided and the caller is not an admin.
 func applyVisibilityScope(query *gorm.DB, scope *repositories.VisibilityScope, tablePrefix string) *gorm.DB {
@@ -1511,6 +1539,95 @@ func (r *ResourceRepository) findAllFlatFromProjection(
 	}, nil
 }
 
+// genericFilterColumns are the canonical resources table's columns a
+// condition can name, in snake_case.
+var genericFilterColumns = map[string]bool{
+	"id": true, "status": true, "created_by": true, "account_id": true,
+	"sequence_no": true, "created_at": true, "updated_at": true,
+}
+
+// typedFilterCondition reports whether a condition carries any of the flags
+// only the MCP resource_list tool sets. The REST listing sets none of them,
+// so a condition without them keeps the reading the REST listing has always
+// had.
+func typedFilterCondition(f repositories.FilterCondition) bool {
+	return f.DocumentProperty || f.ValueType != "" || f.NeIncludesMissing
+}
+
+// referenceProperties returns the names of a type's x-resource-type
+// properties. A document keeps a reference in its edges node rather than on
+// the entity node, so the generic path cannot compare one.
+func (r *ResourceRepository) referenceProperties(ctx context.Context, typeSlug string) (map[string]bool, error) {
+	var rt models.ResourceType
+	err := r.db.WithContext(ctx).Where("slug = ? AND deleted_at IS NULL", typeSlug).Limit(1).Find(&rt).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the schema of type %q: %w", typeSlug, err)
+	}
+	refs := map[string]bool{}
+	if strings.TrimSpace(rt.Schema) == "" {
+		return refs, nil
+	}
+	var schema struct {
+		Properties map[string]struct {
+			XResourceType string `json:"x-resource-type"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal([]byte(rt.Schema), &schema); err != nil {
+		return nil, fmt.Errorf("schema of type %q is not valid JSON: %w", typeSlug, err)
+	}
+	for name, p := range schema.Properties {
+		if p.XResourceType != "" {
+			refs[name] = true
+		}
+	}
+	return refs, nil
+}
+
+// genericFilterClause builds the WHERE fragment for one condition on the
+// canonical resources table, for a type with no projection table. ok is false
+// when the operator is unknown, and the caller skips the condition, as the
+// REST listing always has. A condition from the MCP tool on a reference is an
+// error; isReference reports whether a field is one, and is asked only for a
+// condition that reads the document.
+func genericFilterClause(
+	dialect, typeSlug string, f repositories.FilterCondition, isReference func(field string) (bool, error),
+) (clause string, args []any, ok bool, err error) {
+	sqlOp, ok := operatorMap[f.Operator]
+	if !ok {
+		return "", nil, false, nil
+	}
+	if !typedFilterCondition(f) {
+		// The REST listing's reading, kept as it was: the top level of the
+		// document, compared as SQLite compares it.
+		return "json_extract(data, ?) " + sqlOp + " ?", []any{"$." + f.Field, f.Value}, true, nil
+	}
+	if col := utils.CamelToSnake(f.Field); !f.DocumentProperty && genericFilterColumns[col] {
+		clause = col + " " + sqlOp + " ?"
+		if sqlOp == "!=" && f.NeIncludesMissing {
+			clause = "(" + col + " IS NULL OR " + clause + ")"
+		}
+		return clause, []any{f.Value}, true, nil
+	}
+	ref, err := isReference(f.Field)
+	if err != nil {
+		return "", nil, false, err
+	}
+	if ref {
+		return "", nil, false, fmt.Errorf(
+			"filter on %q cannot be applied: it is a reference, and type %q has no projection table "+
+				"to match a reference in", f.Field, typeSlug)
+	}
+	clause, args = documentFilterClause(dialect, "data", f)
+	return clause, args, true, nil
+}
+
+// findAllFromGenericWithFilters lists a type that has no projection table from
+// the canonical resources table. A condition from the MCP resource_list tool
+// (typedFilterCondition) is applied the way the projection applies it: a
+// standard column is compared as a column, and any other field is read from
+// the stored document by documentFilterClause, in its JSON type, on SQLite and
+// PostgreSQL alike. A condition on a reference is refused rather than
+// dropped. A condition without those flags keeps the REST listing's reading.
 func (r *ResourceRepository) findAllFromGenericWithFilters(
 	ctx context.Context, typeSlug string, filters []repositories.FilterCondition,
 	cursor string, limit int, sort repositories.SortOptions, scope *repositories.VisibilityScope,
@@ -1525,12 +1642,24 @@ func (r *ResourceRepository) findAllFromGenericWithFilters(
 		Where("type_slug = ?", typeSlug)
 	query = applyVisibilityScope(query, scope, "")
 
-	for _, f := range filters {
-		sqlOp, ok := operatorMap[f.Operator]
-		if !ok {
-			continue
+	var references map[string]bool
+	isReference := func(field string) (bool, error) {
+		if references == nil {
+			var err error
+			if references, err = r.referenceProperties(ctx, typeSlug); err != nil {
+				return false, err
+			}
 		}
-		query = query.Where("json_extract(data, ?) "+sqlOp+" ?", "$."+f.Field, f.Value)
+		return references[field], nil
+	}
+	for _, f := range filters {
+		clause, args, ok, err := genericFilterClause(r.db.Name(), typeSlug, f, isReference)
+		if err != nil {
+			return repositories.PaginatedResponse[*entities.Resource]{}, err
+		}
+		if ok {
+			query = query.Where(clause, args...)
+		}
 	}
 
 	if cursor != "" {

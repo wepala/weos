@@ -490,22 +490,34 @@ func TestMCPResourceListFiltersNullableTypeFiltersTheRows(t *testing.T) {
 
 // --- Helpers ---
 
+// listOutput reads either shape of a listing: JSON-LD documents under data,
+// or flat projection rows under rows. The cursor is the same in both.
 type listOutput struct {
 	Data []struct {
 		ID   string         `json:"id"`
 		Data map[string]any `json:"data"`
 	} `json:"data"`
-	Cursor  string `json:"cursor"`
-	HasMore bool   `json:"has_more"`
+	Rows    []map[string]any `json:"rows"`
+	Cursor  string           `json:"cursor"`
+	HasMore bool             `json:"has_more"`
 }
 
 func (w *listFiltersWorld) callList(ctx context.Context, typeSlug, filters, cursor string) {
+	w.callListAs(ctx, typeSlug, filters, cursor, nil)
+}
+
+// callListAs makes the call with flat set to the given value, or with no flat
+// argument at all when flat is nil.
+func (w *listFiltersWorld) callListAs(ctx context.Context, typeSlug, filters, cursor string, flat *bool) {
 	args := map[string]any{"type_slug": typeSlug}
 	if filters != "" {
 		args["filters"] = json.RawMessage(filters)
 	}
 	if cursor != "" {
 		args["cursor"] = cursor
+	}
+	if flat != nil {
+		args["flat"] = *flat
 	}
 	raw, err := json.Marshal(args)
 	if err != nil {
