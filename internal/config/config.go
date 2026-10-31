@@ -547,13 +547,16 @@ func (c *Config) DefaultOAuthProvider() string {
 	return "google"
 }
 
+// DefaultGeminiModel is the Gemini model used when GEMINI_MODEL is not set.
+const DefaultGeminiModel = "gemini-3.8-flash"
+
 // LLMConfig holds configuration for LLM providers.
 type LLMConfig struct {
 	// GeminiAPIKey is the API key for Google Gemini.
 	GeminiAPIKey string
 
 	// GeminiModel is the Gemini model ID to use.
-	// Default: "gemini-2.5-flash"
+	// Default: DefaultGeminiModel
 	GeminiModel string
 }
 
@@ -601,7 +604,7 @@ func Default() Config {
 		},
 		SessionSecret: DefaultSessionSecret,
 		LLM: LLMConfig{
-			GeminiModel: "gemini-2.5-flash",
+			GeminiModel: DefaultGeminiModel,
 		},
 		OAuth: OAuthConfig{
 			DynamicRegistration: false,

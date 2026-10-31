@@ -42,7 +42,7 @@ func NewADKConfig(cfg config.Config) *ADKConfig {
 
 	modelID := cfg.LLM.GeminiModel
 	if modelID == "" {
-		modelID = "gemini-2.5-flash"
+		modelID = config.DefaultGeminiModel
 	}
 
 	return &ADKConfig{

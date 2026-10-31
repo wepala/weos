@@ -30,7 +30,7 @@ WeOS configuration is loaded in layers, with each step overriding the previous.
 | `OAuth.FrontendURL` | string | `""` | `FRONTEND_URL` | Frontend URL for OAuth redirects |
 | `InstanceAdminAccountID` | string | `""` | `INSTANCE_ADMIN_ACCOUNT` | Account whose owners and admins, acting in it, may change resource types and install presets over HTTP. Unset: any signed-in account may (see [Environment Variables]({% link _reference/environment-variables.md %})) |
 | `LLM.GeminiAPIKey` | string | `""` | `GEMINI_API_KEY` | Google Gemini API key |
-| `LLM.GeminiModel` | string | `"gemini-2.0-flash"` | `GEMINI_MODEL` | Gemini model ID |
+| `LLM.GeminiModel` | string | `"gemini-3.8-flash"` | `GEMINI_MODEL` | Gemini model ID |
 | `BigQueryProjectID` | string | `""` | `BIGQUERY_PROJECT_ID` | BigQuery project ID (dual-write event store) |
 | `BigQueryDatasetID` | string | `""` | `BIGQUERY_DATASET_ID` | BigQuery dataset ID |
 | `BigQueryTableID` | string | `""` | `BIGQUERY_TABLE_ID` | BigQuery table ID |
