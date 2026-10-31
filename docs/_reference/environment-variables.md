@@ -79,7 +79,7 @@ The variable does not yet cover the MCP tools (`/api/mcp`) or the role and sideb
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `GEMINI_API_KEY` | string | | Google Gemini API key |
-| `GEMINI_MODEL` | string | `gemini-2.0-flash` | Gemini model identifier |
+| `GEMINI_MODEL` | string | `gemini-3.8-flash` | Gemini model identifier |
 
 ## Feature Flags
 
