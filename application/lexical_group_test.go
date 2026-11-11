@@ -16,7 +16,10 @@ type fakeLexicalIndex struct {
 	types    map[string]string // id → typeSlug
 	removed  []string
 	searches []string
-	hits     []repositories.LexicalHit
+	// searchTypes records the type filter of each search.
+	searchTypes [][]string
+	hits        []repositories.LexicalHit
+	engine      string
 }
 
 func newFakeLexicalIndex(active bool) *fakeLexicalIndex {
@@ -24,6 +27,15 @@ func newFakeLexicalIndex(active bool) *fakeLexicalIndex {
 }
 
 func (f *fakeLexicalIndex) Active() bool { return f.active }
+func (f *fakeLexicalIndex) Engine() string {
+	if !f.active {
+		return ""
+	}
+	if f.engine == "" {
+		return repositories.LexicalEngineFTS5
+	}
+	return f.engine
+}
 func (f *fakeLexicalIndex) Index(_ context.Context, id, typeSlug, content string) error {
 	f.indexed[id] = content
 	f.types[id] = typeSlug
@@ -34,8 +46,11 @@ func (f *fakeLexicalIndex) Remove(_ context.Context, id string) error {
 	delete(f.indexed, id)
 	return nil
 }
-func (f *fakeLexicalIndex) Search(_ context.Context, q string, _ int) ([]repositories.LexicalHit, error) {
+func (f *fakeLexicalIndex) Search(
+	_ context.Context, q string, _ int, typeSlugs ...string,
+) ([]repositories.LexicalHit, error) {
 	f.searches = append(f.searches, q)
+	f.searchTypes = append(f.searchTypes, typeSlugs)
 	return f.hits, nil
 }
 func (f *fakeLexicalIndex) Clear(context.Context) error { return nil }
@@ -113,6 +128,26 @@ func TestProvideLexicalGroup_InactiveIndexRegistersNothing(t *testing.T) {
 	})
 	if groups != nil {
 		t.Fatalf("expected no group for an inactive index, got %+v", groups)
+	}
+}
+
+// A deployment whose index did not exist before (PostgreSQL before
+// wm-irqzji) fills it on first start only because the group replays history
+// from event 0 rather than starting at the feed head.
+func TestProvideLexicalGroup_ActiveIndexReplaysFromTheStart(t *testing.T) {
+	t.Parallel()
+
+	index := newFakeLexicalIndex(true)
+	index.engine = repositories.LexicalEnginePostgres
+	groups := ProvideLexicalGroup(LexicalGroupParams{Index: index, Logger: noopLogger{}})
+	if len(groups) != 1 || groups[0].Name != "lexical-index" {
+		t.Fatalf("groups = %+v, want the lexical-index group", groups)
+	}
+	if groups[0].StartAtHead {
+		t.Error("group must not StartAtHead — an empty index is filled by replaying all history")
+	}
+	if groups[0].Truncate == nil {
+		t.Error("group must carry Truncate so `worker checkpoint reset lexical-index --truncate` rebuilds it")
 	}
 }
 

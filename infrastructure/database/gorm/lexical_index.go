@@ -28,17 +28,22 @@ import (
 	"gorm.io/gorm"
 )
 
-// ProvideLexicalIndex supplies the FTS5-backed lexical index on SQLite, and an
-// inactive index otherwise. On PostgreSQL FTS5 parity is explicitly out of
-// scope (epic #386). The pure-Go SQLite driver (glebarez/modernc) compiles
-// FTS5 in unconditionally — no build tag — so on SQLite the virtual table is
-// always available; a creation failure still degrades to graph label search
-// rather than failing startup.
+// ProvideLexicalIndex supplies the lexical index for the configured database:
+// an FTS5 virtual table on SQLite, and a tsvector column under a GIN index on
+// PostgreSQL. The pure-Go SQLite driver (glebarez/modernc) compiles FTS5 in
+// unconditionally — no build tag — so on SQLite the virtual table is always
+// available. A creation failure on either engine degrades memory_search to
+// graph label search rather than failing startup.
 func ProvideLexicalIndex(db *gorm.DB, cfg config.Config, logger entities.Logger) repositories.LexicalIndex {
 	ctx := context.Background()
 	if cfg.IsPostgres() {
-		logger.Info(ctx, "lexical index disabled on PostgreSQL; memory_search falls back to graph label search")
-		return nopLexicalIndex{}
+		idx, err := newPostgresLexicalIndex(ctx, db)
+		if err != nil {
+			logger.Error(ctx, "postgres lexical index creation failed; "+
+				"lexical index disabled, memory_search falls back to graph label search", "error", err)
+			return nopLexicalIndex{}
+		}
+		return idx
 	}
 	err := db.Exec(
 		"CREATE VIRTUAL TABLE IF NOT EXISTS resource_search USING fts5(content, id UNINDEXED, type_slug UNINDEXED)",
@@ -55,18 +60,25 @@ type sqliteLexicalIndex struct {
 	db *gorm.DB
 }
 
-func (s *sqliteLexicalIndex) Active() bool { return true }
+func (s *sqliteLexicalIndex) Active() bool   { return true }
+func (s *sqliteLexicalIndex) Engine() string { return repositories.LexicalEngineFTS5 }
 
-// writer joins the subscriber batch transaction when one is on the context.
-// The batch transaction holds SQLite's write lock (txlock=immediate), so a
-// write on a separate pooled connection would deadlock against the handler's
-// own batch until the busy timeout — and then retry inside the still-open
-// batch, starving every other writer in the process.
-func (s *sqliteLexicalIndex) writer(ctx context.Context) *gorm.DB {
+// lexicalWriter joins the subscriber batch transaction when one is on the
+// context. On SQLite the batch transaction holds the write lock
+// (txlock=immediate), so a write on a separate pooled connection would
+// deadlock against the handler's own batch until the busy timeout — and then
+// retry inside the still-open batch, starving every other writer in the
+// process. On PostgreSQL joining the batch keeps the index write and the
+// checkpoint advance atomic.
+func lexicalWriter(ctx context.Context, db *gorm.DB) *gorm.DB {
 	if tx := subscriptions.TxFromContext(ctx); tx != nil {
 		return tx
 	}
-	return s.db.WithContext(ctx)
+	return db.WithContext(ctx)
+}
+
+func (s *sqliteLexicalIndex) writer(ctx context.Context) *gorm.DB {
+	return lexicalWriter(ctx, s.db)
 }
 
 func (s *sqliteLexicalIndex) Index(ctx context.Context, id, typeSlug, content string) error {
@@ -94,30 +106,26 @@ func (s *sqliteLexicalIndex) Remove(ctx context.Context, id string) error {
 }
 
 func (s *sqliteLexicalIndex) Search(
-	ctx context.Context, query string, limit int,
+	ctx context.Context, query string, limit int, typeSlugs ...string,
 ) ([]repositories.LexicalHit, error) {
 	match := fts5Match(query)
 	if match == "" {
 		return nil, nil
 	}
-	var rows []struct {
-		ID       string
-		TypeSlug string
-		Snippet  string
+	sqlText := "SELECT id, type_slug, snippet(resource_search, 0, '', '', '…', 12) AS snippet " +
+		"FROM resource_search WHERE resource_search MATCH ?"
+	args := []any{match}
+	if types := lexicalTypeFilter(typeSlugs); len(types) > 0 {
+		sqlText += " AND type_slug IN ?"
+		args = append(args, types)
 	}
-	err := s.db.WithContext(ctx).Raw(
-		"SELECT id, type_slug, snippet(resource_search, 0, '', '', '…', 12) AS snippet "+
-			"FROM resource_search WHERE resource_search MATCH ? ORDER BY rank LIMIT ?",
-		match, limit,
-	).Scan(&rows).Error
-	if err != nil {
+	sqlText += " ORDER BY rank LIMIT ?"
+	args = append(args, limit)
+	var rows []lexicalRow
+	if err := s.db.WithContext(ctx).Raw(sqlText, args...).Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("lexical index: search %q: %w", query, err)
 	}
-	hits := make([]repositories.LexicalHit, 0, len(rows))
-	for _, r := range rows {
-		hits = append(hits, repositories.LexicalHit{ID: r.ID, TypeSlug: r.TypeSlug, Snippet: r.Snippet})
-	}
-	return hits, nil
+	return lexicalHits(rows), nil
 }
 
 func (s *sqliteLexicalIndex) Clear(ctx context.Context) error {
@@ -143,13 +151,41 @@ func fts5Match(query string) string {
 	return strings.Join(tokens, " ")
 }
 
+// lexicalRow is one search result row, on either engine.
+type lexicalRow struct {
+	ID       string
+	TypeSlug string
+	Snippet  string
+}
+
+func lexicalHits(rows []lexicalRow) []repositories.LexicalHit {
+	hits := make([]repositories.LexicalHit, 0, len(rows))
+	for _, r := range rows {
+		hits = append(hits, repositories.LexicalHit{ID: r.ID, TypeSlug: r.TypeSlug, Snippet: r.Snippet})
+	}
+	return hits
+}
+
+// lexicalTypeFilter drops blank type slugs, so a filter of only blanks means
+// no filter rather than "match nothing".
+func lexicalTypeFilter(typeSlugs []string) []string {
+	var types []string
+	for _, t := range typeSlugs {
+		if t = strings.TrimSpace(t); t != "" {
+			types = append(types, t)
+		}
+	}
+	return types
+}
+
 // nopLexicalIndex is the inactive fallback.
 type nopLexicalIndex struct{}
 
 func (nopLexicalIndex) Active() bool                                        { return false }
+func (nopLexicalIndex) Engine() string                                      { return "" }
 func (nopLexicalIndex) Index(context.Context, string, string, string) error { return nil }
 func (nopLexicalIndex) Remove(context.Context, string) error                { return nil }
-func (nopLexicalIndex) Search(context.Context, string, int) ([]repositories.LexicalHit, error) {
+func (nopLexicalIndex) Search(context.Context, string, int, ...string) ([]repositories.LexicalHit, error) {
 	return nil, nil
 }
 func (nopLexicalIndex) Clear(context.Context) error { return nil }

@@ -14,15 +14,19 @@ type fakeKGLabelSearch struct {
 	active      bool
 	terms       []repositories.KGTerm
 	lastQ       string
+	lastClass   string
+	lastLimit   int
 	invalidated []string // fact IRIs the supersession-check query reports
 	lastSPARQL  string
 }
 
 func (f *fakeKGLabelSearch) Active() bool { return f.active }
 func (f *fakeKGLabelSearch) SearchEntities(
-	_ context.Context, q, _ string, _ int,
+	_ context.Context, q, classIRI string, limit int,
 ) ([]repositories.KGTerm, error) {
 	f.lastQ = q
+	f.lastClass = classIRI
+	f.lastLimit = limit
 	return f.terms, nil
 }
 
@@ -119,5 +123,77 @@ func TestLexicalSearch_UnavailableWhenNoBackend(t *testing.T) {
 	_, _, err := s.Search(context.Background(), "akeem", 5)
 	if !errors.Is(err, ErrLexicalUnavailable) {
 		t.Fatalf("err = %v, want ErrLexicalUnavailable", err)
+	}
+}
+
+func TestLexicalSearch_ReportsTheIndexEngineAsMode(t *testing.T) {
+	t.Parallel()
+
+	index := newFakeLexicalIndex(true)
+	index.engine = repositories.LexicalEnginePostgres
+	s := NewLexicalSearch(index, nil)
+
+	_, mode, err := s.Search(context.Background(), "akeem", 5)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if mode != LexicalModePostgresFTS {
+		t.Errorf("mode = %q, want %q", mode, LexicalModePostgresFTS)
+	}
+	if !IsFullTextMode(mode) || !IsFullTextMode(LexicalModeFTS5) || IsFullTextMode(LexicalModeGraphLabels) {
+		t.Errorf("IsFullTextMode misclassifies the modes")
+	}
+}
+
+func TestLexicalSearch_PassesTheTypeFilterToTheIndex(t *testing.T) {
+	t.Parallel()
+
+	index := newFakeLexicalIndex(true)
+	s := NewLexicalSearch(index, nil)
+
+	if _, _, err := s.Search(context.Background(), "invoice", 5, "task", " "); err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(index.searchTypes) != 1 || len(index.searchTypes[0]) != 1 || index.searchTypes[0][0] != "task" {
+		t.Errorf("index type filter = %v, want [task] with the blank dropped", index.searchTypes)
+	}
+}
+
+func TestLexicalSearch_FallbackNarrowsToTheType(t *testing.T) {
+	t.Parallel()
+
+	var terms []repositories.KGTerm
+	for i := 0; i < 30; i++ {
+		terms = append(terms, repositories.KGTerm{Value: "urn:project:p" + strings.Repeat("x", i)})
+	}
+	terms = append(terms, repositories.KGTerm{Value: "urn:task:t1"}, repositories.KGTerm{Value: "urn:taskboard:b1"})
+	kg := &fakeKGLabelSearch{active: true, terms: terms}
+	s := NewLexicalSearch(newFakeLexicalIndex(false), kg)
+
+	hits, mode, err := s.Search(context.Background(), "invoice", 5, "task")
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if mode != LexicalModeGraphLabels {
+		t.Errorf("mode = %q", mode)
+	}
+	if len(hits) != 1 || hits[0].ID != "urn:task:t1" {
+		t.Errorf("hits = %+v, want only the task", hits)
+	}
+	if kg.lastLimit != maxRecallLimit {
+		t.Errorf("label search limit = %d, want %d so other types cannot spend it", kg.lastLimit, maxRecallLimit)
+	}
+}
+
+func TestLexicalSearch_FallbackKeepsTheLimitUnnarrowed(t *testing.T) {
+	t.Parallel()
+
+	kg := &fakeKGLabelSearch{active: true}
+	s := NewLexicalSearch(newFakeLexicalIndex(false), kg)
+	if _, _, err := s.Search(context.Background(), "invoice", 7); err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if kg.lastLimit != 7 {
+		t.Errorf("label search limit = %d, want the caller's 7", kg.lastLimit)
 	}
 }

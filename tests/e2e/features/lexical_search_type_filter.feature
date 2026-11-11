@@ -25,7 +25,6 @@ Feature: Narrowing a lexical memory search to one resource type
     Given a clean WeOS knowledge graph
     And the "tasks" preset is installed
 
-  @wip
   Scenario: A search narrowed to a type returns only resources of that type
     Given the following "project" resources exist:
       | name                    | description                        |
@@ -39,7 +38,6 @@ Feature: Narrowing a lexical memory search to one resource type
       | name                   |
       | Chase overdue invoices |
 
-  @wip
   Scenario: A crowded index still returns the narrowed type's matches
     Given 25 "project" resources whose description mentions "invoice" exist
     And the following "task" resources exist:
@@ -50,7 +48,6 @@ Feature: Narrowing a lexical memory search to one resource type
       | name                   |
       | Chase overdue invoices |
 
-  @wip
   Scenario: A search that names no type returns matches of every type
     Given the following "project" resources exist:
       | name                    | description                        |
@@ -64,7 +61,6 @@ Feature: Narrowing a lexical memory search to one resource type
       | Harbor Legal onboarding |
       | Chase overdue invoices  |
 
-  @wip
   Scenario: A type whose resources do not match returns no resources rather than the unnarrowed matches
     Given the following "project" resources exist:
       | name                    | description                        |
@@ -76,7 +72,6 @@ Feature: Narrowing a lexical memory search to one resource type
     Then the call succeeds
     And the search returns no resources
 
-  @wip
   Scenario: A search narrowed to a type the instance has nothing indexed under returns no resources
     Given the following "task" resources exist:
       | name                   | description                         |
@@ -85,7 +80,6 @@ Feature: Narrowing a lexical memory search to one resource type
     Then the call succeeds
     And the search returns no resources
 
-  @wip
   Scenario: A narrowed search on an instance with no full-text index still returns only that type
     Given the instance has no full-text index available
     And the following "project" resources exist:

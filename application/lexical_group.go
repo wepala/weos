@@ -38,9 +38,12 @@ type LexicalGroupParams struct {
 }
 
 // ProvideLexicalGroup contributes the "lexical-index" subscriber group when
-// the index is active (SQLite with FTS5), and nothing otherwise. The index is
-// a rebuildable derived view: `worker checkpoint reset lexical-index
-// --truncate` clears it and replays history through this handler.
+// the index is active (SQLite FTS5 or PostgreSQL), and nothing otherwise. The
+// index is a rebuildable derived view: `worker checkpoint reset lexical-index
+// --truncate` clears it and replays history through this handler. A group
+// that has never run has no checkpoint row, so its first run starts at 0 and
+// replays all history — which is how a deployment whose index did not exist
+// before (PostgreSQL before wm-irqzji) fills it on first start.
 func ProvideLexicalGroup(p LexicalGroupParams) []SubscriberGroup {
 	if !p.Index.Active() {
 		p.Logger.Debug(context.Background(),

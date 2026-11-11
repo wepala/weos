@@ -56,8 +56,9 @@ type MemoryRecallOutput struct {
 
 // MemorySearchInput finds resources by keyword (lexical matching).
 type MemorySearchInput struct {
-	Query string `json:"query" jsonschema:"keywords to match against resource text (proper nouns, identifiers)"`
-	Limit int    `json:"limit,omitempty" jsonschema:"max results (default 20, max 100)"`
+	Query     string   `json:"query" jsonschema:"keywords to match against resource text (proper nouns, identifiers)"`
+	Limit     int      `json:"limit,omitempty" jsonschema:"max results (default 20, max 100)"`
+	TypeSlugs []string `json:"typeSlugs,omitempty" jsonschema:"only return resources of these type slugs (e.g. [\"task\"]); the limit is then spent on these types alone. Omit to search every type"`
 }
 
 // MemorySearchHit is one lexical match.
@@ -70,7 +71,8 @@ type MemorySearchHit struct {
 // MemorySearchOutput lists lexical matches and the mode that produced them.
 type MemorySearchOutput struct {
 	Results []MemorySearchHit `json:"results"`
-	// Mode is "fts5" (full text) or "graph-labels" (degraded label search).
+	// Mode is the full-text engine that answered — "fts5" (SQLite) or
+	// "postgres-fts" (PostgreSQL) — or "graph-labels" (degraded label search).
 	Mode string `json:"mode"`
 }
 
@@ -112,14 +114,16 @@ func registerMemorySearchTool(server *mcp.Server, search application.LexicalSear
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "memory_search",
 		Description: "Find memories and resources by keyword — lexical matching over resource text " +
-			"(proper nouns, identifiers) via SQLite FTS5, degrading to graph label search where FTS5 " +
-			"is unavailable. Superseded facts are never indexed. Use memory_recall for structured " +
-			"fact recall.",
+			"(proper nouns, identifiers) via a full-text index (SQLite FTS5 or PostgreSQL full-text " +
+			"search), degrading to graph label search where no index is available; mode reports which " +
+			"answered. Query words are matched as plain words and all must appear. Pass typeSlugs to " +
+			"search only those resource types. Superseded facts are never indexed. Use memory_recall " +
+			"for structured fact recall.",
 		Annotations: annReadOnly(),
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, in MemorySearchInput,
 	) (*mcp.CallToolResult, MemorySearchOutput, error) {
-		hits, mode, err := search.Search(ctx, in.Query, in.Limit)
+		hits, mode, err := search.Search(ctx, in.Query, in.Limit, in.TypeSlugs...)
 		if err != nil {
 			return nil, MemorySearchOutput{}, err
 		}

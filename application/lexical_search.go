@@ -25,24 +25,34 @@ import (
 )
 
 // Lexical search modes reported to callers so agents know whether results
-// came from full text or the degraded label search.
+// came from full text or the degraded label search. Each full-text mode names
+// its engine; use IsFullTextMode rather than comparing against one of them.
 const (
-	LexicalModeFTS5        = "fts5"
+	LexicalModeFTS5        = repositories.LexicalEngineFTS5
+	LexicalModePostgresFTS = repositories.LexicalEnginePostgres
 	LexicalModeGraphLabels = "graph-labels"
 )
 
-// ErrLexicalUnavailable is returned when neither the FTS5 index nor the
+// IsFullTextMode reports whether a lexical search mode is a full-text index
+// (any engine) rather than the degraded graph label search.
+func IsFullTextMode(mode string) bool {
+	return mode == LexicalModeFTS5 || mode == LexicalModePostgresFTS
+}
+
+// ErrLexicalUnavailable is returned when neither the full-text index nor the
 // knowledge graph is available to answer a lexical search.
 var ErrLexicalUnavailable = errors.New(
-	"lexical search unavailable: no FTS5 index and no knowledge graph configured")
+	"lexical search unavailable: no full-text index and no knowledge graph configured")
 
-// LexicalSearch finds resources by keyword. FTS5-first; on installations
-// without FTS5 (PostgreSQL — the pure-Go SQLite driver always has it) it
-// degrades to the knowledge graph's label search.
+// LexicalSearch finds resources by keyword. Full-text first (SQLite FTS5, or a
+// PostgreSQL tsvector index); where the index is inactive it degrades to the
+// knowledge graph's label search.
 type LexicalSearch interface {
-	// Search returns matches plus the mode that produced them
-	// (LexicalModeFTS5 or LexicalModeGraphLabels).
-	Search(ctx context.Context, query string, limit int) ([]repositories.LexicalHit, string, error)
+	// Search returns matches plus the mode that produced them (a full-text
+	// mode — see IsFullTextMode — or LexicalModeGraphLabels). When typeSlugs
+	// is non-empty only resources of those types are returned, on either
+	// path, and the limit is spent on those types alone.
+	Search(ctx context.Context, query string, limit int, typeSlugs ...string) ([]repositories.LexicalHit, string, error)
 }
 
 type lexicalSearch struct {
@@ -56,7 +66,7 @@ func NewLexicalSearch(index repositories.LexicalIndex, kg KnowledgeGraphService)
 }
 
 func (s *lexicalSearch) Search(
-	ctx context.Context, query string, limit int,
+	ctx context.Context, query string, limit int, typeSlugs ...string,
 ) ([]repositories.LexicalHit, string, error) {
 	if limit <= 0 {
 		limit = defaultRecallLimit
@@ -64,26 +74,63 @@ func (s *lexicalSearch) Search(
 	if limit > maxRecallLimit {
 		limit = maxRecallLimit
 	}
+	types := nonBlank(typeSlugs)
 	if s.index != nil && s.index.Active() {
-		hits, err := s.index.Search(ctx, query, limit)
-		return hits, LexicalModeFTS5, err
+		hits, err := s.index.Search(ctx, query, limit, types...)
+		return hits, s.index.Engine(), err
 	}
 	if s.kg == nil || !s.kg.Active() {
 		return nil, "", ErrLexicalUnavailable
 	}
-	terms, err := s.kg.SearchEntities(ctx, query, "", limit)
+	// Label search knows classes, not resource types, so the type filter is
+	// applied to the resource URN (urn:<typeSlug>:<id>). A narrowed search
+	// asks the graph for its maximum so the other types' labels cannot spend
+	// the limit before the narrowed type is reached.
+	fetch := limit
+	if len(types) > 0 {
+		fetch = maxRecallLimit
+	}
+	terms, err := s.kg.SearchEntities(ctx, query, "", fetch)
 	if err != nil {
 		return nil, "", err
 	}
 	hits := make([]repositories.LexicalHit, 0, len(terms))
 	for _, t := range terms {
+		if len(types) > 0 && !urnHasType(t.Value, types) {
+			continue
+		}
 		hits = append(hits, repositories.LexicalHit{ID: t.Value})
 	}
 	hits, err = s.dropSupersededFacts(ctx, hits)
 	if err != nil {
 		return nil, "", err
 	}
+	if len(hits) > limit {
+		hits = hits[:limit]
+	}
 	return hits, LexicalModeGraphLabels, nil
+}
+
+// nonBlank drops blank entries, so a filter of only blanks is no filter.
+func nonBlank(values []string) []string {
+	var out []string
+	for _, v := range values {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// urnHasType reports whether a resource URN (urn:<typeSlug>:<id>) names one
+// of the given types.
+func urnHasType(urn string, types []string) bool {
+	for _, t := range types {
+		if strings.HasPrefix(urn, "urn:"+t+":") {
+			return true
+		}
+	}
+	return false
 }
 
 // dropSupersededFacts upholds the "superseded facts are never returned"

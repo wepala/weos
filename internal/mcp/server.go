@@ -212,7 +212,7 @@ func newServerWithGates(
 		// services this constructor already receives, so they are built here
 		// rather than threaded through every NewMCPServer caller. A nil
 		// kgService means recall serves from the working set alone. The
-		// lexical search needs the FTS5 index and IS threaded in; when nil
+		// lexical search needs the full-text index and IS threaded in; when nil
 		// (tests, minimal wiring) memory_search is simply not registered.
 		kg := kgService
 		if isNilInterface(kgService) {

@@ -28,7 +28,6 @@ Feature: Full-text lexical search on PostgreSQL
     Given a clean WeOS instance backed by a PostgreSQL database
     And the "tasks" preset is installed
 
-  @wip
   Scenario: A PostgreSQL instance answers from the full-text index rather than from graph labels
     Given the following "task" resources exist:
       | name                   | description                         |
@@ -39,7 +38,6 @@ Feature: Full-text lexical search on PostgreSQL
       | name                   |
       | Chase overdue invoices |
 
-  @wip
   Scenario: A word that appears only in a description is found
     Given the following "task" resources exist:
       | name                   | description                                     |
@@ -50,7 +48,6 @@ Feature: Full-text lexical search on PostgreSQL
       | name                   |
       | Chase overdue invoices |
 
-  @wip
   Scenario: The resource that mentions the query words more often is returned first
     Given the following "task" resources exist:
       | name                     | description                                                   |
@@ -62,7 +59,6 @@ Feature: Full-text lexical search on PostgreSQL
       | Chase overdue invoices   |
       | Draft Q3 invoice summary |
 
-  @wip
   Scenario: A resource that matches only one of the query words is not returned
     Given the following "task" resources exist:
       | name                     | description                         |
@@ -73,7 +69,6 @@ Feature: Full-text lexical search on PostgreSQL
       | name                   |
       | Chase overdue invoices |
 
-  @wip
   Scenario: Lexical search answers on an instance with no knowledge graph configured
     Given the instance runs with no knowledge graph configured
     And the following "task" resources exist:
@@ -85,7 +80,6 @@ Feature: Full-text lexical search on PostgreSQL
       | name                   |
       | Chase overdue invoices |
 
-  @wip
   Scenario Outline: A query carrying full-text operator syntax is matched as plain words
     Given the following "task" resources exist:
       | name                   | description                         |
@@ -103,7 +97,6 @@ Feature: Full-text lexical search on PostgreSQL
       | Harbor:*          |
       | !Harbor           |
 
-  @wip
   Scenario: A query wrapped in double quotes is matched as the words inside them
     Given the following "task" resources exist:
       | name                   | description                         |
@@ -117,7 +110,6 @@ Feature: Full-text lexical search on PostgreSQL
       | name                   |
       | Chase overdue invoices |
 
-  @wip
   Scenario: An operator name in a query is matched as a word rather than obeyed
     Given the following "task" resources exist:
       | name                   | description                         |
@@ -126,7 +118,6 @@ Feature: Full-text lexical search on PostgreSQL
     Then the call succeeds
     And the search returns no resources
 
-  @wip
   Scenario: A query of operator characters alone matches nothing rather than everything
     Given the following "task" resources exist:
       | name                   | description                         |
@@ -135,13 +126,11 @@ Feature: Full-text lexical search on PostgreSQL
     Then the call succeeds
     And the search returns no resources
 
-  @wip
   Scenario: A search before anything has been indexed returns no resources
     When I call memory_search for "invoice"
     Then the call succeeds
     And the search returns no resources
 
-  @wip
   Scenario: Text removed from a resource stops matching a search
     Given the following "task" resources exist:
       | name                   | description                         |
@@ -151,7 +140,6 @@ Feature: Full-text lexical search on PostgreSQL
     Then the call succeeds
     And the search returns no resources
 
-  @wip
   Scenario: Rebuilding the index from the event history restores the same matches
     Given the following "task" resources exist:
       | name                   | description                         |
@@ -164,7 +152,6 @@ Feature: Full-text lexical search on PostgreSQL
       | Chase overdue invoices |
       | Renew the office lease |
 
-  @wip
   Scenario: A rebuilt PostgreSQL index holds the entries a SQLite index builds from the same events
     Given the following "task" resources exist:
       | name                   | description                         |
@@ -174,7 +161,6 @@ Feature: Full-text lexical search on PostgreSQL
     Then the index holds an entry for each resource a SQLite instance indexes from the same events
     And each entry holds the same indexed text as the SQLite instance holds for that resource
 
-  @wip
   Scenario: A resource deleted before the rebuild is absent from the rebuilt index
     Given the following "task" resources exist:
       | name                   | description                         |
@@ -187,7 +173,6 @@ Feature: Full-text lexical search on PostgreSQL
       | name                   |
       | Chase overdue invoices |
 
-  @wip
   Scenario: A superseded fact is absent from the rebuilt index
     Given the "memory" preset is installed
     And a recorded fact "lease" stating "The Harbor studio lease renews in June" about "urn:org:wepala"
@@ -197,7 +182,6 @@ Feature: Full-text lexical search on PostgreSQL
     Then the call succeeds
     And the search returns no resources
 
-  @wip
   Scenario: A search narrowed to a type returns only resources of that type on PostgreSQL
     Given the following "project" resources exist:
       | name                    | description                        |
@@ -210,7 +194,6 @@ Feature: Full-text lexical search on PostgreSQL
       | name                   |
       | Chase overdue invoices |
 
-  @wip
   Scenario: A crowded PostgreSQL index still returns the narrowed type's matches
     Given 25 "project" resources whose description mentions "invoice" exist
     And the following "task" resources exist:
