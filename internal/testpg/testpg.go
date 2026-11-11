@@ -79,6 +79,8 @@ func FreshDatabase(t TB, adminDSN, prefix string) (string, error) {
 	// The name is generated here from a fixed prefix and a number, never
 	// from input, so it is safe to interpolate into DDL.
 	if err := admin.Exec("CREATE DATABASE " + name).Error; err != nil {
+		// Best-effort: the CREATE DATABASE error is the one to report; a
+		// failed close of the admin pool loses nothing a test reads.
 		_ = sqlDB.Close()
 		return "", fmt.Errorf("create database %s: %w", name, err)
 	}
