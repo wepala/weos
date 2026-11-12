@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/wepala/weos/v3/domain/repositories"
 	"github.com/wepala/weos/v3/internal/config"
@@ -358,4 +359,85 @@ func TestLexicalIndex_SchemaCreationIsIdempotent_Postgres(t *testing.T) {
 	if err != nil || len(hits) != 1 {
 		t.Errorf("hits = %+v, err = %v; want the row indexed before the restart", hits, err)
 	}
+}
+
+func TestCapLexicalContent(t *testing.T) {
+	t.Parallel()
+
+	if got := capLexicalContent("short text"); got != "short text" {
+		t.Errorf("short content = %q, want it unchanged", got)
+	}
+
+	exact := strings.Repeat("a", lexicalContentBudget)
+	if got := capLexicalContent(exact); got != exact {
+		t.Errorf("content of exactly the budget was cut to %d bytes", len(got))
+	}
+
+	// "€" is three bytes; place it so it straddles the budget.
+	straddle := strings.Repeat("a", lexicalContentBudget-1) + "€" + "tail"
+	got := capLexicalContent(straddle)
+	if len(got) > lexicalContentBudget {
+		t.Errorf("capped length = %d, want at most %d", len(got), lexicalContentBudget)
+	}
+	if !utf8.ValidString(got) {
+		t.Error("capped content is not valid UTF-8: the cut split a rune")
+	}
+	if got != strings.Repeat("a", lexicalContentBudget-1) {
+		t.Errorf("capped content kept %d bytes, want the %d before the split rune", len(got), lexicalContentBudget-1)
+	}
+}
+
+// largeLexicalContent is far over PostgreSQL's 1 MB tsvector limit when every
+// word is distinct: a word near the start, then about 2 MB of distinct words,
+// then a word near the end.
+func largeLexicalContent() string {
+	var b strings.Builder
+	b.WriteString("zebrafinch ")
+	for i := 0; b.Len() < 2<<20; i++ {
+		fmt.Fprintf(&b, "w%07d ", i)
+	}
+	b.WriteString("kingfisher")
+	return b.String()
+}
+
+// runLargeContentCases pins the content cap on an engine: a resource far over
+// the budget is indexed, is found by a word near its start, and is not found
+// by a word past the budget — the same answer on both engines.
+func runLargeContentCases(t *testing.T, idx repositories.LexicalIndex) {
+	t.Helper()
+	ctx := context.Background()
+	if err := idx.Index(ctx, "urn:note:big", "note", largeLexicalContent()); err != nil {
+		t.Fatalf("Index of a large resource: %v", err)
+	}
+	hits, err := idx.Search(ctx, "zebrafinch", 10)
+	if err != nil {
+		t.Fatalf("Search near the start: %v", err)
+	}
+	if len(hits) != 1 || hits[0].ID != "urn:note:big" {
+		t.Errorf("hits = %+v, want the large resource found by a word near its start", hits)
+	}
+	hits, err = idx.Search(ctx, "kingfisher", 10)
+	if err != nil {
+		t.Fatalf("Search past the budget: %v", err)
+	}
+	if len(hits) != 0 {
+		t.Errorf("hits = %+v, want none: a word past the budget is not indexed", hits)
+	}
+}
+
+func TestLexicalIndex_LargeResource_SQLite(t *testing.T) {
+	t.Parallel()
+
+	idx := ProvideLexicalIndex(fts5TestDB(t), config.Default(), &testLogger{})
+	if !idx.Active() {
+		t.Skip("FTS5 unavailable in this build")
+	}
+	runLargeContentCases(t, idx)
+}
+
+func TestLexicalIndex_LargeResource_Postgres(t *testing.T) {
+	t.Parallel()
+
+	idx, _ := postgresLexicalIndexForTest(t)
+	runLargeContentCases(t, idx)
 }

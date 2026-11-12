@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
@@ -90,7 +91,7 @@ func (s *sqliteLexicalIndex) Index(ctx context.Context, id, typeSlug, content st
 		}
 		if err := tx.Exec(
 			"INSERT INTO resource_search(content, id, type_slug) VALUES (?, ?, ?)",
-			content, id, typeSlug,
+			capLexicalContent(content), id, typeSlug,
 		).Error; err != nil {
 			return fmt.Errorf("lexical index: insert %s: %w", id, err)
 		}
@@ -149,6 +150,27 @@ func fts5Match(query string) string {
 		tokens = append(tokens, `"`+f+`"`)
 	}
 	return strings.Join(tokens, " ")
+}
+
+// lexicalContentBudget is the most bytes of a resource's text either engine
+// indexes. PostgreSQL refuses a tsvector over 1 MB (SQLSTATE 54000), and the
+// vector of text whose words are all distinct is up to three times the size of
+// the text, so 256 KiB keeps every resource indexable there. SQLite takes the
+// same cut so both engines index the same words. Text past the budget is not
+// searchable.
+const lexicalContentBudget = 256 << 10
+
+// capLexicalContent cuts content to lexicalContentBudget bytes, on a rune
+// boundary so the cut never leaves invalid UTF-8 (which PostgreSQL rejects).
+func capLexicalContent(content string) string {
+	if len(content) <= lexicalContentBudget {
+		return content
+	}
+	cut := lexicalContentBudget
+	for cut > 0 && !utf8.RuneStart(content[cut]) {
+		cut--
+	}
+	return content[:cut]
 }
 
 // lexicalRow is one search result row, on either engine.

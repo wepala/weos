@@ -82,7 +82,7 @@ func (p *postgresLexicalIndex) Index(ctx context.Context, id, typeSlug, content 
 	err := lexicalWriter(ctx, p.db).Exec(
 		"INSERT INTO resource_search (id, type_slug, content) VALUES (?, ?, ?) "+
 			"ON CONFLICT (id) DO UPDATE SET type_slug = EXCLUDED.type_slug, content = EXCLUDED.content",
-		id, typeSlug, content,
+		id, typeSlug, capLexicalContent(content),
 	).Error
 	if err != nil {
 		return fmt.Errorf("lexical index: upsert %s: %w", id, err)

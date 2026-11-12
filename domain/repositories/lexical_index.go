@@ -45,7 +45,10 @@ type LexicalIndex interface {
 	// Engine names the full-text engine behind the index (LexicalEngineFTS5,
 	// LexicalEnginePostgres), or "" when the index is inactive.
 	Engine() string
-	// Index replaces the indexed content for a resource.
+	// Index replaces the indexed content for a resource. Each engine indexes
+	// the same bounded prefix of a very large content (about 256 KiB), so a
+	// resource of any size can be indexed; words past the prefix are not
+	// searchable.
 	Index(ctx context.Context, id, typeSlug, content string) error
 	// Remove drops a resource from the index.
 	Remove(ctx context.Context, id string) error

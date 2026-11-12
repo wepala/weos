@@ -96,6 +96,7 @@ any task was reached, so the tasks it wanted were never in the result.
 | Indexes | GIN on `tsv`; b-tree on `type_slug` |
 | Creation | `ProvideLexicalIndex`, under a transaction-scoped advisory lock so a serve and a worker process that boot together do not race the `IF NOT EXISTS` DDL. A failure is logged and degrades to the inactive index, as on SQLite. |
 | `Index` | `INSERT ... ON CONFLICT (id) DO UPDATE` |
+| Content cap | Both engines index the first 256 KiB of a resource's text, cut on a UTF-8 rune boundary. PostgreSQL refuses a `tsvector` over 1 MB, and the vector of all-distinct words is up to three times the text, so without the cap a large resource fails every insert, parks its event and is never searchable. SQLite takes the same cut so both engines index the same words. Words past the cap are not searchable on either engine. |
 | `Remove` | `DELETE` |
 | `Clear` | `TRUNCATE` |
 | `Search` | `plainto_tsquery('simple', ?)`, ordered by `ts_rank` then `id`; `ts_headline` builds the snippet for the limited page only |
