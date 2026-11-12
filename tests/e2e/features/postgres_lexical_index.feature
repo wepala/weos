@@ -22,6 +22,12 @@ Feature: Full-text lexical search on PostgreSQL
   The index is reached without the knowledge graph. Lexical search on PostgreSQL answers from the
   index alone, so an instance with no graph store configured still searches its memories.
 
+  The index is one table for every account the instance serves, so the search is scoped to the
+  caller's account on this engine too: another account's matching resource is neither returned nor
+  quoted back, and the caller's own match is not pushed out of a crowded result by it. The wider
+  property, and the SQLite half of it, is specified in lexical_search_account_scope.feature; the
+  scenarios here pin the PostgreSQL query that applies the scope.
+
   These scenarios need a real PostgreSQL database. They are skipped where none is configured.
 
   Background:
@@ -203,3 +209,47 @@ Feature: Full-text lexical search on PostgreSQL
     Then the search returns exactly these resources:
       | name                   |
       | Chase overdue invoices |
+
+  @wip
+  Scenario: Another account's matching resource is not returned on PostgreSQL
+    Given account "Harbor Legal" has the following "task" resources:
+      | name                   | description                                  |
+      | Chase overdue invoices | Dunmore settlement balance still outstanding |
+    When account "Cedar Realty" calls memory_search for "Dunmore"
+    Then the call succeeds
+    And the search returns no resources
+    And the search returns no text from the "task" resource "Chase overdue invoices"
+
+  @wip
+  Scenario: The searching account still finds its own resource on PostgreSQL
+    Given account "Harbor Legal" has the following "task" resources:
+      | name                   | description                                  |
+      | Chase overdue invoices | Dunmore settlement balance still outstanding |
+    When account "Harbor Legal" calls memory_search for "Dunmore"
+    Then the search reports the full-text index as its source
+    And the search returns exactly these resources:
+      | name                   |
+      | Chase overdue invoices |
+
+  @wip
+  Scenario: A crowded PostgreSQL index still returns the searching account's own match
+    Given account "Harbor Legal" has 25 "task" resources whose description mentions "Dunmore"
+    And account "Cedar Realty" has the following "task" resources:
+      | name                             | description                         |
+      | Prepare the Dunmore Road showing | Dunmore Road viewing for the Patels |
+    When account "Cedar Realty" calls memory_search for "Dunmore"
+    Then the search returns exactly these resources:
+      | name                             |
+      | Prepare the Dunmore Road showing |
+
+  @wip
+  Scenario: A PostgreSQL search narrowed to a type still excludes another account's resource
+    Given account "Harbor Legal" has the following "task" resources:
+      | name                   | description                                  |
+      | Chase overdue invoices | Dunmore settlement balance still outstanding |
+    And account "Cedar Realty" has the following "project" resources:
+      | name                    | description                           |
+      | Dunmore Road onboarding | Dunmore paperwork for the new listing |
+    When account "Cedar Realty" calls memory_search for "Dunmore" narrowed to type "task"
+    Then the call succeeds
+    And the search returns no resources
