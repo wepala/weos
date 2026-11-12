@@ -22,6 +22,7 @@ import (
 
 	"github.com/wepala/weos/v3/application"
 	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -59,6 +60,10 @@ type MemorySearchInput struct {
 	Query     string   `json:"query" jsonschema:"keywords to match against resource text (proper nouns, identifiers)"`
 	Limit     int      `json:"limit,omitempty" jsonschema:"max results (default 20, max 100)"`
 	TypeSlugs []string `json:"typeSlugs,omitempty" jsonschema:"only return resources of these types, each the exact type slug, which is lowercase (e.g. [\"task\"]; \"tasks\" is a different slug). Case and surrounding spaces are ignored, and a slug that names no type matches nothing. The limit is then spent on these types alone. Omit to search every type"`
+	//nolint:lll // jsonschema description
+	Match string `json:"match,omitempty" jsonschema:"all (the default): a result holds every query word, as typed. any: stop words (the, is, can't, ...) are dropped from the query, a result holds at least one of the remaining content words (at most 8 are used), and results holding more of them come first — use it for a sentence or a question rather than keywords. A query of stop words alone returns nothing"`
+	//nolint:lll // jsonschema description
+	MinMatch int `json:"minMatch,omitempty" jsonschema:"with match any only: the fewest content words a result must hold (default 1). A number above the query's content-word count asks for all of them"`
 }
 
 // MemorySearchHit is one lexical match.
@@ -121,7 +126,9 @@ func registerMemorySearchTool(server *mcp.Server, search application.LexicalSear
 			"(proper nouns, identifiers) via a full-text index (SQLite FTS5 or PostgreSQL full-text " +
 			"search), degrading to graph label search where no index is available; mode reports which " +
 			"answered, and notice says when the index is still catching up with the history, so the " +
-			"results may be incomplete. Query words are matched as plain words and all must appear. " +
+			"results may be incomplete. Query words are matched as plain words and, by default, all must " +
+			"appear; pass match \"any\" to match a sentence or question by any of its content words, " +
+			"best-covering first, and minMatch to require at least that many of them. " +
 			"Pass typeSlugs to search only those resource types. Results hold only resources the " +
 			"caller may read: on the full-text index, resources the caller created, ownerless " +
 			"resources (created by the CLI, a preset or a stdio session), and resources shared with " +
@@ -132,7 +139,13 @@ func registerMemorySearchTool(server *mcp.Server, search application.LexicalSear
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, in MemorySearchInput,
 	) (*mcp.CallToolResult, MemorySearchOutput, error) {
-		hits, mode, notice, err := application.SearchWithRebuildNotice(ctx, search, in.Query, in.Limit, in.TypeSlugs...)
+		match, err := repositories.ParseMatchMode(in.Match)
+		if err != nil {
+			return nil, MemorySearchOutput{}, err
+		}
+		hits, mode, notice, err := application.SearchWithRebuildNotice(ctx, search, repositories.LexicalQuery{
+			Text: in.Query, Limit: in.Limit, TypeSlugs: in.TypeSlugs, Match: match, MinMatch: in.MinMatch,
+		})
 		if err != nil {
 			return nil, MemorySearchOutput{}, err
 		}

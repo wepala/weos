@@ -18,7 +18,9 @@ package gorm
 import (
 	"context"
 	"fmt"
+	"strings"
 
+	"github.com/wepala/weos/v3/domain/lexical"
 	"github.com/wepala/weos/v3/domain/repositories"
 
 	"gorm.io/gorm"
@@ -206,31 +208,75 @@ func (p *postgresLexicalIndex) Owner(ctx context.Context, id string) (repositori
 // same guarantee fts5Match gives on SQLite. websearch_to_tsquery is not used
 // because it obeys quotes (an adjacency phrase), "or" and a leading "-", so a
 // typed question could quietly mean something else. A query with no words
-// left becomes an empty tsquery, which matches nothing.
+// left becomes an empty tsquery, which matches nothing. MatchAny is
+// searchAny.
 func (p *postgresLexicalIndex) Search(
-	ctx context.Context, query string, limit int, scope *repositories.VisibilityScope, typeSlugs ...string,
+	ctx context.Context, q repositories.LexicalQuery, scope *repositories.VisibilityScope,
 ) ([]repositories.LexicalHit, error) {
+	if q.Match == repositories.MatchAny {
+		return p.searchAny(ctx, q, scope)
+	}
 	// ts_headline re-parses the whole content, so it runs in the outer query
 	// over the limited page only, never over every matching row.
+	filter, filterArgs := lexicalFilters(q.TypeSlugs, scope)
 	inner := "SELECT id, type_slug, content, q, ts_rank(tsv, q) AS rank " +
 		"FROM resource_search, plainto_tsquery('simple'::regconfig, ?) AS q " +
-		"WHERE tsv @@ q"
-	args := []any{pgHeadlineOptions, query}
-	if types := lexicalTypeFilter(typeSlugs); len(types) > 0 {
-		inner += " AND type_slug IN ?"
-		args = append(args, types)
-	}
-	if predicate, scopeArgs := lexicalScopeFilter(scope); predicate != "" {
-		inner += " AND (" + predicate + ")"
-		args = append(args, scopeArgs...)
-	}
-	inner += " ORDER BY rank DESC, id LIMIT ?"
-	args = append(args, limit)
+		"WHERE tsv @@ q" + filter + " ORDER BY rank DESC, id LIMIT ?"
+	args := append(append([]any{pgHeadlineOptions, q.Text}, filterArgs...), q.Limit)
 	sqlText := "SELECT id, type_slug, ts_headline('simple'::regconfig, content, q, ?) AS snippet " +
 		"FROM (" + inner + ") AS page ORDER BY rank DESC, id"
 	var rows []lexicalRow
 	if err := p.db.WithContext(ctx).Raw(sqlText, args...).Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("lexical index: search %q: %w", query, err)
+		return nil, fmt.Errorf("lexical index: search %q: %w", q.Text, err)
+	}
+	return lexicalHits(rows), nil
+}
+
+// searchAny is the MatchAny search, in one statement. The content words
+// (lexical.ContentWords) are bound as a text[] — one placeholder each, never
+// spliced into the SQL — and each is passed through quote_literal before
+// to_tsquery reads it, so a word is always a quoted operand and never query
+// syntax. The quoted words are joined with ' | ' into one OR tsquery. The
+// simple parser reads a joined word such as 'follow-up' or 'dana@example.com'
+// exactly as it read the stored text, so it matches the resource that holds
+// it as written.
+//
+// coverage counts the content words a matched row holds, one tsquery per
+// word, over the rows the OR query already matched. The type filter, the
+// caller's scope and the MinMatch floor sit in the WHERE clauses, and the
+// rows are ordered by coverage, then ts_rank, then id before the LIMIT, so a
+// row repeating one word cannot push a row holding more words off the page.
+func (p *postgresLexicalIndex) searchAny(
+	ctx context.Context, q repositories.LexicalQuery, scope *repositories.VisibilityScope,
+) ([]repositories.LexicalHit, error) {
+	words := lexical.ContentWords(q.Text)
+	if len(words) == 0 || q.Limit <= 0 {
+		return nil, nil
+	}
+	wordArgs := make([]any, 0, len(words))
+	for _, w := range words {
+		wordArgs = append(wordArgs, w)
+	}
+	wordsArray := "ARRAY[" + strings.TrimSuffix(strings.Repeat("?, ", len(words)), ", ") + "]::text[]"
+	filter, filterArgs := lexicalFilters(q.TypeSlugs, scope)
+	matched := "SELECT id, type_slug, content, q, ts_rank(tsv, q) AS rank, " +
+		"(SELECT count(*) FROM unnest(w.words) AS u(word) " +
+		"WHERE tsv @@ to_tsquery('simple'::regconfig, quote_literal(u.word))) AS coverage " +
+		"FROM resource_search, (SELECT " + wordsArray + " AS words) AS w, " +
+		"LATERAL (SELECT to_tsquery('simple'::regconfig, array_to_string(" +
+		"ARRAY(SELECT quote_literal(x) FROM unnest(w.words) AS x), ' | ')) AS q) AS oq " +
+		"WHERE tsv @@ oq.q" + filter
+	page := "SELECT id, type_slug, content, q, rank, coverage FROM (" + matched + ") AS matched " +
+		"WHERE coverage >= ? ORDER BY coverage DESC, rank DESC, id LIMIT ?"
+	sqlText := "SELECT id, type_slug, ts_headline('simple'::regconfig, content, q, ?) AS snippet " +
+		"FROM (" + page + ") AS page ORDER BY coverage DESC, rank DESC, id"
+	args := []any{pgHeadlineOptions}
+	args = append(args, wordArgs...)
+	args = append(args, filterArgs...)
+	args = append(args, lexical.Floor(q.MinMatch, len(words)), q.Limit)
+	var rows []lexicalRow
+	if err := p.db.WithContext(ctx).Raw(sqlText, args...).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("lexical index: search %q: %w", q.Text, err)
 	}
 	return lexicalHits(rows), nil
 }

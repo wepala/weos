@@ -17,6 +17,8 @@ type fakeLexicalIndex struct {
 	types    map[string]string // id → typeSlug
 	removed  []string
 	searches []string
+	// queries records each search's whole query.
+	queries []repositories.LexicalQuery
 	// searchTypes records the type filter of each search.
 	searchTypes [][]string
 	// owners records the owner each resource was indexed with.
@@ -74,11 +76,12 @@ func (f *fakeLexicalIndex) Owner(_ context.Context, id string) (repositories.Lex
 	return f.owners[id], true, nil
 }
 func (f *fakeLexicalIndex) Search(
-	_ context.Context, q string, _ int, scope *repositories.VisibilityScope, typeSlugs ...string,
+	_ context.Context, q repositories.LexicalQuery, scope *repositories.VisibilityScope,
 ) ([]repositories.LexicalHit, error) {
-	f.searches = append(f.searches, q)
+	f.searches = append(f.searches, q.Text)
+	f.queries = append(f.queries, q)
 	f.scopes = append(f.scopes, scope)
-	f.searchTypes = append(f.searchTypes, typeSlugs)
+	f.searchTypes = append(f.searchTypes, q.TypeSlugs)
 	return f.hits, nil
 }
 func (f *fakeLexicalIndex) Clear(context.Context) error { return nil }

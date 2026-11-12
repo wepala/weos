@@ -15,7 +15,11 @@
 
 package repositories
 
-import "context"
+import (
+	"context"
+	"fmt"
+	"strings"
+)
 
 // LexicalHit is one full-text match against the lexical index.
 type LexicalHit struct {
@@ -49,6 +53,55 @@ const (
 	LexicalEnginePostgres = "postgres-fts"
 )
 
+// MatchMode says which words of a lexical query a hit must hold.
+type MatchMode int
+
+const (
+	// MatchAll — the zero value and the default — matches a resource only
+	// when it holds every word of the query, as typed.
+	MatchAll MatchMode = iota
+	// MatchAny matches a resource that holds any content word of the query,
+	// and ranks the hits by how many of them each holds.
+	MatchAny
+)
+
+// String names the mode as a caller writes it: "all" or "any".
+func (m MatchMode) String() string {
+	if m == MatchAny {
+		return "any"
+	}
+	return "all"
+}
+
+// ParseMatchMode reads a match mode as a caller writes it. "" and "all" are
+// MatchAll and "any" is MatchAny, in any case and with surrounding spaces;
+// anything else is an error, never quietly the default.
+func ParseMatchMode(s string) (MatchMode, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "all":
+		return MatchAll, nil
+	case "any":
+		return MatchAny, nil
+	}
+	return MatchAll, fmt.Errorf("unknown match mode %q: use \"all\" or \"any\"", s)
+}
+
+// LexicalQuery is one lexical search.
+type LexicalQuery struct {
+	// Text is the user's query text. It is never read as query syntax.
+	Text string
+	// Limit is the most hits to return.
+	Limit int
+	// TypeSlugs, when non-empty, narrows the search to those resource types.
+	TypeSlugs []string
+	// Match is MatchAll (the zero value) or MatchAny.
+	Match MatchMode
+	// MinMatch is the fewest content words a hit must hold, in MatchAny mode
+	// only. 0 and 1 both mean one word, and a value above the query's number
+	// of content words is capped at it. MatchAll ignores it.
+	MinMatch int
+}
+
 // LexicalIndex is a full-text index over resource text literals, maintained
 // from resource events by a checkpointed subscriber (so it is a rebuildable
 // derived view, like every other projection). SQLite indexes with FTS5 and
@@ -76,18 +129,30 @@ type LexicalIndex interface {
 	// earlier in the same batch is seen.
 	Owner(ctx context.Context, id string) (LexicalOwner, bool, error)
 	// Search returns full-text matches for the query, best first. The query
-	// is user text, never query syntax: its words are AND-ed. When typeSlugs
-	// is non-empty only resources of those types are matched, so the limit is
-	// spent on those types alone; a type with nothing indexed matches nothing.
+	// text is user text, never query syntax.
+	//
+	// In MatchAll mode (the default) its words are AND-ed, as typed: no word
+	// is dropped. In MatchAny mode the text is reduced to its content words
+	// (lexical.ContentWords: stop words dropped, at most eight), a resource
+	// holding any of them is a hit, and hits are ranked by coverage — how
+	// many distinct content words a hit holds — then by the engine's
+	// relevance, then by id. A hit holding fewer than
+	// lexical.Floor(MinMatch, words) content words is dropped. A text with no
+	// content words matches nothing.
+	//
+	// When TypeSlugs is non-empty only resources of those types are matched,
+	// so the limit is spent on those types alone; a type with nothing indexed
+	// matches nothing.
 	//
 	// scope limits the matches to resources the caller may read, by the same
 	// rule as ResourceRepository.FindAccessibleIDs: the caller created it, it
 	// has no owner, or the caller holds a read grant on it. The scope is part
 	// of the match, so the limit is spent on readable resources alone and a
 	// resource the caller may not read is never counted, returned or quoted.
-	// A nil or admin scope (a system caller) matches every resource.
-	Search(ctx context.Context, query string, limit int, scope *VisibilityScope,
-		typeSlugs ...string) ([]LexicalHit, error)
+	// A nil or admin scope (a system caller) matches every resource. In
+	// MatchAny mode the type filter, the scope and the coverage ordering are
+	// all applied before the limit.
+	Search(ctx context.Context, query LexicalQuery, scope *VisibilityScope) ([]LexicalHit, error)
 	// Clear empties the index (the subscriber group's truncate/rebuild hook).
 	Clear(ctx context.Context) error
 	// Lag reports how far the index is behind the event history: the newest

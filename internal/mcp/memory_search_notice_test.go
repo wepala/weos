@@ -16,7 +16,7 @@ import (
 // index is behind the event history.
 type laggingSearch struct{ lag int64 }
 
-func (laggingSearch) Search(context.Context, string, int, ...string) ([]repositories.LexicalHit, string, error) {
+func (laggingSearch) Search(context.Context, repositories.LexicalQuery) ([]repositories.LexicalHit, string, error) {
 	return []repositories.LexicalHit{{ID: "urn:task:1", TypeSlug: "task"}}, application.LexicalModeFTS5, nil
 }
 
@@ -74,7 +74,7 @@ func TestMemorySearch_NoNoticeWhenTheIndexHasCaughtUp(t *testing.T) {
 // the search read a part-filled index.
 type catchingUpSearch struct{ searched bool }
 
-func (c *catchingUpSearch) Search(context.Context, string, int, ...string) ([]repositories.LexicalHit, string, error) {
+func (c *catchingUpSearch) Search(context.Context, repositories.LexicalQuery) ([]repositories.LexicalHit, string, error) {
 	c.searched = true
 	return nil, application.LexicalModeFTS5, nil
 }
