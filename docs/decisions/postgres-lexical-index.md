@@ -50,8 +50,20 @@ any task was reached, so the tasks it wanted were never in the result.
 
 1. **`english`** (stemming, stop words). Rejected: `memory_search` exists for proper nouns and
    identifiers, which stemming changes and stop-word removal can drop, and SQLite's default FTS5
-   tokenizer (`unicode61`) does neither. The two engines would match different words for one query.
-2. **`simple`** (lowercased words only) — chosen, for parity with `unicode61`.
+   tokenizer (`unicode61`) does neither.
+2. **`simple`** (lowercased words, no stemming, no stop words) — chosen. It is the closest built-in
+   configuration to `unicode61`, but it is **not** word-for-word parity. The two engines split text
+   differently:
+
+   | Text | SQLite `unicode61` | PostgreSQL `simple` |
+   |---|---|---|
+   | Accents (`José`) | folded: `Jose` finds it | kept: only `José` finds it |
+   | Email, host name, dotted token (`jose@example.com`, `example.com`, `v3.2`) | split at `@` and `.`: `example` finds it | one word: only the whole token finds it |
+   | Hyphenated word (`foo-bar`) | split: `bar` finds it | indexed whole and as parts: `bar` finds it |
+
+   So a search can find a resource on SQLite and not on PostgreSQL. Folding accents on PostgreSQL
+   needs the `unaccent` extension, which this story does not add (no new dependency); it is a
+   follow-up.
 
 ### The query parser
 
@@ -98,7 +110,7 @@ any task was reached, so the tasks it wanted were never in the result.
 | Indexes | GIN on `tsv`; b-tree on `type_slug` |
 | Creation | `ProvideLexicalIndex`, under a transaction-scoped advisory lock so a serve and a worker process that boot together do not race the `IF NOT EXISTS` DDL. A failure is logged and degrades to the inactive index, as on SQLite. |
 | `Index` | `INSERT ... ON CONFLICT (id) DO UPDATE` |
-| Content cap | Both engines index the first 256 KiB of a resource's text, cut on a UTF-8 rune boundary. PostgreSQL refuses a `tsvector` over 1 MB, and the vector of all-distinct words is up to three times the text, so without the cap a large resource fails every insert, parks its event and is never searchable. SQLite takes the same cut so both engines index the same words. Words past the cap are not searchable on either engine. |
+| Content cap | Both engines index the first 256 KiB of a resource's text, cut on a UTF-8 rune boundary. PostgreSQL refuses a `tsvector` over 1 MB, and the vector of all-distinct words is up to three times the text, so without the cap a large resource fails every insert, parks its event and is never searchable. SQLite takes the same cut so both engines index the same text. Words past the cap are not searchable on either engine. |
 | `Remove` | `DELETE` |
 | `Clear` | `TRUNCATE` |
 | `Search` | `plainto_tsquery('simple', ?)`, ordered by `ts_rank` then `id`; `ts_headline` builds the snippet for the limited page only |

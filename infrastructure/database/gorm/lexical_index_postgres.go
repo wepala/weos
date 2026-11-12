@@ -35,10 +35,15 @@ const pgLexicalSchemaLock = 0x7765_6f73_6c78 // "weoslx"
 // cannot drift from it.
 //
 // The text search configuration is 'simple' — lowercased words, no stemming,
-// no stop words — which is what SQLite's default FTS5 tokenizer (unicode61)
-// does. Both engines therefore match the same words for the same query, and a
-// search for a proper noun or an identifier (the stated purpose of
-// memory_search) is never stemmed or dropped as a stop word.
+// no stop words — so a search for a proper noun or an identifier (the stated
+// purpose of memory_search) is never stemmed or dropped as a stop word, as on
+// SQLite. The two engines do not split text into the same words, though.
+// SQLite's unicode61 tokenizer folds accents and splits at every character
+// that is not a letter or digit, '@' '.' and '-' included. PostgreSQL's parser
+// folds no accents, and keeps an email address, a host name or a dotted token
+// such as v3.2 as one word. So "Jose" finds "José", and "example" finds
+// "jose@example.com", on SQLite only. A hyphenated word is indexed whole and
+// as its parts, so "bar" finds "foo-bar" on both.
 var pgLexicalSchema = []string{
 	"CREATE TABLE IF NOT EXISTS resource_search (" +
 		"id TEXT PRIMARY KEY, " +

@@ -156,7 +156,7 @@ func fts5Match(query string) string {
 // indexes. PostgreSQL refuses a tsvector over 1 MB (SQLSTATE 54000), and the
 // vector of text whose words are all distinct is up to three times the size of
 // the text, so 256 KiB keeps every resource indexable there. SQLite takes the
-// same cut so both engines index the same words. Text past the budget is not
+// same cut so both engines index the same text. Text past the budget is not
 // searchable.
 const lexicalContentBudget = 256 << 10
 
