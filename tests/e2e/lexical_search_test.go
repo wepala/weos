@@ -202,7 +202,11 @@ func (w *lexicalWorld) instanceConfig(postgres bool) (config.Config, error) {
 	if err != nil {
 		return cfg, err
 	}
-	w.Cleanup(func() { _ = os.RemoveAll(dir) })
+	w.Cleanup(func() {
+		// Best-effort: a leftover temp directory holds only this scenario's
+		// throwaway database, and no later scenario reads it.
+		_ = os.RemoveAll(dir)
+	})
 	cfg.DatabaseDSN = filepath.Join(dir, "test.db")
 	return cfg, nil
 }
@@ -661,6 +665,8 @@ func (w *lexicalWorld) sqliteIndexFromSameEvents(ctx context.Context) (map[strin
 	w.Cleanup(func() {
 		stopCtx, stopCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
 		defer stopCancel()
+		// Best-effort: the scenario's assertions have already run, and a
+		// failed stop leaves nothing a later scenario reads.
 		_ = app.Stop(stopCtx)
 	})
 

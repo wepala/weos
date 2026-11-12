@@ -69,7 +69,10 @@ func TestLexicalIndex_RoundTrip(t *testing.T) {
 	if err := idx.Remove(ctx, "urn:note:2"); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
-	hits, _ = idx.Search(ctx, "finance", 10)
+	hits, err = idx.Search(ctx, "finance", 10)
+	if err != nil {
+		t.Fatalf("Search after removal: %v", err)
+	}
 	if len(hits) != 0 {
 		t.Errorf("hits = %+v, want none after removal", hits)
 	}
@@ -244,14 +247,20 @@ func TestLexicalIndex_RoundTrip_Postgres(t *testing.T) {
 	if rows != 1 {
 		t.Errorf("rows for urn:fact:1 = %d, want 1 after an upsert", rows)
 	}
-	if hits, _ = idx.Search(ctx, "akeem", 10); len(hits) != 0 {
+	if hits, err = idx.Search(ctx, "akeem", 10); err != nil {
+		t.Fatalf("Search after reindex: %v", err)
+	}
+	if len(hits) != 0 {
 		t.Errorf("hits = %+v, want none after content replaced", hits)
 	}
 
 	if err := idx.Remove(ctx, "urn:note:2"); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
-	if hits, _ = idx.Search(ctx, "finance", 10); len(hits) != 0 {
+	if hits, err = idx.Search(ctx, "finance", 10); err != nil {
+		t.Fatalf("Search after removal: %v", err)
+	}
+	if len(hits) != 0 {
 		t.Errorf("hits = %+v, want none after removal", hits)
 	}
 
