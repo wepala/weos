@@ -422,3 +422,81 @@ func TestLexicalIndex_AWriteWithNoOwnerStaysHidden_SQLite(t *testing.T) {
 	assertHits(t, idx, "harbor", "dunmore", 10, scopeOf(harbor))
 	assertHits(t, idx, "system caller", "dunmore", 10, nil, "urn:task:old")
 }
+
+// --- Reading a resource's owner back (wm-ehvlu3) ---
+
+// runOwnerCases: Owner returns the owner a row was indexed with (an ownerless
+// row included), reports no row for a resource never indexed or removed, and
+// sees a row written earlier in the same subscriber batch.
+func runOwnerCases(t *testing.T, idx repositories.LexicalIndex, db *gormlib.DB) {
+	t.Helper()
+	ctx := context.Background()
+	mustIndex(t, idx, "urn:task:harbor", "task", "Dunmore settlement", harbor)
+	mustIndex(t, idx, "urn:task:preset", "task", "Dunmore checklist", repositories.LexicalOwner{})
+
+	for _, c := range []struct {
+		id    string
+		want  repositories.LexicalOwner
+		found bool
+	}{
+		{"urn:task:harbor", harbor, true},
+		{"urn:task:preset", repositories.LexicalOwner{}, true},
+		{"urn:task:never", repositories.LexicalOwner{}, false},
+	} {
+		got, found, err := idx.Owner(ctx, c.id)
+		if err != nil || found != c.found || got != c.want {
+			t.Errorf("Owner(%s) = %+v, %v, %v; want %+v, %v, nil", c.id, got, found, err, c.want, c.found)
+		}
+	}
+	if err := idx.Remove(ctx, "urn:task:harbor"); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if _, found, err := idx.Owner(ctx, "urn:task:harbor"); err != nil || found {
+		t.Errorf("Owner after Remove: found = %v, err = %v; want no row", found, err)
+	}
+
+	// A row written earlier in the batch is not committed yet; the lookup
+	// must read through the batch transaction to see it.
+	cps, err := subscriptions.NewGormCheckpointStore(db)
+	if err != nil {
+		t.Fatalf("checkpoint store: %v", err)
+	}
+	batch, acquired, err := cps.Acquire(ctx, "lexical-owner-probe")
+	if err != nil || !acquired {
+		t.Fatalf("acquire batch: acquired = %v, err = %v", acquired, err)
+	}
+	defer func() {
+		// The batch is only a probe; nothing it wrote is meant to persist.
+		_ = batch.Rollback()
+	}()
+	hctx := batch.HandlerContext(ctx)
+	if err := idx.Index(hctx, "urn:task:cedar", "task", "Dunmore Road viewing", cedar); err != nil {
+		t.Fatalf("Index in batch: %v", err)
+	}
+	if got, found, err := idx.Owner(hctx, "urn:task:cedar"); err != nil || !found || got != cedar {
+		t.Errorf("Owner in the same batch = %+v, %v, %v; want %+v, true, nil", got, found, err, cedar)
+	}
+}
+
+func TestLexicalIndex_Owner_SQLite(t *testing.T) {
+	t.Parallel()
+	db := sqliteScopeDB(t)
+	idx := ProvideLexicalIndex(db, config.Default(), &testLogger{})
+	runOwnerCases(t, idx, db)
+
+	// A row an old binary wrote has NULL owner columns: it counts as no row,
+	// so the handler reads the owner from the events and re-indexes it.
+	if err := db.Exec("INSERT INTO resource_search(content, id, type_slug) VALUES (?, ?, ?)",
+		"Dunmore", "urn:task:old", "task").Error; err != nil {
+		t.Fatalf("old-binary insert: %v", err)
+	}
+	if _, found, err := idx.Owner(context.Background(), "urn:task:old"); err != nil || found {
+		t.Errorf("Owner of a NULL-owner row: found = %v, err = %v; want no row", found, err)
+	}
+}
+
+func TestLexicalIndex_Owner_Postgres(t *testing.T) {
+	t.Parallel()
+	db, cfg := postgresScopeDB(t)
+	runOwnerCases(t, ProvideLexicalIndex(db, cfg, &testLogger{}), db)
+}

@@ -68,6 +68,13 @@ type LexicalIndex interface {
 	Index(ctx context.Context, id, typeSlug, content string, owner LexicalOwner) error
 	// Remove drops a resource from the index.
 	Remove(ctx context.Context, id string) error
+	// Owner returns the owner a resource is indexed with, and false when the
+	// index holds no row for it (or only a row with no owner recorded). An
+	// owner never changes, so the subscriber reads it here on an update rather
+	// than loading the resource's whole history. It reads through the
+	// subscriber's batch transaction when one is on ctx, so a row written
+	// earlier in the same batch is seen.
+	Owner(ctx context.Context, id string) (LexicalOwner, bool, error)
 	// Search returns full-text matches for the query, best first. The query
 	// is user text, never query syntax: its words are AND-ed. When typeSlugs
 	// is non-empty only resources of those types are matched, so the limit is

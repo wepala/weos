@@ -891,7 +891,10 @@ func (inactiveLexicalIndex) Index(context.Context, string, string, string, repos
 	return nil
 }
 func (inactiveLexicalIndex) Remove(context.Context, string) error { return nil }
-func (inactiveLexicalIndex) Clear(context.Context) error          { return nil }
+func (inactiveLexicalIndex) Owner(context.Context, string) (repositories.LexicalOwner, bool, error) {
+	return repositories.LexicalOwner{}, false, nil
+}
+func (inactiveLexicalIndex) Clear(context.Context) error { return nil }
 func (inactiveLexicalIndex) Search(
 	context.Context, string, int, *repositories.VisibilityScope, ...string,
 ) ([]repositories.LexicalHit, error) {

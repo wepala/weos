@@ -120,10 +120,14 @@ already treats it as readable by everyone. The index follows that rule rather th
 data from every account.
 
 **The owner comes from the events, never from the context.** `lexicalHandler` reads `CreatedBy` and
-`AccountID` from the resource's `Resource.Created`: from the transaction on a create, and from the
-aggregate's history on an update, whose transaction does not carry it. A history load that fails is
-returned so the subscriber retries the event; it is never indexed as ownerless. A rebuild replays the
-same events, so it restores the same owners. `account_id` is stored beside `created_by`, as on the
+`AccountID` from the resource's `Resource.Created` in the transaction on a create. An update's
+transaction does not carry it, and an owner never changes, so on an update the handler reads the
+owner back from the resource's existing index row (`LexicalIndex.Owner`, through the batch
+transaction) and loads the aggregate's history for its `Resource.Created` only when there is no row
+yet (wm-ehvlu3). A lookup or history load that fails is returned so the subscriber retries the
+event; it is never indexed as ownerless. A rebuild replays the same events, the create before any
+update, so it restores the same owners. On SQLite the row lookup is a scan of the FTS5 table, as the
+`DELETE` in `Index` already is; an indexed id lookup is wm-xs10t3. `account_id` is stored beside `created_by`, as on the
 `resources` table, though the predicate does not read it today.
 
 ### Migrating a table written before the owner columns

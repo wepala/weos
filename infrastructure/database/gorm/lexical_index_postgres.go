@@ -176,6 +176,11 @@ func (p *postgresLexicalIndex) Remove(ctx context.Context, id string) error {
 	return nil
 }
 
+// Owner reads the owner a resource is indexed with, by primary key.
+func (p *postgresLexicalIndex) Owner(ctx context.Context, id string) (repositories.LexicalOwner, bool, error) {
+	return lexicalOwnerRow(lexicalWriter(ctx, p.db), id)
+}
+
 // Search matches the query with plainto_tsquery, which reads its input as
 // plain words and ANDs them: every tsquery operator (& | ! <-> :* and
 // parentheses) and every quote is a word separator, never syntax. That is the

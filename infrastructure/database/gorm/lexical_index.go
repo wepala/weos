@@ -190,6 +190,16 @@ func (s *sqliteLexicalIndex) Remove(ctx context.Context, id string) error {
 	return nil
 }
 
+// Owner reads the owner a resource is indexed with. A row an old binary wrote
+// has NULL owner columns (FTS5 takes no NOT NULL); it is reported as no row,
+// so the caller reads the owner from the events and re-indexes it.
+//
+// id is an UNINDEXED FTS5 column, so this is a scan of the table, as the
+// DELETE in Index already is. An indexed id lookup is wm-xs10t3.
+func (s *sqliteLexicalIndex) Owner(ctx context.Context, id string) (repositories.LexicalOwner, bool, error) {
+	return lexicalOwnerRow(s.writer(ctx), id)
+}
+
 func (s *sqliteLexicalIndex) Search(
 	ctx context.Context, query string, limit int, scope *repositories.VisibilityScope, typeSlugs ...string,
 ) ([]repositories.LexicalHit, error) {
@@ -222,6 +232,25 @@ func (s *sqliteLexicalIndex) Clear(ctx context.Context) error {
 		return fmt.Errorf("lexical index: clear: %w", err)
 	}
 	return nil
+}
+
+// lexicalOwnerRow reads one resource's owner from resource_search on either
+// engine. A row with a NULL owner counts as no row.
+func lexicalOwnerRow(db *gorm.DB, id string) (repositories.LexicalOwner, bool, error) {
+	var rows []struct {
+		CreatedBy string
+		AccountID string
+	}
+	err := db.Raw("SELECT created_by, account_id FROM resource_search "+
+		"WHERE id = ? AND created_by IS NOT NULL AND account_id IS NOT NULL LIMIT 1", id).
+		Scan(&rows).Error
+	if err != nil {
+		return repositories.LexicalOwner{}, false, fmt.Errorf("lexical index: owner of %s: %w", id, err)
+	}
+	if len(rows) == 0 {
+		return repositories.LexicalOwner{}, false, nil
+	}
+	return repositories.LexicalOwner{CreatedBy: rows[0].CreatedBy, AccountID: rows[0].AccountID}, true, nil
 }
 
 // fts5Match turns free text into a safe FTS5 MATCH expression: each token is
@@ -310,6 +339,9 @@ func (nopLexicalIndex) Index(context.Context, string, string, string, repositori
 	return nil
 }
 func (nopLexicalIndex) Remove(context.Context, string) error { return nil }
+func (nopLexicalIndex) Owner(context.Context, string) (repositories.LexicalOwner, bool, error) {
+	return repositories.LexicalOwner{}, false, nil
+}
 func (nopLexicalIndex) Search(
 	context.Context, string, int, *repositories.VisibilityScope, ...string,
 ) ([]repositories.LexicalHit, error) {

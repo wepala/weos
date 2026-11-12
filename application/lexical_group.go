@@ -98,7 +98,7 @@ func lexicalHandler(
 			if content == "" {
 				return index.Remove(ctx, event.AggregateID)
 			}
-			owner, err := lexicalOwner(ctx, eventStore, event, state)
+			owner, err := lexicalOwner(ctx, eventStore, index, event, state)
 			if err != nil {
 				return err
 			}
@@ -111,16 +111,27 @@ func lexicalHandler(
 
 // lexicalOwner reads who owns the published resource from its events — never
 // from ctx, which during a rebuild belongs to no caller at all. A create
-// carries the owner in its own transaction; an update does not, so the owner
-// is read from the aggregate's Resource.Created. A failed history load is
-// returned so the subscriber retries the event rather than indexing the
-// resource as ownerless, which would show it to every caller.
+// carries the owner in its own transaction. An update does not, and an owner
+// never changes, so it is read from the resource's existing index row; only a
+// resource with no row yet (a refill that starts mid-history, a row removed
+// when its text emptied) costs a load of the aggregate's history, to read its
+// Resource.Created. A rebuild replays the create before any update, so the
+// row is always there for a replayed update. A failed lookup is returned so
+// the subscriber retries the event rather than indexing the resource as
+// ownerless, which would show it to every caller.
 func lexicalOwner(
-	ctx context.Context, eventStore domain.EventStore,
+	ctx context.Context, eventStore domain.EventStore, index repositories.LexicalIndex,
 	event domain.EventEnvelope[any], state txResourceState,
 ) (repositories.LexicalOwner, error) {
 	owner := repositories.LexicalOwner{CreatedBy: state.CreatedBy, AccountID: state.AccountID}
 	if !state.IsCreate {
+		indexed, found, err := index.Owner(ctx, event.AggregateID)
+		if err != nil {
+			return owner, fmt.Errorf("lexical index: owner of %s: %w", event.AggregateID, err)
+		}
+		if found {
+			return indexed, nil
+		}
 		account, createdBy, err := resourceOwnerFromHistory(ctx, eventStore, event.AggregateID)
 		if err != nil {
 			return owner, fmt.Errorf("lexical index: owner of %s: %w", event.AggregateID, err)

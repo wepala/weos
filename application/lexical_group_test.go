@@ -25,6 +25,9 @@ type fakeLexicalIndex struct {
 	scopes []*repositories.VisibilityScope
 	hits   []repositories.LexicalHit
 	engine string
+	// ownerErr fails every Owner lookup; ownerLookups counts them.
+	ownerErr     error
+	ownerLookups int
 }
 
 func newFakeLexicalIndex(active bool) *fakeLexicalIndex {
@@ -56,6 +59,16 @@ func (f *fakeLexicalIndex) Remove(_ context.Context, id string) error {
 	f.removed = append(f.removed, id)
 	delete(f.indexed, id)
 	return nil
+}
+func (f *fakeLexicalIndex) Owner(_ context.Context, id string) (repositories.LexicalOwner, bool, error) {
+	f.ownerLookups++
+	if f.ownerErr != nil {
+		return repositories.LexicalOwner{}, false, f.ownerErr
+	}
+	if _, ok := f.indexed[id]; !ok {
+		return repositories.LexicalOwner{}, false, nil
+	}
+	return f.owners[id], true, nil
 }
 func (f *fakeLexicalIndex) Search(
 	_ context.Context, q string, _ int, scope *repositories.VisibilityScope, typeSlugs ...string,
@@ -213,9 +226,9 @@ func TestLexicalHandler_IndexesTheOwnerFromTheCreateEvent(t *testing.T) {
 	}
 }
 
-// An update transaction has no Resource.Created in it, so the owner is read
-// from the aggregate's history. Indexing it as ownerless would show the
-// updated text to every caller.
+// An update transaction has no Resource.Created in it. With no index row for
+// the resource yet, the owner is read from the aggregate's history. Indexing
+// it as ownerless would show the updated text to every caller.
 func TestLexicalHandler_KeepsTheOwnerOnUpdate(t *testing.T) {
 	t.Parallel()
 
@@ -268,6 +281,86 @@ func TestLexicalHandler_FailsWhenTheOwnerCannotBeRead(t *testing.T) {
 	index := newFakeLexicalIndex(true)
 	if err := lexicalHandler(store, index, noopLogger{})(context.Background(), published); err == nil {
 		t.Fatal("handler succeeded, want the history error so the event is retried")
+	}
+	if _, indexed := index.indexed["urn:note:1"]; indexed {
+		t.Error("resource indexed without its owner")
+	}
+}
+
+// noteUpdate is an update transaction for urn:note:1 with new text.
+func noteUpdate(text string) (domain.EventEnvelope[any], []domain.EventEnvelope[any]) {
+	updated := domain.EventEnvelope[any]{
+		ID: "ev-upd", EventType: "Resource.Updated", AggregateID: "urn:note:1",
+		SequenceNo: 3, TransactionID: "tx2",
+		Payload: map[string]any{"Data": map[string]any{"@id": "urn:note:1", "name": text}},
+	}
+	published := domain.EventEnvelope[any]{
+		ID: "ev-upd-pub", EventType: "Resource.Published", AggregateID: "urn:note:1",
+		SequenceNo: 4, TransactionID: "tx2", Payload: map[string]any{"TypeSlug": "note"},
+	}
+	return published, []domain.EventEnvelope[any]{updated, published}
+}
+
+// An owner never changes, so an update to a resource the index already holds
+// reads the owner from its row and never loads the aggregate's history
+// (wm-ehvlu3). The event store here fails every history load, so the test
+// fails if the handler reaches for it.
+func TestLexicalHandler_ReadsTheUpdateOwnerFromTheIndexRow(t *testing.T) {
+	t.Parallel()
+
+	published, tx := noteUpdate("Dunmore settlement")
+	store := &fakeEventStore{
+		tx:           map[string][]domain.EventEnvelope[any]{"tx2": tx},
+		getEventsErr: errors.New("history must not be loaded when the row has the owner"),
+	}
+	index := newFakeLexicalIndex(true)
+	harbor := repositories.LexicalOwner{CreatedBy: "agent-harbor", AccountID: "harbor"}
+	if err := index.Index(context.Background(), "urn:note:1", "note", "old text", harbor); err != nil {
+		t.Fatalf("seed row: %v", err)
+	}
+
+	if err := lexicalHandler(store, index, noopLogger{})(context.Background(), published); err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	if index.indexed["urn:note:1"] != "Dunmore settlement" {
+		t.Fatalf("content = %q, want the updated text", index.indexed["urn:note:1"])
+	}
+	if got := index.owners["urn:note:1"]; got != harbor {
+		t.Errorf("owner after update = %+v, want the row's owner %+v", got, harbor)
+	}
+	if index.ownerLookups != 1 {
+		t.Errorf("owner lookups = %d, want 1", index.ownerLookups)
+	}
+}
+
+// A create carries its owner, so it never asks the index.
+func TestLexicalHandler_CreateDoesNotLookUpTheOwner(t *testing.T) {
+	t.Parallel()
+
+	published, tx := ownedEpisode("urn:note:1", "tx1", "agent-harbor", "harbor")
+	index := newFakeLexicalIndex(true)
+	index.ownerErr = errors.New("a create must not look up its owner")
+	h := lexicalHandler(&fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{"tx1": tx}},
+		index, noopLogger{})
+	if err := h(context.Background(), published); err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	if index.ownerLookups != 0 {
+		t.Errorf("owner lookups = %d on a create, want 0", index.ownerLookups)
+	}
+}
+
+// An index row that cannot be read is an error the subscriber retries — it
+// is never a reason to index the resource as ownerless.
+func TestLexicalHandler_FailsWhenTheIndexRowCannotBeRead(t *testing.T) {
+	t.Parallel()
+
+	published, tx := noteUpdate("Dunmore")
+	store := &fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{"tx2": tx}}
+	index := newFakeLexicalIndex(true)
+	index.ownerErr = errors.New("index unavailable")
+	if err := lexicalHandler(store, index, noopLogger{})(context.Background(), published); err == nil {
+		t.Fatal("handler succeeded, want the lookup error so the event is retried")
 	}
 	if _, indexed := index.indexed["urn:note:1"]; indexed {
 		t.Error("resource indexed without its owner")
