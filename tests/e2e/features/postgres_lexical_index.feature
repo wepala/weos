@@ -30,6 +30,13 @@ Feature: Full-text lexical search on PostgreSQL
   it, is specified in lexical_search_account_scope.feature; the scenarios here pin the PostgreSQL
   query that applies the scope.
 
+  The "any" match mode is built on this engine's own query. The stop words come off the query by
+  the same core list SQLite uses, the remaining content words are OR-ed into the tsquery rather
+  than AND-ed, and the hits are ranked by how many distinct content words each one holds before
+  the engine's own relevance is consulted. The type filter and the caller's scope still sit in the
+  same WHERE clause, so they still narrow the match rather than the answer. The wider property,
+  and the SQLite half of it, is in lexical_search_any_match.feature.
+
   These scenarios need a real PostgreSQL database. They are skipped where none is configured.
 
   Background:
@@ -251,3 +258,75 @@ Feature: Full-text lexical search on PostgreSQL
     When account "Cedar Realty" calls memory_search for "Dunmore" narrowed to type "task"
     Then the call succeeds
     And the search returns no resources
+
+  @wip @story-wm-u1xp4w
+  Scenario: A PostgreSQL sentence query returns the resource holding the most of its words first
+    Given the following "task" resources exist:
+      | name                     | description                                   |
+      | Chase the Harbor invoice | Harbor Legal invoice chase for the June lease |
+      | Harbor Legal onboarding  | Welcome pack for the new Legal client         |
+      | Renew the office lease   | Lease renewal for the Wepala studio           |
+    When I call memory_search for "the invoice for the Harbor Legal lease" matching any word
+    Then the search returns these resources in order:
+      | name                     |
+      | Chase the Harbor invoice |
+      | Harbor Legal onboarding  |
+      | Renew the office lease   |
+
+  @wip @story-wm-u1xp4w
+  Scenario: A PostgreSQL query of stop words alone returns no resources
+    Given the following "task" resources exist:
+      | name                     | description                                   |
+      | Chase the Harbor invoice | Harbor Legal invoice chase for the June lease |
+    When I call memory_search for "what is it about" matching any word
+    Then the call succeeds
+    And the search returns no resources
+
+  @wip @story-wm-u1xp4w
+  Scenario: A PostgreSQL query of a contraction alone returns no resources
+    Given the following "task" resources exist:
+      | name                    | description                                        |
+      | Help Dana log in        | Reset the child account password so she can log in |
+      | Order the office chairs | You can collect them from the studio               |
+    When I call memory_search for "can't" matching any word
+    Then the call succeeds
+    And the search returns no resources
+
+  @wip @story-wm-u1xp4w
+  Scenario: A PostgreSQL search requiring two matching words leaves out a resource holding only one
+    Given the following "task" resources exist:
+      | name                     | description                                   |
+      | Chase the Harbor invoice | Harbor Legal invoice chase for the June lease |
+      | Harbor Legal onboarding  | Welcome pack for the new Legal client         |
+      | Renew the office lease   | Invoice the landlord before the June renewal  |
+    When I call memory_search for "Harbor Legal invoice" matching any 2 words
+    Then the search returns exactly these resources:
+      | name                     |
+      | Chase the Harbor invoice |
+      | Harbor Legal onboarding  |
+
+  @wip @story-wm-u1xp4w
+  Scenario: A PostgreSQL search in any mode narrowed to a type returns only that type's matches
+    Given the following "project" resources exist:
+      | name                    | description                        |
+      | Harbor Legal onboarding | Invoice templates for Harbor Legal |
+    And the following "task" resources exist:
+      | name                   | description                  |
+      | Renew the office lease | Invoice the landlord in June |
+    When I call memory_search for "Harbor Legal invoice" matching any word narrowed to type "task"
+    Then the search returns exactly these resources:
+      | name                   |
+      | Renew the office lease |
+
+  @wip @story-wm-u1xp4w
+  Scenario: A PostgreSQL search in any mode still excludes another account's better match
+    Given account "Harbor Legal" has the following "task" resources:
+      | name                   | description                                  |
+      | Chase overdue invoices | Dunmore settlement balance still outstanding |
+    And account "Cedar Realty" has the following "task" resources:
+      | name                             | description            |
+      | Prepare the Dunmore Road showing | Viewing for the Patels |
+    When account "Cedar Realty" calls memory_search for "the Dunmore settlement balance" matching any word
+    Then the search returns exactly these resources:
+      | name                             |
+      | Prepare the Dunmore Road showing |
