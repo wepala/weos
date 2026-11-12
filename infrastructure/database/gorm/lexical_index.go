@@ -239,6 +239,11 @@ func (s *sqliteLexicalIndex) Clear(ctx context.Context) error {
 // events table's unique position index from its end, and the checkpoint is a
 // primary-key lookup, so the cost does not grow with the history. The table
 // names are pericarp's (GormEventModel, GormCheckpointModel); a test pins them.
+//
+// MAX(position) is read raw, without the in-flight-writer guard pericarp's
+// HeadPosition applies on PostgreSQL. A committed event the feed is still
+// withholding is an event the index does not hold, so an answer given then
+// may be incomplete, and the notice says so.
 const lexicalLagQuery = "SELECT COALESCE((SELECT MAX(position) FROM events), 0) - " +
 	"COALESCE((SELECT position FROM subscriber_checkpoints WHERE subscriber = ?), 0)"
 

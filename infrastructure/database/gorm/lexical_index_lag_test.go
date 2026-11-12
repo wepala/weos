@@ -64,8 +64,12 @@ func appendEvents(t *testing.T, db *gormlib.DB, n int) int64 {
 			t.Fatalf("append %d: %v", i, err)
 		}
 	}
-	head, err := store.HeadPosition(ctx)
-	if err != nil {
+	// The newest stored position, read raw. pericarp's HeadPosition withholds
+	// positions behind any transaction still open in the cluster on
+	// PostgreSQL, so under parallel tests it can lag the events just stored;
+	// Lag counts every committed event the index has not reached.
+	var head int64
+	if err := db.Raw("SELECT MAX(position) FROM events").Scan(&head).Error; err != nil {
 		t.Fatalf("head: %v", err)
 	}
 	return head
