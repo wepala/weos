@@ -61,7 +61,7 @@ type MemorySearchInput struct {
 	Limit     int      `json:"limit,omitempty" jsonschema:"max results (default 20, max 100)"`
 	TypeSlugs []string `json:"typeSlugs,omitempty" jsonschema:"only return resources of these types, each the exact type slug, which is lowercase (e.g. [\"task\"]; \"tasks\" is a different slug). Case and surrounding spaces are ignored, and a slug that names no type matches nothing. The limit is then spent on these types alone. Omit to search every type"`
 	//nolint:lll // jsonschema description
-	Match string `json:"match,omitempty" jsonschema:"all (the default): a result holds every query word, as typed. any: stop words (the, is, can't, ...) are dropped from the query, a result holds at least one of the remaining content words (at most 8 are used), and results holding more of them come first — use it for a sentence or a question rather than keywords. A query of stop words alone returns nothing"`
+	Match string `json:"match,omitempty" jsonschema:"all (the default): a result holds every query word, as typed. any: English stop words (the, is, can't, please, thanks, ...) are dropped from the query — the list is English only, so another language's common words stay content words — a result holds at least one of the remaining content words (at most 8 are used), and results holding more of them come first — use it for a sentence or a question rather than keywords. A query of stop words alone returns nothing"`
 	//nolint:lll // jsonschema description
 	MinMatch int `json:"minMatch,omitempty" jsonschema:"with match any only — set with match all (or no match) it is an error: the fewest content words a result must hold (default 1). A number above the query's content-word count asks for all of them"`
 }
