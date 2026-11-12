@@ -40,7 +40,7 @@ import (
 // An index table written before the owner columns existed (wm-yna4s3) is
 // dropped and recreated, and the lexical-index checkpoint is reset to 0 in the
 // same transaction, so the subscriber refills the new table from history with
-// every row's owner. See ensureLexicalOwnerColumns.
+// every row's owner. See createSQLiteLexicalIndex and newPostgresLexicalIndex.
 func ProvideLexicalIndex(db *gorm.DB, cfg config.Config, logger entities.Logger) repositories.LexicalIndex {
 	ctx := context.Background()
 	if cfg.IsPostgres() {
