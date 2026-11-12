@@ -112,7 +112,7 @@ func assertHits(t *testing.T, idx repositories.LexicalIndex, label, query string
 	scope *repositories.VisibilityScope, want ...string,
 ) {
 	t.Helper()
-	hits, err := idx.Search(context.Background(), query, limit, scope)
+	hits, err := idx.Search(context.Background(), repositories.LexicalQuery{Text: query, Limit: limit}, scope)
 	if err != nil {
 		t.Fatalf("%s: Search: %v", label, err)
 	}
@@ -137,7 +137,7 @@ func runScopeCases(t *testing.T, idx repositories.LexicalIndex, db *gormlib.DB) 
 
 	// The snippet comes from the same scoped query, so a hidden row is never
 	// quoted either.
-	hits, err := idx.Search(context.Background(), "settlement", 10, scopeOf(cedar))
+	hits, err := idx.Search(context.Background(), repositories.LexicalQuery{Text: "settlement", Limit: 10}, scopeOf(cedar))
 	if err != nil || len(hits) != 0 {
 		t.Errorf("cedar searching harbor's word: hits = %+v, err = %v; want none", hits, err)
 	}
@@ -170,7 +170,7 @@ func runCrowdedScopeCase(t *testing.T, idx repositories.LexicalIndex) {
 
 	// It composes with the type filter: narrowing never reaches across.
 	mustIndex(t, idx, "urn:project:cedar", "project", "Dunmore onboarding", cedar)
-	hits, err := idx.Search(context.Background(), "dunmore", 10, scopeOf(harbor), "project")
+	hits, err := idx.Search(context.Background(), repositories.LexicalQuery{Text: "dunmore", Limit: 10, TypeSlugs: []string{"project"}}, scopeOf(harbor))
 	if err != nil || len(hits) != 0 {
 		t.Errorf("harbor narrowed to cedar's type: hits = %+v, err = %v; want none", hits, err)
 	}

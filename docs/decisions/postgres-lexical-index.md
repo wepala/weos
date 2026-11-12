@@ -11,6 +11,8 @@ nav_order: 14
 **Date:** 2026-11-11
 **Story:** wm-irqzji — PostgreSQL lexical index for core, with a type filter on Search
 **Finding:** wm-yna4s3 — account scope on the lexical index (closed by this story)
+**Amended by:** [An Any-Word Match Mode on Lexical Search]({% link decisions/lexical-any-word-match.md %})
+(wm-u1xp4w) — `Search` takes a `LexicalQuery` with a match mode; the all-words query below is unchanged
 
 ## Problem
 

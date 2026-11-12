@@ -19,8 +19,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
+	"github.com/wepala/weos/v3/domain/lexical"
 	"github.com/wepala/weos/v3/domain/repositories"
 )
 
@@ -51,10 +53,13 @@ var ErrLexicalUnavailable = errors.New(
 // its query, and the graph applies its own access filter to label search.
 type LexicalSearch interface {
 	// Search returns matches plus the mode that produced them (a full-text
-	// mode — see IsFullTextMode — or LexicalModeGraphLabels). When typeSlugs
-	// is non-empty only resources of those types are returned, on either
-	// path, and the limit is spent on those types alone.
-	Search(ctx context.Context, query string, limit int, typeSlugs ...string) ([]repositories.LexicalHit, string, error)
+	// mode — see IsFullTextMode — or LexicalModeGraphLabels). When
+	// q.TypeSlugs is non-empty only resources of those types are returned, on
+	// either path, and the limit is spent on those types alone. q.Match picks
+	// all words (the default) or any content word, ranked by how many each
+	// hit holds; see repositories.LexicalIndex.Search. A limit of 0 or less
+	// is the default, and a limit above the maximum is the maximum.
+	Search(ctx context.Context, q repositories.LexicalQuery) ([]repositories.LexicalHit, string, error)
 }
 
 // LexicalIndexProgress is implemented by a LexicalSearch whose full-text
@@ -83,7 +88,7 @@ type LexicalIndexProgress interface {
 // lag of 0 on both sides means the search saw every event up to the first
 // read (Copilot review 5869602749).
 func SearchWithRebuildNotice(
-	ctx context.Context, search LexicalSearch, query string, limit int, typeSlugs ...string,
+	ctx context.Context, search LexicalSearch, q repositories.LexicalQuery,
 ) ([]repositories.LexicalHit, string, string, error) {
 	progress, reportsProgress := search.(LexicalIndexProgress)
 	var lagBefore int64
@@ -91,7 +96,7 @@ func SearchWithRebuildNotice(
 	if reportsProgress {
 		lagBefore, errBefore = progress.IndexLag(ctx)
 	}
-	hits, mode, err := search.Search(ctx, query, limit, typeSlugs...)
+	hits, mode, err := search.Search(ctx, q)
 	if err != nil {
 		return nil, mode, "", err
 	}
@@ -131,47 +136,125 @@ func NewLexicalSearch(index repositories.LexicalIndex, kg KnowledgeGraphService)
 }
 
 func (s *lexicalSearch) Search(
-	ctx context.Context, query string, limit int, typeSlugs ...string,
+	ctx context.Context, q repositories.LexicalQuery,
 ) ([]repositories.LexicalHit, string, error) {
-	if limit <= 0 {
-		limit = defaultRecallLimit
+	if q.Limit <= 0 {
+		q.Limit = defaultRecallLimit
 	}
-	if limit > maxRecallLimit {
-		limit = maxRecallLimit
+	if q.Limit > maxRecallLimit {
+		q.Limit = maxRecallLimit
 	}
-	types := typeSlugFilter(typeSlugs)
+	q.TypeSlugs = typeSlugFilter(q.TypeSlugs)
 	if s.index != nil && s.index.Active() {
 		// The caller's scope goes into the index query itself, never onto
 		// its answer: filtering after the LIMIT would let another account's
 		// better-ranked matches spend the limit, and the snippets are built
 		// in the same query.
-		hits, err := s.index.Search(ctx, query, limit, visibilityScopeFromContext(ctx), types...)
+		hits, err := s.index.Search(ctx, q, visibilityScopeFromContext(ctx))
 		return hits, s.index.Engine(), err
 	}
 	if s.kg == nil || !s.kg.Active() {
 		return nil, "", ErrLexicalUnavailable
 	}
-	terms, err := s.labelSearch(ctx, query, limit, types)
+	var ids []string
+	var err error
+	if q.Match == repositories.MatchAny {
+		ids, err = s.labelSearchAny(ctx, q)
+	} else {
+		ids, err = s.labelSearchIDs(ctx, q.Text, q.Limit, q.TypeSlugs)
+	}
 	if err != nil {
 		return nil, "", err
 	}
-	hits := make([]repositories.LexicalHit, 0, len(terms))
-	for _, t := range terms {
+	hits := make([]repositories.LexicalHit, 0, len(ids))
+	for _, id := range ids {
 		// The graph applied the type filter already where it could; this
 		// keeps a graph that cannot (see labelSearch) to the narrowed types.
-		if len(types) > 0 && !urnHasType(t.Value, types) {
+		if len(q.TypeSlugs) > 0 && !urnHasType(id, q.TypeSlugs) {
 			continue
 		}
-		hits = append(hits, repositories.LexicalHit{ID: t.Value})
+		hits = append(hits, repositories.LexicalHit{ID: id})
 	}
 	hits, err = s.dropSupersededFacts(ctx, hits)
 	if err != nil {
 		return nil, "", err
 	}
-	if len(hits) > limit {
-		hits = hits[:limit]
+	if len(hits) > q.Limit {
+		hits = hits[:q.Limit]
 	}
 	return hits, LexicalModeGraphLabels, nil
+}
+
+// labelSearchIDs is labelSearch's answer as resource URNs, in its order.
+func (s *lexicalSearch) labelSearchIDs(
+	ctx context.Context, query string, limit int, types []string,
+) ([]string, error) {
+	terms, err := s.labelSearch(ctx, query, limit, types)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(terms))
+	for _, t := range terms {
+		ids = append(ids, t.Value)
+	}
+	return ids, nil
+}
+
+// labelSearchAny is the MatchAny search on the degraded path. A resource's
+// coverage is the number of content words its labels hold; resources below
+// the MinMatch floor are dropped and the rest ordered by coverage. A graph
+// that implements AnyWordLabelSearch counts coverage, applies the floor and
+// ranks in one query, before its LIMIT, so no word's many matches can hide a
+// resource holding several words. Any other graph is searched one word at a
+// time, each word asked for the maximum, and a resource's coverage is the
+// number of words whose search found it, keeping label search's own order
+// within one coverage; past the maximum for a word that undercounts, as
+// labelSearch's type filter does for such a graph. A query with no content
+// words matches nothing.
+func (s *lexicalSearch) labelSearchAny(ctx context.Context, q repositories.LexicalQuery) ([]string, error) {
+	words := lexical.ContentWords(q.Text)
+	if len(words) == 0 {
+		return nil, nil
+	}
+	floor := lexical.Floor(q.MinMatch, len(words))
+	if ranked, ok := s.kg.(AnyWordLabelSearch); ok {
+		terms, err := ranked.SearchEntitiesAnyWord(ctx, words, floor, q.TypeSlugs, maxRecallLimit)
+		if err != nil {
+			return nil, err
+		}
+		ids := make([]string, 0, len(terms))
+		for _, t := range terms {
+			ids = append(ids, t.Value)
+		}
+		return ids, nil
+	}
+	coverage := map[string]int{}
+	var order []string
+	for _, w := range words {
+		ids, err := s.labelSearchIDs(ctx, w, maxRecallLimit, q.TypeSlugs)
+		if err != nil {
+			return nil, err
+		}
+		seen := map[string]bool{}
+		for _, id := range ids {
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			if coverage[id] == 0 {
+				order = append(order, id)
+			}
+			coverage[id]++
+		}
+	}
+	kept := order[:0]
+	for _, id := range order {
+		if coverage[id] >= floor {
+			kept = append(kept, id)
+		}
+	}
+	sort.SliceStable(kept, func(i, j int) bool { return coverage[kept[i]] > coverage[kept[j]] })
+	return kept, nil
 }
 
 // labelSearch runs the graph's label search. Label search knows classes, not

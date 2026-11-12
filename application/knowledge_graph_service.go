@@ -93,6 +93,26 @@ type TypeScopedLabelSearch interface {
 	SearchEntitiesOfTypes(ctx context.Context, q string, typeSlugs []string, limit int) ([]repositories.KGTerm, error)
 }
 
+// AnyWordLabelSearch is implemented by a KnowledgeGraphService whose label
+// search can count, in one graph query, how many of several words a
+// resource's labels hold, and rank by that count before its LIMIT. Lexical
+// search uses it for the any-word mode on its degraded path: searching each
+// word on its own caps every word at a limit's worth of matches, so a resource
+// past that cap for one word is undercounted, or lost (wm-u1xp4w, Copilot on
+// PR #583). It is a separate interface so a KnowledgeGraphService written
+// elsewhere keeps compiling.
+type AnyWordLabelSearch interface {
+	// SearchEntitiesAnyWord returns resources whose label-like properties hold
+	// at least minMatch of words (each a case-insensitive substring), most
+	// words first, then by IRI. minMatch below 1 is 1, and above the number of
+	// words is every word. When typeSlugs is non-empty only resources whose
+	// URN names one of those types are kept, inside the query. limit defaults
+	// to 20, capped at 100.
+	SearchEntitiesAnyWord(
+		ctx context.Context, words []string, minMatch int, typeSlugs []string, limit int,
+	) ([]repositories.KGTerm, error)
+}
+
 // ClassDescription captures the metadata returned by DescribeClass.
 type ClassDescription struct {
 	ClassIRI   string                `json:"class_iri"`
@@ -354,22 +374,73 @@ func (s *knowledgeGraphService) searchEntities(
 			return nil, fmt.Errorf("class iri: %w", err)
 		}
 	}
-	// Clamp pathological lengths so a runaway LLM call can't wedge SPARQL
-	// parsing on a multi-megabyte literal. 256 chars is well over what any
-	// realistic name/title search needs.
-	const maxQueryLen = 256
-	if len(q) > maxQueryLen {
-		q = q[:maxQueryLen]
-		s.logger.Debug(ctx, "kg search query truncated", "max", maxQueryLen)
-	}
-	if limit <= 0 {
-		limit = 20
-	}
-	if limit > 100 {
-		limit = 100
-	}
+	q = s.clampSearchText(ctx, q)
+	limit = clampSearchLimit(limit)
 	sparql := buildSearchQuery(q, classIRI, typeSlugs, limit)
 	s.logger.Debug(ctx, "kg search entities", "q", q, "limit", limit)
+	return s.searchSubjects(ctx, store, sparql)
+}
+
+// SearchEntitiesAnyWord implements AnyWordLabelSearch.
+func (s *knowledgeGraphService) SearchEntitiesAnyWord(
+	ctx context.Context, words []string, minMatch int, typeSlugs []string, limit int,
+) ([]repositories.KGTerm, error) {
+	store, err := s.storeFor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var kept []string
+	seen := map[string]bool{}
+	for _, w := range words {
+		w = s.clampSearchText(ctx, strings.TrimSpace(w))
+		if w != "" && !seen[w] {
+			seen[w] = true
+			kept = append(kept, w)
+		}
+	}
+	if len(kept) == 0 {
+		return nil, fmt.Errorf("at least one search word is required")
+	}
+	if minMatch < 1 {
+		minMatch = 1
+	}
+	if minMatch > len(kept) {
+		minMatch = len(kept)
+	}
+	limit = clampSearchLimit(limit)
+	sparql := buildAnyWordSearchQuery(kept, minMatch, typeSlugs, limit)
+	s.logger.Debug(ctx, "kg search entities any word", "words", len(kept), "minMatch", minMatch, "limit", limit)
+	return s.searchSubjects(ctx, store, sparql)
+}
+
+// clampSearchText clamps pathological lengths so a runaway LLM call can't
+// wedge SPARQL parsing on a multi-megabyte literal. 256 chars is well over
+// what any realistic name/title search needs.
+func (s *knowledgeGraphService) clampSearchText(ctx context.Context, q string) string {
+	const maxQueryLen = 256
+	if len(q) > maxQueryLen {
+		s.logger.Debug(ctx, "kg search query truncated", "max", maxQueryLen)
+		return q[:maxQueryLen]
+	}
+	return q
+}
+
+// clampSearchLimit is label search's limit: 20 when unset, at most 100.
+func clampSearchLimit(limit int) int {
+	if limit <= 0 {
+		return 20
+	}
+	if limit > 100 {
+		return 100
+	}
+	return limit
+}
+
+// searchSubjects runs a label-search SELECT and returns its ?s terms, in the
+// query's order, with the subjects the caller may not read removed.
+func (s *knowledgeGraphService) searchSubjects(
+	ctx context.Context, store repositories.KnowledgeGraphStore, sparql string,
+) ([]repositories.KGTerm, error) {
 	res, err := store.Query(ctx, sparql)
 	if err != nil {
 		return nil, err
@@ -619,26 +690,63 @@ func buildSearchQuery(q, classIRI string, typeSlugs []string, limit int) string 
   ?s <http://www.w3.org/1999/02/22-rdf-syntax-ns#type>/<http://www.w3.org/2000/01/rdf-schema#subClassOf>* %s .`,
 			formatIRI(classIRI))
 	}
-	if len(typeSlugs) > 0 {
-		prefixes := make([]string, 0, len(typeSlugs))
-		for _, t := range typeSlugs {
-			// Concatenated, not %q: the literal takes SPARQL escaping, not Go's.
-			prefixes = append(prefixes, `STRSTARTS(STR(?s), "`+escapeSPARQLLiteral("urn:"+t+":")+`")`)
-		}
-		classClause += "\n  FILTER(" + strings.Join(prefixes, " || ") + ")"
-	}
+	classClause += urnTypeFilter(typeSlugs)
 	return fmt.Sprintf(`
 SELECT DISTINCT ?s WHERE {%s
-  ?s ?labelPred ?lbl .
+  ?s ?labelPred ?lbl .%s
+  FILTER(CONTAINS(LCASE(STR(?lbl)), LCASE("%s")))
+} LIMIT %d`, classClause, labelPredicateFilter, escaped, limit)
+}
+
+// labelPredicateFilter keeps ?labelPred to the label-like properties label
+// search reads.
+const labelPredicateFilter = `
   FILTER(?labelPred IN (
     <http://www.w3.org/2000/01/rdf-schema#label>,
     <http://schema.org/name>,
     <https://schema.org/name>,
     <http://xmlns.com/foaf/0.1/name>,
     <http://purl.org/dc/terms/title>
-  ))
-  FILTER(CONTAINS(LCASE(STR(?lbl)), LCASE("%s")))
-} LIMIT %d`, classClause, escaped, limit)
+  ))`
+
+// urnTypeFilter is the FILTER that keeps ?s to resources of typeSlugs by
+// their URN (urn:<typeSlug>:<id>), or "" for no type filter. Each slug is
+// escaped as a literal.
+func urnTypeFilter(typeSlugs []string) string {
+	if len(typeSlugs) == 0 {
+		return ""
+	}
+	prefixes := make([]string, 0, len(typeSlugs))
+	for _, t := range typeSlugs {
+		// Concatenated, not %q: the literal takes SPARQL escaping, not Go's.
+		prefixes = append(prefixes, `STRSTARTS(STR(?s), "`+escapeSPARQLLiteral("urn:"+t+":")+`")`)
+	}
+	return "\n  FILTER(" + strings.Join(prefixes, " || ") + ")"
+}
+
+// buildAnyWordSearchQuery returns a SELECT for IRIs whose label-like
+// properties hold at least minMatch of words, each matched the way
+// buildSearchQuery matches its one query (case-insensitive substring, folded
+// by the engine's LCASE). The coverage is counted per resource across all of
+// its labels, the floor is a HAVING, and the order is most words first, then
+// IRI — all before the LIMIT, so a resource holding several words is never
+// lost behind one word's many matches. The type filter sits inside the WHERE
+// clause for the same reason.
+func buildAnyWordSearchQuery(words []string, minMatch int, typeSlugs []string, limit int) string {
+	values := make([]string, 0, len(words))
+	for _, w := range words {
+		values = append(values, `"`+escapeSPARQLLiteral(w)+`"`)
+	}
+	return fmt.Sprintf(`
+SELECT ?s (COUNT(DISTINCT ?w) AS ?coverage) WHERE {%s
+  VALUES ?w { %s }
+  ?s ?labelPred ?lbl .%s
+  FILTER(CONTAINS(LCASE(STR(?lbl)), LCASE(?w)))
+}
+GROUP BY ?s
+HAVING (COUNT(DISTINCT ?w) >= %d)
+ORDER BY DESC(?coverage) STR(?s)
+LIMIT %d`, urnTypeFilter(typeSlugs), strings.Join(values, " "), labelPredicateFilter, minMatch, limit)
 }
 
 // buildPathQueryForLength returns a CONSTRUCT for a single chain length:

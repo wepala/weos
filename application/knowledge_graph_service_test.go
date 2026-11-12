@@ -277,6 +277,71 @@ func TestKGService_SearchEntitiesOfTypes_FiltersBeforeTheLimit(t *testing.T) {
 	}
 }
 
+// The any-word label search counts each resource's words, keeps the floor
+// and ranks by the count inside one query, before its LIMIT, with the type
+// filter inside the WHERE clause. Each word is an escaped literal, a repeated
+// word is counted once, and the floor is clamped to the words given.
+func TestKGService_SearchEntitiesAnyWord_RanksByCoverageBeforeTheLimit(t *testing.T) {
+	t.Parallel()
+	store := &queryRecordingStore{active: true}
+	svc := newKGSvc(store)
+
+	ranked, ok := svc.(AnyWordLabelSearch)
+	if !ok {
+		t.Fatal("knowledgeGraphService does not implement AnyWordLabelSearch")
+	}
+	_, err := ranked.SearchEntitiesAnyWord(context.Background(),
+		[]string{"harbor", `in"voice`, "harbor"}, 9, []string{"task"}, 500)
+	if err != nil {
+		t.Fatalf("SearchEntitiesAnyWord: %v", err)
+	}
+	q := store.queries[0]
+	for _, want := range []string{
+		`VALUES ?w { "harbor" "in\"voice" }`,
+		`FILTER(CONTAINS(LCASE(STR(?lbl)), LCASE(?w)))`,
+		`FILTER(STRSTARTS(STR(?s), "urn:task:"))`,
+		"GROUP BY ?s",
+		"HAVING (COUNT(DISTINCT ?w) >= 2)",
+		"ORDER BY DESC(?coverage) STR(?s)",
+		"LIMIT 100",
+	} {
+		if !strings.Contains(q, want) {
+			t.Errorf("query lacks %s: %q", want, q)
+		}
+	}
+	where, limit := strings.Index(q, "GROUP BY"), strings.Index(q, "LIMIT 100")
+	if strings.Index(q, "urn:task:") > where || limit < where {
+		t.Errorf("type filter must sit inside WHERE, and the floor and order before LIMIT: %q", q)
+	}
+
+	if _, err := ranked.SearchEntitiesAnyWord(context.Background(), []string{" "}, 1, nil, 0); err == nil {
+		t.Error("SearchEntitiesAnyWord with no words succeeded, want an error")
+	}
+}
+
+// The any-word label search applies the same permission filter as label
+// search: a subject the caller may not read never comes back.
+func TestKGService_SearchEntitiesAnyWord_FiltersForbiddenSubjects(t *testing.T) {
+	t.Parallel()
+	store := &queryRecordingStore{
+		active: true,
+		response: repositories.KGQueryResult{Bindings: []map[string]repositories.KGTerm{
+			{"s": {Type: repositories.KGTermIRI, Value: "urn:task:secret"}, "coverage": {Value: "2"}},
+			{"s": {Type: repositories.KGTermIRI, Value: "urn:task:public"}, "coverage": {Value: "1"}},
+		}},
+	}
+	rsvc := &resourceFilterStub{forbidden: map[string]bool{"urn:task:secret": true}}
+	ranked := newKGSvcWithResource(store, rsvc).(AnyWordLabelSearch)
+
+	got, err := ranked.SearchEntitiesAnyWord(context.Background(), []string{"harbor", "invoice"}, 1, nil, 10)
+	if err != nil {
+		t.Fatalf("SearchEntitiesAnyWord: %v", err)
+	}
+	if len(got) != 1 || got[0].Value != "urn:task:public" {
+		t.Errorf("forbidden subject leaked through any-word search; got %+v", got)
+	}
+}
+
 func TestKGService_SearchEntities_RejectsMaliciousClassIRI(t *testing.T) {
 	t.Parallel()
 	svc := newKGSvc(&queryRecordingStore{active: true})

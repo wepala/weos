@@ -79,6 +79,33 @@ func TestLexicalSearchAccountScope(t *testing.T) {
 	}
 }
 
+// TestLexicalSearchAnyMatch runs the memory_search any-word match mode
+// scenarios (story wm-u1xp4w) on SQLite: stop words are dropped from the
+// query, a resource holding any content word is a hit, hits are ranked by how
+// many content words each holds, minMatch sets a floor, and the type filter
+// and account scope still hold. Filter on demand with:
+// GODOG_TAGS=@wip go test ./tests/e2e/ -run TestLexicalSearchAnyMatch -v
+func TestLexicalSearchAnyMatch(t *testing.T) {
+	tags := "~@wip"
+	if override := os.Getenv("GODOG_TAGS"); override != "" {
+		tags = override
+	}
+	suite := godog.TestSuite{
+		Name:                "lexical-search-any-match",
+		ScenarioInitializer: initLexicalSearchScenario,
+		Options: &godog.Options{
+			Format:   "pretty",
+			Paths:    []string{"features/lexical_search_any_match.feature"},
+			Tags:     tags,
+			Strict:   true,
+			TestingT: t,
+		},
+	}
+	if suite.Run() != 0 {
+		t.Fatal("lexical search any-match acceptance scenarios failed")
+	}
+}
+
 // TestPostgresLexicalIndex runs the PostgreSQL full-text index scenarios
 // (story wm-irqzji). It needs a real PostgreSQL server supplied through
 // TEST_POSTGRES_DSN and skips cleanly without one; each scenario gets its own
@@ -200,6 +227,11 @@ func initLexicalSearchScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I call memory_search for "([^"]*)"$`, w.iSearch)
 	sc.Step(`^I call memory_search for "([^"]*)" narrowed to type "([^"]*)"$`, w.iSearchNarrowed)
 	sc.Step(`^I call memory_search for the query:$`, w.iSearchDocString)
+	sc.Step(`^I call memory_search for "([^"]*)" matching any word$`, w.iSearchAny)
+	sc.Step(`^I call memory_search for "([^"]*)" matching any (\d+) words$`, w.iSearchAnyAtLeast)
+	sc.Step(`^I call memory_search for "([^"]*)" matching any word narrowed to type "([^"]*)"$`,
+		w.iSearchAnyNarrowed)
+	sc.Step(`^account "([^"]*)" calls memory_search for "([^"]*)" matching any word$`, w.accountSearchesAny)
 	sc.Step(`^account "([^"]*)" calls memory_search for "([^"]*)"$`, w.accountSearches)
 	sc.Step(`^account "([^"]*)" calls memory_search for "([^"]*)" narrowed to type "([^"]*)"$`,
 		w.accountSearchesNarrowed)
@@ -208,6 +240,7 @@ func initLexicalSearchScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the search returns exactly these resources:$`, w.searchReturnsExactly)
 	sc.Step(`^the search returns these resources in order:$`, w.searchReturnsInOrder)
 	sc.Step(`^the search returns no resources$`, w.searchReturnsNone)
+	sc.Step(`^the search returns the "([^"]*)" resource "([^"]*)"$`, w.searchReturnsResource)
 	sc.Step(`^the search returns no text from the "([^"]*)" resource "([^"]*)"$`, w.searchReturnsNoTextFrom)
 	sc.Step(`^the search reports graph labels as its source$`, w.reportsGraphLabels)
 	sc.Step(`^the search reports the full-text index as its source$`, w.reportsFullText)
@@ -462,49 +495,78 @@ func (w *lexicalWorld) indexRebuilt(ctx context.Context) error {
 
 // --- When ---
 
+// searchOptions are the memory_search arguments beside the query.
+type searchOptions struct {
+	typeSlugs []string
+	match     string
+	minMatch  int
+}
+
 func (w *lexicalWorld) iSearch(ctx context.Context, query string) error {
-	return w.callSearch(ctx, query, nil)
+	return w.callSearch(ctx, query, searchOptions{})
 }
 
 func (w *lexicalWorld) iSearchNarrowed(ctx context.Context, query, typeSlug string) error {
-	return w.callSearch(ctx, query, []string{typeSlug})
+	return w.callSearch(ctx, query, searchOptions{typeSlugs: []string{typeSlug}})
 }
 
 func (w *lexicalWorld) iSearchDocString(ctx context.Context, doc *godog.DocString) error {
-	return w.callSearch(ctx, strings.TrimSpace(doc.Content), nil)
+	return w.callSearch(ctx, strings.TrimSpace(doc.Content), searchOptions{})
+}
+
+func (w *lexicalWorld) iSearchAny(ctx context.Context, query string) error {
+	return w.callSearch(ctx, query, searchOptions{match: "any"})
+}
+
+func (w *lexicalWorld) iSearchAnyAtLeast(ctx context.Context, query string, minMatch int) error {
+	return w.callSearch(ctx, query, searchOptions{match: "any", minMatch: minMatch})
+}
+
+func (w *lexicalWorld) iSearchAnyNarrowed(ctx context.Context, query, typeSlug string) error {
+	return w.callSearch(ctx, query, searchOptions{match: "any", typeSlugs: []string{typeSlug}})
 }
 
 func (w *lexicalWorld) accountSearches(ctx context.Context, account, query string) error {
-	return w.accountSearch(ctx, account, query, nil)
+	return w.accountSearch(ctx, account, query, searchOptions{})
 }
 
 func (w *lexicalWorld) accountSearchesNarrowed(ctx context.Context, account, query, typeSlug string) error {
-	return w.accountSearch(ctx, account, query, []string{typeSlug})
+	return w.accountSearch(ctx, account, query, searchOptions{typeSlugs: []string{typeSlug}})
 }
 
-func (w *lexicalWorld) accountSearch(ctx context.Context, account, query string, typeSlugs []string) error {
+func (w *lexicalWorld) accountSearchesAny(ctx context.Context, account, query string) error {
+	return w.accountSearch(ctx, account, query, searchOptions{match: "any"})
+}
+
+func (w *lexicalWorld) accountSearch(ctx context.Context, account, query string, opts searchOptions) error {
 	sess, err := w.sessionFor(account)
 	if err != nil {
 		return err
 	}
-	return w.callSearchOn(ctx, sess.client, query, typeSlugs)
+	return w.callSearchOn(ctx, sess.client, query, opts)
 }
 
 // callSearch waits for the index subscriber to catch up with every write the
 // scenario made, then calls memory_search the way an LLM client would.
-func (w *lexicalWorld) callSearch(ctx context.Context, query string, typeSlugs []string) error {
-	return w.callSearchOn(ctx, w.client, query, typeSlugs)
+func (w *lexicalWorld) callSearch(ctx context.Context, query string, opts searchOptions) error {
+	return w.callSearchOn(ctx, w.client, query, opts)
 }
 
 func (w *lexicalWorld) callSearchOn(
-	ctx context.Context, client *mcp.ClientSession, query string, typeSlugs []string,
+	ctx context.Context, client *mcp.ClientSession, query string, opts searchOptions,
 ) error {
 	if err := w.waitForIndex(ctx); err != nil {
 		return err
 	}
 	args := map[string]any{"query": query}
-	if len(typeSlugs) > 0 {
-		args["typeSlugs"] = typeSlugs
+	if len(opts.typeSlugs) > 0 {
+		args["typeSlugs"] = opts.typeSlugs
+	}
+	if opts.match != "" {
+		args["match"] = opts.match
+	}
+	if opts.minMatch != 0 {
+		args["minMatch"] = opts.minMatch
 	}
 	raw, err := json.Marshal(args)
 	if err != nil {
@@ -593,6 +655,29 @@ func (w *lexicalWorld) searchReturnsNone() error {
 		return fmt.Errorf("search returned %q, want no resources", got)
 	}
 	return nil
+}
+
+// searchReturnsResource checks that the named resource of the given type is
+// among the hits, wherever it ranks.
+func (w *lexicalWorld) searchReturnsResource(typeSlug, name string) error {
+	out, err := w.result()
+	if err != nil {
+		return err
+	}
+	id, ok := w.ids[name]
+	if !ok {
+		return fmt.Errorf("no resource named %q was seeded", name)
+	}
+	for _, r := range out.Results {
+		if r.ID == id {
+			if r.TypeSlug != typeSlug {
+				return fmt.Errorf("search returned %q as type %q, want %q", name, r.TypeSlug, typeSlug)
+			}
+			return nil
+		}
+	}
+	names, _ := w.resultNames() // the result parsed above, so this cannot fail
+	return fmt.Errorf("search returned %q, want it to include the %q resource %q", names, typeSlug, name)
 }
 
 // searchReturnsNoTextFrom checks the whole memory_search payload, not only
@@ -897,7 +982,7 @@ func (inactiveLexicalIndex) Owner(context.Context, string) (repositories.Lexical
 func (inactiveLexicalIndex) Clear(context.Context) error        { return nil }
 func (inactiveLexicalIndex) Lag(context.Context) (int64, error) { return 0, nil }
 func (inactiveLexicalIndex) Search(
-	context.Context, string, int, *repositories.VisibilityScope, ...string,
+	context.Context, repositories.LexicalQuery, *repositories.VisibilityScope,
 ) ([]repositories.LexicalHit, error) {
 	return nil, nil
 }

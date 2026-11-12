@@ -18,11 +18,13 @@ package gorm
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/lexical"
 	"github.com/wepala/weos/v3/domain/repositories"
 	"github.com/wepala/weos/v3/internal/config"
 
@@ -201,30 +203,140 @@ func (s *sqliteLexicalIndex) Owner(ctx context.Context, id string) (repositories
 }
 
 func (s *sqliteLexicalIndex) Search(
-	ctx context.Context, query string, limit int, scope *repositories.VisibilityScope, typeSlugs ...string,
+	ctx context.Context, q repositories.LexicalQuery, scope *repositories.VisibilityScope,
 ) ([]repositories.LexicalHit, error) {
-	match := fts5Match(query)
+	if q.Match == repositories.MatchAny {
+		return s.searchAny(ctx, q, scope)
+	}
+	match := fts5Match(q.Text)
 	if match == "" {
 		return nil, nil
 	}
+	filter, filterArgs := lexicalFilters(q.TypeSlugs, scope)
 	sqlText := "SELECT id, type_slug, snippet(resource_search, 0, '', '', '…', 12) AS snippet " +
-		"FROM resource_search WHERE resource_search MATCH ?"
-	args := []any{match}
-	if types := lexicalTypeFilter(typeSlugs); len(types) > 0 {
-		sqlText += " AND type_slug IN ?"
-		args = append(args, types)
-	}
-	if predicate, scopeArgs := lexicalScopeFilter(scope); predicate != "" {
-		sqlText += " AND (" + predicate + ")"
-		args = append(args, scopeArgs...)
-	}
-	sqlText += " ORDER BY rank LIMIT ?"
-	args = append(args, limit)
+		"FROM resource_search WHERE resource_search MATCH ?" + filter + " ORDER BY rank LIMIT ?"
+	args := append(append([]any{match}, filterArgs...), q.Limit)
 	var rows []lexicalRow
 	if err := s.db.WithContext(ctx).Raw(sqlText, args...).Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("lexical index: search %q: %w", query, err)
+		return nil, fmt.Errorf("lexical index: search %q: %w", q.Text, err)
 	}
 	return lexicalHits(rows), nil
+}
+
+// sqliteAnyCandidate is one any-mode match before ranking. Its content is
+// read to count coverage and then dropped, so a candidate holds no text.
+type sqliteAnyCandidate struct {
+	id, typeSlug string
+	coverage     int
+	rank         float64
+}
+
+// searchAny is the MatchAny search. FTS5 matches the content words OR-ed,
+// each phrase-quoted as fts5Match quotes a word, with the type filter and the
+// caller's scope in the same WHERE clause. FTS5 has no per-word match count,
+// so coverage is counted in Go over each matched row's content, by the
+// unicode61 rule FTS5 indexed it with (lexical.Coverage). Every matched row is
+// counted before any is cut, so the limit is spent on the best-covering hits:
+// rows are streamed and only their id, type, coverage and bm25 rank kept, and
+// the snippets are built afterwards for the returned page alone.
+func (s *sqliteLexicalIndex) searchAny(
+	ctx context.Context, q repositories.LexicalQuery, scope *repositories.VisibilityScope,
+) ([]repositories.LexicalHit, error) {
+	words := lexical.ContentWords(q.Text)
+	if len(words) == 0 || q.Limit <= 0 {
+		return nil, nil
+	}
+	match := fts5AnyMatch(words)
+	filter, filterArgs := lexicalFilters(q.TypeSlugs, scope)
+	candidates, err := s.anyCandidates(ctx, q.Text, words, lexical.Floor(q.MinMatch, len(words)),
+		"SELECT id, type_slug, content, rank FROM resource_search WHERE resource_search MATCH ?"+filter,
+		append([]any{match}, filterArgs...))
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		a, b := candidates[i], candidates[j]
+		if a.coverage != b.coverage {
+			return a.coverage > b.coverage
+		}
+		if a.rank != b.rank {
+			return a.rank < b.rank // bm25: lower is more relevant
+		}
+		return a.id < b.id
+	})
+	if len(candidates) > q.Limit {
+		candidates = candidates[:q.Limit]
+	}
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+	snippets, err := s.anySnippets(ctx, q.Text, match, candidates)
+	if err != nil {
+		return nil, err
+	}
+	hits := make([]repositories.LexicalHit, 0, len(candidates))
+	for _, c := range candidates {
+		hits = append(hits, repositories.LexicalHit{ID: c.id, TypeSlug: c.typeSlug, Snippet: snippets[c.id]})
+	}
+	return hits, nil
+}
+
+// anyCandidates streams the matched rows and keeps those holding at least
+// floor content words.
+func (s *sqliteLexicalIndex) anyCandidates(
+	ctx context.Context, query string, words []string, floor int, sqlText string, args []any,
+) ([]sqliteAnyCandidate, error) {
+	rows, err := s.db.WithContext(ctx).Raw(sqlText, args...).Rows()
+	if err != nil {
+		return nil, fmt.Errorf("lexical index: search %q: %w", query, err)
+	}
+	defer func() {
+		// The rows were read to the end or the read failed and is reported
+		// below; a close error adds nothing a caller can act on.
+		_ = rows.Close()
+	}()
+	coverage := lexical.NewCoverage(words)
+	var out []sqliteAnyCandidate
+	for rows.Next() {
+		var c sqliteAnyCandidate
+		var content string
+		if err := rows.Scan(&c.id, &c.typeSlug, &content, &c.rank); err != nil {
+			return nil, fmt.Errorf("lexical index: search %q: read row: %w", query, err)
+		}
+		// FTS5 matched the row, so it holds at least one content word even
+		// where Go's reading of a rare character differs from unicode61's.
+		c.coverage = max(coverage.Count(content), 1)
+		if c.coverage < floor {
+			continue
+		}
+		out = append(out, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("lexical index: search %q: %w", query, err)
+	}
+	return out, nil
+}
+
+// anySnippets builds the snippet of each returned hit, by id.
+func (s *sqliteLexicalIndex) anySnippets(
+	ctx context.Context, query, match string, page []sqliteAnyCandidate,
+) (map[string]string, error) {
+	ids := make([]string, 0, len(page))
+	for _, c := range page {
+		ids = append(ids, c.id)
+	}
+	var rows []lexicalRow
+	if err := s.db.WithContext(ctx).Raw(
+		"SELECT id, snippet(resource_search, 0, '', '', '…', 12) AS snippet "+
+			"FROM resource_search WHERE resource_search MATCH ? AND id IN ?", match, ids,
+	).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("lexical index: search %q: snippets: %w", query, err)
+	}
+	snippets := make(map[string]string, len(rows))
+	for _, r := range rows {
+		snippets[r.ID] = r.Snippet
+	}
+	return snippets, nil
 }
 
 func (s *sqliteLexicalIndex) Clear(ctx context.Context) error {
@@ -299,6 +411,20 @@ func fts5Match(query string) string {
 	return strings.Join(tokens, " ")
 }
 
+// fts5AnyMatch is the MatchAny MATCH expression: the content words, each
+// phrase-quoted as fts5Match quotes a word, joined with OR. A content word
+// holds only letters, digits and a joining '-', '.' or '@' (see
+// lexical.ContentWords), never a quote, so no word can close its phrase and
+// FTS5 reads a joined word such as "follow-up" as the phrase its tokenizer
+// makes of it.
+func fts5AnyMatch(words []string) string {
+	quoted := make([]string, 0, len(words))
+	for _, w := range words {
+		quoted = append(quoted, `"`+strings.ReplaceAll(w, `"`, "")+`"`)
+	}
+	return strings.Join(quoted, " OR ")
+}
+
 // lexicalContentBudget is the most bytes of a resource's text either engine
 // indexes. PostgreSQL refuses a tsvector over 1 MB (SQLSTATE 54000), and the
 // vector of text whose words are all distinct is up to three times the size of
@@ -347,6 +473,23 @@ func lexicalTypeFilter(typeSlugs []string) []string {
 	return types
 }
 
+// lexicalFilters is the type filter and the caller's scope as conditions to
+// append to a search's WHERE clause, on either engine, with their arguments.
+// Both narrow the match itself, so they hold before ORDER BY ... LIMIT.
+func lexicalFilters(typeSlugs []string, scope *repositories.VisibilityScope) (string, []any) {
+	var sqlText string
+	var args []any
+	if types := lexicalTypeFilter(typeSlugs); len(types) > 0 {
+		sqlText += " AND type_slug IN ?"
+		args = append(args, types)
+	}
+	if predicate, scopeArgs := lexicalScopeFilter(scope); predicate != "" {
+		sqlText += " AND (" + predicate + ")"
+		args = append(args, scopeArgs...)
+	}
+	return sqlText, args
+}
+
 // lexicalScopeFilter is the caller's visibility scope as a predicate for the
 // search query, or "" for a nil or admin scope (a system caller sees every
 // resource). It is the FindAccessibleIDs rule (accessiblePredicate) applied in
@@ -373,7 +516,7 @@ func (nopLexicalIndex) Owner(context.Context, string) (repositories.LexicalOwner
 	return repositories.LexicalOwner{}, false, nil
 }
 func (nopLexicalIndex) Search(
-	context.Context, string, int, *repositories.VisibilityScope, ...string,
+	context.Context, repositories.LexicalQuery, *repositories.VisibilityScope,
 ) ([]repositories.LexicalHit, error) {
 	return nil, nil
 }

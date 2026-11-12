@@ -52,7 +52,7 @@ func TestLexicalSearch_FTS5First(t *testing.T) {
 	index.hits = []repositories.LexicalHit{{ID: "urn:fact:1", TypeSlug: "fact", Snippet: "…akeem…"}}
 	s := NewLexicalSearch(index, &fakeKGLabelSearch{active: true})
 
-	hits, mode, err := s.Search(context.Background(), "akeem", 0)
+	hits, mode, err := s.Search(context.Background(), repositories.LexicalQuery{Text: "akeem", Limit: 0})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestLexicalSearch_DegradesToGraphLabels(t *testing.T) {
 	kg := &fakeKGLabelSearch{active: true, terms: []repositories.KGTerm{{Value: "urn:person:akeem"}}}
 	s := NewLexicalSearch(newFakeLexicalIndex(false), kg)
 
-	hits, mode, err := s.Search(context.Background(), "akeem", 5)
+	hits, mode, err := s.Search(context.Background(), repositories.LexicalQuery{Text: "akeem", Limit: 5})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestLexicalSearch_FallbackDropsSupersededFacts(t *testing.T) {
 	}
 	s := NewLexicalSearch(newFakeLexicalIndex(false), kg)
 
-	hits, mode, err := s.Search(context.Background(), "akeem", 10)
+	hits, mode, err := s.Search(context.Background(), repositories.LexicalQuery{Text: "akeem", Limit: 10})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestLexicalSearch_UnavailableWhenNoBackend(t *testing.T) {
 	t.Parallel()
 
 	s := NewLexicalSearch(newFakeLexicalIndex(false), nil)
-	_, _, err := s.Search(context.Background(), "akeem", 5)
+	_, _, err := s.Search(context.Background(), repositories.LexicalQuery{Text: "akeem", Limit: 5})
 	if !errors.Is(err, ErrLexicalUnavailable) {
 		t.Fatalf("err = %v, want ErrLexicalUnavailable", err)
 	}
@@ -136,7 +136,7 @@ func TestLexicalSearch_ReportsTheIndexEngineAsMode(t *testing.T) {
 	index.engine = repositories.LexicalEnginePostgres
 	s := NewLexicalSearch(index, nil)
 
-	_, mode, err := s.Search(context.Background(), "akeem", 5)
+	_, mode, err := s.Search(context.Background(), repositories.LexicalQuery{Text: "akeem", Limit: 5})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestLexicalSearch_PassesTheTypeFilterToTheIndex(t *testing.T) {
 	index := newFakeLexicalIndex(true)
 	s := NewLexicalSearch(index, nil)
 
-	if _, _, err := s.Search(context.Background(), "invoice", 5, "task", " "); err != nil {
+	if _, _, err := s.Search(context.Background(), repositories.LexicalQuery{Text: "invoice", Limit: 5, TypeSlugs: []string{"task", " "}}); err != nil {
 		t.Fatalf("Search: %v", err)
 	}
 	if len(index.searchTypes) != 1 || len(index.searchTypes[0]) != 1 || index.searchTypes[0][0] != "task" {
@@ -173,7 +173,7 @@ func TestLexicalSearch_FallbackNarrowsToTheType(t *testing.T) {
 	kg := &fakeKGLabelSearch{active: true, terms: terms}
 	s := NewLexicalSearch(newFakeLexicalIndex(false), kg)
 
-	hits, mode, err := s.Search(context.Background(), "invoice", 5, "task")
+	hits, mode, err := s.Search(context.Background(), repositories.LexicalQuery{Text: "invoice", Limit: 5, TypeSlugs: []string{"task"}})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestLexicalSearch_FallbackFindsATypePastTheGraphMaximum(t *testing.T) {
 	kg := &rankedLabelGraph{terms: terms}
 	s := NewLexicalSearch(newFakeLexicalIndex(false), kg)
 
-	hits, mode, err := s.Search(context.Background(), "invoice", 5, "task")
+	hits, mode, err := s.Search(context.Background(), repositories.LexicalQuery{Text: "invoice", Limit: 5, TypeSlugs: []string{"task"}})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestLexicalSearch_FallbackKeepsTheLimitUnnarrowed(t *testing.T) {
 
 	kg := &fakeKGLabelSearch{active: true}
 	s := NewLexicalSearch(newFakeLexicalIndex(false), kg)
-	if _, _, err := s.Search(context.Background(), "invoice", 7); err != nil {
+	if _, _, err := s.Search(context.Background(), repositories.LexicalQuery{Text: "invoice", Limit: 7}); err != nil {
 		t.Fatalf("Search: %v", err)
 	}
 	if kg.lastLimit != 7 {
@@ -273,7 +273,7 @@ func TestLexicalSearch_NormalizesTheTypeFilter(t *testing.T) {
 
 	index := newFakeLexicalIndex(true)
 	s := NewLexicalSearch(index, nil)
-	if _, _, err := s.Search(context.Background(), "invoice", 5, "Task ", " NOTE"); err != nil {
+	if _, _, err := s.Search(context.Background(), repositories.LexicalQuery{Text: "invoice", Limit: 5, TypeSlugs: []string{"Task ", " NOTE"}}); err != nil {
 		t.Fatalf("Search: %v", err)
 	}
 	if len(index.searchTypes) != 1 || strings.Join(index.searchTypes[0], ",") != "task,note" {
@@ -284,7 +284,7 @@ func TestLexicalSearch_NormalizesTheTypeFilter(t *testing.T) {
 		{Value: "urn:project:p1"}, {Value: "urn:task:t1"},
 	}}
 	fallback := NewLexicalSearch(newFakeLexicalIndex(false), kg)
-	hits, _, err := fallback.Search(context.Background(), "invoice", 5, " Task")
+	hits, _, err := fallback.Search(context.Background(), repositories.LexicalQuery{Text: "invoice", Limit: 5, TypeSlugs: []string{" Task"}})
 	if err != nil {
 		t.Fatalf("fallback Search: %v", err)
 	}
@@ -305,10 +305,10 @@ func TestLexicalSearch_PassesTheCallersScopeToTheIndex(t *testing.T) {
 	caller := auth.ContextWithAgent(context.Background(), &auth.Identity{
 		AgentID: "agent-cedar", AccountIDs: []string{"cedar"}, ActiveAccountID: "cedar",
 	})
-	if _, _, err := s.Search(caller, "Dunmore", 5); err != nil {
+	if _, _, err := s.Search(caller, repositories.LexicalQuery{Text: "Dunmore", Limit: 5}); err != nil {
 		t.Fatalf("scoped Search: %v", err)
 	}
-	if _, _, err := s.Search(context.Background(), "Dunmore", 5); err != nil {
+	if _, _, err := s.Search(context.Background(), repositories.LexicalQuery{Text: "Dunmore", Limit: 5}); err != nil {
 		t.Fatalf("system Search: %v", err)
 	}
 	if len(index.scopes) != 2 {
@@ -332,7 +332,7 @@ func TestSearchWithRebuildNotice_SaysWhenTheIndexIsBehind(t *testing.T) {
 	index := newFakeLexicalIndex(true)
 	index.lag = 120
 	s := NewLexicalSearch(index, nil)
-	_, mode, notice, err := SearchWithRebuildNotice(context.Background(), s, "akeem", 5)
+	_, mode, notice, err := SearchWithRebuildNotice(context.Background(), s, repositories.LexicalQuery{Text: "akeem", Limit: 5})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -348,7 +348,7 @@ func TestSearchWithRebuildNotice_SaysWhenTheIndexIsBehind(t *testing.T) {
 func TestSearchWithRebuildNotice_NoneWhenCaughtUp(t *testing.T) {
 	t.Parallel()
 	s := NewLexicalSearch(newFakeLexicalIndex(true), nil)
-	_, _, notice, err := SearchWithRebuildNotice(context.Background(), s, "akeem", 5)
+	_, _, notice, err := SearchWithRebuildNotice(context.Background(), s, repositories.LexicalQuery{Text: "akeem", Limit: 5})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -364,7 +364,7 @@ func TestSearchWithRebuildNotice_NoneOnGraphLabels(t *testing.T) {
 	index := newFakeLexicalIndex(false)
 	index.lag = 120
 	s := NewLexicalSearch(index, &fakeKGLabelSearch{active: true})
-	_, mode, notice, err := SearchWithRebuildNotice(context.Background(), s, "akeem", 5)
+	_, mode, notice, err := SearchWithRebuildNotice(context.Background(), s, repositories.LexicalQuery{Text: "akeem", Limit: 5})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -380,7 +380,7 @@ func TestSearchWithRebuildNotice_SaysWhenProgressCannotBeRead(t *testing.T) {
 	index := newFakeLexicalIndex(true)
 	index.lagErr = errors.New("no checkpoint table")
 	s := NewLexicalSearch(index, nil)
-	_, _, notice, err := SearchWithRebuildNotice(context.Background(), s, "akeem", 5)
+	_, _, notice, err := SearchWithRebuildNotice(context.Background(), s, repositories.LexicalQuery{Text: "akeem", Limit: 5})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -397,7 +397,7 @@ func TestSearchWithRebuildNotice_SaysWhenProgressCannotBeRead(t *testing.T) {
 func TestSearchWithRebuildNotice_NoneWithoutProgress(t *testing.T) {
 	t.Parallel()
 	var s LexicalSearch = searchWithoutProgress{}
-	_, _, notice, err := SearchWithRebuildNotice(context.Background(), s, "akeem", 5)
+	_, _, notice, err := SearchWithRebuildNotice(context.Background(), s, repositories.LexicalQuery{Text: "akeem", Limit: 5})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -415,7 +415,7 @@ type movingIndexSearch struct {
 }
 
 func (m *movingIndexSearch) Search(
-	context.Context, string, int, ...string,
+	context.Context, repositories.LexicalQuery,
 ) ([]repositories.LexicalHit, string, error) {
 	m.searched = true
 	return nil, LexicalModeFTS5, nil
@@ -434,7 +434,7 @@ func (m *movingIndexSearch) IndexLag(context.Context) (int64, error) {
 func TestSearchWithRebuildNotice_CatchUpDuringTheSearchKeepsTheNotice(t *testing.T) {
 	t.Parallel()
 	s := &movingIndexSearch{lagBefore: 30, lagAfter: 0}
-	hits, _, notice, err := SearchWithRebuildNotice(context.Background(), s, "akeem", 5)
+	hits, _, notice, err := SearchWithRebuildNotice(context.Background(), s, repositories.LexicalQuery{Text: "akeem", Limit: 5})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -448,7 +448,7 @@ func TestSearchWithRebuildNotice_CatchUpDuringTheSearchKeepsTheNotice(t *testing
 func TestSearchWithRebuildNotice_ClearDuringTheSearchGivesTheNotice(t *testing.T) {
 	t.Parallel()
 	s := &movingIndexSearch{lagBefore: 0, lagAfter: 500}
-	_, _, notice, err := SearchWithRebuildNotice(context.Background(), s, "akeem", 5)
+	_, _, notice, err := SearchWithRebuildNotice(context.Background(), s, repositories.LexicalQuery{Text: "akeem", Limit: 5})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -460,7 +460,7 @@ func TestSearchWithRebuildNotice_ClearDuringTheSearchGivesTheNotice(t *testing.T
 type searchWithoutProgress struct{}
 
 func (searchWithoutProgress) Search(
-	context.Context, string, int, ...string,
+	context.Context, repositories.LexicalQuery,
 ) ([]repositories.LexicalHit, string, error) {
 	return nil, LexicalModeFTS5, nil
 }
