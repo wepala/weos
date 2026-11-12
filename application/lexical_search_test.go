@@ -327,50 +327,63 @@ func TestLexicalSearch_PassesTheCallersScopeToTheIndex(t *testing.T) {
 
 // While the full-text index is behind the event history the answer carries a
 // notice saying it may be partial, next to the mode.
-func TestLexicalRebuildNotice_SaysWhenTheIndexIsBehind(t *testing.T) {
+func TestSearchWithRebuildNotice_SaysWhenTheIndexIsBehind(t *testing.T) {
 	t.Parallel()
 	index := newFakeLexicalIndex(true)
 	index.lag = 120
 	s := NewLexicalSearch(index, nil)
-	_, mode, err := s.Search(context.Background(), "akeem", 5)
+	_, mode, notice, err := SearchWithRebuildNotice(context.Background(), s, "akeem", 5)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
-	notice := LexicalRebuildNotice(context.Background(), s, mode)
+	if mode != LexicalModeFTS5 {
+		t.Errorf("mode = %q, want fts5", mode)
+	}
 	if !strings.Contains(notice, "rebuilding") || !strings.Contains(notice, "120 events behind") ||
 		!strings.Contains(notice, "incomplete") {
 		t.Errorf("notice = %q, want it to say the index is rebuilding, 120 events behind, answer incomplete", notice)
 	}
 }
 
-func TestLexicalRebuildNotice_NoneWhenCaughtUp(t *testing.T) {
+func TestSearchWithRebuildNotice_NoneWhenCaughtUp(t *testing.T) {
 	t.Parallel()
 	s := NewLexicalSearch(newFakeLexicalIndex(true), nil)
-	if notice := LexicalRebuildNotice(context.Background(), s, LexicalModeFTS5); notice != "" {
+	_, _, notice, err := SearchWithRebuildNotice(context.Background(), s, "akeem", 5)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if notice != "" {
 		t.Errorf("notice = %q for a caught-up index, want none", notice)
 	}
 }
 
 // The degraded path reads the graph, not the index, so the index's lag says
 // nothing about its answer.
-func TestLexicalRebuildNotice_NoneOnGraphLabels(t *testing.T) {
+func TestSearchWithRebuildNotice_NoneOnGraphLabels(t *testing.T) {
 	t.Parallel()
 	index := newFakeLexicalIndex(false)
 	index.lag = 120
 	s := NewLexicalSearch(index, &fakeKGLabelSearch{active: true})
-	if notice := LexicalRebuildNotice(context.Background(), s, LexicalModeGraphLabels); notice != "" {
-		t.Errorf("notice = %q on graph-labels, want none", notice)
+	_, mode, notice, err := SearchWithRebuildNotice(context.Background(), s, "akeem", 5)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if mode != LexicalModeGraphLabels || notice != "" {
+		t.Errorf("mode = %q, notice = %q; want graph-labels and no notice", mode, notice)
 	}
 }
 
 // A lag that cannot be read is not reported as "complete": the notice says
 // the answer may be partial.
-func TestLexicalRebuildNotice_SaysWhenProgressCannotBeRead(t *testing.T) {
+func TestSearchWithRebuildNotice_SaysWhenProgressCannotBeRead(t *testing.T) {
 	t.Parallel()
 	index := newFakeLexicalIndex(true)
 	index.lagErr = errors.New("no checkpoint table")
 	s := NewLexicalSearch(index, nil)
-	notice := LexicalRebuildNotice(context.Background(), s, LexicalModeFTS5)
+	_, _, notice, err := SearchWithRebuildNotice(context.Background(), s, "akeem", 5)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
 	if !strings.Contains(notice, "may be incomplete") {
 		t.Errorf("notice = %q, want it to say the answer may be incomplete", notice)
 	}
@@ -381,11 +394,66 @@ func TestLexicalRebuildNotice_SaysWhenProgressCannotBeRead(t *testing.T) {
 
 // A LexicalSearch that cannot report progress (one written outside core)
 // gives no notice rather than a guess.
-func TestLexicalRebuildNotice_NoneWithoutProgress(t *testing.T) {
+func TestSearchWithRebuildNotice_NoneWithoutProgress(t *testing.T) {
 	t.Parallel()
 	var s LexicalSearch = searchWithoutProgress{}
-	if notice := LexicalRebuildNotice(context.Background(), s, LexicalModeFTS5); notice != "" {
+	_, _, notice, err := SearchWithRebuildNotice(context.Background(), s, "akeem", 5)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if notice != "" {
 		t.Errorf("notice = %q, want none", notice)
+	}
+}
+
+// movingIndexSearch answers from the full-text index, and moves the index's
+// progress while the search runs: the lag reads lagBefore until Search is
+// called and lagAfter from then on.
+type movingIndexSearch struct {
+	lagBefore, lagAfter int64
+	searched            bool
+}
+
+func (m *movingIndexSearch) Search(
+	context.Context, string, int, ...string,
+) ([]repositories.LexicalHit, string, error) {
+	m.searched = true
+	return nil, LexicalModeFTS5, nil
+}
+
+func (m *movingIndexSearch) IndexLag(context.Context) (int64, error) {
+	if m.searched {
+		return m.lagAfter, nil
+	}
+	return m.lagBefore, nil
+}
+
+// The subscriber commits its final batch between the search and a progress
+// read after it. The answer was read from a part-filled index, so it still
+// carries the notice (Copilot review 5869602749).
+func TestSearchWithRebuildNotice_CatchUpDuringTheSearchKeepsTheNotice(t *testing.T) {
+	t.Parallel()
+	s := &movingIndexSearch{lagBefore: 30, lagAfter: 0}
+	hits, _, notice, err := SearchWithRebuildNotice(context.Background(), s, "akeem", 5)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(hits) != 0 || !strings.Contains(notice, "30 events behind") {
+		t.Errorf("notice = %q for an empty answer read while 30 events behind, want the rebuilding notice", notice)
+	}
+}
+
+// The index is cleared for a rebuild while the search runs, so the search
+// read a part-filled index although the index had caught up before it.
+func TestSearchWithRebuildNotice_ClearDuringTheSearchGivesTheNotice(t *testing.T) {
+	t.Parallel()
+	s := &movingIndexSearch{lagBefore: 0, lagAfter: 500}
+	_, _, notice, err := SearchWithRebuildNotice(context.Background(), s, "akeem", 5)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if !strings.Contains(notice, "500 events behind") {
+		t.Errorf("notice = %q, want the rebuilding notice for an index cleared during the search", notice)
 	}
 }
 

@@ -66,29 +66,52 @@ type LexicalIndexProgress interface {
 	IndexLag(ctx context.Context) (int64, error)
 }
 
-// LexicalRebuildNotice is the notice memory_search puts beside its mode when
-// the full-text index has not caught up with the event history, so a caller
-// can tell a partial answer from a full one (wm-4db1v2). That is the case
-// while the index refills after an upgrade or a rebuild, and for a moment
-// after any write. It is "" when the index has caught up, when the answer did
-// not come from the full-text index (graph-labels reads the graph), and when
-// search cannot report progress.
-func LexicalRebuildNotice(ctx context.Context, search LexicalSearch, mode string) string {
-	if !IsFullTextMode(mode) {
-		return ""
+// SearchWithRebuildNotice runs search and returns, beside its answer, the
+// notice memory_search puts next to the mode when the full-text index has not
+// caught up with the event history, so a caller can tell a partial answer from
+// a full one (wm-4db1v2). That is the case while the index refills after an
+// upgrade or a rebuild, and for a moment after any write. The notice is ""
+// when the index had caught up, when the answer did not come from the
+// full-text index (graph-labels reads the graph), and when search cannot
+// report progress.
+//
+// Progress is read on both sides of the search, and the notice reports the
+// larger lag. Read after the search alone, a subscriber that committed its
+// final batch between the two reads would make a partial answer look complete;
+// read before it alone, an index cleared for a rebuild during the search
+// would. The checkpoint only moves forward between a clear and the next, so a
+// lag of 0 on both sides means the search saw every event up to the first
+// read (Copilot review 5869602749).
+func SearchWithRebuildNotice(
+	ctx context.Context, search LexicalSearch, query string, limit int, typeSlugs ...string,
+) ([]repositories.LexicalHit, string, string, error) {
+	progress, reportsProgress := search.(LexicalIndexProgress)
+	var lagBefore int64
+	var errBefore error
+	if reportsProgress {
+		lagBefore, errBefore = progress.IndexLag(ctx)
 	}
-	progress, ok := search.(LexicalIndexProgress)
-	if !ok {
-		return ""
-	}
-	lag, err := progress.IndexLag(ctx)
+	hits, mode, err := search.Search(ctx, query, limit, typeSlugs...)
 	if err != nil {
+		return nil, mode, "", err
+	}
+	if !reportsProgress || !IsFullTextMode(mode) {
+		return hits, mode, "", nil
+	}
+	lagAfter, errAfter := progress.IndexLag(ctx)
+	if errBefore != nil || errAfter != nil {
 		// The notice is how the failure surfaces: the caller is told the
 		// answer may be partial. The database error itself is not quoted to
 		// an MCP client.
-		return "the full-text index could not report whether it has caught up with the event history, " +
-			"so this answer may be incomplete"
+		return hits, mode, "the full-text index could not report whether it has caught up with the " +
+			"event history, so this answer may be incomplete", nil
 	}
+	return hits, mode, lexicalRebuildNotice(max(lagBefore, lagAfter)), nil
+}
+
+// lexicalRebuildNotice is the notice for an index lag behind the event
+// history, or "" when the index has caught up.
+func lexicalRebuildNotice(lag int64) string {
 	if lag <= 0 {
 		return ""
 	}

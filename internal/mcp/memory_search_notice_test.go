@@ -68,3 +68,31 @@ func TestMemorySearch_NoNoticeWhenTheIndexHasCaughtUp(t *testing.T) {
 		t.Errorf("notice present for a caught-up index: %v", out["notice"])
 	}
 }
+
+// catchingUpSearch is an index that is 17 events behind until the search
+// runs and caught up after it: the subscriber committed its final batch while
+// the search read a part-filled index.
+type catchingUpSearch struct{ searched bool }
+
+func (c *catchingUpSearch) Search(context.Context, string, int, ...string) ([]repositories.LexicalHit, string, error) {
+	c.searched = true
+	return nil, application.LexicalModeFTS5, nil
+}
+
+func (c *catchingUpSearch) IndexLag(context.Context) (int64, error) {
+	if c.searched {
+		return 0, nil
+	}
+	return 17, nil
+}
+
+// An empty answer read while the index was behind keeps its notice, even
+// when the index catches up before memory_search reads its progress again
+// (Copilot review 5869602749).
+func TestMemorySearch_KeepsTheNoticeWhenTheIndexCatchesUpDuringTheSearch(t *testing.T) {
+	out := callMemorySearch(t, &catchingUpSearch{})
+	notice, _ := out["notice"].(string)
+	if !strings.Contains(notice, "17 events behind") {
+		t.Errorf("notice = %q, want the rebuilding notice for an answer read 17 events behind", notice)
+	}
+}

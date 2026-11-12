@@ -132,13 +132,13 @@ func registerMemorySearchTool(server *mcp.Server, search application.LexicalSear
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, in MemorySearchInput,
 	) (*mcp.CallToolResult, MemorySearchOutput, error) {
-		hits, mode, err := search.Search(ctx, in.Query, in.Limit, in.TypeSlugs...)
+		hits, mode, notice, err := application.SearchWithRebuildNotice(ctx, search, in.Query, in.Limit, in.TypeSlugs...)
 		if err != nil {
 			return nil, MemorySearchOutput{}, err
 		}
 		out := MemorySearchOutput{
 			Mode:    mode,
-			Notice:  application.LexicalRebuildNotice(ctx, search, mode),
+			Notice:  notice,
 			Results: make([]MemorySearchHit, 0, len(hits)),
 		}
 		for _, h := range hits {
