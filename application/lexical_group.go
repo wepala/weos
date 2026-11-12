@@ -18,6 +18,7 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -51,7 +52,7 @@ func ProvideLexicalGroup(p LexicalGroupParams) []SubscriberGroup {
 		return nil
 	}
 	return []SubscriberGroup{{
-		Name:     "lexical-index",
+		Name:     repositories.LexicalIndexSubscriber,
 		Handler:  lexicalHandler(p.EventStore, p.Index, p.Logger),
 		Truncate: p.Index.Clear,
 	}}
@@ -97,11 +98,39 @@ func lexicalHandler(
 			if content == "" {
 				return index.Remove(ctx, event.AggregateID)
 			}
-			return index.Index(ctx, event.AggregateID, typeSlug, content)
+			owner, err := lexicalOwner(ctx, eventStore, event, state)
+			if err != nil {
+				return err
+			}
+			return index.Index(ctx, event.AggregateID, typeSlug, content, owner)
 		default:
 			return nil
 		}
 	}
+}
+
+// lexicalOwner reads who owns the published resource from its events — never
+// from ctx, which during a rebuild belongs to no caller at all. A create
+// carries the owner in its own transaction; an update does not, so the owner
+// is read from the aggregate's Resource.Created. A failed history load is
+// returned so the subscriber retries the event rather than indexing the
+// resource as ownerless, which would show it to every caller.
+func lexicalOwner(
+	ctx context.Context, eventStore domain.EventStore,
+	event domain.EventEnvelope[any], state txResourceState,
+) (repositories.LexicalOwner, error) {
+	owner := repositories.LexicalOwner{CreatedBy: state.CreatedBy, AccountID: state.AccountID}
+	if !state.IsCreate {
+		account, createdBy, err := resourceOwnerFromHistory(ctx, eventStore, event.AggregateID)
+		if err != nil {
+			return owner, fmt.Errorf("lexical index: owner of %s: %w", event.AggregateID, err)
+		}
+		owner = repositories.LexicalOwner{CreatedBy: createdBy, AccountID: account}
+	}
+	if owner.AccountID == "" {
+		owner.AccountID = accountFromPayload(event.Payload)
+	}
+	return owner, nil
 }
 
 // lexicalContent flattens a resource's entity node into one searchable string:

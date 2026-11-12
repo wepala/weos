@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/wepala/weos/v3/domain/entities"
@@ -35,10 +36,15 @@ import (
 // unconditionally — no build tag — so on SQLite the virtual table is always
 // available. A creation failure on either engine degrades memory_search to
 // graph label search rather than failing startup.
+//
+// An index table written before the owner columns existed (wm-yna4s3) is
+// dropped and recreated, and the lexical-index checkpoint is reset to 0 in the
+// same transaction, so the subscriber refills the new table from history with
+// every row's owner. See ensureLexicalOwnerColumns.
 func ProvideLexicalIndex(db *gorm.DB, cfg config.Config, logger entities.Logger) repositories.LexicalIndex {
 	ctx := context.Background()
 	if cfg.IsPostgres() {
-		idx, err := newPostgresLexicalIndex(ctx, db)
+		idx, recreated, err := newPostgresLexicalIndex(ctx, db)
 		if err != nil {
 			logger.Error(ctx, "postgres lexical index creation failed; the database user needs the "+
 				"CREATE privilege on the schema to create the resource_search table (PostgreSQL 15+ "+
@@ -47,17 +53,82 @@ func ProvideLexicalIndex(db *gorm.DB, cfg config.Config, logger entities.Logger)
 				"the process restarts", "error", err)
 			return nopLexicalIndex{}
 		}
+		logLexicalRecreate(ctx, logger, recreated)
 		return idx
 	}
-	err := db.Exec(
-		"CREATE VIRTUAL TABLE IF NOT EXISTS resource_search USING fts5(content, id UNINDEXED, type_slug UNINDEXED)",
-	).Error
+	recreated, err := createSQLiteLexicalIndex(ctx, db)
 	if err != nil {
 		logger.Info(ctx, "sqlite FTS5 virtual table creation failed; "+
 			"lexical index disabled, memory_search falls back to graph label search", "error", err)
 		return nopLexicalIndex{}
 	}
+	logLexicalRecreate(ctx, logger, recreated)
 	return &sqliteLexicalIndex{db: db}
+}
+
+// sqliteLexicalSchema is the FTS5 table. Only content is tokenized; the owner
+// columns are stored for the scope filter and never matched as text.
+const sqliteLexicalSchema = "CREATE VIRTUAL TABLE IF NOT EXISTS resource_search USING fts5(" +
+	"content, id UNINDEXED, type_slug UNINDEXED, created_by UNINDEXED, account_id UNINDEXED)"
+
+// createSQLiteLexicalIndex creates the FTS5 table, first replacing a table of
+// the old shape. FTS5 has no ALTER TABLE ADD COLUMN, so the old table is
+// dropped. It reports whether it replaced one.
+func createSQLiteLexicalIndex(ctx context.Context, db *gorm.DB) (bool, error) {
+	recreated := false
+	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var tables int64
+		if err := tx.Raw("SELECT COUNT(*) FROM sqlite_master WHERE name = 'resource_search'").
+			Scan(&tables).Error; err != nil {
+			return fmt.Errorf("look up lexical table: %w", err)
+		}
+		if tables > 0 {
+			var owner int64
+			if err := tx.Raw("SELECT COUNT(*) FROM pragma_table_info('resource_search') " +
+				"WHERE name = 'created_by'").Scan(&owner).Error; err != nil {
+				return fmt.Errorf("read lexical table columns: %w", err)
+			}
+			if owner == 0 {
+				if err := tx.Exec("DROP TABLE resource_search").Error; err != nil {
+					return fmt.Errorf("drop lexical table without owner columns: %w", err)
+				}
+				if err := resetLexicalCheckpoint(tx); err != nil {
+					return err
+				}
+				recreated = true
+			}
+		}
+		return tx.Exec(sqliteLexicalSchema).Error
+	})
+	return recreated, err
+}
+
+// resetLexicalCheckpoint moves the lexical-index subscriber back to event 0,
+// in the caller's transaction, so the index it just recreated empty is
+// refilled from the whole history — the same effect as
+// `weos worker checkpoint reset lexical-index`. A database whose checkpoint
+// table or row does not exist yet needs nothing: a subscriber with no row
+// starts at 0.
+func resetLexicalCheckpoint(tx *gorm.DB) error {
+	if !tx.Migrator().HasTable(&subscriptions.GormCheckpointModel{}) {
+		return nil
+	}
+	err := tx.Model(&subscriptions.GormCheckpointModel{}).
+		Where("subscriber = ?", repositories.LexicalIndexSubscriber).
+		Updates(map[string]any{"position": 0, "updated_at": time.Now()}).Error
+	if err != nil {
+		return fmt.Errorf("reset %s checkpoint: %w", repositories.LexicalIndexSubscriber, err)
+	}
+	return nil
+}
+
+func logLexicalRecreate(ctx context.Context, logger entities.Logger, recreated bool) {
+	if !recreated {
+		return
+	}
+	logger.Info(ctx, "lexical index table had no owner columns; recreated it empty and reset the "+
+		repositories.LexicalIndexSubscriber+" checkpoint to 0. The index refills from the event "+
+		"history, and memory_search answers from the part already refilled until it catches up")
 }
 
 type sqliteLexicalIndex struct {
@@ -85,7 +156,9 @@ func (s *sqliteLexicalIndex) writer(ctx context.Context) *gorm.DB {
 	return lexicalWriter(ctx, s.db)
 }
 
-func (s *sqliteLexicalIndex) Index(ctx context.Context, id, typeSlug, content string) error {
+func (s *sqliteLexicalIndex) Index(
+	ctx context.Context, id, typeSlug, content string, owner repositories.LexicalOwner,
+) error {
 	// Transaction nests as a savepoint when the writer is the batch
 	// transaction, keeping the delete+insert pair atomic either way.
 	return s.writer(ctx).Transaction(func(tx *gorm.DB) error {
@@ -93,8 +166,8 @@ func (s *sqliteLexicalIndex) Index(ctx context.Context, id, typeSlug, content st
 			return fmt.Errorf("lexical index: clear %s: %w", id, err)
 		}
 		if err := tx.Exec(
-			"INSERT INTO resource_search(content, id, type_slug) VALUES (?, ?, ?)",
-			capLexicalContent(content), id, typeSlug,
+			"INSERT INTO resource_search(content, id, type_slug, created_by, account_id) VALUES (?, ?, ?, ?, ?)",
+			capLexicalContent(content), id, typeSlug, owner.CreatedBy, owner.AccountID,
 		).Error; err != nil {
 			return fmt.Errorf("lexical index: insert %s: %w", id, err)
 		}
@@ -110,7 +183,7 @@ func (s *sqliteLexicalIndex) Remove(ctx context.Context, id string) error {
 }
 
 func (s *sqliteLexicalIndex) Search(
-	ctx context.Context, query string, limit int, typeSlugs ...string,
+	ctx context.Context, query string, limit int, scope *repositories.VisibilityScope, typeSlugs ...string,
 ) ([]repositories.LexicalHit, error) {
 	match := fts5Match(query)
 	if match == "" {
@@ -122,6 +195,10 @@ func (s *sqliteLexicalIndex) Search(
 	if types := lexicalTypeFilter(typeSlugs); len(types) > 0 {
 		sqlText += " AND type_slug IN ?"
 		args = append(args, types)
+	}
+	if predicate, scopeArgs := lexicalScopeFilter(scope); predicate != "" {
+		sqlText += " AND (" + predicate + ")"
+		args = append(args, scopeArgs...)
 	}
 	sqlText += " ORDER BY rank LIMIT ?"
 	args = append(args, limit)
@@ -203,14 +280,31 @@ func lexicalTypeFilter(typeSlugs []string) []string {
 	return types
 }
 
+// lexicalScopeFilter is the caller's visibility scope as a predicate for the
+// search query, or "" for a nil or admin scope (a system caller sees every
+// resource). It is the FindAccessibleIDs rule (accessiblePredicate) applied in
+// the WHERE clause, before ORDER BY ... LIMIT, so the limit is spent on rows
+// the caller may read and another account's better-ranked matches cannot push
+// the caller's own out of the page.
+func lexicalScopeFilter(scope *repositories.VisibilityScope) (string, []any) {
+	if scope == nil || scope.IsAdmin {
+		return "", nil
+	}
+	return accessiblePredicate(scope)
+}
+
 // nopLexicalIndex is the inactive fallback.
 type nopLexicalIndex struct{}
 
-func (nopLexicalIndex) Active() bool                                        { return false }
-func (nopLexicalIndex) Engine() string                                      { return "" }
-func (nopLexicalIndex) Index(context.Context, string, string, string) error { return nil }
-func (nopLexicalIndex) Remove(context.Context, string) error                { return nil }
-func (nopLexicalIndex) Search(context.Context, string, int, ...string) ([]repositories.LexicalHit, error) {
+func (nopLexicalIndex) Active() bool   { return false }
+func (nopLexicalIndex) Engine() string { return "" }
+func (nopLexicalIndex) Index(context.Context, string, string, string, repositories.LexicalOwner) error {
+	return nil
+}
+func (nopLexicalIndex) Remove(context.Context, string) error { return nil }
+func (nopLexicalIndex) Search(
+	context.Context, string, int, *repositories.VisibilityScope, ...string,
+) ([]repositories.LexicalHit, error) {
 	return nil, nil
 }
 func (nopLexicalIndex) Clear(context.Context) error { return nil }

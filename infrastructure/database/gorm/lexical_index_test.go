@@ -39,14 +39,14 @@ func TestLexicalIndex_RoundTrip(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	if err := idx.Index(ctx, "urn:fact:1", "fact", "Akeem prefers PRs based on the v3 branch"); err != nil {
+	if err := idx.Index(ctx, "urn:fact:1", "fact", "Akeem prefers PRs based on the v3 branch", repositories.LexicalOwner{}); err != nil {
 		t.Fatalf("Index: %v", err)
 	}
-	if err := idx.Index(ctx, "urn:note:2", "note", "quarterly finance review with Wepala"); err != nil {
+	if err := idx.Index(ctx, "urn:note:2", "note", "quarterly finance review with Wepala", repositories.LexicalOwner{}); err != nil {
 		t.Fatalf("Index: %v", err)
 	}
 
-	hits, err := idx.Search(ctx, "akeem v3", 10)
+	hits, err := idx.Search(ctx, "akeem v3", 10, nil)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -58,10 +58,10 @@ func TestLexicalIndex_RoundTrip(t *testing.T) {
 	}
 
 	// Re-indexing replaces content (no duplicate rows).
-	if err := idx.Index(ctx, "urn:fact:1", "fact", "completely different text"); err != nil {
+	if err := idx.Index(ctx, "urn:fact:1", "fact", "completely different text", repositories.LexicalOwner{}); err != nil {
 		t.Fatalf("re-Index: %v", err)
 	}
-	hits, err = idx.Search(ctx, "akeem", 10)
+	hits, err = idx.Search(ctx, "akeem", 10, nil)
 	if err != nil {
 		t.Fatalf("Search after reindex: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestLexicalIndex_RoundTrip(t *testing.T) {
 	if err := idx.Remove(ctx, "urn:note:2"); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
-	hits, err = idx.Search(ctx, "finance", 10)
+	hits, err = idx.Search(ctx, "finance", 10, nil)
 	if err != nil {
 		t.Fatalf("Search after removal: %v", err)
 	}
@@ -89,14 +89,14 @@ func TestLexicalIndex_QuerySyntaxIsNeutralized(t *testing.T) {
 		t.Skip("FTS5 unavailable in this build")
 	}
 	ctx := context.Background()
-	if err := idx.Index(ctx, "urn:x", "note", "hello world"); err != nil {
+	if err := idx.Index(ctx, "urn:x", "note", "hello world", repositories.LexicalOwner{}); err != nil {
 		t.Fatalf("Index: %v", err)
 	}
 
 	// FTS5 operators and column filters in user input must not error or be
 	// interpreted — each token is phrase-quoted.
 	for _, q := range []string{`hello NEAR world`, `content:hello`, `"hello`, `hello AND -world`} {
-		if _, err := idx.Search(ctx, q, 10); err != nil {
+		if _, err := idx.Search(ctx, q, 10, nil); err != nil {
 			t.Errorf("Search(%q) errored: %v — query syntax not neutralized", q, err)
 		}
 	}
@@ -120,7 +120,7 @@ func TestLexicalIndex_DegradesWhenPostgresIndexCannotBeCreated(t *testing.T) {
 	if idx.Engine() != "" {
 		t.Errorf("Engine() = %q, want empty for an inactive index", idx.Engine())
 	}
-	if err := idx.Index(context.Background(), "a", "b", "c"); err != nil {
+	if err := idx.Index(context.Background(), "a", "b", "c", repositories.LexicalOwner{}); err != nil {
 		t.Errorf("nop Index must not error: %v", err)
 	}
 }
@@ -146,15 +146,15 @@ func runTypeFilterCases(t *testing.T, idx repositories.LexicalIndex) {
 	ctx := context.Background()
 	for i := 0; i < 25; i++ {
 		id := fmt.Sprintf("urn:project:%02d", i)
-		if err := idx.Index(ctx, id, "project", "invoice invoice invoice templates"); err != nil {
+		if err := idx.Index(ctx, id, "project", "invoice invoice invoice templates", repositories.LexicalOwner{}); err != nil {
 			t.Fatalf("Index %s: %v", id, err)
 		}
 	}
-	if err := idx.Index(ctx, "urn:task:1", "task", "Harbor Legal invoice chase"); err != nil {
+	if err := idx.Index(ctx, "urn:task:1", "task", "Harbor Legal invoice chase", repositories.LexicalOwner{}); err != nil {
 		t.Fatalf("Index task: %v", err)
 	}
 
-	hits, err := idx.Search(ctx, "invoice", 20, "task")
+	hits, err := idx.Search(ctx, "invoice", 20, nil, "task")
 	if err != nil {
 		t.Fatalf("Search narrowed: %v", err)
 	}
@@ -162,7 +162,7 @@ func runTypeFilterCases(t *testing.T, idx repositories.LexicalIndex) {
 		t.Errorf("narrowed hits = %+v, want only the task despite 25 better-ranked projects", hits)
 	}
 
-	hits, err = idx.Search(ctx, "invoice", 100, "recipe")
+	hits, err = idx.Search(ctx, "invoice", 100, nil, "recipe")
 	if err != nil {
 		t.Fatalf("Search unknown type: %v", err)
 	}
@@ -170,7 +170,7 @@ func runTypeFilterCases(t *testing.T, idx repositories.LexicalIndex) {
 		t.Errorf("unknown-type hits = %+v, want none", hits)
 	}
 
-	hits, err = idx.Search(ctx, "invoice", 100)
+	hits, err = idx.Search(ctx, "invoice", 100, nil)
 	if err != nil {
 		t.Fatalf("Search unnarrowed: %v", err)
 	}
@@ -178,7 +178,7 @@ func runTypeFilterCases(t *testing.T, idx repositories.LexicalIndex) {
 		t.Errorf("unnarrowed hits = %d, want all 26", len(hits))
 	}
 
-	hits, err = idx.Search(ctx, "invoice", 100, "task", "project")
+	hits, err = idx.Search(ctx, "invoice", 100, nil, "task", "project")
 	if err != nil {
 		t.Fatalf("Search two types: %v", err)
 	}
@@ -222,13 +222,13 @@ func TestLexicalIndex_RoundTrip_Postgres(t *testing.T) {
 
 	idx, db := postgresLexicalIndexForTest(t)
 	ctx := context.Background()
-	if err := idx.Index(ctx, "urn:fact:1", "fact", "Akeem prefers PRs based on the v3 branch"); err != nil {
+	if err := idx.Index(ctx, "urn:fact:1", "fact", "Akeem prefers PRs based on the v3 branch", repositories.LexicalOwner{}); err != nil {
 		t.Fatalf("Index: %v", err)
 	}
-	if err := idx.Index(ctx, "urn:note:2", "note", "quarterly finance review with Wepala"); err != nil {
+	if err := idx.Index(ctx, "urn:note:2", "note", "quarterly finance review with Wepala", repositories.LexicalOwner{}); err != nil {
 		t.Fatalf("Index: %v", err)
 	}
-	hits, err := idx.Search(ctx, "akeem v3", 10)
+	hits, err := idx.Search(ctx, "akeem v3", 10, nil)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestLexicalIndex_RoundTrip_Postgres(t *testing.T) {
 	}
 
 	// Re-indexing replaces content: one row, and the old words stop matching.
-	if err := idx.Index(ctx, "urn:fact:1", "fact", "completely different text"); err != nil {
+	if err := idx.Index(ctx, "urn:fact:1", "fact", "completely different text", repositories.LexicalOwner{}); err != nil {
 		t.Fatalf("re-Index: %v", err)
 	}
 	var rows int64
@@ -250,7 +250,7 @@ func TestLexicalIndex_RoundTrip_Postgres(t *testing.T) {
 	if rows != 1 {
 		t.Errorf("rows for urn:fact:1 = %d, want 1 after an upsert", rows)
 	}
-	if hits, err = idx.Search(ctx, "akeem", 10); err != nil {
+	if hits, err = idx.Search(ctx, "akeem", 10, nil); err != nil {
 		t.Fatalf("Search after reindex: %v", err)
 	}
 	if len(hits) != 0 {
@@ -260,14 +260,14 @@ func TestLexicalIndex_RoundTrip_Postgres(t *testing.T) {
 	if err := idx.Remove(ctx, "urn:note:2"); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
-	if hits, err = idx.Search(ctx, "finance", 10); err != nil {
+	if hits, err = idx.Search(ctx, "finance", 10, nil); err != nil {
 		t.Fatalf("Search after removal: %v", err)
 	}
 	if len(hits) != 0 {
 		t.Errorf("hits = %+v, want none after removal", hits)
 	}
 
-	if err := idx.Index(ctx, "urn:note:3", "note", "finance again"); err != nil {
+	if err := idx.Index(ctx, "urn:note:3", "note", "finance again", repositories.LexicalOwner{}); err != nil {
 		t.Fatalf("Index: %v", err)
 	}
 	if err := idx.Clear(ctx); err != nil {
@@ -286,7 +286,7 @@ func TestLexicalIndex_QuerySyntaxIsNeutralized_Postgres(t *testing.T) {
 
 	idx, _ := postgresLexicalIndexForTest(t)
 	ctx := context.Background()
-	if err := idx.Index(ctx, "urn:x", "note", "hello world"); err != nil {
+	if err := idx.Index(ctx, "urn:x", "note", "hello world", repositories.LexicalOwner{}); err != nil {
 		t.Fatalf("Index: %v", err)
 	}
 	cases := map[string]int{
@@ -306,7 +306,7 @@ func TestLexicalIndex_QuerySyntaxIsNeutralized_Postgres(t *testing.T) {
 		`'; DROP TABLE x; --`: 0,
 	}
 	for q, want := range cases {
-		hits, err := idx.Search(ctx, q, 10)
+		hits, err := idx.Search(ctx, q, 10, nil)
 		if err != nil {
 			t.Errorf("Search(%q) errored: %v — query syntax not neutralized", q, err)
 			continue
@@ -322,13 +322,13 @@ func TestLexicalIndex_RanksMoreMentionsFirst_Postgres(t *testing.T) {
 
 	idx, _ := postgresLexicalIndexForTest(t)
 	ctx := context.Background()
-	if err := idx.Index(ctx, "urn:task:a", "task", "Harbor one invoice"); err != nil {
+	if err := idx.Index(ctx, "urn:task:a", "task", "Harbor one invoice", repositories.LexicalOwner{}); err != nil {
 		t.Fatalf("Index: %v", err)
 	}
-	if err := idx.Index(ctx, "urn:task:b", "task", "Harbor invoice Harbor invoice Harbor invoice"); err != nil {
+	if err := idx.Index(ctx, "urn:task:b", "task", "Harbor invoice Harbor invoice Harbor invoice", repositories.LexicalOwner{}); err != nil {
 		t.Fatalf("Index: %v", err)
 	}
-	hits, err := idx.Search(ctx, "harbor invoice", 10)
+	hits, err := idx.Search(ctx, "harbor invoice", 10, nil)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -348,7 +348,7 @@ func TestLexicalIndex_SchemaCreationIsIdempotent_Postgres(t *testing.T) {
 	t.Parallel()
 
 	idx, db := postgresLexicalIndexForTest(t)
-	if err := idx.Index(context.Background(), "urn:x", "note", "kept across a restart"); err != nil {
+	if err := idx.Index(context.Background(), "urn:x", "note", "kept across a restart", repositories.LexicalOwner{}); err != nil {
 		t.Fatalf("Index: %v", err)
 	}
 	cfg := config.Default()
@@ -357,7 +357,7 @@ func TestLexicalIndex_SchemaCreationIsIdempotent_Postgres(t *testing.T) {
 	if !again.Active() {
 		t.Fatal("a second provide over the existing table must stay active")
 	}
-	hits, err := again.Search(context.Background(), "restart", 10)
+	hits, err := again.Search(context.Background(), "restart", 10, nil)
 	if err != nil || len(hits) != 1 {
 		t.Errorf("hits = %+v, err = %v; want the row indexed before the restart", hits, err)
 	}
@@ -408,17 +408,17 @@ func largeLexicalContent() string {
 func runLargeContentCases(t *testing.T, idx repositories.LexicalIndex) {
 	t.Helper()
 	ctx := context.Background()
-	if err := idx.Index(ctx, "urn:note:big", "note", largeLexicalContent()); err != nil {
+	if err := idx.Index(ctx, "urn:note:big", "note", largeLexicalContent(), repositories.LexicalOwner{}); err != nil {
 		t.Fatalf("Index of a large resource: %v", err)
 	}
-	hits, err := idx.Search(ctx, "zebrafinch", 10)
+	hits, err := idx.Search(ctx, "zebrafinch", 10, nil)
 	if err != nil {
 		t.Fatalf("Search near the start: %v", err)
 	}
 	if len(hits) != 1 || hits[0].ID != "urn:note:big" {
 		t.Errorf("hits = %+v, want the large resource found by a word near its start", hits)
 	}
-	hits, err = idx.Search(ctx, "kingfisher", 10)
+	hits, err = idx.Search(ctx, "kingfisher", 10, nil)
 	if err != nil {
 		t.Fatalf("Search past the budget: %v", err)
 	}

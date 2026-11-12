@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/wepala/weos/v3/domain/repositories"
+
+	"github.com/akeemphilbert/pericarp/pkg/auth"
 )
 
 type fakeKGLabelSearch struct {
@@ -220,5 +222,35 @@ func TestLexicalSearch_NormalizesTheTypeFilter(t *testing.T) {
 	}
 	if len(hits) != 1 || hits[0].ID != "urn:task:t1" {
 		t.Errorf("fallback hits = %+v, want only the task for the filter \" Task\"", hits)
+	}
+}
+
+// The caller's identity becomes the index query's scope, so the index can
+// apply it before its LIMIT; a caller with no identity (CLI, stdio, a
+// background job) searches unscoped, as it reads every resource.
+func TestLexicalSearch_PassesTheCallersScopeToTheIndex(t *testing.T) {
+	t.Parallel()
+
+	index := newFakeLexicalIndex(true)
+	s := NewLexicalSearch(index, nil)
+
+	caller := auth.ContextWithAgent(context.Background(), &auth.Identity{
+		AgentID: "agent-cedar", AccountIDs: []string{"cedar"}, ActiveAccountID: "cedar",
+	})
+	if _, _, err := s.Search(caller, "Dunmore", 5); err != nil {
+		t.Fatalf("scoped Search: %v", err)
+	}
+	if _, _, err := s.Search(context.Background(), "Dunmore", 5); err != nil {
+		t.Fatalf("system Search: %v", err)
+	}
+	if len(index.scopes) != 2 {
+		t.Fatalf("index searched %d times, want 2", len(index.scopes))
+	}
+	got := index.scopes[0]
+	if got == nil || got.AgentID != "agent-cedar" || got.AccountID != "cedar" || got.IsAdmin {
+		t.Errorf("scope = %+v, want agent-cedar in cedar, not admin", got)
+	}
+	if index.scopes[1] != nil {
+		t.Errorf("system caller scope = %+v, want nil (unscoped)", index.scopes[1])
 	}
 }

@@ -1,0 +1,304 @@
+// Copyright (C) 2026 Wepala, LLC
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+package gorm
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/wepala/weos/v3/domain/repositories"
+	"github.com/wepala/weos/v3/infrastructure/models"
+	"github.com/wepala/weos/v3/internal/config"
+	"github.com/wepala/weos/v3/internal/testpg"
+
+	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/subscriptions"
+	glebarez "github.com/glebarez/sqlite"
+	gormlib "gorm.io/gorm"
+)
+
+// Account scope on the lexical index (finding wm-yna4s3). Each engine is run
+// through the same cases: the search applies the FindAccessibleIDs rule —
+// own rows, ownerless rows, and rows the caller holds a read grant on — inside
+// the query, before its LIMIT.
+
+var (
+	harbor = repositories.LexicalOwner{CreatedBy: "agent-harbor", AccountID: "harbor"}
+	cedar  = repositories.LexicalOwner{CreatedBy: "agent-cedar", AccountID: "cedar"}
+)
+
+func scopeOf(owner repositories.LexicalOwner) *repositories.VisibilityScope {
+	return &repositories.VisibilityScope{AgentID: owner.CreatedBy, AccountID: owner.AccountID}
+}
+
+// sqliteScopeDB is a file-backed SQLite database (every pooled connection
+// sees the same tables, which :memory: does not guarantee) holding the
+// resource_permissions table the scope reads, as the provider migrates it.
+func sqliteScopeDB(t *testing.T) *gormlib.DB {
+	t.Helper()
+	db, err := gormlib.Open(glebarez.Open(filepath.Join(t.TempDir(), "lexical.db")), &gormlib.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(&models.ResourcePermission{}, &subscriptions.GormCheckpointModel{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("sqlite pool: %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	return db
+}
+
+// postgresScopeDB is a fresh PostgreSQL database with the same tables. Skips
+// without TEST_POSTGRES_DSN.
+func postgresScopeDB(t *testing.T) (*gormlib.DB, config.Config) {
+	t.Helper()
+	admin := os.Getenv("TEST_POSTGRES_DSN")
+	if admin == "" {
+		t.Skip("TEST_POSTGRES_DSN not set — the PostgreSQL lexical index is skipped")
+	}
+	dsn, err := testpg.FreshDatabase(t, admin, "weos_lexical_scope")
+	if err != nil {
+		t.Fatalf("fresh database: %v", err)
+	}
+	db := openPostgresReplica(t, dsn)
+	if err := db.AutoMigrate(&models.ResourcePermission{}, &subscriptions.GormCheckpointModel{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	cfg := config.Default()
+	cfg.DatabaseDSN = dsn
+	return db, cfg
+}
+
+func hitIDs(hits []repositories.LexicalHit) []string {
+	ids := make([]string, 0, len(hits))
+	for _, h := range hits {
+		ids = append(ids, h.ID)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func mustIndex(t *testing.T, idx repositories.LexicalIndex, id, typeSlug, content string,
+	owner repositories.LexicalOwner,
+) {
+	t.Helper()
+	if err := idx.Index(context.Background(), id, typeSlug, content, owner); err != nil {
+		t.Fatalf("Index %s: %v", id, err)
+	}
+}
+
+func assertHits(t *testing.T, idx repositories.LexicalIndex, label, query string, limit int,
+	scope *repositories.VisibilityScope, want ...string,
+) {
+	t.Helper()
+	hits, err := idx.Search(context.Background(), query, limit, scope)
+	if err != nil {
+		t.Fatalf("%s: Search: %v", label, err)
+	}
+	sort.Strings(want)
+	if got := hitIDs(hits); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("%s: hits = %v, want %v", label, got, want)
+	}
+}
+
+func runScopeCases(t *testing.T, idx repositories.LexicalIndex, db *gormlib.DB) {
+	t.Helper()
+	mustIndex(t, idx, "urn:task:harbor", "task", "Dunmore settlement balance", harbor)
+	mustIndex(t, idx, "urn:task:cedar", "task", "Dunmore Road viewing", cedar)
+	mustIndex(t, idx, "urn:task:preset", "task", "Dunmore checklist from a preset", repositories.LexicalOwner{})
+
+	assertHits(t, idx, "harbor", "dunmore", 10, scopeOf(harbor), "urn:task:harbor", "urn:task:preset")
+	assertHits(t, idx, "cedar", "dunmore", 10, scopeOf(cedar), "urn:task:cedar", "urn:task:preset")
+	assertHits(t, idx, "system caller", "dunmore", 10, nil,
+		"urn:task:harbor", "urn:task:cedar", "urn:task:preset")
+	assertHits(t, idx, "admin scope", "dunmore", 10, &repositories.VisibilityScope{AgentID: "x", IsAdmin: true},
+		"urn:task:harbor", "urn:task:cedar", "urn:task:preset")
+
+	// The snippet comes from the same scoped query, so a hidden row is never
+	// quoted either.
+	hits, err := idx.Search(context.Background(), "settlement", 10, scopeOf(cedar))
+	if err != nil || len(hits) != 0 {
+		t.Errorf("cedar searching harbor's word: hits = %+v, err = %v; want none", hits, err)
+	}
+
+	// A read grant opens one of harbor's rows to cedar, as it does for reads.
+	grant := models.ResourcePermission{
+		ID: "perm-1", ResourceID: "urn:task:harbor", AgentID: "agent-cedar",
+		Actions: `["read"]`, GrantedBy: "agent-harbor", GrantedAt: time.Now(),
+	}
+	if err := db.Create(&grant).Error; err != nil {
+		t.Fatalf("grant: %v", err)
+	}
+	assertHits(t, idx, "cedar with a grant", "settlement", 10, scopeOf(cedar), "urn:task:harbor")
+
+	// Re-indexing writes the owner as well as the text.
+	mustIndex(t, idx, "urn:task:cedar", "task", "Dunmore Road viewing moved", harbor)
+	assertHits(t, idx, "cedar after its row changed owner", "viewing", 10, scopeOf(cedar))
+}
+
+// runCrowdedScopeCase: 25 of harbor's rows outrank cedar's one match. Scoped
+// after the LIMIT, cedar would get nothing; scoped in the query it gets its own.
+func runCrowdedScopeCase(t *testing.T, idx repositories.LexicalIndex) {
+	t.Helper()
+	for i := 0; i < 25; i++ {
+		mustIndex(t, idx, fmt.Sprintf("urn:task:h%02d", i), "task",
+			fmt.Sprintf("Dunmore Dunmore Dunmore workstream %02d", i), harbor)
+	}
+	mustIndex(t, idx, "urn:task:cedar", "task", "Dunmore Road viewing", cedar)
+	assertHits(t, idx, "crowded", "dunmore", 10, scopeOf(cedar), "urn:task:cedar")
+
+	// It composes with the type filter: narrowing never reaches across.
+	mustIndex(t, idx, "urn:project:cedar", "project", "Dunmore onboarding", cedar)
+	hits, err := idx.Search(context.Background(), "dunmore", 10, scopeOf(harbor), "project")
+	if err != nil || len(hits) != 0 {
+		t.Errorf("harbor narrowed to cedar's type: hits = %+v, err = %v; want none", hits, err)
+	}
+}
+
+func TestLexicalIndex_AccountScope_SQLite(t *testing.T) {
+	t.Parallel()
+	db := sqliteScopeDB(t)
+	runScopeCases(t, ProvideLexicalIndex(db, config.Default(), &testLogger{}), db)
+}
+
+func TestLexicalIndex_AccountScopeBeforeLimit_SQLite(t *testing.T) {
+	t.Parallel()
+	db := sqliteScopeDB(t)
+	runCrowdedScopeCase(t, ProvideLexicalIndex(db, config.Default(), &testLogger{}))
+}
+
+func TestLexicalIndex_AccountScope_Postgres(t *testing.T) {
+	t.Parallel()
+	db, cfg := postgresScopeDB(t)
+	runScopeCases(t, ProvideLexicalIndex(db, cfg, &testLogger{}), db)
+}
+
+func TestLexicalIndex_AccountScopeBeforeLimit_Postgres(t *testing.T) {
+	t.Parallel()
+	db, cfg := postgresScopeDB(t)
+	runCrowdedScopeCase(t, ProvideLexicalIndex(db, cfg, &testLogger{}))
+}
+
+// --- Migration from the table shape before owner columns ---
+
+// lexicalInfoLogger keeps Info messages, to see the recreate reported.
+type lexicalInfoLogger struct {
+	testLogger
+	infos []string
+}
+
+func (l *lexicalInfoLogger) Info(_ context.Context, msg string, _ ...any) {
+	l.infos = append(l.infos, msg)
+}
+
+func (l *lexicalInfoLogger) recreated() bool {
+	for _, m := range l.infos {
+		if strings.Contains(m, "recreated it empty") {
+			return true
+		}
+	}
+	return false
+}
+
+// runOldShapeMigration provides the index over a table of the old shape that
+// holds an unowned row, with the lexical-index checkpoint far along, and
+// checks the table is replaced empty and the checkpoint sent back to 0 so the
+// subscriber refills it — owners included — from history. A second provide
+// over the new shape changes nothing.
+func runOldShapeMigration(t *testing.T, db *gormlib.DB, cfg config.Config, oldSchema []string) {
+	t.Helper()
+	for _, stmt := range oldSchema {
+		if err := db.Exec(stmt).Error; err != nil {
+			t.Fatalf("create old shape: %v", err)
+		}
+	}
+	if err := db.Exec("INSERT INTO resource_search (id, type_slug, content) VALUES (?, ?, ?)",
+		"urn:task:old", "task", "Dunmore settlement").Error; err != nil {
+		t.Fatalf("seed old row: %v", err)
+	}
+	for _, sub := range []string{repositories.LexicalIndexSubscriber, "oxigraph"} {
+		if err := db.Create(&subscriptions.GormCheckpointModel{
+			Subscriber: sub, Position: 42, UpdatedAt: time.Now(),
+		}).Error; err != nil {
+			t.Fatalf("seed checkpoint %s: %v", sub, err)
+		}
+	}
+
+	logger := &lexicalInfoLogger{}
+	idx := ProvideLexicalIndex(db, cfg, logger)
+	if !idx.Active() {
+		t.Fatal("index inactive after migrating the old table")
+	}
+	if !logger.recreated() {
+		t.Errorf("the recreate was not reported; infos = %q", logger.infos)
+	}
+	// The unowned row is gone: left in place it would be read as ownerless and
+	// shown to every account.
+	assertHits(t, idx, "after migration", "dunmore", 10, nil)
+	positions := map[string]int64{}
+	var rows []subscriptions.GormCheckpointModel
+	if err := db.Find(&rows).Error; err != nil {
+		t.Fatalf("read checkpoints: %v", err)
+	}
+	for _, r := range rows {
+		positions[r.Subscriber] = r.Position
+	}
+	if positions[repositories.LexicalIndexSubscriber] != 0 {
+		t.Errorf("lexical-index checkpoint = %d, want 0 so the index refills from history",
+			positions[repositories.LexicalIndexSubscriber])
+	}
+	if positions["oxigraph"] != 42 {
+		t.Errorf("oxigraph checkpoint = %d, want it untouched at 42", positions["oxigraph"])
+	}
+
+	// The new table takes owners and scopes by them.
+	mustIndex(t, idx, "urn:task:harbor", "task", "Dunmore settlement", harbor)
+	assertHits(t, idx, "cedar after migration", "dunmore", 10, scopeOf(cedar))
+
+	again := &lexicalInfoLogger{}
+	idx = ProvideLexicalIndex(db, cfg, again)
+	if again.recreated() {
+		t.Error("a second start recreated a table that already has owner columns")
+	}
+	assertHits(t, idx, "after restart", "dunmore", 10, nil, "urn:task:harbor")
+}
+
+func TestLexicalIndex_MigratesOldTableShape_SQLite(t *testing.T) {
+	t.Parallel()
+	db := sqliteScopeDB(t)
+	runOldShapeMigration(t, db, config.Default(), []string{
+		"CREATE VIRTUAL TABLE resource_search USING fts5(content, id UNINDEXED, type_slug UNINDEXED)",
+	})
+}
+
+func TestLexicalIndex_MigratesOldTableShape_Postgres(t *testing.T) {
+	t.Parallel()
+	db, cfg := postgresScopeDB(t)
+	runOldShapeMigration(t, db, cfg, []string{
+		"CREATE TABLE resource_search (id TEXT PRIMARY KEY, type_slug TEXT NOT NULL, content TEXT NOT NULL, " +
+			"tsv TSVECTOR GENERATED ALWAYS AS (to_tsvector('simple'::regconfig, content)) STORED)",
+		"CREATE INDEX resource_search_tsv_idx ON resource_search USING GIN (tsv)",
+		"CREATE INDEX resource_search_type_slug_idx ON resource_search (type_slug)",
+	})
+}

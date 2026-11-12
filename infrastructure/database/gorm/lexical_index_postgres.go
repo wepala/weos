@@ -44,14 +44,22 @@ const pgLexicalSchemaLock = 0x7765_6f73_6c78 // "weoslx"
 // such as v3.2 as one word. So "Jose" finds "José", and "example" finds
 // "jose@example.com", on SQLite only. A hyphenated word is indexed whole and
 // as its parts, so "bar" finds "foo-bar" on both.
+//
+// created_by and account_id are the resource's owner, read from its events.
+// Search filters on created_by by the FindAccessibleIDs rule; account_id is
+// kept beside it, as on the resources table, so a later per-account rule needs
+// no second migration.
 var pgLexicalSchema = []string{
 	"CREATE TABLE IF NOT EXISTS resource_search (" +
 		"id TEXT PRIMARY KEY, " +
 		"type_slug TEXT NOT NULL, " +
+		"created_by TEXT NOT NULL DEFAULT '', " +
+		"account_id TEXT NOT NULL DEFAULT '', " +
 		"content TEXT NOT NULL, " +
 		"tsv TSVECTOR GENERATED ALWAYS AS (to_tsvector('simple'::regconfig, content)) STORED)",
 	"CREATE INDEX IF NOT EXISTS resource_search_tsv_idx ON resource_search USING GIN (tsv)",
 	"CREATE INDEX IF NOT EXISTS resource_search_type_slug_idx ON resource_search (type_slug)",
+	"CREATE INDEX IF NOT EXISTS resource_search_created_by_idx ON resource_search (created_by)",
 }
 
 // pgHeadlineOptions mirrors the SQLite snippet: no highlight markers, an
@@ -62,10 +70,33 @@ type postgresLexicalIndex struct {
 	db *gorm.DB
 }
 
-func newPostgresLexicalIndex(ctx context.Context, db *gorm.DB) (*postgresLexicalIndex, error) {
+// newPostgresLexicalIndex creates the index schema, first replacing a table of
+// the old shape (no owner columns). It reports whether it replaced one.
+//
+// The old table is dropped rather than altered: ALTER ... ADD COLUMN would
+// give every existing row an empty created_by, which the scope reads as ownerless
+// and shows to every caller — the leak this column closes. The rows are a
+// derived view, so dropping them loses nothing; the checkpoint reset in the
+// same transaction makes the subscriber refill them, owners included, from
+// history.
+func newPostgresLexicalIndex(ctx context.Context, db *gorm.DB) (*postgresLexicalIndex, bool, error) {
+	recreated := false
 	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec("SELECT pg_advisory_xact_lock(?)", pgLexicalSchemaLock).Error; err != nil {
 			return fmt.Errorf("lock lexical schema: %w", err)
+		}
+		stale, err := pgLexicalTableLacksOwner(tx)
+		if err != nil {
+			return err
+		}
+		if stale {
+			if err := tx.Exec("DROP TABLE resource_search").Error; err != nil {
+				return fmt.Errorf("drop lexical table without owner columns: %w", err)
+			}
+			if err := resetLexicalCheckpoint(tx); err != nil {
+				return err
+			}
+			recreated = true
 		}
 		for _, stmt := range pgLexicalSchema {
 			if err := tx.Exec(stmt).Error; err != nil {
@@ -75,19 +106,41 @@ func newPostgresLexicalIndex(ctx context.Context, db *gorm.DB) (*postgresLexical
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return &postgresLexicalIndex{db: db}, nil
+	return &postgresLexicalIndex{db: db}, recreated, nil
+}
+
+// pgLexicalTableLacksOwner reports whether a resource_search table exists in
+// the current schema without the created_by column.
+func pgLexicalTableLacksOwner(tx *gorm.DB) (bool, error) {
+	var row struct {
+		Exists   bool
+		HasOwner bool
+	}
+	err := tx.Raw("SELECT to_regclass('resource_search') IS NOT NULL AS exists, " +
+		"EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() " +
+		"AND table_name = 'resource_search' AND column_name = 'created_by') AS has_owner").
+		Scan(&row).Error
+	if err != nil {
+		return false, fmt.Errorf("read lexical table columns: %w", err)
+	}
+	return row.Exists && !row.HasOwner, nil
 }
 
 func (p *postgresLexicalIndex) Active() bool   { return true }
 func (p *postgresLexicalIndex) Engine() string { return repositories.LexicalEnginePostgres }
 
-func (p *postgresLexicalIndex) Index(ctx context.Context, id, typeSlug, content string) error {
+// Index upserts the row. The update path writes the owner as well as the
+// text, so a re-indexed resource never keeps a stale or empty owner.
+func (p *postgresLexicalIndex) Index(
+	ctx context.Context, id, typeSlug, content string, owner repositories.LexicalOwner,
+) error {
 	err := lexicalWriter(ctx, p.db).Exec(
-		"INSERT INTO resource_search (id, type_slug, content) VALUES (?, ?, ?) "+
-			"ON CONFLICT (id) DO UPDATE SET type_slug = EXCLUDED.type_slug, content = EXCLUDED.content",
-		id, typeSlug, capLexicalContent(content),
+		"INSERT INTO resource_search (id, type_slug, created_by, account_id, content) VALUES (?, ?, ?, ?, ?) "+
+			"ON CONFLICT (id) DO UPDATE SET type_slug = EXCLUDED.type_slug, "+
+			"created_by = EXCLUDED.created_by, account_id = EXCLUDED.account_id, content = EXCLUDED.content",
+		id, typeSlug, owner.CreatedBy, owner.AccountID, capLexicalContent(content),
 	).Error
 	if err != nil {
 		return fmt.Errorf("lexical index: upsert %s: %w", id, err)
@@ -110,7 +163,7 @@ func (p *postgresLexicalIndex) Remove(ctx context.Context, id string) error {
 // typed question could quietly mean something else. A query with no words
 // left becomes an empty tsquery, which matches nothing.
 func (p *postgresLexicalIndex) Search(
-	ctx context.Context, query string, limit int, typeSlugs ...string,
+	ctx context.Context, query string, limit int, scope *repositories.VisibilityScope, typeSlugs ...string,
 ) ([]repositories.LexicalHit, error) {
 	// ts_headline re-parses the whole content, so it runs in the outer query
 	// over the limited page only, never over every matching row.
@@ -121,6 +174,10 @@ func (p *postgresLexicalIndex) Search(
 	if types := lexicalTypeFilter(typeSlugs); len(types) > 0 {
 		inner += " AND type_slug IN ?"
 		args = append(args, types)
+	}
+	if predicate, scopeArgs := lexicalScopeFilter(scope); predicate != "" {
+		inner += " AND (" + predicate + ")"
+		args = append(args, scopeArgs...)
 	}
 	inner += " ORDER BY rank DESC, id LIMIT ?"
 	args = append(args, limit)

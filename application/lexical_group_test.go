@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -18,12 +19,19 @@ type fakeLexicalIndex struct {
 	searches []string
 	// searchTypes records the type filter of each search.
 	searchTypes [][]string
-	hits        []repositories.LexicalHit
-	engine      string
+	// owners records the owner each resource was indexed with.
+	owners map[string]repositories.LexicalOwner
+	// scopes records the visibility scope of each search.
+	scopes []*repositories.VisibilityScope
+	hits   []repositories.LexicalHit
+	engine string
 }
 
 func newFakeLexicalIndex(active bool) *fakeLexicalIndex {
-	return &fakeLexicalIndex{active: active, indexed: map[string]string{}, types: map[string]string{}}
+	return &fakeLexicalIndex{
+		active: active, indexed: map[string]string{}, types: map[string]string{},
+		owners: map[string]repositories.LexicalOwner{},
+	}
 }
 
 func (f *fakeLexicalIndex) Active() bool { return f.active }
@@ -36,9 +44,12 @@ func (f *fakeLexicalIndex) Engine() string {
 	}
 	return f.engine
 }
-func (f *fakeLexicalIndex) Index(_ context.Context, id, typeSlug, content string) error {
+func (f *fakeLexicalIndex) Index(
+	_ context.Context, id, typeSlug, content string, owner repositories.LexicalOwner,
+) error {
 	f.indexed[id] = content
 	f.types[id] = typeSlug
+	f.owners[id] = owner
 	return nil
 }
 func (f *fakeLexicalIndex) Remove(_ context.Context, id string) error {
@@ -47,9 +58,10 @@ func (f *fakeLexicalIndex) Remove(_ context.Context, id string) error {
 	return nil
 }
 func (f *fakeLexicalIndex) Search(
-	_ context.Context, q string, _ int, typeSlugs ...string,
+	_ context.Context, q string, _ int, scope *repositories.VisibilityScope, typeSlugs ...string,
 ) ([]repositories.LexicalHit, error) {
 	f.searches = append(f.searches, q)
+	f.scopes = append(f.scopes, scope)
 	f.searchTypes = append(f.searchTypes, typeSlugs)
 	return f.hits, nil
 }
@@ -167,5 +179,97 @@ func TestLexicalContent_DeterministicAndTextOnly(t *testing.T) {
 	want := "Quarterly review finance q3"
 	if got != want {
 		t.Errorf("content = %q, want %q (sorted keys, strings only, no @-keys)", got, want)
+	}
+}
+
+// ownedEpisode is a created-and-published resource whose Resource.Created
+// carries an owner, as one written by an authenticated caller does.
+func ownedEpisode(aggregateID, txID, agent, account string) (
+	domain.EventEnvelope[any], []domain.EventEnvelope[any],
+) {
+	published, tx := episode("note", aggregateID, txID, txID+"-created")
+	created := tx[0].Payload.(map[string]any)
+	created["CreatedBy"] = agent
+	created["AccountID"] = account
+	return published, tx
+}
+
+// The owner comes from the resource's own Resource.Created, never from the
+// handler's context — which carries no caller during a rebuild.
+func TestLexicalHandler_IndexesTheOwnerFromTheCreateEvent(t *testing.T) {
+	t.Parallel()
+
+	published, tx := ownedEpisode("urn:note:1", "tx1", "agent-harbor", "harbor")
+	index := newFakeLexicalIndex(true)
+	h := lexicalHandler(&fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{"tx1": tx}},
+		index, noopLogger{})
+
+	if err := h(context.Background(), published); err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	want := repositories.LexicalOwner{CreatedBy: "agent-harbor", AccountID: "harbor"}
+	if got := index.owners["urn:note:1"]; got != want {
+		t.Errorf("owner = %+v, want %+v", got, want)
+	}
+}
+
+// An update transaction has no Resource.Created in it, so the owner is read
+// from the aggregate's history. Indexing it as ownerless would show the
+// updated text to every caller.
+func TestLexicalHandler_KeepsTheOwnerOnUpdate(t *testing.T) {
+	t.Parallel()
+
+	_, createTx := ownedEpisode("urn:note:1", "tx1", "agent-harbor", "harbor")
+	updated := domain.EventEnvelope[any]{
+		ID: "ev-upd", EventType: "Resource.Updated", AggregateID: "urn:note:1",
+		SequenceNo: 3, TransactionID: "tx2",
+		Payload: map[string]any{"Data": map[string]any{"@id": "urn:note:1", "name": "Dunmore settlement"}},
+	}
+	published := domain.EventEnvelope[any]{
+		ID: "ev-upd-pub", EventType: "Resource.Published", AggregateID: "urn:note:1",
+		SequenceNo: 4, TransactionID: "tx2",
+		Payload: map[string]any{"TypeSlug": "note"},
+	}
+	store := &fakeEventStore{
+		tx:          map[string][]domain.EventEnvelope[any]{"tx2": {updated, published}},
+		byAggregate: map[string][]domain.EventEnvelope[any]{"urn:note:1": append(createTx, updated, published)},
+	}
+	index := newFakeLexicalIndex(true)
+	if err := lexicalHandler(store, index, noopLogger{})(context.Background(), published); err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	if index.indexed["urn:note:1"] != "Dunmore settlement" {
+		t.Fatalf("content = %q, want the updated text", index.indexed["urn:note:1"])
+	}
+	want := repositories.LexicalOwner{CreatedBy: "agent-harbor", AccountID: "harbor"}
+	if got := index.owners["urn:note:1"]; got != want {
+		t.Errorf("owner after update = %+v, want %+v", got, want)
+	}
+}
+
+// A history that cannot be read is an error the subscriber retries, not an
+// ownerless row.
+func TestLexicalHandler_FailsWhenTheOwnerCannotBeRead(t *testing.T) {
+	t.Parallel()
+
+	updated := domain.EventEnvelope[any]{
+		ID: "ev-upd", EventType: "Resource.Updated", AggregateID: "urn:note:1",
+		SequenceNo: 3, TransactionID: "tx2",
+		Payload: map[string]any{"Data": map[string]any{"@id": "urn:note:1", "name": "Dunmore"}},
+	}
+	published := domain.EventEnvelope[any]{
+		ID: "ev-upd-pub", EventType: "Resource.Published", AggregateID: "urn:note:1",
+		SequenceNo: 4, TransactionID: "tx2", Payload: map[string]any{"TypeSlug": "note"},
+	}
+	store := &fakeEventStore{
+		tx:           map[string][]domain.EventEnvelope[any]{"tx2": {updated, published}},
+		getEventsErr: errors.New("store unavailable"),
+	}
+	index := newFakeLexicalIndex(true)
+	if err := lexicalHandler(store, index, noopLogger{})(context.Background(), published); err == nil {
+		t.Fatal("handler succeeded, want the history error so the event is retried")
+	}
+	if _, indexed := index.indexed["urn:note:1"]; indexed {
+		t.Error("resource indexed without its owner")
 	}
 }

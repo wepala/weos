@@ -46,7 +46,9 @@ var ErrLexicalUnavailable = errors.New(
 
 // LexicalSearch finds resources by keyword. Full-text first (SQLite FTS5, or a
 // PostgreSQL tsvector index); where the index is inactive it degrades to the
-// knowledge graph's label search.
+// knowledge graph's label search. Either way the answer holds only resources
+// the caller on ctx may read: the index applies the FindAccessibleIDs rule in
+// its query, and the graph applies its own access filter to label search.
 type LexicalSearch interface {
 	// Search returns matches plus the mode that produced them (a full-text
 	// mode — see IsFullTextMode — or LexicalModeGraphLabels). When typeSlugs
@@ -76,7 +78,11 @@ func (s *lexicalSearch) Search(
 	}
 	types := typeSlugFilter(typeSlugs)
 	if s.index != nil && s.index.Active() {
-		hits, err := s.index.Search(ctx, query, limit, types...)
+		// The caller's scope goes into the index query itself, never onto
+		// its answer: filtering after the LIMIT would let another account's
+		// better-ranked matches spend the limit, and the snippets are built
+		// in the same query.
+		hits, err := s.index.Search(ctx, query, limit, visibilityScopeFromContext(ctx), types...)
 		return hits, s.index.Engine(), err
 	}
 	if s.kg == nil || !s.kg.Active() {

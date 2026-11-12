@@ -24,6 +24,22 @@ type LexicalHit struct {
 	Snippet  string
 }
 
+// LexicalOwner is who a resource in the lexical index belongs to: the agent
+// that created it and the account it was created in. The handler reads both
+// from the resource's own events, never from the caller's context, so a
+// rebuild from history (which has no caller) restores them exactly. An empty
+// CreatedBy marks an ownerless resource (created by the CLI, a preset or a
+// stdio session), which every caller may search, as every caller may read it.
+type LexicalOwner struct {
+	CreatedBy string
+	AccountID string
+}
+
+// LexicalIndexSubscriber is the checkpoint name of the subscriber group that
+// fills the lexical index. An index that changes its table shape resets this
+// checkpoint so the group refills the new table from event 0.
+const LexicalIndexSubscriber = "lexical-index"
+
 // Lexical index engines, as reported by LexicalIndex.Engine. Lexical search
 // reports the engine to its callers as the source of an answer.
 const (
@@ -45,18 +61,26 @@ type LexicalIndex interface {
 	// Engine names the full-text engine behind the index (LexicalEngineFTS5,
 	// LexicalEnginePostgres), or "" when the index is inactive.
 	Engine() string
-	// Index replaces the indexed content for a resource. Each engine indexes
-	// the same bounded prefix of a very large content (about 256 KiB), so a
-	// resource of any size can be indexed; words past the prefix are not
-	// searchable.
-	Index(ctx context.Context, id, typeSlug, content string) error
+	// Index replaces the indexed content and owner for a resource. Each
+	// engine indexes the same bounded prefix of a very large content (about
+	// 256 KiB), so a resource of any size can be indexed; words past the
+	// prefix are not searchable.
+	Index(ctx context.Context, id, typeSlug, content string, owner LexicalOwner) error
 	// Remove drops a resource from the index.
 	Remove(ctx context.Context, id string) error
 	// Search returns full-text matches for the query, best first. The query
 	// is user text, never query syntax: its words are AND-ed. When typeSlugs
 	// is non-empty only resources of those types are matched, so the limit is
 	// spent on those types alone; a type with nothing indexed matches nothing.
-	Search(ctx context.Context, query string, limit int, typeSlugs ...string) ([]LexicalHit, error)
+	//
+	// scope limits the matches to resources the caller may read, by the same
+	// rule as ResourceRepository.FindAccessibleIDs: the caller created it, it
+	// has no owner, or the caller holds a read grant on it. The scope is part
+	// of the match, so the limit is spent on readable resources alone and a
+	// resource the caller may not read is never counted, returned or quoted.
+	// A nil or admin scope (a system caller) matches every resource.
+	Search(ctx context.Context, query string, limit int, scope *VisibilityScope,
+		typeSlugs ...string) ([]LexicalHit, error)
 	// Clear empties the index (the subscriber group's truncate/rebuild hook).
 	Clear(ctx context.Context) error
 }
