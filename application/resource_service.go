@@ -341,6 +341,15 @@ func (s *resourceService) Create(
 }
 
 func (s *resourceService) buildVisibilityScope(ctx context.Context) *repositories.VisibilityScope {
+	return visibilityScopeFromContext(ctx)
+}
+
+// visibilityScopeFromContext is the read scope of the caller on ctx: nil for a
+// system caller (no identity — CLI, stdio, a background subscriber), else the
+// caller's agent and active account. Resource lists, the knowledge-graph
+// filter and lexical search all derive their scope here, so they draw one
+// boundary.
+func visibilityScopeFromContext(ctx context.Context) *repositories.VisibilityScope {
 	identity := auth.AgentFromCtx(ctx)
 	if identity == nil {
 		return nil

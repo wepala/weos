@@ -722,13 +722,11 @@ func (r *ResourceRepository) FindAccessibleIDs(
 		return out, nil
 	}
 	var rows []string
+	predicate, args := accessiblePredicate(scope)
 	q := r.db.WithContext(ctx).
 		Table("resources").
 		Where("id IN ?", ids).
-		Where(
-			"created_by = ? OR created_by = '' OR id IN (SELECT resource_id FROM resource_permissions WHERE agent_id = ? AND actions LIKE ?)",
-			scope.AgentID, scope.AgentID, `%"read"%`,
-		)
+		Where(predicate, args...)
 	if err := q.Pluck("id", &rows).Error; err != nil {
 		return nil, fmt.Errorf("filter accessible ids: %w", err)
 	}
@@ -762,6 +760,19 @@ func (r *ResourceRepository) FindAllByTypeAndIDs(
 }
 
 var _ repositories.ResourceIDFinder = (*ResourceRepository)(nil)
+
+// accessiblePredicate is the FindAccessibleIDs visibility rule as one SQL
+// predicate over a table with id and created_by columns: the caller created
+// the row, the row has no owner (an empty created_by), or the caller holds an
+// explicit read grant on it in resource_permissions. The lexical index applies
+// the same predicate to its own table, so a keyword search can never read a
+// resource the graph filter would hide. Callers handle the nil/admin scope
+// (no filter) before asking for the predicate.
+func accessiblePredicate(scope *repositories.VisibilityScope) (string, []any) {
+	return "created_by = ? OR created_by = '' OR id IN " +
+			"(SELECT resource_id FROM resource_permissions WHERE agent_id = ? AND actions LIKE ?)",
+		[]any{scope.AgentID, scope.AgentID, `%"read"%`}
+}
 
 // applyVisibilityScope adds ownership filtering to a query when a non-nil scope
 // is provided and the caller is not an admin.
