@@ -82,3 +82,22 @@ func TestMemorySearch_RefusesAnUnknownMatchMode(t *testing.T) {
 		t.Errorf("search ran with an unknown mode: %+v", search.got)
 	}
 }
+
+// minMatch has a meaning only in the any mode. Set with the all mode — named
+// or left as the default — it is refused, never quietly ignored.
+func TestMemorySearch_RefusesMinMatchWithoutTheAnyMode(t *testing.T) {
+	for _, args := range []map[string]any{
+		{"query": "Harbor invoice", "minMatch": 2},
+		{"query": "Harbor invoice", "match": "all", "minMatch": 2},
+		{"query": "Harbor invoice", "match": " ALL ", "minMatch": -1},
+	} {
+		search := &recordingSearch{}
+		res := callMemorySearchWith(t, search, args)
+		if !res.IsError {
+			t.Errorf("%v: memory_search accepted minMatch without match \"any\": %+v", args, res.Content)
+		}
+		if len(search.got) != 0 {
+			t.Errorf("%v: search ran: %+v", args, search.got)
+		}
+	}
+}

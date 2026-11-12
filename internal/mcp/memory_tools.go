@@ -63,7 +63,7 @@ type MemorySearchInput struct {
 	//nolint:lll // jsonschema description
 	Match string `json:"match,omitempty" jsonschema:"all (the default): a result holds every query word, as typed. any: stop words (the, is, can't, ...) are dropped from the query, a result holds at least one of the remaining content words (at most 8 are used), and results holding more of them come first — use it for a sentence or a question rather than keywords. A query of stop words alone returns nothing"`
 	//nolint:lll // jsonschema description
-	MinMatch int `json:"minMatch,omitempty" jsonschema:"with match any only: the fewest content words a result must hold (default 1). A number above the query's content-word count asks for all of them"`
+	MinMatch int `json:"minMatch,omitempty" jsonschema:"with match any only — set with match all (or no match) it is an error: the fewest content words a result must hold (default 1). A number above the query's content-word count asks for all of them"`
 }
 
 // MemorySearchHit is one lexical match.
@@ -142,6 +142,12 @@ func registerMemorySearchTool(server *mcp.Server, search application.LexicalSear
 		match, err := repositories.ParseMatchMode(in.Match)
 		if err != nil {
 			return nil, MemorySearchOutput{}, err
+		}
+		// A floor on matched words means nothing when every word must match;
+		// refuse it rather than answer as if it had been applied.
+		if in.MinMatch != 0 && match != repositories.MatchAny {
+			return nil, MemorySearchOutput{}, fmt.Errorf(
+				"minMatch %d applies only with match \"any\": in the all mode every word must match", in.MinMatch)
 		}
 		hits, mode, notice, err := application.SearchWithRebuildNotice(ctx, search, repositories.LexicalQuery{
 			Text: in.Query, Limit: in.Limit, TypeSlugs: in.TypeSlugs, Match: match, MinMatch: in.MinMatch,

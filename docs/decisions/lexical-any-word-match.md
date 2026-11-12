@@ -142,7 +142,9 @@ the same `WHERE`. FTS5 has no per-phrase match count, so coverage is:
 
 The fewest content words a hit must hold, any mode only: `lexical.Floor(MinMatch, words)` — 0 and 1
 mean one word, and a floor above the query's content-word count is capped at it, so it asks for
-every word rather than for the impossible.
+every word rather than for the impossible. `memory_search` refuses a non-zero `minMatch` with the all
+mode (named, or left as the default) with an error, rather than answering as if the floor had been
+applied.
 
 ### The degraded graph-label path
 
@@ -160,7 +162,7 @@ honoured on every path, and a query of stop words alone matches nothing there to
 | Content words | `domain/lexical.ContentWords`: one rule, both engines, 8 words at most |
 | PostgreSQL any | OR `to_tsquery` from `quote_literal`-ed bound words; coverage per word in SQL; floor, then `ORDER BY coverage DESC, rank DESC, id LIMIT` |
 | SQLite any | `"w1" OR "w2"` MATCH; coverage in Go over streamed rows; sort coverage, `bm25`, id; snippets for the page |
-| `memory_search` | optional `match: "all" \| "any"` (default `all`; anything else is an error) and `minMatch` |
+| `memory_search` | optional `match: "all" \| "any"` (default `all`; anything else is an error) and `minMatch` (any mode only; set with the all mode it is an error) |
 
 ## Consequences
 
