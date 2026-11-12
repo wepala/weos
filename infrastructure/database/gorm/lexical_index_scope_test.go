@@ -213,8 +213,12 @@ func (l *lexicalInfoLogger) Info(_ context.Context, msg string, _ ...any) {
 }
 
 func (l *lexicalInfoLogger) recreated() bool {
+	return l.mentions("recreated it empty")
+}
+
+func (l *lexicalInfoLogger) mentions(text string) bool {
 	for _, m := range l.infos {
-		if strings.Contains(m, "recreated it empty") {
+		if strings.Contains(m, text) {
 			return true
 		}
 	}
@@ -252,6 +256,11 @@ func runOldShapeMigration(t *testing.T, db *gormlib.DB, cfg config.Config, oldSc
 	}
 	if !logger.recreated() {
 		t.Errorf("the recreate was not reported; infos = %q", logger.infos)
+	}
+	// A resource whose event the refill parks stays out of search, so the
+	// report names the command that finds those events (wm-a0ouop).
+	if !logger.mentions("weos worker parked list --subscriber " + repositories.LexicalIndexSubscriber) {
+		t.Errorf("the recreate report does not name `weos worker parked list`; infos = %q", logger.infos)
 	}
 	// The unowned row is gone: left in place it would be read as ownerless and
 	// shown to every account.

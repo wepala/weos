@@ -122,13 +122,20 @@ func resetLexicalCheckpoint(tx *gorm.DB) error {
 	return nil
 }
 
+// logLexicalRecreate reports a recreate. It names the parked-event list
+// because an event the refill cannot index (its owner could not be read, for
+// one) is parked rather than retried for ever, and that resource stays out of
+// search until the event is replayed.
 func logLexicalRecreate(ctx context.Context, logger entities.Logger, recreated bool) {
 	if !recreated {
 		return
 	}
 	logger.Info(ctx, "lexical index table had no owner columns; recreated it empty and reset the "+
 		repositories.LexicalIndexSubscriber+" checkpoint to 0. The index refills from the event "+
-		"history, and memory_search answers from the part already refilled until it catches up")
+		"history, and memory_search answers from the part already refilled until it catches up. "+
+		"A resource whose event the refill could not index is left out of search: list those events "+
+		"with `weos worker parked list --subscriber "+repositories.LexicalIndexSubscriber+"` and "+
+		"replay each with `weos worker parked replay "+repositories.LexicalIndexSubscriber+" <event-id>`")
 }
 
 type sqliteLexicalIndex struct {
