@@ -33,8 +33,9 @@ import (
 const MaxContentWords = 8
 
 // ContentWords returns the content words of a query, in the order they
-// first appear: the words a person wrote, lower-cased, with stop words and
-// single letters dropped, each once, at most MaxContentWords.
+// first appear: the words a person wrote, lower-cased, with stop words,
+// single letters and words holding no letter or digit dropped, each once, at
+// most MaxContentWords.
 //
 // A word is a run of letters and digits. A single '-', '.' or '@' between two
 // letters or digits joins the run, so "follow-up", "dana@example.com" and
@@ -46,13 +47,20 @@ const MaxContentWords = 8
 // separates words and is never part of one, so the words are safe to hand to
 // an engine as plain text.
 //
+// A combining mark stays with the letter it decorates and a private-use
+// character is kept as FTS5 keeps it, but neither makes a word on its own: a
+// word of marks or private-use characters alone holds nothing either engine
+// indexes as a word, so it is dropped rather than counted as a word no text
+// can hold. A mark does not count towards a word's length either, so "é"
+// written as "e" plus a combining accent is a single letter.
+//
 // A query with no content words returns nil. An any-word search over nil
 // matches nothing; it never matches everything.
 func ContentWords(query string) []string {
 	var out []string
 	seen := map[string]bool{}
 	for _, w := range words(strings.ToLower(query)) {
-		if len([]rune(w)) < 2 || stopWords[w] || seen[w] {
+		if !isContentShaped(w) || stopWords[w] || seen[w] {
 			continue
 		}
 		seen[w] = true
@@ -79,6 +87,24 @@ func Floor(minMatch, n int) int {
 		minMatch = n
 	}
 	return minMatch
+}
+
+// isContentShaped reports whether a word can be a content word: it holds at
+// least one letter or digit, and at least two characters other than
+// combining marks.
+func isContentShaped(w string) bool {
+	hasLetterOrDigit := false
+	length := 0
+	for _, r := range w {
+		if unicode.Is(unicode.Mn, r) {
+			continue
+		}
+		length++
+		if unicode.IsLetter(r) || unicode.IsNumber(r) {
+			hasLetterOrDigit = true
+		}
+	}
+	return hasLetterOrDigit && length >= 2
 }
 
 // isWordRune reports whether r belongs inside a word. Nonspacing marks are

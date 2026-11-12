@@ -49,6 +49,19 @@ func TestContentWords(t *testing.T) {
 		{"José", []string{"josé"}},
 		{"one two three four five six seven eight nine ten", []string{
 			"one", "two", "three", "four", "five", "six", "seven", "eight"}},
+		// A word must hold a letter or a digit. A run of combining marks or of
+		// private-use characters alone holds neither: no engine reads a word
+		// in it, so it is dropped rather than counted as a word nothing can
+		// match.
+		{"\u0301\u0301", nil},
+		{"\ue000\ue001", nil},
+		{"\u0301\ue000\u0301", nil},
+		{"\u0301-\u0301 \u0301.\ue000 \u0301@\u0301", nil},
+		{"harbor \u0301\u0301 \ue000\ue001 invoice", []string{"harbor", "invoice"}},
+		// A single letter with its accent written as a combining mark is still
+		// a single letter.
+		{"e\u0301 harbor", []string{"harbor"}},
+		{"Q3 x\u0301y", []string{"q3", "x\u0301y"}},
 		// Greetings and thanks say nothing about what a question is about, so
 		// they never spend the cap.
 		{"Hi, hello, hey! Please help: thanks, thank you", []string{"help"}},
@@ -112,6 +125,23 @@ func TestCoverageCountsDistinctWordsHeld(t *testing.T) {
 	for _, tc := range cases {
 		if got := c.Count(tc.text); got != tc.want {
 			t.Errorf("Count(%q) = %d, want %d", tc.text, got, tc.want)
+		}
+	}
+}
+
+// Every content word reaches Coverage as at least one token, so a query's
+// content-word count is the most coverage any text can reach — the MinMatch
+// cap relies on it.
+func TestEveryContentWordHasATokenToCover(t *testing.T) {
+	for _, q := range []string{
+		"harbor \u0301\u0301 \ue000\ue001 invoice",
+		"\u0301-\u0301 \u0301.\ue000 x\u0301y \ue000a",
+		"José Jose follow-up e-mail e.mail",
+	} {
+		for _, w := range ContentWords(q) {
+			if len(Tokens(w)) == 0 {
+				t.Errorf("ContentWords(%q) holds %q, which has no token to cover", q, w)
+			}
 		}
 	}
 }

@@ -120,6 +120,16 @@ func runAnyMatchCases(t *testing.T, idx repositories.LexicalIndex) {
 		t.Errorf("MinMatch 9 over two words = %s, want the resource holding both", got)
 	}
 
+	// A "word" of combining marks or private-use characters alone holds no
+	// letter or digit: it is not a content word, so it neither breaks the
+	// query nor raises the MinMatch cap above what a resource can hold.
+	hits = anySearch(t, idx, repositories.LexicalQuery{
+		Text: "Harbor \u0301\u0301 \ue000\ue001 \u0301-\u0301 invoice", MinMatch: 9,
+	}, nil)
+	if got := strings.Join(orderedIDs(hits), ","); got != "urn:task:rank-4" {
+		t.Errorf("marks-only words = %s, want the resource holding both real words", got)
+	}
+
 	// The type filter narrows the match.
 	hits = anySearch(t, idx, repositories.LexicalQuery{Text: "zanzibar Harbor", TypeSlugs: []string{"note"}}, nil)
 	if got := strings.Join(hitIDs(hits), ","); got != "urn:note:tie-a,urn:note:tie-b" {

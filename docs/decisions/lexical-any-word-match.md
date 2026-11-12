@@ -64,8 +64,12 @@ word and rank by how many match.
    `follow-up`, `dana@example.com` and `v3.2` are one word each. An apostrophe always splits, as
    both engines split it when they index (`can't` is `can` + `t`). Every other character — space,
    quote, and every operator of either engine — separates words and is never inside one. Then stop
-   words and single letters are dropped, duplicates removed, and the first **8** words kept (the
-   hub's `maxQueryTerms`).
+   words and single letters are dropped, and so is any word holding no letter or digit (a run of
+   combining marks or private-use characters alone, which no engine indexes as a word); a
+   combining mark does not count towards a word's length, so `é` written as `e` plus an accent is a
+   single letter. Duplicates are removed, and the first **8** words kept (the hub's
+   `maxQueryTerms`). So every content word is one a resource can hold, and the `MinMatch` cap —
+   the query's content-word count — is always reachable.
 
    Each engine then matches a joined word as a phrase of its own tokens: FTS5 reads `"follow-up"`
    as the phrase `follow up`; PostgreSQL's `to_tsquery` reads `'follow-up'` as
