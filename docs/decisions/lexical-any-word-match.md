@@ -67,9 +67,18 @@ word and rank by how many match.
    words and single letters are dropped, and so is any word holding no letter or digit (a run of
    combining marks or private-use characters alone, which no engine indexes as a word); a
    combining mark does not count towards a word's length, so `é` written as `e` plus an accent is a
-   single letter. Duplicates are removed, and the first **8** words kept (the hub's
-   `maxQueryTerms`). So every content word is one a resource can hold, and the `MinMatch` cap —
-   the query's content-word count — is always reachable.
+   single letter. Duplicates are removed **after folding**: two spellings that read as the same
+   tokens (`lexical.Tokens`: lower-cased, accents removed, split at every non-letter, non-digit) are
+   one word, kept as first written — `josé` and `jose`, `e-mail` and `e.mail`. Then the first **8**
+   words are kept (the hub's `maxQueryTerms`). So every content word is one a resource can hold,
+   each is counted once by coverage and by the cap, and the `MinMatch` cap — the query's
+   content-word count — is always reachable.
+
+   Folding is SQLite's reading, and SQLite counts coverage by it. On PostgreSQL, which keeps
+   accents, the kept spelling is the only one matched: a query `José jose` matches `José` and no
+   longer matches a text that says only `Jose`. That is the existing accent difference between the
+   engines (see the Consequences below), not a new one; a query that names one spelling is
+   unaffected.
 
    Each engine then matches a joined word as a phrase of its own tokens: FTS5 reads `"follow-up"`
    as the phrase `follow up`; PostgreSQL's `to_tsquery` reads `'follow-up'` as

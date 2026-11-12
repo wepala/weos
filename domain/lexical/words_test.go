@@ -62,6 +62,14 @@ func TestContentWords(t *testing.T) {
 		// a single letter.
 		{"e\u0301 harbor", []string{"harbor"}},
 		{"Q3 x\u0301y", []string{"q3", "x\u0301y"}},
+		// Spellings that fold to the same tokens are one word, kept as first
+		// written, so coverage and the cap count it once.
+		{"José jose JOSE", []string{"josé"}},
+		{"jose\u0301 josé", []string{"jose\u0301"}},
+		{"e-mail e.mail", []string{"e-mail"}},
+		{"v3.2 v3-2", []string{"v3.2"}},
+		{"josé jose one two three four five six seven eight", []string{
+			"josé", "one", "two", "three", "four", "five", "six", "seven"}},
 		// Greetings and thanks say nothing about what a question is about, so
 		// they never spend the cap.
 		{"Hi, hello, hey! Please help: thanks, thank you", []string{"help"}},
@@ -143,6 +151,13 @@ func TestEveryContentWordHasATokenToCover(t *testing.T) {
 				t.Errorf("ContentWords(%q) holds %q, which has no token to cover", q, w)
 			}
 		}
+	}
+}
+
+func TestCoverageCountsFoldedSpellingsOnce(t *testing.T) {
+	c := NewCoverage(ContentWords("José jose e-mail e.mail"))
+	if got := c.Count("José sent the e-mail"); got != 2 {
+		t.Errorf("Count = %d, want 2: each folded spelling is one word", got)
 	}
 }
 

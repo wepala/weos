@@ -130,6 +130,24 @@ func runAnyMatchCases(t *testing.T, idx repositories.LexicalIndex) {
 		t.Errorf("marks-only words = %s, want the resource holding both real words", got)
 	}
 
+	// Spellings that fold to the same word are one content word: "josé" and
+	// "jose", "e-mail" and "e.mail" each count once towards coverage and
+	// towards the MinMatch cap.
+	mustIndex(t, idx, "urn:note:fold-one", "note", "José Ramos sent the e-mail", none)
+	mustIndex(t, idx, "urn:note:fold-two", "note", "Quillon Brevard meeting", none)
+	hits = anySearch(t, idx, repositories.LexicalQuery{Text: "José jose quillon brevard", MinMatch: 2}, nil)
+	if got := strings.Join(orderedIDs(hits), ","); got != "urn:note:fold-two" {
+		t.Errorf("josé + jose, MinMatch 2 = %s, want the resource holding two distinct words alone", got)
+	}
+	hits = anySearch(t, idx, repositories.LexicalQuery{Text: "e-mail e.mail quillon", MinMatch: 2}, nil)
+	if got := strings.Join(orderedIDs(hits), ","); got != "" {
+		t.Errorf("e-mail + e.mail, MinMatch 2 = %s, want none: each holds one distinct word", got)
+	}
+	hits = anySearch(t, idx, repositories.LexicalQuery{Text: "José jose", MinMatch: 9}, nil)
+	if got := strings.Join(orderedIDs(hits), ","); got != "urn:note:fold-one" {
+		t.Errorf("josé + jose, MinMatch 9 = %s, want the resource holding the one word", got)
+	}
+
 	// The type filter narrows the match.
 	hits = anySearch(t, idx, repositories.LexicalQuery{Text: "zanzibar Harbor", TypeSlugs: []string{"note"}}, nil)
 	if got := strings.Join(hitIDs(hits), ","); got != "urn:note:tie-a,urn:note:tie-b" {

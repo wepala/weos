@@ -35,7 +35,9 @@ const MaxContentWords = 8
 // ContentWords returns the content words of a query, in the order they
 // first appear: the words a person wrote, lower-cased, with stop words,
 // single letters and words holding no letter or digit dropped, each once, at
-// most MaxContentWords.
+// most MaxContentWords. "Once" is after folding: spellings that read as the
+// same tokens (Tokens) — "josé" and "jose", "e-mail" and "e.mail" — are one
+// word, kept as first written, so coverage and the cap count it once.
 //
 // A word is a run of letters and digits. A single '-', '.' or '@' between two
 // letters or digits joins the run, so "follow-up", "dana@example.com" and
@@ -60,10 +62,14 @@ func ContentWords(query string) []string {
 	var out []string
 	seen := map[string]bool{}
 	for _, w := range words(strings.ToLower(query)) {
-		if !isContentShaped(w) || stopWords[w] || seen[w] {
+		if !isContentShaped(w) || stopWords[w] {
 			continue
 		}
-		seen[w] = true
+		key := strings.Join(Tokens(w), " ")
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
 		out = append(out, w)
 		if len(out) == MaxContentWords {
 			break
