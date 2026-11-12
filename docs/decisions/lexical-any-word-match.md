@@ -81,9 +81,14 @@ second block adds the modals the hub lacks (`cannot`, `may`, `might`, `must`, `s
 fragment a contraction leaves once its apostrophe splits it (`t`, `s`, `d`, `m`, `doesn`, `didn`,
 `isn`, `won`, …). So `can't` is dropped **whole**: a query word `can` would match every "you can …"
 text as strongly as every "can't …" one, which reads as the opposite meaning. Lexical search does
-not model negation; the content words carry the match.
+not model negation; the content words carry the match. Its third block is the greetings and thanks a
+person wraps a support question in — `please`, `thanks`, `thank`, `hello`, `hi`, `hey` — which say
+nothing about what the question is about, and would each spend one of the eight words.
 
-The hub's own list differs from core's by that second block and by how it splits a joined word
+The list is **English**. A query in another language keeps its own function words as content
+words; they still match, they only rank less sharply.
+
+The hub's own list differs from core's by those two added blocks and by how it splits a joined word
 (the hub splits `follow-up` into `follow` + `up`). The hub adopts core's rule when it moves to the
 index (wm-wi1bts).
 

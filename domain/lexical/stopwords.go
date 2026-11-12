@@ -30,7 +30,10 @@ import "strings"
 // Every part is a stop word, so a contraction is dropped whole. A query word
 // "can" would match every "you can …" text as strongly as every "can't …"
 // one, which reads as the opposite meaning; lexical search does not model
-// negation, so the content words carry the match.
+// negation, so the content words carry the match. The third block is the
+// greetings and thanks a person wraps a support question in ("hi, please
+// help, thanks"): they say nothing about what the question is about, and
+// each one kept would spend one of the MaxContentWords on nothing.
 var stopWords = func() map[string]bool {
 	m := map[string]bool{}
 	for _, w := range strings.Fields(`a about after again all am an and any are as at be because been
@@ -42,7 +45,9 @@ var stopWords = func() map[string]bool {
 		ll ve re im ive dont doesnt didnt cant isnt wont
 
 		cannot may might must shall t s d m
-		doesn didn isn aren wasn weren hasn haven hadn won wouldn shouldn couldn mustn shan needn`) {
+		doesn didn isn aren wasn weren hasn haven hadn won wouldn shouldn couldn mustn shan needn
+
+		please thanks thank hello hi hey`) {
 		m[w] = true
 	}
 	return m

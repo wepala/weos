@@ -49,6 +49,11 @@ func TestContentWords(t *testing.T) {
 		{"José", []string{"josé"}},
 		{"one two three four five six seven eight nine ten", []string{
 			"one", "two", "three", "four", "five", "six", "seven", "eight"}},
+		// Greetings and thanks say nothing about what a question is about, so
+		// they never spend the cap.
+		{"Hi, hello, hey! Please help: thanks, thank you", []string{"help"}},
+		{"hi please thanks one two three four five six seven eight nine", []string{
+			"one", "two", "three", "four", "five", "six", "seven", "eight"}},
 	}
 	for _, c := range cases {
 		if got := ContentWords(c.query); !reflect.DeepEqual(got, c.want) {
@@ -59,7 +64,8 @@ func TestContentWords(t *testing.T) {
 
 func TestStopListCoversModalsNegationsAndFragments(t *testing.T) {
 	for _, w := range []string{"can", "cannot", "could", "will", "would", "should", "do", "does", "did",
-		"not", "no", "t", "s", "d", "ll", "re", "ve", "m"} {
+		"not", "no", "t", "s", "d", "ll", "re", "ve", "m",
+		"please", "thanks", "thank", "hello", "hi", "hey"} {
 		if !IsStopWord(w) {
 			t.Errorf("%q is not a stop word", w)
 		}
