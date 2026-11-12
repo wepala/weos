@@ -10,6 +10,7 @@ nav_order: 14
 **Status:** Accepted — Implemented
 **Date:** 2026-11-11
 **Story:** wm-irqzji — PostgreSQL lexical index for core, with a type filter on Search
+**Finding:** wm-yna4s3 — account scope on the lexical index (closed by this story)
 
 ## Problem
 
@@ -25,6 +26,11 @@ A second problem applied to both engines. `Search` took no type. A client that w
 had to filter the result itself, and in a crowded index the limit was spent on other types before
 any task was reached, so the tasks it wanted were never in the result.
 
+A third problem, found in review (wm-yna4s3), also applied to both engines. `resource_search` held
+only `id`, `type_slug` and `content`, and `memory_search` answered from it with no visibility check.
+The table is one for the whole instance, so on a multi-account deployment one account's search
+returned another account's resources, and quoted their text in the snippet.
+
 ## Decision Drivers
 
 - **The same contract on both engines.** The subscriber drives `Index`, `Remove` and `Clear` the
@@ -35,6 +41,8 @@ any task was reached, so the tasks it wanted were never in the result.
 - **No new dependency.** No extension (`pg_trgm` was cut at the plan gate), no embeddings, and
   lexical search never depends on the graph store.
 - **Existing callers keep working without change.**
+- **A search never shows a caller a resource the caller may not read**, by identifier or by
+  snippet, and the index must stay correct when it is rebuilt from history, where no caller exists.
 
 ## Considered Options
 
@@ -90,6 +98,56 @@ any task was reached, so the tasks it wanted were never in the result.
    so the filter is applied to the resource URN (`urn:<typeSlug>:<id>`), and a narrowed search asks
    the graph for the maximum (100) so other types' labels do not spend the limit first.
 
+### The account scope
+
+1. **Filter the answer after the search.** Rejected: the limit is already spent, so another
+   account's better-ranked matches push the caller's own out of a crowded result, and the snippets
+   are built in the same query.
+2. **Scope by `account_id` alone.** Rejected by Akeem on wm-yna4s3: it is a second visibility rule
+   beside the one resource reads already use, and the two would disagree.
+3. **The rule resource reads use, applied in the query** — chosen. The scope is the caller's
+   `VisibilityScope`, built from the identity on the context exactly as `ResourceService` builds it
+   (`visibilityScopeFromContext`), and the predicate is the one `FindAccessibleIDs` applies:
+   the caller created the resource, **or** the resource has no owner, **or** the caller holds a
+   `read` grant on it in `resource_permissions`. One function, `accessiblePredicate`, serves both,
+   so they cannot drift. It goes in the `WHERE` clause beside the `MATCH` / `@@` and the type filter,
+   before `ORDER BY ... LIMIT`. A caller with no identity (CLI, stdio, a background job) has a nil
+   scope and searches everything, as it reads everything; so does an admin scope.
+
+**Ownerless resources stay visible to every caller** (decided by Akeem on wm-yna4s3). A resource
+created by the CLI, a preset or a stdio session has an empty `created_by`, and `FindAccessibleIDs`
+already treats it as readable by everyone. The index follows that rule rather than hiding preset
+data from every account.
+
+**The owner comes from the events, never from the context.** `lexicalHandler` reads `CreatedBy` and
+`AccountID` from the resource's `Resource.Created`: from the transaction on a create, and from the
+aggregate's history on an update, whose transaction does not carry it. A history load that fails is
+returned so the subscriber retries the event; it is never indexed as ownerless. A rebuild replays the
+same events, so it restores the same owners. `account_id` is stored beside `created_by`, as on the
+`resources` table, though the predicate does not read it today.
+
+### Migrating a table written before the owner columns
+
+An existing `resource_search` has no owner columns, and its rows have no owner to read.
+
+1. **Leave it, and tell operators to run `weos worker checkpoint reset lexical-index --truncate`.**
+   Rejected as the only step: until someone runs it the old table cannot be scoped at all.
+2. **`ALTER TABLE ... ADD COLUMN` with a default of `''`, then rebuild.** Rejected: every existing
+   row reads as ownerless, which the scope shows to every caller — the leak, kept open until the
+   rebuild finishes. FTS5 has no `ADD COLUMN` either, so SQLite would need a different path.
+3. **Drop and recreate the table, and reset the checkpoint, in one transaction at startup** —
+   chosen. `ProvideLexicalIndex` sees a `resource_search` without `created_by` (SQLite:
+   `pragma_table_info`; PostgreSQL: `information_schema.columns`, under the same advisory lock as the
+   DDL), drops it, creates the new shape, and sets the `lexical-index` row in
+   `subscriber_checkpoints` to position 0. The rows were a derived view, so nothing is lost, and the
+   subscriber refills the table from history with every owner. It logs that it did so. A second
+   start finds the new shape and changes nothing. Because the reset is in the database, not in the
+   process, it holds whichever process starts first — a CLI command, `serve` or `worker`.
+
+The table is empty, never unscoped, while it refills: the partial-answer window below applies.
+Stop every process that runs the old binary before the upgrade, so none writes an unowned row into
+the new table.
+
 ### The `mode` that `memory_search` reports
 
 1. **Report `fts5` on PostgreSQL too.** Rejected: the output would name an engine that did not
@@ -106,14 +164,14 @@ any task was reached, so the tasks it wanted were never in the result.
 
 | Part | Shape |
 |---|---|
-| Table | `resource_search (id TEXT PRIMARY KEY, type_slug TEXT NOT NULL, content TEXT NOT NULL, tsv TSVECTOR GENERATED ALWAYS AS (to_tsvector('simple', content)) STORED)` |
-| Indexes | GIN on `tsv`; b-tree on `type_slug` |
+| Table | `resource_search (id TEXT PRIMARY KEY, type_slug TEXT NOT NULL, created_by TEXT NOT NULL DEFAULT '', account_id TEXT NOT NULL DEFAULT '', content TEXT NOT NULL, tsv TSVECTOR GENERATED ALWAYS AS (to_tsvector('simple', content)) STORED)`. SQLite: `fts5(content, id UNINDEXED, type_slug UNINDEXED, created_by UNINDEXED, account_id UNINDEXED)` |
+| Indexes | GIN on `tsv`; b-tree on `type_slug` and on `created_by` |
 | Creation | `ProvideLexicalIndex`, under a transaction-scoped advisory lock so a serve and a worker process that boot together do not race the `IF NOT EXISTS` DDL. A failure is logged and degrades to the inactive index, as on SQLite: `memory_search` then answers from graph label search and reports `graph-labels`. The DDL runs with the app's own database user, which therefore needs the **CREATE privilege on the schema**. PostgreSQL 15+ no longer grants it on `public` to every user, so a hardened deployment must grant it (`GRANT CREATE ON SCHEMA public TO <app user>`); the error log names the privilege. After the grant, a restart creates the index. |
-| `Index` | `INSERT ... ON CONFLICT (id) DO UPDATE` |
+| `Index` | `INSERT ... ON CONFLICT (id) DO UPDATE`, writing the owner on the update path as well as the text |
 | Content cap | Both engines index the first 256 KiB of a resource's text, cut on a UTF-8 rune boundary. PostgreSQL refuses a `tsvector` over 1 MB, and the vector of all-distinct words is up to three times the text, so without the cap a large resource fails every insert, parks its event and is never searchable. SQLite takes the same cut so both engines index the same text. Words past the cap are not searchable on either engine. |
 | `Remove` | `DELETE` |
 | `Clear` | `TRUNCATE` |
-| `Search` | `plainto_tsquery('simple', ?)`, ordered by `ts_rank` then `id`; `ts_headline` builds the snippet for the limited page only |
+| `Search` | `plainto_tsquery('simple', ?)`, plus the type filter and the caller's scope in the same `WHERE`, ordered by `ts_rank` then `id`; `ts_headline` builds the snippet for the limited page only |
 | Writes | join the subscriber's batch transaction when one is on the context, as on SQLite, so the index write and the checkpoint advance commit together |
 
 ### How an existing PostgreSQL deployment fills the new table
@@ -123,6 +181,11 @@ checkpoint row. The group does not set `StartAtHead`, so on first start pericarp
 checkpoint at position 0 and the subscriber replays the whole event history into the empty table.
 `TestProvideLexicalGroup_ActiveIndexReplaysFromTheStart` pins that. A later rebuild is
 `weos worker checkpoint reset lexical-index --truncate`, as on SQLite.
+
+A deployment that already has a `resource_search` without owner columns (any SQLite deployment, and
+a PostgreSQL one that ran this story before wm-yna4s3) needs no step either: startup recreates the
+table and resets the checkpoint, as above. `weos worker checkpoint reset lexical-index --truncate`
+does the same rebuild by hand, and is the command to run if the automatic one is ever in doubt.
 
 ## Consequences
 
@@ -136,6 +199,13 @@ checkpoint at position 0 and the subscriber replays the whole event history into
   tell a partial answer from a full one. The same holds after every
   `weos worker checkpoint reset lexical-index --truncate` rebuild, on either engine. The window is as
   long as the replay of the instance's history takes.
-- **The index is not scoped by account or visibility, on either engine.** Before this story a
-  multi-account PostgreSQL deployment answered `memory_search` from label search, which per-account
-  graph stores scope to the caller. It now answers from the shared index. Tracked as wm-yna4s3.
+- **The cross-account gap is closed (wm-yna4s3).** The index is scoped by the caller's visibility
+  on both engines, in the query, by the `FindAccessibleIDs` rule; ownerless resources stay visible to
+  every caller. The degraded graph-label path is unchanged and stays scoped as before.
+- `LexicalIndex.Index` takes the resource's owner and `LexicalIndex.Search` takes a
+  `*VisibilityScope`. `LexicalSearch.Search` is unchanged: it reads the scope from the context.
+- **The first start after the upgrade rebuilds the index**, on every existing deployment, from a
+  from-zero replay. The partial-answer window above applies to it.
+- **The scope inherits `FindAccessibleIDs`' limits.** It does not apply the account admin/owner
+  bypass that `GetByID` applies, so an account admin searches only what they created, what is
+  ownerless, and what was shared with them. That is the strict side, and it matches the graph filter.
