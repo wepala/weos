@@ -200,17 +200,33 @@ func (s *lexicalSearch) labelSearchIDs(
 	return ids, nil
 }
 
-// labelSearchAny is the MatchAny search on the degraded path. Label search
-// matches one substring, so each content word is searched on its own and a
-// resource's coverage is the number of words whose search found it. Resources
-// below the MinMatch floor are dropped and the rest ordered by coverage,
-// keeping label search's own order within one coverage. Each word is asked
-// for the maximum, so a resource holding several words is not lost behind
-// one word's limit. A query with no content words matches nothing.
+// labelSearchAny is the MatchAny search on the degraded path. A resource's
+// coverage is the number of content words its labels hold; resources below
+// the MinMatch floor are dropped and the rest ordered by coverage. A graph
+// that implements AnyWordLabelSearch counts coverage, applies the floor and
+// ranks in one query, before its LIMIT, so no word's many matches can hide a
+// resource holding several words. Any other graph is searched one word at a
+// time, each word asked for the maximum, and a resource's coverage is the
+// number of words whose search found it, keeping label search's own order
+// within one coverage; past the maximum for a word that undercounts, as
+// labelSearch's type filter does for such a graph. A query with no content
+// words matches nothing.
 func (s *lexicalSearch) labelSearchAny(ctx context.Context, q repositories.LexicalQuery) ([]string, error) {
 	words := lexical.ContentWords(q.Text)
 	if len(words) == 0 {
 		return nil, nil
+	}
+	floor := lexical.Floor(q.MinMatch, len(words))
+	if ranked, ok := s.kg.(AnyWordLabelSearch); ok {
+		terms, err := ranked.SearchEntitiesAnyWord(ctx, words, floor, q.TypeSlugs, maxRecallLimit)
+		if err != nil {
+			return nil, err
+		}
+		ids := make([]string, 0, len(terms))
+		for _, t := range terms {
+			ids = append(ids, t.Value)
+		}
+		return ids, nil
 	}
 	coverage := map[string]int{}
 	var order []string
@@ -231,7 +247,6 @@ func (s *lexicalSearch) labelSearchAny(ctx context.Context, q repositories.Lexic
 			coverage[id]++
 		}
 	}
-	floor := lexical.Floor(q.MinMatch, len(words))
 	kept := order[:0]
 	for _, id := range order {
 		if coverage[id] >= floor {

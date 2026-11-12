@@ -125,6 +125,73 @@ func TestLexicalSearch_AnyModeOnGraphLabelsWithNoContentWordsMatchesNothing(t *t
 	}
 }
 
+// rankedAnyWordGraph is a graph that counts coverage in one query
+// (AnyWordLabelSearch). Its per-word label search fails the test if called.
+type rankedAnyWordGraph struct {
+	fakeKGLabelSearch
+	t        *testing.T
+	answer   []string
+	calls    int
+	words    []string
+	minMatch int
+	types    []string
+	limit    int
+}
+
+func (g *rankedAnyWordGraph) SearchEntities(
+	_ context.Context, q, _ string, _ int,
+) ([]repositories.KGTerm, error) {
+	g.t.Errorf("per-word label search %q ran; want the one coverage query", q)
+	return nil, nil
+}
+
+func (g *rankedAnyWordGraph) SearchEntitiesAnyWord(
+	_ context.Context, words []string, minMatch int, types []string, limit int,
+) ([]repositories.KGTerm, error) {
+	g.calls++
+	g.words, g.minMatch, g.types, g.limit = words, minMatch, types, limit
+	terms := make([]repositories.KGTerm, 0, len(g.answer))
+	for _, id := range g.answer {
+		terms = append(terms, repositories.KGTerm{Value: id})
+	}
+	return terms, nil
+}
+
+// A graph that ranks by coverage in one query gets the content words, the
+// floor and the type filter in that query, before its limit, so a resource
+// past one word's many matches is still counted for every word it holds
+// (Copilot on PR #583). Its order is kept, and the caller's limit applies.
+func TestLexicalSearch_AnyModeOnGraphLabelsCountsCoverageInOneQuery(t *testing.T) {
+	t.Parallel()
+
+	kg := &rankedAnyWordGraph{
+		fakeKGLabelSearch: fakeKGLabelSearch{active: true},
+		t:                 t,
+		answer:            []string{"urn:task:chase", "urn:task:lease", "urn:task:onboarding"},
+	}
+	s := NewLexicalSearch(newFakeLexicalIndex(false), kg)
+
+	hits, mode, err := s.Search(context.Background(), repositories.LexicalQuery{
+		Text: "the Harbor invoice", Limit: 2, TypeSlugs: []string{" Task "},
+		Match: repositories.MatchAny, MinMatch: 5,
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if mode != LexicalModeGraphLabels {
+		t.Errorf("mode = %q", mode)
+	}
+	if kg.calls != 1 || strings.Join(kg.words, ",") != "harbor,invoice" || kg.minMatch != 2 ||
+		strings.Join(kg.types, ",") != "task" || kg.limit != maxRecallLimit {
+		t.Errorf("coverage query: calls=%d words=%v minMatch=%d types=%v limit=%d; "+
+			"want 1 call for [harbor invoice], floor 2, [task], limit %d",
+			kg.calls, kg.words, kg.minMatch, kg.types, kg.limit, maxRecallLimit)
+	}
+	if got := hitList(hits); got != "urn:task:chase,urn:task:lease" {
+		t.Errorf("hits = %s, want the graph's order cut to the limit", got)
+	}
+}
+
 func TestParseMatchMode(t *testing.T) {
 	t.Parallel()
 
