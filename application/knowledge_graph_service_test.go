@@ -252,6 +252,31 @@ func TestKGService_SearchEntities_ClassFilterAddsSubClassPath(t *testing.T) {
 	}
 }
 
+// The type filter is a FILTER inside the WHERE clause, so it applies before
+// the LIMIT, and each slug is escaped as a literal.
+func TestKGService_SearchEntitiesOfTypes_FiltersBeforeTheLimit(t *testing.T) {
+	t.Parallel()
+	store := &queryRecordingStore{active: true}
+	svc := newKGSvc(store)
+
+	typed, ok := svc.(TypeScopedLabelSearch)
+	if !ok {
+		t.Fatal("knowledgeGraphService does not implement TypeScopedLabelSearch")
+	}
+	if _, err := typed.SearchEntitiesOfTypes(context.Background(), "invoice", []string{"task", `no"te`}, 5); err != nil {
+		t.Fatalf("SearchEntitiesOfTypes: %v", err)
+	}
+	q := store.queries[0]
+	want := `FILTER(STRSTARTS(STR(?s), "urn:task:") || STRSTARTS(STR(?s), "urn:no\"te:"))`
+	if !strings.Contains(q, want) {
+		t.Errorf("query lacks the type filter %s: %q", want, q)
+	}
+	where, limit := strings.LastIndex(q, "}"), strings.Index(q, "LIMIT 5")
+	if strings.Index(q, want) > where || limit < where {
+		t.Errorf("type filter must sit inside WHERE, before LIMIT: %q", q)
+	}
+}
+
 func TestKGService_SearchEntities_RejectsMaliciousClassIRI(t *testing.T) {
 	t.Parallel()
 	svc := newKGSvc(&queryRecordingStore{active: true})

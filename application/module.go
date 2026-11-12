@@ -210,9 +210,10 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		// Working memory: just-written facts read from the synchronous SQL
 		// projection so recall sees them before the graph checkpoint catches up.
 		fx.Provide(NewWorkingMemory),
-		// Lexical recall (epic #386): FTS5 index over resource text literals,
-		// maintained by a checkpointed subscriber; search degrades to graph
-		// label search where FTS5 is unavailable (PostgreSQL).
+		// Lexical recall (epic #386): a full-text index over resource text
+		// literals (SQLite FTS5, PostgreSQL tsvector — wm-irqzji), maintained
+		// by a checkpointed subscriber; search degrades to graph label search
+		// where the index is inactive.
 		fx.Provide(gorm.ProvideLexicalIndex),
 		fx.Provide(AsSubscriberGroups(ProvideLexicalGroup)),
 		fx.Provide(NewLexicalSearch),

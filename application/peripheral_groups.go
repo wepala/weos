@@ -297,9 +297,23 @@ func (p *oxigraphProjector) accountForEvent(
 func (p *oxigraphProjector) ownerFromHistory(
 	ctx context.Context, aggregateID string,
 ) (accountID, createdBy string, err error) {
-	events, err := p.eventStore.GetEvents(ctx, aggregateID)
+	accountID, createdBy, err = resourceOwnerFromHistory(ctx, p.eventStore, aggregateID)
 	if err != nil {
-		return "", "", fmt.Errorf("kg account resolution: load history for %q: %w", aggregateID, err)
+		return "", "", fmt.Errorf("kg account resolution: %w", err)
+	}
+	return accountID, createdBy, nil
+}
+
+// resourceOwnerFromHistory reads a resource's owning account and creator from
+// its Resource.Created event, which has always carried both and which nothing
+// changes afterwards. Empty values with a nil error mean the aggregate has no
+// such event (or an ownerless one).
+func resourceOwnerFromHistory(
+	ctx context.Context, eventStore domain.EventStore, aggregateID string,
+) (accountID, createdBy string, err error) {
+	events, err := eventStore.GetEvents(ctx, aggregateID)
+	if err != nil {
+		return "", "", fmt.Errorf("load history for %q: %w", aggregateID, err)
 	}
 	for _, e := range events {
 		if e.EventType == "Resource.Created" {

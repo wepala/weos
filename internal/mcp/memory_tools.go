@@ -56,8 +56,9 @@ type MemoryRecallOutput struct {
 
 // MemorySearchInput finds resources by keyword (lexical matching).
 type MemorySearchInput struct {
-	Query string `json:"query" jsonschema:"keywords to match against resource text (proper nouns, identifiers)"`
-	Limit int    `json:"limit,omitempty" jsonschema:"max results (default 20, max 100)"`
+	Query     string   `json:"query" jsonschema:"keywords to match against resource text (proper nouns, identifiers)"`
+	Limit     int      `json:"limit,omitempty" jsonschema:"max results (default 20, max 100)"`
+	TypeSlugs []string `json:"typeSlugs,omitempty" jsonschema:"only return resources of these types, each the exact type slug, which is lowercase (e.g. [\"task\"]; \"tasks\" is a different slug). Case and surrounding spaces are ignored, and a slug that names no type matches nothing. The limit is then spent on these types alone. Omit to search every type"`
 }
 
 // MemorySearchHit is one lexical match.
@@ -70,8 +71,13 @@ type MemorySearchHit struct {
 // MemorySearchOutput lists lexical matches and the mode that produced them.
 type MemorySearchOutput struct {
 	Results []MemorySearchHit `json:"results"`
-	// Mode is "fts5" (full text) or "graph-labels" (degraded label search).
+	// Mode is the full-text engine that answered — "fts5" (SQLite) or
+	// "postgres-fts" (PostgreSQL) — or "graph-labels" (degraded label search).
 	Mode string `json:"mode"`
+	// Notice is set when the full-text index has not caught up with the
+	// event history (it refills after an upgrade or a rebuild), so the
+	// results may be incomplete. Omitted when the answer is complete.
+	Notice string `json:"notice,omitempty"`
 }
 
 // registerMemoryTools registers the agent-memory tool group.
@@ -112,18 +118,29 @@ func registerMemorySearchTool(server *mcp.Server, search application.LexicalSear
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "memory_search",
 		Description: "Find memories and resources by keyword — lexical matching over resource text " +
-			"(proper nouns, identifiers) via SQLite FTS5, degrading to graph label search where FTS5 " +
-			"is unavailable. Superseded facts are never indexed. Use memory_recall for structured " +
-			"fact recall.",
+			"(proper nouns, identifiers) via a full-text index (SQLite FTS5 or PostgreSQL full-text " +
+			"search), degrading to graph label search where no index is available; mode reports which " +
+			"answered, and notice says when the index is still catching up with the history, so the " +
+			"results may be incomplete. Query words are matched as plain words and all must appear. " +
+			"Pass typeSlugs to search only those resource types. Results hold only resources the " +
+			"caller may read: on the full-text index, resources the caller created, ownerless " +
+			"resources (created by the CLI, a preset or a stdio session), and resources shared with " +
+			"the caller by a read grant — being an account admin or owner does not widen this; graph " +
+			"label search applies the graph's own access filter. Superseded facts are never indexed. " +
+			"Use memory_recall for structured fact recall.",
 		Annotations: annReadOnly(),
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, in MemorySearchInput,
 	) (*mcp.CallToolResult, MemorySearchOutput, error) {
-		hits, mode, err := search.Search(ctx, in.Query, in.Limit)
+		hits, mode, notice, err := application.SearchWithRebuildNotice(ctx, search, in.Query, in.Limit, in.TypeSlugs...)
 		if err != nil {
 			return nil, MemorySearchOutput{}, err
 		}
-		out := MemorySearchOutput{Mode: mode, Results: make([]MemorySearchHit, 0, len(hits))}
+		out := MemorySearchOutput{
+			Mode:    mode,
+			Notice:  notice,
+			Results: make([]MemorySearchHit, 0, len(hits)),
+		}
 		for _, h := range hits {
 			out.Results = append(out.Results, MemorySearchHit{
 				ID: h.ID, TypeSlug: h.TypeSlug, Snippet: h.Snippet,

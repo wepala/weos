@@ -45,7 +45,7 @@ func (t *testAgentContext) Value(key any) any           { return t.ctx.Value(key
 // registers in tests.
 type stubLexicalSearch struct{}
 
-func (stubLexicalSearch) Search(context.Context, string, int) ([]repositories.LexicalHit, string, error) {
+func (stubLexicalSearch) Search(context.Context, string, int, ...string) ([]repositories.LexicalHit, string, error) {
 	return nil, "", nil
 }
 

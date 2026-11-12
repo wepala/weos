@@ -18,6 +18,7 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -38,9 +39,12 @@ type LexicalGroupParams struct {
 }
 
 // ProvideLexicalGroup contributes the "lexical-index" subscriber group when
-// the index is active (SQLite with FTS5), and nothing otherwise. The index is
-// a rebuildable derived view: `worker checkpoint reset lexical-index
-// --truncate` clears it and replays history through this handler.
+// the index is active (SQLite FTS5 or PostgreSQL), and nothing otherwise. The
+// index is a rebuildable derived view: `worker checkpoint reset lexical-index
+// --truncate` clears it and replays history through this handler. A group
+// that has never run has no checkpoint row, so its first run starts at 0 and
+// replays all history — which is how a deployment whose index did not exist
+// before (PostgreSQL before wm-irqzji) fills it on first start.
 func ProvideLexicalGroup(p LexicalGroupParams) []SubscriberGroup {
 	if !p.Index.Active() {
 		p.Logger.Debug(context.Background(),
@@ -48,7 +52,7 @@ func ProvideLexicalGroup(p LexicalGroupParams) []SubscriberGroup {
 		return nil
 	}
 	return []SubscriberGroup{{
-		Name:     "lexical-index",
+		Name:     repositories.LexicalIndexSubscriber,
 		Handler:  lexicalHandler(p.EventStore, p.Index, p.Logger),
 		Truncate: p.Index.Clear,
 	}}
@@ -94,11 +98,50 @@ func lexicalHandler(
 			if content == "" {
 				return index.Remove(ctx, event.AggregateID)
 			}
-			return index.Index(ctx, event.AggregateID, typeSlug, content)
+			owner, err := lexicalOwner(ctx, eventStore, index, event, state)
+			if err != nil {
+				return err
+			}
+			return index.Index(ctx, event.AggregateID, typeSlug, content, owner)
 		default:
 			return nil
 		}
 	}
+}
+
+// lexicalOwner reads who owns the published resource from its events — never
+// from ctx, which during a rebuild belongs to no caller at all. A create
+// carries the owner in its own transaction. An update does not, and an owner
+// never changes, so it is read from the resource's existing index row; only a
+// resource with no row yet (a refill that starts mid-history, a row removed
+// when its text emptied) costs a load of the aggregate's history, to read its
+// Resource.Created. A rebuild replays the create before any update, so the
+// row is always there for a replayed update. A failed lookup is returned so
+// the subscriber retries the event rather than indexing the resource as
+// ownerless, which would show it to every caller.
+func lexicalOwner(
+	ctx context.Context, eventStore domain.EventStore, index repositories.LexicalIndex,
+	event domain.EventEnvelope[any], state txResourceState,
+) (repositories.LexicalOwner, error) {
+	owner := repositories.LexicalOwner{CreatedBy: state.CreatedBy, AccountID: state.AccountID}
+	if !state.IsCreate {
+		indexed, found, err := index.Owner(ctx, event.AggregateID)
+		if err != nil {
+			return owner, fmt.Errorf("lexical index: owner of %s: %w", event.AggregateID, err)
+		}
+		if found {
+			return indexed, nil
+		}
+		account, createdBy, err := resourceOwnerFromHistory(ctx, eventStore, event.AggregateID)
+		if err != nil {
+			return owner, fmt.Errorf("lexical index: owner of %s: %w", event.AggregateID, err)
+		}
+		owner = repositories.LexicalOwner{CreatedBy: createdBy, AccountID: account}
+	}
+	if owner.AccountID == "" {
+		owner.AccountID = accountFromPayload(event.Payload)
+	}
+	return owner, nil
 }
 
 // lexicalContent flattens a resource's entity node into one searchable string:

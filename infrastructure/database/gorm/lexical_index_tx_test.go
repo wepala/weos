@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wepala/weos/v3/domain/repositories"
 	"github.com/wepala/weos/v3/infrastructure/models"
 	"github.com/wepala/weos/v3/internal/config"
 
@@ -57,7 +58,7 @@ func TestLexicalIndex_JoinsBatchTransaction(t *testing.T) {
 	// must both complete without deadlocking against the batch's write lock.
 	done := make(chan error, 1)
 	go func() {
-		if err := idx.Index(handlerCtx, "urn:task:g1", "task", "guardrail content"); err != nil {
+		if err := idx.Index(handlerCtx, "urn:task:g1", "task", "guardrail content", repositories.LexicalOwner{}); err != nil {
 			done <- err
 			return
 		}

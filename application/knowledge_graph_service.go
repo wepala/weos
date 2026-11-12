@@ -81,6 +81,18 @@ type KnowledgeGraphService interface {
 	ListClasses(ctx context.Context) ([]repositories.KGTerm, error)
 }
 
+// TypeScopedLabelSearch is implemented by a KnowledgeGraphService whose label
+// search can keep only resources of the given types inside the graph query,
+// before its LIMIT. Lexical search uses it on its degraded path, so a narrowed
+// search is not starved by more than a limit's worth of other types' matches.
+// It is a separate interface so a KnowledgeGraphService written elsewhere
+// keeps compiling.
+type TypeScopedLabelSearch interface {
+	// SearchEntitiesOfTypes is SearchEntities with no class filter, keeping
+	// only resources whose URN (urn:<typeSlug>:<id>) names one of typeSlugs.
+	SearchEntitiesOfTypes(ctx context.Context, q string, typeSlugs []string, limit int) ([]repositories.KGTerm, error)
+}
+
 // ClassDescription captures the metadata returned by DescribeClass.
 type ClassDescription struct {
 	ClassIRI   string                `json:"class_iri"`
@@ -316,6 +328,19 @@ func (s *knowledgeGraphService) ExpandEntity(
 func (s *knowledgeGraphService) SearchEntities(
 	ctx context.Context, q, classIRI string, limit int,
 ) ([]repositories.KGTerm, error) {
+	return s.searchEntities(ctx, q, classIRI, nil, limit)
+}
+
+// SearchEntitiesOfTypes implements TypeScopedLabelSearch.
+func (s *knowledgeGraphService) SearchEntitiesOfTypes(
+	ctx context.Context, q string, typeSlugs []string, limit int,
+) ([]repositories.KGTerm, error) {
+	return s.searchEntities(ctx, q, "", typeSlugs, limit)
+}
+
+func (s *knowledgeGraphService) searchEntities(
+	ctx context.Context, q, classIRI string, typeSlugs []string, limit int,
+) ([]repositories.KGTerm, error) {
 	store, err := s.storeFor(ctx)
 	if err != nil {
 		return nil, err
@@ -343,7 +368,7 @@ func (s *knowledgeGraphService) SearchEntities(
 	if limit > 100 {
 		limit = 100
 	}
-	sparql := buildSearchQuery(q, classIRI, limit)
+	sparql := buildSearchQuery(q, classIRI, typeSlugs, limit)
 	s.logger.Debug(ctx, "kg search entities", "q", q, "limit", limit)
 	res, err := store.Query(ctx, sparql)
 	if err != nil {
@@ -582,13 +607,25 @@ func buildChainTriples(subj, predPrefix, varPrefix string, i int) string {
 // When classIRI is non-empty, results are restricted to instances of that
 // class (or any rdfs:subClassOf descendant). Lets the LLM ask "find people
 // named Alice" without first listing every Person subclass.
-func buildSearchQuery(q, classIRI string, limit int) string {
+//
+// When typeSlugs is non-empty, results are restricted to resources of those
+// types by their URN (urn:<typeSlug>:<id>), inside the WHERE clause and so
+// before the LIMIT: other types' labels cannot spend the limit first.
+func buildSearchQuery(q, classIRI string, typeSlugs []string, limit int) string {
 	escaped := escapeSPARQLLiteral(q)
 	classClause := ""
 	if classIRI != "" {
 		classClause = fmt.Sprintf(`
   ?s <http://www.w3.org/1999/02/22-rdf-syntax-ns#type>/<http://www.w3.org/2000/01/rdf-schema#subClassOf>* %s .`,
 			formatIRI(classIRI))
+	}
+	if len(typeSlugs) > 0 {
+		prefixes := make([]string, 0, len(typeSlugs))
+		for _, t := range typeSlugs {
+			// Concatenated, not %q: the literal takes SPARQL escaping, not Go's.
+			prefixes = append(prefixes, `STRSTARTS(STR(?s), "`+escapeSPARQLLiteral("urn:"+t+":")+`")`)
+		}
+		classClause += "\n  FILTER(" + strings.Join(prefixes, " || ") + ")"
 	}
 	return fmt.Sprintf(`
 SELECT DISTINCT ?s WHERE {%s
