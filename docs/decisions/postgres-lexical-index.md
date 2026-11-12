@@ -68,7 +68,9 @@ any task was reached, so the tasks it wanted were never in the result.
 2. **A variadic `typeSlugs ...string` on `LexicalIndex.Search` and `LexicalSearch.Search`** —
    chosen. The filter is in the SQL on both engines (`type_slug IN (...)`), so the limit is spent on
    the named types alone. A variadic parameter keeps every existing call site compiling unchanged.
-   Blank entries are dropped, so a filter of blanks is no filter. A type with nothing indexed
+   Slugs are trimmed and lowercased first (type slugs are always stored lowercase), so `Task `
+   filters to tasks; a plural such as `tasks` is a different slug and is not rewritten. Blank
+   entries are dropped, so a filter of blanks is no filter. A type with nothing indexed
    matches nothing; it is not an error, because a derived view cannot tell "no such type" from
    "nothing indexed under it".
 

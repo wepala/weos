@@ -58,7 +58,7 @@ type MemoryRecallOutput struct {
 type MemorySearchInput struct {
 	Query     string   `json:"query" jsonschema:"keywords to match against resource text (proper nouns, identifiers)"`
 	Limit     int      `json:"limit,omitempty" jsonschema:"max results (default 20, max 100)"`
-	TypeSlugs []string `json:"typeSlugs,omitempty" jsonschema:"only return resources of these type slugs (e.g. [\"task\"]); the limit is then spent on these types alone. Omit to search every type"`
+	TypeSlugs []string `json:"typeSlugs,omitempty" jsonschema:"only return resources of these types, each the exact type slug, which is lowercase (e.g. [\"task\"]; \"tasks\" is a different slug). Case and surrounding spaces are ignored, and a slug that names no type matches nothing. The limit is then spent on these types alone. Omit to search every type"`
 }
 
 // MemorySearchHit is one lexical match.

@@ -197,3 +197,28 @@ func TestLexicalSearch_FallbackKeepsTheLimitUnnarrowed(t *testing.T) {
 		t.Errorf("label search limit = %d, want the caller's 7", kg.lastLimit)
 	}
 }
+
+func TestLexicalSearch_NormalizesTheTypeFilter(t *testing.T) {
+	t.Parallel()
+
+	index := newFakeLexicalIndex(true)
+	s := NewLexicalSearch(index, nil)
+	if _, _, err := s.Search(context.Background(), "invoice", 5, "Task ", " NOTE"); err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(index.searchTypes) != 1 || strings.Join(index.searchTypes[0], ",") != "task,note" {
+		t.Errorf("index type filter = %v, want [task note] trimmed and lowercased", index.searchTypes)
+	}
+
+	kg := &fakeKGLabelSearch{active: true, terms: []repositories.KGTerm{
+		{Value: "urn:project:p1"}, {Value: "urn:task:t1"},
+	}}
+	fallback := NewLexicalSearch(newFakeLexicalIndex(false), kg)
+	hits, _, err := fallback.Search(context.Background(), "invoice", 5, " Task")
+	if err != nil {
+		t.Fatalf("fallback Search: %v", err)
+	}
+	if len(hits) != 1 || hits[0].ID != "urn:task:t1" {
+		t.Errorf("fallback hits = %+v, want only the task for the filter \" Task\"", hits)
+	}
+}

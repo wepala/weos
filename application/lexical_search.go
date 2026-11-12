@@ -74,7 +74,7 @@ func (s *lexicalSearch) Search(
 	if limit > maxRecallLimit {
 		limit = maxRecallLimit
 	}
-	types := nonBlank(typeSlugs)
+	types := typeSlugFilter(typeSlugs)
 	if s.index != nil && s.index.Active() {
 		hits, err := s.index.Search(ctx, query, limit, types...)
 		return hits, s.index.Engine(), err
@@ -111,11 +111,13 @@ func (s *lexicalSearch) Search(
 	return hits, LexicalModeGraphLabels, nil
 }
 
-// nonBlank drops blank entries, so a filter of only blanks is no filter.
-func nonBlank(values []string) []string {
+// typeSlugFilter trims and lowercases type slugs, which are always stored
+// lowercase, so "Task " filters to tasks. Blank entries are dropped, so a
+// filter of only blanks is no filter.
+func typeSlugFilter(values []string) []string {
 	var out []string
 	for _, v := range values {
-		if v = strings.TrimSpace(v); v != "" {
+		if v = strings.ToLower(strings.TrimSpace(v)); v != "" {
 			out = append(out, v)
 		}
 	}
