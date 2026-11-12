@@ -622,8 +622,8 @@ func buildSearchQuery(q, classIRI string, typeSlugs []string, limit int) string 
 	if len(typeSlugs) > 0 {
 		prefixes := make([]string, 0, len(typeSlugs))
 		for _, t := range typeSlugs {
-			prefixes = append(prefixes, fmt.Sprintf(`STRSTARTS(STR(?s), "%s")`,
-				escapeSPARQLLiteral("urn:"+t+":")))
+			// Concatenated, not %q: the literal takes SPARQL escaping, not Go's.
+			prefixes = append(prefixes, `STRSTARTS(STR(?s), "`+escapeSPARQLLiteral("urn:"+t+":")+`")`)
 		}
 		classClause += "\n  FILTER(" + strings.Join(prefixes, " || ") + ")"
 	}
