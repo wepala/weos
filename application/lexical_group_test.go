@@ -28,6 +28,9 @@ type fakeLexicalIndex struct {
 	// ownerErr fails every Owner lookup; ownerLookups counts them.
 	ownerErr     error
 	ownerLookups int
+	// lag and lagErr are what Lag reports.
+	lag    int64
+	lagErr error
 }
 
 func newFakeLexicalIndex(active bool) *fakeLexicalIndex {
@@ -79,6 +82,9 @@ func (f *fakeLexicalIndex) Search(
 	return f.hits, nil
 }
 func (f *fakeLexicalIndex) Clear(context.Context) error { return nil }
+func (f *fakeLexicalIndex) Lag(context.Context) (int64, error) {
+	return f.lag, f.lagErr
+}
 
 func TestLexicalHandler_IndexesPublishedResourceText(t *testing.T) {
 	t.Parallel()

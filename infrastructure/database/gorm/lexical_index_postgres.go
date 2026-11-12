@@ -216,6 +216,8 @@ func (p *postgresLexicalIndex) Search(
 	return lexicalHits(rows), nil
 }
 
+func (p *postgresLexicalIndex) Lag(ctx context.Context) (int64, error) { return lexicalLag(ctx, p.db) }
+
 // Clear empties the index before a rebuild replays history into it.
 func (p *postgresLexicalIndex) Clear(ctx context.Context) error {
 	if err := lexicalWriter(ctx, p.db).Exec("TRUNCATE resource_search").Error; err != nil {

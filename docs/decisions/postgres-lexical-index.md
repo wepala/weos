@@ -209,16 +209,23 @@ does the same rebuild by hand, and is the command to run if the automatic one is
 
 ## Consequences
 
-- The `LexicalIndex` interface changed (`Engine()`, the type filter). It has one implementation per
-  engine plus the inactive one, all in `infrastructure/database/gorm`.
-- `memory_search` has a new optional input, `typeSlugs`, and a new `mode` value, `postgres-fts`.
-- **Search answers partially while the index fills.** After an upgrade the index is `Active()` the
-  moment `resource_search` exists, but it fills from a from-zero replay of the whole event history.
-  Until the `lexical-index` subscriber catches up, `memory_search` returns only what has been
-  replayed so far, and still reports `postgres-fts` rather than `graph-labels`, so a caller cannot
-  tell a partial answer from a full one. The same holds after every
-  `weos worker checkpoint reset lexical-index --truncate` rebuild, on either engine. The window is as
-  long as the replay of the instance's history takes.
+- The `LexicalIndex` interface changed (`Engine()`, the type filter, `Owner()`, `Lag()`). It has one
+  implementation per engine plus the inactive one, all in `infrastructure/database/gorm`.
+- `memory_search` has a new optional input, `typeSlugs`, a new `mode` value, `postgres-fts`, and a
+  new optional output, `notice`.
+- **Search answers partially while the index fills, and says so (wm-4db1v2).** After an upgrade the
+  index is `Active()` the moment `resource_search` exists, but it fills from a from-zero replay of
+  the whole event history. Until the `lexical-index` subscriber catches up, `memory_search` returns
+  only what has been replayed so far, and still reports its full-text `mode`. The same holds after
+  every `weos worker checkpoint reset lexical-index --truncate` rebuild, on either engine, and the
+  window is as long as the replay of the instance's history takes. So the answer carries a `notice`
+  beside the `mode` whenever the index is behind: it says the index is rebuilding, about how many
+  events behind it is, and that the answer may be incomplete. `LexicalIndex.Lag` reads it in one
+  statement — the newest `events.position` (the end of its unique index) less the `lexical-index`
+  row in `subscriber_checkpoints` (a primary-key lookup) — so the check costs the same on any size
+  of history. A lag that cannot be read gives a notice that the answer may be incomplete, never
+  silence. The notice also appears for the moment between a write and the subscriber indexing it;
+  it is true then too. The key is omitted when the index has caught up, and on `graph-labels`.
 - **The cross-account gap is closed (wm-yna4s3).** The index is scoped by the caller's visibility
   on both engines, in the query, by the `FindAccessibleIDs` rule; ownerless resources stay visible to
   every caller. The degraded graph-label path is unchanged and stays scoped as before.

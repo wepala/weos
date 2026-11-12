@@ -74,6 +74,10 @@ type MemorySearchOutput struct {
 	// Mode is the full-text engine that answered — "fts5" (SQLite) or
 	// "postgres-fts" (PostgreSQL) — or "graph-labels" (degraded label search).
 	Mode string `json:"mode"`
+	// Notice is set when the full-text index has not caught up with the
+	// event history (it refills after an upgrade or a rebuild), so the
+	// results may be incomplete. Omitted when the answer is complete.
+	Notice string `json:"notice,omitempty"`
 }
 
 // registerMemoryTools registers the agent-memory tool group.
@@ -116,7 +120,8 @@ func registerMemorySearchTool(server *mcp.Server, search application.LexicalSear
 		Description: "Find memories and resources by keyword — lexical matching over resource text " +
 			"(proper nouns, identifiers) via a full-text index (SQLite FTS5 or PostgreSQL full-text " +
 			"search), degrading to graph label search where no index is available; mode reports which " +
-			"answered. Query words are matched as plain words and all must appear. Pass typeSlugs to " +
+			"answered, and notice says when the index is still catching up with the history, so the " +
+			"results may be incomplete. Query words are matched as plain words and all must appear. Pass typeSlugs to " +
 			"search only those resource types. Superseded facts are never indexed. Use memory_recall " +
 			"for structured fact recall.",
 		Annotations: annReadOnly(),
@@ -127,7 +132,11 @@ func registerMemorySearchTool(server *mcp.Server, search application.LexicalSear
 		if err != nil {
 			return nil, MemorySearchOutput{}, err
 		}
-		out := MemorySearchOutput{Mode: mode, Results: make([]MemorySearchHit, 0, len(hits))}
+		out := MemorySearchOutput{
+			Mode:    mode,
+			Notice:  application.LexicalRebuildNotice(ctx, search, mode),
+			Results: make([]MemorySearchHit, 0, len(hits)),
+		}
 		for _, h := range hits {
 			out.Results = append(out.Results, MemorySearchHit{
 				ID: h.ID, TypeSlug: h.TypeSlug, Snippet: h.Snippet,

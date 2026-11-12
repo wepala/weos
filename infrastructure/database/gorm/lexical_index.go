@@ -234,6 +234,31 @@ func (s *sqliteLexicalIndex) Clear(ctx context.Context) error {
 	return nil
 }
 
+// lexicalLagQuery is the lexical index's lag in one statement: the newest
+// event position less the lexical-index checkpoint. MAX(position) reads the
+// events table's unique position index from its end, and the checkpoint is a
+// primary-key lookup, so the cost does not grow with the history. The table
+// names are pericarp's (GormEventModel, GormCheckpointModel); a test pins them.
+const lexicalLagQuery = "SELECT COALESCE((SELECT MAX(position) FROM events), 0) - " +
+	"COALESCE((SELECT position FROM subscriber_checkpoints WHERE subscriber = ?), 0)"
+
+// lexicalLag runs lexicalLagQuery on either engine. A checkpoint ahead of the
+// newest surviving event (its last events were retired by compaction) is
+// caught up, not negative.
+func lexicalLag(ctx context.Context, db *gorm.DB) (int64, error) {
+	var lag int64
+	if err := db.WithContext(ctx).Raw(lexicalLagQuery, repositories.LexicalIndexSubscriber).
+		Scan(&lag).Error; err != nil {
+		return 0, fmt.Errorf("lexical index: read lag: %w", err)
+	}
+	if lag < 0 {
+		lag = 0
+	}
+	return lag, nil
+}
+
+func (s *sqliteLexicalIndex) Lag(ctx context.Context) (int64, error) { return lexicalLag(ctx, s.db) }
+
 // lexicalOwnerRow reads one resource's owner from resource_search on either
 // engine. A row with a NULL owner counts as no row.
 func lexicalOwnerRow(db *gorm.DB, id string) (repositories.LexicalOwner, bool, error) {
@@ -347,4 +372,5 @@ func (nopLexicalIndex) Search(
 ) ([]repositories.LexicalHit, error) {
 	return nil, nil
 }
-func (nopLexicalIndex) Clear(context.Context) error { return nil }
+func (nopLexicalIndex) Clear(context.Context) error        { return nil }
+func (nopLexicalIndex) Lag(context.Context) (int64, error) { return 0, nil }

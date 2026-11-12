@@ -90,4 +90,11 @@ type LexicalIndex interface {
 		typeSlugs ...string) ([]LexicalHit, error)
 	// Clear empties the index (the subscriber group's truncate/rebuild hook).
 	Clear(ctx context.Context) error
+	// Lag reports how far the index is behind the event history: the newest
+	// stored event's position less the LexicalIndexSubscriber checkpoint, or
+	// the newest position when the subscriber has never run. 0 means caught
+	// up. While it is above 0 — a refill after an upgrade or a rebuild, or a
+	// subscriber that is behind — a search answers from part of the history.
+	// Positions can have gaps, so it counts positions, not exactly events.
+	Lag(ctx context.Context) (int64, error)
 }

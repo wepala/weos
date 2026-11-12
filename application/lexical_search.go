@@ -57,6 +57,46 @@ type LexicalSearch interface {
 	Search(ctx context.Context, query string, limit int, typeSlugs ...string) ([]repositories.LexicalHit, string, error)
 }
 
+// LexicalIndexProgress is implemented by a LexicalSearch whose full-text
+// index can say how far it is behind the event history. It is a separate
+// interface so a LexicalSearch written elsewhere keeps compiling.
+type LexicalIndexProgress interface {
+	// IndexLag is LexicalIndex.Lag for the index the search answers from, or
+	// 0 when no full-text index is active.
+	IndexLag(ctx context.Context) (int64, error)
+}
+
+// LexicalRebuildNotice is the notice memory_search puts beside its mode when
+// the full-text index has not caught up with the event history, so a caller
+// can tell a partial answer from a full one (wm-4db1v2). That is the case
+// while the index refills after an upgrade or a rebuild, and for a moment
+// after any write. It is "" when the index has caught up, when the answer did
+// not come from the full-text index (graph-labels reads the graph), and when
+// search cannot report progress.
+func LexicalRebuildNotice(ctx context.Context, search LexicalSearch, mode string) string {
+	if !IsFullTextMode(mode) {
+		return ""
+	}
+	progress, ok := search.(LexicalIndexProgress)
+	if !ok {
+		return ""
+	}
+	lag, err := progress.IndexLag(ctx)
+	if err != nil {
+		// The notice is how the failure surfaces: the caller is told the
+		// answer may be partial. The database error itself is not quoted to
+		// an MCP client.
+		return "the full-text index could not report whether it has caught up with the event history, " +
+			"so this answer may be incomplete"
+	}
+	if lag <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("the full-text index is rebuilding: it is about %d events behind the event history, "+
+		"so this answer holds only what is indexed so far and may be incomplete. "+
+		"Repeat the search later for a complete answer", lag)
+}
+
 type lexicalSearch struct {
 	index repositories.LexicalIndex
 	kg    KnowledgeGraphService
@@ -115,6 +155,14 @@ func (s *lexicalSearch) Search(
 		hits = hits[:limit]
 	}
 	return hits, LexicalModeGraphLabels, nil
+}
+
+// IndexLag implements LexicalIndexProgress.
+func (s *lexicalSearch) IndexLag(ctx context.Context) (int64, error) {
+	if s.index == nil || !s.index.Active() {
+		return 0, nil
+	}
+	return s.index.Lag(ctx)
 }
 
 // typeSlugFilter trims and lowercases type slugs, which are always stored
