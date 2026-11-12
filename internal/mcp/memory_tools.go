@@ -121,9 +121,13 @@ func registerMemorySearchTool(server *mcp.Server, search application.LexicalSear
 			"(proper nouns, identifiers) via a full-text index (SQLite FTS5 or PostgreSQL full-text " +
 			"search), degrading to graph label search where no index is available; mode reports which " +
 			"answered, and notice says when the index is still catching up with the history, so the " +
-			"results may be incomplete. Query words are matched as plain words and all must appear. Pass typeSlugs to " +
-			"search only those resource types. Superseded facts are never indexed. Use memory_recall " +
-			"for structured fact recall.",
+			"results may be incomplete. Query words are matched as plain words and all must appear. " +
+			"Pass typeSlugs to search only those resource types. Results hold only resources the " +
+			"caller may read: on the full-text index, resources the caller created, ownerless " +
+			"resources (created by the CLI, a preset or a stdio session), and resources shared with " +
+			"the caller by a read grant — being an account admin or owner does not widen this; graph " +
+			"label search applies the graph's own access filter. Superseded facts are never indexed. " +
+			"Use memory_recall for structured fact recall.",
 		Annotations: annReadOnly(),
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, in MemorySearchInput,

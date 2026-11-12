@@ -22,11 +22,13 @@ Feature: Full-text lexical search on PostgreSQL
   The index is reached without the knowledge graph. Lexical search on PostgreSQL answers from the
   index alone, so an instance with no graph store configured still searches its memories.
 
-  The index is one table for every account the instance serves, so the search is scoped to the
-  caller's account on this engine too: another account's matching resource is neither returned nor
-  quoted back, and the caller's own match is not pushed out of a crowded result by it. The wider
-  property, and the SQLite half of it, is specified in lexical_search_account_scope.feature; the
-  scenarios here pin the PostgreSQL query that applies the scope.
+  The index is one table for every account the instance serves, so on this engine too the search
+  is scoped to what the caller may read: resources the caller created, ownerless resources, and
+  resources shared with the caller by a read grant, with no wider reach for an account admin.
+  Another account's matching resource is neither returned nor quoted back, and the caller's own
+  match is not pushed out of a crowded result by it. The wider property, and the SQLite half of
+  it, is specified in lexical_search_account_scope.feature; the scenarios here pin the PostgreSQL
+  query that applies the scope.
 
   These scenarios need a real PostgreSQL database. They are skipped where none is configured.
 

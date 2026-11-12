@@ -1,7 +1,7 @@
 @story-wm-irqzji
 Feature: Account scope on a lexical memory search
   As an operator running one WeOS instance for several accounts
-  I want a keyword search to answer only from the caller's own account
+  I want a keyword search to answer only from what the caller may read
   So that no account is shown another account's memories, or the text inside them
 
   The lexical index is one table for the whole instance: every resource the instance stores is
@@ -11,17 +11,19 @@ Feature: Account scope on a lexical memory search
   returned the other account's words as well as its identifiers. The identifier alone is a leak;
   the snippet is the stored sentence.
 
-  The search is scoped to the caller's account here. A search answers from the caller's own
-  resources, and another account's matching resource is neither counted, returned, nor quoted.
-  The boundary is the same one the rest of the instance already draws around an account's
-  resources, so it holds for a resource created in one account and searched for from another
-  whether the index was written as the resource was stored or rebuilt from the event history
-  afterwards.
+  The search is scoped to what the caller may read here, by the rule resource reads already use:
+  a resource the caller created, a resource with no owner (one created by the CLI, a preset or a
+  stdio session, which every caller may read), and a resource another caller shared with this one
+  by a read grant. Nothing else is counted, returned, or quoted — so another account's matching
+  resource never is. Being an account admin or owner does not widen the rule: an admin searches
+  only what they created, what is ownerless, and what was shared with them. The rule holds for a
+  resource created in one account and searched for from another whether the index was written as
+  the resource was stored or rebuilt from the event history afterwards.
 
   The scope is applied where the match is made, not to the answer afterwards. A search spends its
-  limit on the caller's own resources, so another account's better-ranked matches cannot push the
+  limit on resources the caller may read, so another account's better-ranked matches cannot push the
   caller's own match out of a crowded result, and it composes with the type filter: narrowing to a
-  type narrows within the account rather than reaching across accounts for that type.
+  type narrows within what the caller may read rather than reaching across accounts for that type.
 
   Background:
     Given a clean WeOS knowledge graph
