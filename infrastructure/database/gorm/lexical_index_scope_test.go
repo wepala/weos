@@ -391,9 +391,12 @@ func TestPgLexicalTableIsStale_OneSchemaResolution(t *testing.T) {
 		if err := tx.Exec("SET LOCAL search_path TO app, public").Error; err != nil {
 			return err
 		}
-		stale, err := pgLexicalTableIsStale(tx)
+		exists, stale, err := pgLexicalTableState(tx)
 		if err != nil {
 			return err
+		}
+		if !exists {
+			t.Error("public.resource_search is on the search path, but the check did not find it")
 		}
 		if stale {
 			t.Error("public.resource_search has owner columns, but the check called it stale " +
@@ -403,6 +406,49 @@ func TestPgLexicalTableIsStale_OneSchemaResolution(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("check: %v", err)
+	}
+}
+
+// Startup must not create a second, empty resource_search in the first schema
+// on the search path when the current-shape table already exists in a later
+// one. An unqualified CREATE TABLE IF NOT EXISTS checks only the schema it
+// creates in, so it would make app.resource_search, which then shadows the
+// populated public table for every query — and, the shape check having found
+// nothing stale, the checkpoint stays where it is, so history is never
+// re-indexed into the new table (Copilot review 5869602749).
+func TestNewPostgresLexicalIndex_DoesNotShadowAnExistingTable(t *testing.T) {
+	t.Parallel()
+	db, cfg := postgresScopeDB(t)
+	idx := ProvideLexicalIndex(db, cfg, &testLogger{}) // current shape, in public
+	mustIndex(t, idx, "urn:task:harbor", "task", "Dunmore settlement", harbor)
+	err := db.Transaction(func(tx *gormlib.DB) error {
+		if err := tx.Exec("CREATE SCHEMA app").Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("SET LOCAL search_path TO app, public").Error; err != nil {
+			return err
+		}
+		reopened, recreated, err := newPostgresLexicalIndex(context.Background(), tx)
+		if err != nil {
+			return err
+		}
+		if recreated {
+			t.Error("the current-shape table was reported as recreated")
+		}
+		var shadow bool
+		if err := tx.Raw("SELECT to_regclass('app.resource_search') IS NOT NULL").
+			Scan(&shadow).Error; err != nil {
+			return err
+		}
+		if shadow {
+			t.Error("startup created app.resource_search, which shadows the populated public.resource_search")
+		}
+		assertHits(t, reopened, "harbor after a restart on a new search path", "settlement", 10,
+			scopeOf(harbor), "urn:task:harbor")
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("restart: %v", err)
 	}
 }
 
