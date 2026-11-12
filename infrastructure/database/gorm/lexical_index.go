@@ -130,7 +130,8 @@ func logLexicalRecreate(ctx context.Context, logger entities.Logger, recreated b
 	if !recreated {
 		return
 	}
-	logger.Info(ctx, "lexical index table had no owner columns; recreated it empty and reset the "+
+	logger.Info(ctx, "lexical index table had an old shape (no owner columns, or owner columns with a "+
+		"default); recreated it empty and reset the "+
 		repositories.LexicalIndexSubscriber+" checkpoint to 0. The index refills from the event "+
 		"history, and memory_search answers from the part already refilled until it catches up. "+
 		"A resource whose event the refill could not index is left out of search: list those events "+

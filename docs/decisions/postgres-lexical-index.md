@@ -137,16 +137,32 @@ An existing `resource_search` has no owner columns, and its rows have no owner t
    rebuild finishes. FTS5 has no `ADD COLUMN` either, so SQLite would need a different path.
 3. **Drop and recreate the table, and reset the checkpoint, in one transaction at startup** —
    chosen. `ProvideLexicalIndex` sees a `resource_search` without `created_by` (SQLite:
-   `pragma_table_info`; PostgreSQL: `information_schema.columns`, under the same advisory lock as the
-   DDL), drops it, creates the new shape, and sets the `lexical-index` row in
+   `pragma_table_info`; PostgreSQL: `pg_attribute` of the one table `to_regclass` finds on the search
+   path — the table the `DROP` and every query reach — under the same advisory lock as the DDL),
+   drops it, creates the new shape, and sets the `lexical-index` row in
    `subscriber_checkpoints` to position 0. The rows were a derived view, so nothing is lost, and the
    subscriber refills the table from history with every owner. It logs that it did so. A second
    start finds the new shape and changes nothing. Because the reset is in the database, not in the
    process, it holds whichever process starts first — a CLI command, `serve` or `worker`.
 
 The table is empty, never unscoped, while it refills: the partial-answer window below applies.
-Stop every process that runs the old binary before the upgrade, so none writes an unowned row into
-the new table.
+
+**A process still on the old binary during the upgrade cannot write an unowned row** (wm-f3t6tp).
+The old binary writes `(id, type_slug, content)` and names no owner.
+
+- On PostgreSQL the owner columns are `NOT NULL` with **no default**, so that insert fails. The
+  batch it ran in rolls back, the checkpoint advance with it, and the event is left for a current
+  binary to index with its owner. With a default of `''` the row would read as ownerless, be shown
+  to every caller, and its checkpoint advance would commit. A table built with that default (a
+  build of this story before wm-f3t6tp) is treated as an old shape and rebuilt the same way, since
+  it may already hold such rows.
+- On SQLite an FTS5 table takes no constraints and no triggers, so the insert succeeds — but its
+  owner columns are `NULL`, which the scope never matches. A scoped caller is not shown the row; it
+  is missing from search, never leaked, until the resource is next written or the index is rebuilt.
+  A SQLite instance runs its subscribers in the one `serve` process, so an overlap needs two
+  binaries on one database file.
+
+Stopping every old-binary process before the upgrade is still the clean path.
 
 ### The `mode` that `memory_search` reports
 
@@ -164,7 +180,7 @@ the new table.
 
 | Part | Shape |
 |---|---|
-| Table | `resource_search (id TEXT PRIMARY KEY, type_slug TEXT NOT NULL, created_by TEXT NOT NULL DEFAULT '', account_id TEXT NOT NULL DEFAULT '', content TEXT NOT NULL, tsv TSVECTOR GENERATED ALWAYS AS (to_tsvector('simple', content)) STORED)`. SQLite: `fts5(content, id UNINDEXED, type_slug UNINDEXED, created_by UNINDEXED, account_id UNINDEXED)` |
+| Table | `resource_search (id TEXT PRIMARY KEY, type_slug TEXT NOT NULL, created_by TEXT NOT NULL, account_id TEXT NOT NULL, content TEXT NOT NULL, tsv TSVECTOR GENERATED ALWAYS AS (to_tsvector('simple', content)) STORED)`. SQLite: `fts5(content, id UNINDEXED, type_slug UNINDEXED, created_by UNINDEXED, account_id UNINDEXED)` |
 | Indexes | GIN on `tsv`; b-tree on `type_slug` and on `created_by` |
 | Creation | `ProvideLexicalIndex`, under a transaction-scoped advisory lock so a serve and a worker process that boot together do not race the `IF NOT EXISTS` DDL. A failure is logged and degrades to the inactive index, as on SQLite: `memory_search` then answers from graph label search and reports `graph-labels`. The DDL runs with the app's own database user, which therefore needs the **CREATE privilege on the schema**. PostgreSQL 15+ no longer grants it on `public` to every user, so a hardened deployment must grant it (`GRANT CREATE ON SCHEMA public TO <app user>`); the error log names the privilege. After the grant, a restart creates the index. |
 | `Index` | `INSERT ... ON CONFLICT (id) DO UPDATE`, writing the owner on the update path as well as the text |

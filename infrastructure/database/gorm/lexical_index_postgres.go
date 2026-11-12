@@ -49,12 +49,20 @@ const pgLexicalSchemaLock = 0x7765_6f73_6c78 // "weoslx"
 // Search filters on created_by by the FindAccessibleIDs rule; account_id is
 // kept beside it, as on the resources table, so a later per-account rule needs
 // no second migration.
+//
+// Both owner columns are NOT NULL with no default, so an insert that does not
+// name them fails (wm-f3t6tp). A worker still running a binary from before
+// the owner columns writes (id, type_slug, content) only. With an empty-string
+// default that row would read as ownerless and be shown to every caller, and
+// its checkpoint advance would commit. Without one the insert fails, its batch
+// rolls back with the checkpoint advance, and the event is left for a current
+// binary to index with its owner.
 var pgLexicalSchema = []string{
 	"CREATE TABLE IF NOT EXISTS resource_search (" +
 		"id TEXT PRIMARY KEY, " +
 		"type_slug TEXT NOT NULL, " +
-		"created_by TEXT NOT NULL DEFAULT '', " +
-		"account_id TEXT NOT NULL DEFAULT '', " +
+		"created_by TEXT NOT NULL, " +
+		"account_id TEXT NOT NULL, " +
 		"content TEXT NOT NULL, " +
 		"tsv TSVECTOR GENERATED ALWAYS AS (to_tsvector('simple'::regconfig, content)) STORED)",
 	"CREATE INDEX IF NOT EXISTS resource_search_tsv_idx ON resource_search USING GIN (tsv)",
@@ -71,7 +79,8 @@ type postgresLexicalIndex struct {
 }
 
 // newPostgresLexicalIndex creates the index schema, first replacing a table of
-// the old shape (no owner columns). It reports whether it replaced one.
+// an old shape — no owner columns, or owner columns that default to the empty string (see
+// pgLexicalSchema). It reports whether it replaced one.
 //
 // The old table is dropped rather than altered: ALTER ... ADD COLUMN would
 // give every existing row an empty created_by, which the scope reads as ownerless
@@ -85,13 +94,13 @@ func newPostgresLexicalIndex(ctx context.Context, db *gorm.DB) (*postgresLexical
 		if err := tx.Exec("SELECT pg_advisory_xact_lock(?)", pgLexicalSchemaLock).Error; err != nil {
 			return fmt.Errorf("lock lexical schema: %w", err)
 		}
-		stale, err := pgLexicalTableLacksOwner(tx)
+		stale, err := pgLexicalTableIsStale(tx)
 		if err != nil {
 			return err
 		}
 		if stale {
 			if err := tx.Exec("DROP TABLE resource_search").Error; err != nil {
-				return fmt.Errorf("drop lexical table without owner columns: %w", err)
+				return fmt.Errorf("drop lexical table of an old shape: %w", err)
 			}
 			if err := resetLexicalCheckpoint(tx); err != nil {
 				return err
@@ -111,21 +120,33 @@ func newPostgresLexicalIndex(ctx context.Context, db *gorm.DB) (*postgresLexical
 	return &postgresLexicalIndex{db: db}, recreated, nil
 }
 
-// pgLexicalTableLacksOwner reports whether a resource_search table exists in
-// the current schema without the created_by column.
-func pgLexicalTableLacksOwner(tx *gorm.DB) (bool, error) {
+// pgLexicalTableIsStale reports whether the resource_search table exists in an
+// old shape: without the created_by column, or with a default on created_by or
+// account_id. A table with an owner default may hold rows an old binary wrote
+// with no owner, which read as ownerless, so it is rebuilt rather than altered.
+//
+// The table is resolved once, by to_regclass on the search path — the same
+// resolution the DROP and every query use — and its columns are read from that
+// one relation, so the check can never describe a different table from the one
+// it drops.
+func pgLexicalTableIsStale(tx *gorm.DB) (bool, error) {
 	var row struct {
-		Exists   bool
-		HasOwner bool
+		Exists       bool
+		HasOwner     bool
+		OwnerDefault bool
 	}
-	err := tx.Raw("SELECT to_regclass('resource_search') IS NOT NULL AS exists, " +
-		"EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() " +
-		"AND table_name = 'resource_search' AND column_name = 'created_by') AS has_owner").
+	err := tx.Raw("SELECT t.rel IS NOT NULL AS exists, " +
+		"EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = t.rel " +
+		"AND a.attname = 'created_by' AND a.attnum > 0 AND NOT a.attisdropped) AS has_owner, " +
+		"EXISTS (SELECT 1 FROM pg_attrdef d JOIN pg_attribute a " +
+		"ON a.attrelid = d.adrelid AND a.attnum = d.adnum " +
+		"WHERE d.adrelid = t.rel AND a.attname IN ('created_by', 'account_id')) AS owner_default " +
+		"FROM (SELECT to_regclass('resource_search')::oid AS rel) AS t").
 		Scan(&row).Error
 	if err != nil {
 		return false, fmt.Errorf("read lexical table columns: %w", err)
 	}
-	return row.Exists && !row.HasOwner, nil
+	return row.Exists && (!row.HasOwner || row.OwnerDefault), nil
 }
 
 func (p *postgresLexicalIndex) Active() bool   { return true }

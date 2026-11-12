@@ -311,3 +311,114 @@ func TestLexicalIndex_MigratesOldTableShape_Postgres(t *testing.T) {
 		"CREATE INDEX resource_search_type_slug_idx ON resource_search (type_slug)",
 	})
 }
+
+// --- An insert that does not name the owner (wm-f3t6tp) ---
+
+// oldBinaryUpsert is the write a worker still running the binary from before
+// the owner columns makes: it names no owner.
+const oldBinaryUpsert = "INSERT INTO resource_search (id, type_slug, content) VALUES (?, ?, ?) " +
+	"ON CONFLICT (id) DO UPDATE SET type_slug = EXCLUDED.type_slug, content = EXCLUDED.content"
+
+// On PostgreSQL the owner columns have no default, so an old binary's write
+// fails — for a new row and for an existing one — and the batch it ran in
+// rolls back with its checkpoint advance. With a default of the empty string
+// the row would read as ownerless and be shown to every caller.
+func TestLexicalIndex_RefusesAWriteWithNoOwner_Postgres(t *testing.T) {
+	t.Parallel()
+	db, cfg := postgresScopeDB(t)
+	idx := ProvideLexicalIndex(db, cfg, &testLogger{})
+	mustIndex(t, idx, "urn:task:harbor", "task", "Dunmore settlement", harbor)
+	if err := db.Create(&subscriptions.GormCheckpointModel{
+		Subscriber: repositories.LexicalIndexSubscriber, Position: 7, UpdatedAt: time.Now(),
+	}).Error; err != nil {
+		t.Fatalf("seed checkpoint: %v", err)
+	}
+
+	for _, id := range []string{"urn:task:new", "urn:task:harbor"} {
+		err := db.Transaction(func(tx *gormlib.DB) error {
+			if err := tx.Model(&subscriptions.GormCheckpointModel{}).
+				Where("subscriber = ?", repositories.LexicalIndexSubscriber).
+				Update("position", 8).Error; err != nil {
+				return err
+			}
+			return tx.Exec(oldBinaryUpsert, id, "task", "Dunmore written by the old binary").Error
+		})
+		if err == nil {
+			t.Errorf("old-binary write of %s succeeded, want a NOT NULL violation", id)
+		}
+	}
+
+	var position int64
+	if err := db.Model(&subscriptions.GormCheckpointModel{}).Select("position").
+		Where("subscriber = ?", repositories.LexicalIndexSubscriber).Scan(&position).Error; err != nil {
+		t.Fatalf("read checkpoint: %v", err)
+	}
+	if position != 7 {
+		t.Errorf("checkpoint = %d, want 7: the failed write must roll back its checkpoint advance", position)
+	}
+	assertHits(t, idx, "cedar after the refused writes", "dunmore", 10, scopeOf(cedar))
+	assertHits(t, idx, "harbor after the refused writes", "settlement", 10, scopeOf(harbor), "urn:task:harbor")
+}
+
+// A table built with an empty-string default on the owner columns (a build of
+// this story before wm-f3t6tp) may hold rows an old binary wrote with no
+// owner, so startup rebuilds it like a table with no owner columns at all.
+func TestLexicalIndex_RebuildsATableWithOwnerDefaults_Postgres(t *testing.T) {
+	t.Parallel()
+	db, cfg := postgresScopeDB(t)
+	runOldShapeMigration(t, db, cfg, []string{
+		"CREATE TABLE resource_search (id TEXT PRIMARY KEY, type_slug TEXT NOT NULL, " +
+			"created_by TEXT NOT NULL DEFAULT '', account_id TEXT NOT NULL DEFAULT '', content TEXT NOT NULL, " +
+			"tsv TSVECTOR GENERATED ALWAYS AS (to_tsvector('simple'::regconfig, content)) STORED)",
+	})
+	if err := db.Exec(oldBinaryUpsert, "urn:task:old2", "task", "Dunmore").Error; err == nil {
+		t.Error("old-binary write succeeded on the rebuilt table, want a NOT NULL violation")
+	}
+}
+
+// The shape check resolves the table once, on the search path, and reads the
+// columns of that one table. When the first schema on the path does not hold
+// the table but a later one does, the check must describe the later one — the
+// one the DROP and every query reach — and not report it stale.
+func TestPgLexicalTableIsStale_OneSchemaResolution(t *testing.T) {
+	t.Parallel()
+	db, cfg := postgresScopeDB(t)
+	ProvideLexicalIndex(db, cfg, &testLogger{}) // current shape, in public
+	err := db.Transaction(func(tx *gormlib.DB) error {
+		if err := tx.Exec("CREATE SCHEMA app").Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("SET LOCAL search_path TO app, public").Error; err != nil {
+			return err
+		}
+		stale, err := pgLexicalTableIsStale(tx)
+		if err != nil {
+			return err
+		}
+		if stale {
+			t.Error("public.resource_search has owner columns, but the check called it stale " +
+				"(columns read from current_schema(), the table found on the search path)")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+}
+
+// SQLite cannot refuse the write: an FTS5 table takes no constraints and no
+// triggers. An old binary's row gets a NULL owner, which the scope never
+// matches (NULL is neither the caller nor the empty string), so a scoped
+// caller is not shown it — the gap stays closed. Only a nil or admin scope
+// sees it, as it sees everything.
+func TestLexicalIndex_AWriteWithNoOwnerStaysHidden_SQLite(t *testing.T) {
+	t.Parallel()
+	db := sqliteScopeDB(t)
+	idx := ProvideLexicalIndex(db, config.Default(), &testLogger{})
+	if err := db.Exec("INSERT INTO resource_search(content, id, type_slug) VALUES (?, ?, ?)",
+		"Dunmore written by the old binary", "urn:task:old", "task").Error; err != nil {
+		t.Fatalf("old-binary insert: %v", err)
+	}
+	assertHits(t, idx, "harbor", "dunmore", 10, scopeOf(harbor))
+	assertHits(t, idx, "system caller", "dunmore", 10, nil, "urn:task:old")
+}
