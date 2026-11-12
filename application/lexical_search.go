@@ -128,20 +128,14 @@ func (s *lexicalSearch) Search(
 	if s.kg == nil || !s.kg.Active() {
 		return nil, "", ErrLexicalUnavailable
 	}
-	// Label search knows classes, not resource types, so the type filter is
-	// applied to the resource URN (urn:<typeSlug>:<id>). A narrowed search
-	// asks the graph for its maximum so the other types' labels cannot spend
-	// the limit before the narrowed type is reached.
-	fetch := limit
-	if len(types) > 0 {
-		fetch = maxRecallLimit
-	}
-	terms, err := s.kg.SearchEntities(ctx, query, "", fetch)
+	terms, err := s.labelSearch(ctx, query, limit, types)
 	if err != nil {
 		return nil, "", err
 	}
 	hits := make([]repositories.LexicalHit, 0, len(terms))
 	for _, t := range terms {
+		// The graph applied the type filter already where it could; this
+		// keeps a graph that cannot (see labelSearch) to the narrowed types.
 		if len(types) > 0 && !urnHasType(t.Value, types) {
 			continue
 		}
@@ -155,6 +149,24 @@ func (s *lexicalSearch) Search(
 		hits = hits[:limit]
 	}
 	return hits, LexicalModeGraphLabels, nil
+}
+
+// labelSearch runs the graph's label search. Label search knows classes, not
+// resource types, so a type filter is applied to the resource URN
+// (urn:<typeSlug>:<id>). A graph that implements TypeScopedLabelSearch applies
+// it inside its query, before the LIMIT, so other types' labels can never
+// spend the limit. Any other graph is asked for its maximum and filtered
+// afterwards, which still misses a narrowed type past that many matches.
+func (s *lexicalSearch) labelSearch(
+	ctx context.Context, query string, limit int, types []string,
+) ([]repositories.KGTerm, error) {
+	if len(types) == 0 {
+		return s.kg.SearchEntities(ctx, query, "", limit)
+	}
+	if typed, ok := s.kg.(TypeScopedLabelSearch); ok {
+		return typed.SearchEntitiesOfTypes(ctx, query, types, limit)
+	}
+	return s.kg.SearchEntities(ctx, query, "", maxRecallLimit)
 }
 
 // IndexLag implements LexicalIndexProgress.

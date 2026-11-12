@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -184,6 +185,73 @@ func TestLexicalSearch_FallbackNarrowsToTheType(t *testing.T) {
 	}
 	if kg.lastLimit != maxRecallLimit {
 		t.Errorf("label search limit = %d, want %d so other types cannot spend it", kg.lastLimit, maxRecallLimit)
+	}
+}
+
+// rankedLabelGraph answers label search the way the graph does: in its own
+// order, cut at the limit. Its type-scoped search applies the type before the
+// limit, as the SPARQL FILTER does.
+type rankedLabelGraph struct {
+	KnowledgeGraphService
+	terms      []repositories.KGTerm
+	typedCalls int
+}
+
+func (g *rankedLabelGraph) Active() bool { return true }
+
+func (g *rankedLabelGraph) SearchEntities(
+	_ context.Context, _, _ string, limit int,
+) ([]repositories.KGTerm, error) {
+	if len(g.terms) > limit {
+		return g.terms[:limit], nil
+	}
+	return g.terms, nil
+}
+
+func (g *rankedLabelGraph) SearchEntitiesOfTypes(
+	_ context.Context, _ string, typeSlugs []string, limit int,
+) ([]repositories.KGTerm, error) {
+	g.typedCalls++
+	var out []repositories.KGTerm
+	for _, t := range g.terms {
+		if urnHasType(t.Value, typeSlugs) && len(out) < limit {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
+func (g *rankedLabelGraph) Query(context.Context, string) (repositories.KGQueryResult, error) {
+	return repositories.KGQueryResult{}, nil
+}
+
+// More than the graph's maximum of other types' labels rank before the one
+// matching task. The type filter must reach the graph query, before its
+// LIMIT, or the task is cut off and a task-only search finds nothing
+// (Copilot review 5869602749).
+func TestLexicalSearch_FallbackFindsATypePastTheGraphMaximum(t *testing.T) {
+	t.Parallel()
+
+	var terms []repositories.KGTerm
+	for i := 0; i < maxRecallLimit+20; i++ {
+		terms = append(terms, repositories.KGTerm{Value: fmt.Sprintf("urn:project:p%03d", i)})
+	}
+	terms = append(terms, repositories.KGTerm{Value: "urn:task:t1"})
+	kg := &rankedLabelGraph{terms: terms}
+	s := NewLexicalSearch(newFakeLexicalIndex(false), kg)
+
+	hits, mode, err := s.Search(context.Background(), "invoice", 5, "task")
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if mode != LexicalModeGraphLabels {
+		t.Errorf("mode = %q", mode)
+	}
+	if len(hits) != 1 || hits[0].ID != "urn:task:t1" {
+		t.Errorf("hits = %+v, want the task past %d project labels", hits, maxRecallLimit+20)
+	}
+	if kg.typedCalls != 1 {
+		t.Errorf("type-scoped label search ran %d times, want 1", kg.typedCalls)
 	}
 }
 
