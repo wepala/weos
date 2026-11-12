@@ -108,7 +108,7 @@ any task was reached, so the tasks it wanted were never in the result.
 |---|---|
 | Table | `resource_search (id TEXT PRIMARY KEY, type_slug TEXT NOT NULL, content TEXT NOT NULL, tsv TSVECTOR GENERATED ALWAYS AS (to_tsvector('simple', content)) STORED)` |
 | Indexes | GIN on `tsv`; b-tree on `type_slug` |
-| Creation | `ProvideLexicalIndex`, under a transaction-scoped advisory lock so a serve and a worker process that boot together do not race the `IF NOT EXISTS` DDL. A failure is logged and degrades to the inactive index, as on SQLite. |
+| Creation | `ProvideLexicalIndex`, under a transaction-scoped advisory lock so a serve and a worker process that boot together do not race the `IF NOT EXISTS` DDL. A failure is logged and degrades to the inactive index, as on SQLite: `memory_search` then answers from graph label search and reports `graph-labels`. The DDL runs with the app's own database user, which therefore needs the **CREATE privilege on the schema**. PostgreSQL 15+ no longer grants it on `public` to every user, so a hardened deployment must grant it (`GRANT CREATE ON SCHEMA public TO <app user>`); the error log names the privilege. After the grant, a restart creates the index. |
 | `Index` | `INSERT ... ON CONFLICT (id) DO UPDATE` |
 | Content cap | Both engines index the first 256 KiB of a resource's text, cut on a UTF-8 rune boundary. PostgreSQL refuses a `tsvector` over 1 MB, and the vector of all-distinct words is up to three times the text, so without the cap a large resource fails every insert, parks its event and is never searchable. SQLite takes the same cut so both engines index the same text. Words past the cap are not searchable on either engine. |
 | `Remove` | `DELETE` |

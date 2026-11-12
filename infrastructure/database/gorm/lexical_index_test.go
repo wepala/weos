@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/wepala/weos/v3/domain/repositories"
@@ -440,4 +442,75 @@ func TestLexicalIndex_LargeResource_Postgres(t *testing.T) {
 
 	idx, _ := postgresLexicalIndexForTest(t)
 	runLargeContentCases(t, idx)
+}
+
+// errorRecordingLogger keeps every Error message.
+type errorRecordingLogger struct {
+	testLogger
+	mu     sync.Mutex
+	errors []string
+}
+
+func (l *errorRecordingLogger) Error(_ context.Context, msg string, _ ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.errors = append(l.errors, msg)
+}
+
+// A hardened PostgreSQL (15+ grants no one CREATE on the public schema) lets
+// the app user connect but not create the index. The index degrades, and the
+// log names the privilege the operator must grant.
+func TestLexicalIndex_NamesTheMissingPrivilege_Postgres(t *testing.T) {
+	t.Parallel()
+
+	admin := os.Getenv("TEST_POSTGRES_DSN")
+	if admin == "" {
+		t.Skip("TEST_POSTGRES_DSN not set — the PostgreSQL lexical index is skipped")
+	}
+	dsn, err := testpg.FreshDatabase(t, admin, "weos_lexical_priv")
+	if err != nil {
+		t.Fatalf("fresh database: %v", err)
+	}
+	owner := openPostgresReplica(t, dsn)
+	role := fmt.Sprintf("weos_lx_noddl_%d", time.Now().UnixNano())
+	if err := owner.Exec("CREATE ROLE " + role + " NOLOGIN").Error; err != nil {
+		t.Fatalf("create role: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := owner.Exec("DROP ROLE IF EXISTS " + role).Error; err != nil {
+			t.Errorf("drop role %s: %v", role, err)
+		}
+	})
+	if err := owner.Exec("REVOKE CREATE ON SCHEMA public FROM PUBLIC").Error; err != nil {
+		t.Fatalf("revoke create: %v", err)
+	}
+
+	// One connection, so the SET ROLE holds for every statement the index runs.
+	restricted := openPostgresReplica(t, dsn)
+	sqlDB, err := restricted.DB()
+	if err != nil {
+		t.Fatalf("pool: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
+	if err := restricted.Exec("SET ROLE " + role).Error; err != nil {
+		t.Fatalf("set role: %v", err)
+	}
+
+	logger := &errorRecordingLogger{}
+	cfg := config.Default()
+	cfg.DatabaseDSN = dsn
+	idx := ProvideLexicalIndex(restricted, cfg, logger)
+	if idx.Active() {
+		t.Fatal("index must be inactive when the user cannot create it")
+	}
+	if len(logger.errors) != 1 {
+		t.Fatalf("errors logged = %q, want one", logger.errors)
+	}
+	msg := logger.errors[0]
+	for _, want := range []string{"CREATE privilege on the schema", "graph label search"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("logged %q, want it to say %q", msg, want)
+		}
+	}
 }

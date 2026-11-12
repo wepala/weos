@@ -40,8 +40,11 @@ func ProvideLexicalIndex(db *gorm.DB, cfg config.Config, logger entities.Logger)
 	if cfg.IsPostgres() {
 		idx, err := newPostgresLexicalIndex(ctx, db)
 		if err != nil {
-			logger.Error(ctx, "postgres lexical index creation failed; "+
-				"lexical index disabled, memory_search falls back to graph label search", "error", err)
+			logger.Error(ctx, "postgres lexical index creation failed; the database user needs the "+
+				"CREATE privilege on the schema to create the resource_search table (PostgreSQL 15+ "+
+				"no longer grants it on the public schema to every user). Lexical index disabled: "+
+				"memory_search falls back to graph label search until the privilege is granted and "+
+				"the process restarts", "error", err)
 			return nopLexicalIndex{}
 		}
 		return idx
