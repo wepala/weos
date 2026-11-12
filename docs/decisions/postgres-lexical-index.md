@@ -129,6 +129,13 @@ checkpoint at position 0 and the subscriber replays the whole event history into
 - The `LexicalIndex` interface changed (`Engine()`, the type filter). It has one implementation per
   engine plus the inactive one, all in `infrastructure/database/gorm`.
 - `memory_search` has a new optional input, `typeSlugs`, and a new `mode` value, `postgres-fts`.
+- **Search answers partially while the index fills.** After an upgrade the index is `Active()` the
+  moment `resource_search` exists, but it fills from a from-zero replay of the whole event history.
+  Until the `lexical-index` subscriber catches up, `memory_search` returns only what has been
+  replayed so far, and still reports `postgres-fts` rather than `graph-labels`, so a caller cannot
+  tell a partial answer from a full one. The same holds after every
+  `weos worker checkpoint reset lexical-index --truncate` rebuild, on either engine. The window is as
+  long as the replay of the instance's history takes.
 - **The index is not scoped by account or visibility, on either engine.** Before this story a
   multi-account PostgreSQL deployment answered `memory_search` from label search, which per-account
   graph stores scope to the caller. It now answers from the shared index. Tracked as wm-yna4s3.
