@@ -259,7 +259,7 @@ Feature: Full-text lexical search on PostgreSQL
     Then the call succeeds
     And the search returns no resources
 
-  @wip @story-wm-u1xp4w
+  @story-wm-u1xp4w
   Scenario: A PostgreSQL sentence query returns the resource holding the most of its words first
     Given the following "task" resources exist:
       | name                     | description                                   |
@@ -273,7 +273,7 @@ Feature: Full-text lexical search on PostgreSQL
       | Harbor Legal onboarding  |
       | Renew the office lease   |
 
-  @wip @story-wm-u1xp4w
+  @story-wm-u1xp4w
   Scenario: A PostgreSQL query of stop words alone returns no resources
     Given the following "task" resources exist:
       | name                     | description                                   |
@@ -282,7 +282,7 @@ Feature: Full-text lexical search on PostgreSQL
     Then the call succeeds
     And the search returns no resources
 
-  @wip @story-wm-u1xp4w
+  @story-wm-u1xp4w
   Scenario: A PostgreSQL query of a contraction alone returns no resources
     Given the following "task" resources exist:
       | name                    | description                                        |
@@ -292,7 +292,7 @@ Feature: Full-text lexical search on PostgreSQL
     Then the call succeeds
     And the search returns no resources
 
-  @wip @story-wm-u1xp4w
+  @story-wm-u1xp4w
   Scenario: A PostgreSQL search requiring two matching words leaves out a resource holding only one
     Given the following "task" resources exist:
       | name                     | description                                   |
@@ -305,7 +305,7 @@ Feature: Full-text lexical search on PostgreSQL
       | Chase the Harbor invoice |
       | Harbor Legal onboarding  |
 
-  @wip @story-wm-u1xp4w
+  @story-wm-u1xp4w
   Scenario: A PostgreSQL search in any mode narrowed to a type returns only that type's matches
     Given the following "project" resources exist:
       | name                    | description                        |
@@ -318,7 +318,7 @@ Feature: Full-text lexical search on PostgreSQL
       | name                   |
       | Renew the office lease |
 
-  @wip @story-wm-u1xp4w
+  @story-wm-u1xp4w
   Scenario: A PostgreSQL search in any mode still excludes another account's better match
     Given account "Harbor Legal" has the following "task" resources:
       | name                   | description                                  |

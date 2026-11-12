@@ -29,7 +29,6 @@ Feature: Matching any word of a lexical memory search
     Given a clean WeOS knowledge graph
     And the "tasks" preset is installed
 
-  @wip
   Scenario: A sentence query returns the resource that holds the most of its words first
     Given the following "task" resources exist:
       | name                     | description                                   |
@@ -43,7 +42,6 @@ Feature: Matching any word of a lexical memory search
       | Harbor Legal onboarding  |
       | Renew the office lease   |
 
-  @wip
   Scenario: A resource that repeats one query word ranks below one that holds more of them
     Given the following "task" resources exist:
       | name                    | description                                            |
@@ -55,7 +53,6 @@ Feature: Matching any word of a lexical memory search
       | Harbor Legal onboarding |
       | Dunmore invoice backlog |
 
-  @wip
   Scenario: Two resources that hold the same query words are ranked by how often they hold them
     Given the following "task" resources exist:
       | name                     | description                                            |
@@ -67,7 +64,6 @@ Feature: Matching any word of a lexical memory search
       | Chase the Harbor invoice |
       | Draft the Q3 summary     |
 
-  @wip
   Scenario: A resource that shares only stop words with the query is not returned
     Given the following "task" resources exist:
       | name                     | description                                   |
@@ -78,7 +74,6 @@ Feature: Matching any word of a lexical memory search
       | name                     |
       | Chase the Harbor invoice |
 
-  @wip
   Scenario: A query of stop words alone returns no resources
     Given the following "task" resources exist:
       | name                     | description                                   |
@@ -87,7 +82,6 @@ Feature: Matching any word of a lexical memory search
     Then the call succeeds
     And the search returns no resources
 
-  @wip
   Scenario: A question holding a contraction ranks the resource about its content words first
     Given the following "task" resources exist:
       | name                          | description                                        |
@@ -100,7 +94,6 @@ Feature: Matching any word of a lexical memory search
       | Help Dana log in              |
       | Renew the child care contract |
 
-  @wip
   Scenario: A query of a contraction alone returns no resources
     Given the following "task" resources exist:
       | name                    | description                                        |
@@ -110,7 +103,6 @@ Feature: Matching any word of a lexical memory search
     Then the call succeeds
     And the search returns no resources
 
-  @wip
   Scenario Outline: A query carrying full-text operator syntax is matched as words in any mode
     Given the following "task" resources exist:
       | name                     | description                                   |
@@ -128,7 +120,6 @@ Feature: Matching any word of a lexical memory search
       | Harbor:*          |
       | !Harbor           |
 
-  @wip
   Scenario: A query of operator characters alone returns no resources in any mode
     Given the following "task" resources exist:
       | name                     | description                                   |
@@ -137,7 +128,6 @@ Feature: Matching any word of a lexical memory search
     Then the call succeeds
     And the search returns no resources
 
-  @wip
   Scenario Outline: A word with punctuation inside it is matched as the word a person wrote
     Given the following "task" resources exist:
       | name                   | description                                      |
@@ -154,7 +144,6 @@ Feature: Matching any word of a lexical memory search
       | Dana's           |
       | dana@example.com |
 
-  @wip
   Scenario: Requiring two matching words leaves out a resource that holds only one
     Given the following "task" resources exist:
       | name                     | description                                   |
@@ -167,7 +156,6 @@ Feature: Matching any word of a lexical memory search
       | Chase the Harbor invoice |
       | Harbor Legal onboarding  |
 
-  @wip
   Scenario: Requiring more matching words than the query holds asks for all of its words
     Given the following "task" resources exist:
       | name                     | description                                   |
@@ -178,7 +166,6 @@ Feature: Matching any word of a lexical memory search
       | name                     |
       | Chase the Harbor invoice |
 
-  @wip
   Scenario: A crowded index still returns the resource that holds the most query words
     Given 25 "task" resources whose description mentions "invoice" exist
     And the following "task" resources exist:
@@ -187,7 +174,6 @@ Feature: Matching any word of a lexical memory search
     When I call memory_search for "Harbor Legal invoice" matching any word
     Then the search returns the "task" resource "Chase the Harbor invoice"
 
-  @wip
   Scenario: A search narrowed to a type returns only that type's matches in any mode
     Given the following "project" resources exist:
       | name                    | description                        |
@@ -200,7 +186,6 @@ Feature: Matching any word of a lexical memory search
       | name                   |
       | Renew the office lease |
 
-  @wip
   Scenario: Another account's better-matching resource is not returned in any mode
     Given account "Harbor Legal" has the following "task" resources:
       | name                   | description                                  |
@@ -213,7 +198,6 @@ Feature: Matching any word of a lexical memory search
       | name                             |
       | Prepare the Dunmore Road showing |
 
-  @wip
   Scenario: A search that names no match mode still returns only resources holding every word
     Given the following "task" resources exist:
       | name                     | description                                   |
