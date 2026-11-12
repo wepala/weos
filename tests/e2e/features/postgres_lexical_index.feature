@@ -210,7 +210,6 @@ Feature: Full-text lexical search on PostgreSQL
       | name                   |
       | Chase overdue invoices |
 
-  @wip
   Scenario: Another account's matching resource is not returned on PostgreSQL
     Given account "Harbor Legal" has the following "task" resources:
       | name                   | description                                  |
@@ -220,7 +219,6 @@ Feature: Full-text lexical search on PostgreSQL
     And the search returns no resources
     And the search returns no text from the "task" resource "Chase overdue invoices"
 
-  @wip
   Scenario: The searching account still finds its own resource on PostgreSQL
     Given account "Harbor Legal" has the following "task" resources:
       | name                   | description                                  |
@@ -231,7 +229,6 @@ Feature: Full-text lexical search on PostgreSQL
       | name                   |
       | Chase overdue invoices |
 
-  @wip
   Scenario: A crowded PostgreSQL index still returns the searching account's own match
     Given account "Harbor Legal" has 25 "task" resources whose description mentions "Dunmore"
     And account "Cedar Realty" has the following "task" resources:
@@ -242,7 +239,6 @@ Feature: Full-text lexical search on PostgreSQL
       | name                             |
       | Prepare the Dunmore Road showing |
 
-  @wip
   Scenario: A PostgreSQL search narrowed to a type still excludes another account's resource
     Given account "Harbor Legal" has the following "task" resources:
       | name                   | description                                  |

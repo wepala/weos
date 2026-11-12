@@ -27,7 +27,6 @@ Feature: Account scope on a lexical memory search
     Given a clean WeOS knowledge graph
     And the "tasks" preset is installed
 
-  @wip
   Scenario: Another account's matching resource is not returned
     Given account "Harbor Legal" has the following "task" resources:
       | name                   | description                                  |
@@ -37,7 +36,6 @@ Feature: Account scope on a lexical memory search
     And the search returns no resources
     And the search returns no text from the "task" resource "Chase overdue invoices"
 
-  @wip
   Scenario: The searching account still finds its own resource
     Given account "Harbor Legal" has the following "task" resources:
       | name                   | description                                  |
@@ -48,7 +46,6 @@ Feature: Account scope on a lexical memory search
       | name                   |
       | Chase overdue invoices |
 
-  @wip
   Scenario: A crowded index still returns the searching account's own match
     Given account "Harbor Legal" has 25 "task" resources whose description mentions "Dunmore"
     And account "Cedar Realty" has the following "task" resources:
@@ -59,7 +56,6 @@ Feature: Account scope on a lexical memory search
       | name                             |
       | Prepare the Dunmore Road showing |
 
-  @wip
   Scenario: A search narrowed to a type still excludes another account's resource of that type
     Given account "Harbor Legal" has the following "task" resources:
       | name                   | description                                  |
@@ -71,7 +67,6 @@ Feature: Account scope on a lexical memory search
     Then the call succeeds
     And the search returns no resources
 
-  @wip
   Scenario: Text added to one account's resource stays invisible to another account
     Given account "Harbor Legal" has the following "task" resources:
       | name           | description                         |
@@ -81,7 +76,6 @@ Feature: Account scope on a lexical memory search
     Then the call succeeds
     And the search returns no resources
 
-  @wip
   Scenario: A rebuilt index keeps each account's text to its own account
     Given account "Harbor Legal" has the following "task" resources:
       | name                   | description                                  |

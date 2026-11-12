@@ -18,6 +18,7 @@ import (
 	mcpserver "github.com/wepala/weos/v3/internal/mcp"
 	"github.com/wepala/weos/v3/internal/testpg"
 
+	"github.com/akeemphilbert/pericarp/pkg/auth"
 	pericarpdomain "github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 	"github.com/cucumber/godog"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -48,6 +49,33 @@ func TestLexicalSearchTypeFilter(t *testing.T) {
 	}
 	if suite.Run() != 0 {
 		t.Fatal("lexical search type-filter acceptance scenarios failed")
+	}
+}
+
+// TestLexicalSearchAccountScope runs the memory_search account-scope
+// scenarios (finding wm-yna4s3, story wm-irqzji) on SQLite: one account's
+// search never returns or quotes another account's resource, the scope is
+// applied before the limit, it composes with the type filter, and it survives
+// an update and a rebuild. Filter on demand with:
+// GODOG_TAGS=@wip go test ./tests/e2e/ -run TestLexicalSearchAccountScope -v
+func TestLexicalSearchAccountScope(t *testing.T) {
+	tags := "~@wip"
+	if override := os.Getenv("GODOG_TAGS"); override != "" {
+		tags = override
+	}
+	suite := godog.TestSuite{
+		Name:                "lexical-search-account-scope",
+		ScenarioInitializer: initLexicalSearchScenario,
+		Options: &godog.Options{
+			Format:   "pretty",
+			Paths:    []string{"features/lexical_search_account_scope.feature"},
+			Tags:     tags,
+			Strict:   true,
+			TestingT: t,
+		},
+	}
+	if suite.Run() != 0 {
+		t.Fatal("lexical search account-scope acceptance scenarios failed")
 	}
 }
 
@@ -102,6 +130,12 @@ type lexicalWorld struct {
 
 	ids   map[string]string // name → resource id
 	names map[string]string // resource id → name
+	texts map[string]string // name → the text the resource was last written with
+
+	// server is the MCP server; each account gets its own session on it,
+	// whose context carries that account's identity.
+	server   *mcp.Server
+	accounts map[string]*acctSearchSession
 
 	// comparison holds what the cross-engine steps read from each engine.
 	pgEntries     map[string]lexicalEntry
@@ -109,8 +143,17 @@ type lexicalWorld struct {
 }
 
 type lexicalEntry struct {
-	TypeSlug string
-	Content  string
+	TypeSlug  string
+	Content   string
+	CreatedBy string
+	AccountID string
+}
+
+// acctSearchSession is an MCP client session whose server side runs every
+// tool call under one account's identity.
+type acctSearchSession struct {
+	client *mcp.ClientSession
+	srv    *mcp.ServerSession
 }
 
 type memorySearchResult struct {
@@ -126,6 +169,8 @@ func initLexicalSearchScenario(sc *godog.ScenarioContext) {
 		memoryWorld: &memoryWorld{mcpWorld: &mcpWorld{runWorkers: true}, facts: map[string]recordedFact{}},
 		ids:         map[string]string{},
 		names:       map[string]string{},
+		texts:       map[string]string{},
+		accounts:    map[string]*acctSearchSession{},
 	}
 
 	sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
@@ -146,15 +191,24 @@ func initLexicalSearchScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a recorded fact "([^"]*)" stating "([^"]*)" about "([^"]*)"$`, w.aRecordedFact)
 	sc.Step(`^I record a fact superseding "([^"]*)" stating "([^"]*)"$`, w.iRecordSupersedingFact)
 	sc.Step(`^the lexical index is rebuilt from the event history$`, w.indexRebuilt)
+	sc.Step(`^account "([^"]*)" has the following "([^"]*)" resources:$`, w.accountHasResources)
+	sc.Step(`^account "([^"]*)" has (\d+) "([^"]*)" resources whose description mentions "([^"]*)"$`,
+		w.accountHasResourcesMentioning)
+	sc.Step(`^account "([^"]*)" updates its "([^"]*)" resource "([^"]*)" with the description "([^"]*)"$`,
+		w.accountUpdatesResource)
 
 	sc.Step(`^I call memory_search for "([^"]*)"$`, w.iSearch)
 	sc.Step(`^I call memory_search for "([^"]*)" narrowed to type "([^"]*)"$`, w.iSearchNarrowed)
 	sc.Step(`^I call memory_search for the query:$`, w.iSearchDocString)
+	sc.Step(`^account "([^"]*)" calls memory_search for "([^"]*)"$`, w.accountSearches)
+	sc.Step(`^account "([^"]*)" calls memory_search for "([^"]*)" narrowed to type "([^"]*)"$`,
+		w.accountSearchesNarrowed)
 
 	sc.Step(`^the call succeeds$`, w.theCallSucceeds)
 	sc.Step(`^the search returns exactly these resources:$`, w.searchReturnsExactly)
 	sc.Step(`^the search returns these resources in order:$`, w.searchReturnsInOrder)
 	sc.Step(`^the search returns no resources$`, w.searchReturnsNone)
+	sc.Step(`^the search returns no text from the "([^"]*)" resource "([^"]*)"$`, w.searchReturnsNoTextFrom)
 	sc.Step(`^the search reports graph labels as its source$`, w.reportsGraphLabels)
 	sc.Step(`^the search reports the full-text index as its source$`, w.reportsFullText)
 	sc.Step(`^the index holds an entry for each resource a SQLite instance indexes from the same events$`,
@@ -249,6 +303,7 @@ func (w *lexicalWorld) boot() error {
 	if err != nil {
 		return fmt.Errorf("failed to build MCP server: %w", err)
 	}
+	w.server = server
 	serverT, clientT := mcp.NewInMemoryTransports()
 	srvSess, err := server.Connect(sessCtx, serverT, nil)
 	if err != nil {
@@ -275,6 +330,7 @@ func (w *lexicalWorld) presetInstalled(ctx context.Context, name string) error {
 // noFullTextIndex reboots the instance on a fresh store with its full-text
 // index unavailable, and installs the presets the Background installed.
 func (w *lexicalWorld) noFullTextIndex(ctx context.Context) error {
+	w.closeAccountSessions()
 	w.teardown()
 	w.app, w.client, w.srvSess, w.cancel = nil, nil, nil, nil
 	w.noFullText = true
@@ -297,6 +353,7 @@ func (w *lexicalWorld) noKnowledgeGraph() error {
 }
 
 func (w *lexicalWorld) teardownAll() {
+	w.closeAccountSessions()
 	w.teardown()
 	for i := len(w.cleanups) - 1; i >= 0; i-- {
 		w.cleanups[i]()
@@ -354,6 +411,7 @@ func (w *lexicalWorld) resourceUpdated(ctx context.Context, _, name, description
 	if _, err := w.rs.Update(ctx, application.UpdateResourceCommand{ID: id, Data: raw}); err != nil {
 		return fmt.Errorf("update %q: %w", name, err)
 	}
+	w.texts[name] = name + " " + description
 	return nil
 }
 
@@ -366,6 +424,27 @@ func (w *lexicalWorld) resourceDeleted(ctx context.Context, _, name string) erro
 		return fmt.Errorf("delete %q: %w", name, err)
 	}
 	return nil
+}
+
+// accountHasResources creates the table's resources as the named account, so
+// each is owned by that account's agent exactly as one created over its own
+// authenticated MCP session would be.
+func (w *lexicalWorld) accountHasResources(
+	ctx context.Context, account, typeSlug string, table *godog.Table,
+) error {
+	return w.theFollowingResourcesExist(lexicalAccountContext(ctx, account), typeSlug, table)
+}
+
+func (w *lexicalWorld) accountHasResourcesMentioning(
+	ctx context.Context, account string, n int, typeSlug, word string,
+) error {
+	return w.resourcesMentioning(lexicalAccountContext(ctx, account), n, typeSlug, word)
+}
+
+func (w *lexicalWorld) accountUpdatesResource(
+	ctx context.Context, account, typeSlug, name, description string,
+) error {
+	return w.resourceUpdated(lexicalAccountContext(ctx, account), typeSlug, name, description)
 }
 
 // indexRebuilt is the in-process equivalent of
@@ -395,9 +474,31 @@ func (w *lexicalWorld) iSearchDocString(ctx context.Context, doc *godog.DocStrin
 	return w.callSearch(ctx, strings.TrimSpace(doc.Content), nil)
 }
 
+func (w *lexicalWorld) accountSearches(ctx context.Context, account, query string) error {
+	return w.accountSearch(ctx, account, query, nil)
+}
+
+func (w *lexicalWorld) accountSearchesNarrowed(ctx context.Context, account, query, typeSlug string) error {
+	return w.accountSearch(ctx, account, query, []string{typeSlug})
+}
+
+func (w *lexicalWorld) accountSearch(ctx context.Context, account, query string, typeSlugs []string) error {
+	sess, err := w.sessionFor(account)
+	if err != nil {
+		return err
+	}
+	return w.callSearchOn(ctx, sess.client, query, typeSlugs)
+}
+
 // callSearch waits for the index subscriber to catch up with every write the
 // scenario made, then calls memory_search the way an LLM client would.
 func (w *lexicalWorld) callSearch(ctx context.Context, query string, typeSlugs []string) error {
+	return w.callSearchOn(ctx, w.client, query, typeSlugs)
+}
+
+func (w *lexicalWorld) callSearchOn(
+	ctx context.Context, client *mcp.ClientSession, query string, typeSlugs []string,
+) error {
 	if err := w.waitForIndex(ctx); err != nil {
 		return err
 	}
@@ -409,7 +510,7 @@ func (w *lexicalWorld) callSearch(ctx context.Context, query string, typeSlugs [
 	if err != nil {
 		return err
 	}
-	res, err := w.client.CallTool(ctx, &mcp.CallToolParams{Name: "memory_search", Arguments: json.RawMessage(raw)})
+	res, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "memory_search", Arguments: json.RawMessage(raw)})
 	w.lastResult = res
 	w.lastErr = err
 	w.lastText = textOf(res)
@@ -490,6 +591,31 @@ func (w *lexicalWorld) searchReturnsNone() error {
 	}
 	if len(got) != 0 {
 		return fmt.Errorf("search returned %q, want no resources", got)
+	}
+	return nil
+}
+
+// searchReturnsNoTextFrom checks the whole memory_search payload, not only
+// the result ids: a snippet quoting the resource is as much a leak as its id.
+// It fails on the resource's id or on any word of four letters or more from
+// the text the resource was written with.
+func (w *lexicalWorld) searchReturnsNoTextFrom(_, name string) error {
+	if err := w.theCallSucceeds(); err != nil {
+		return err
+	}
+	id, ok := w.ids[name]
+	if !ok {
+		return fmt.Errorf("no seeded resource named %q", name)
+	}
+	payload := strings.ToLower(w.lastText)
+	if strings.Contains(payload, strings.ToLower(id)) {
+		return fmt.Errorf("the search payload names %s (%s): %s", id, name, w.lastText)
+	}
+	for _, word := range strings.Fields(w.texts[name]) {
+		word = strings.ToLower(strings.Trim(word, ".,;:!?\"'()"))
+		if len(word) >= 4 && strings.Contains(payload, word) {
+			return fmt.Errorf("the search payload quotes %q from %q: %s", word, name, w.lastText)
+		}
 	}
 	return nil
 }
@@ -583,8 +709,66 @@ func (w *lexicalWorld) create(ctx context.Context, typeSlug string, data map[str
 	if name, ok := data["name"].(string); ok {
 		w.ids[name] = e.GetID()
 		w.names[e.GetID()] = name
+		description, _ := data["description"].(string)
+		w.texts[name] = strings.TrimSpace(name + " " + description)
 	}
 	return e.GetID(), nil
+}
+
+// lexicalAccountID is a stable synthetic account id for an account name.
+func lexicalAccountID(name string) string {
+	return strings.ToLower(strings.ReplaceAll(strings.TrimSpace(name), " ", "-"))
+}
+
+// lexicalAccountIdentity is the caller identity of an account: its own agent,
+// active in its own account. Two accounts never share an agent, so what one
+// creates is owned by an agent the other is not.
+func lexicalAccountIdentity(name string) *auth.Identity {
+	id := lexicalAccountID(name)
+	return &auth.Identity{AgentID: "agent-" + id, AccountIDs: []string{id}, ActiveAccountID: id}
+}
+
+func lexicalAccountContext(ctx context.Context, name string) context.Context {
+	return auth.ContextWithAgent(ctx, lexicalAccountIdentity(name))
+}
+
+// sessionFor returns the account's MCP session, opening it on first use. The
+// identity is set on the server session's context, which is where the MCP
+// server reads the caller of every tool call on that session.
+func (w *lexicalWorld) sessionFor(account string) (*acctSearchSession, error) {
+	if s, ok := w.accounts[account]; ok {
+		return s, nil
+	}
+	if w.server == nil {
+		return nil, fmt.Errorf("MCP server not booted")
+	}
+	ctx := lexicalAccountContext(context.Background(), account)
+	serverT, clientT := mcp.NewInMemoryTransports()
+	srv, err := w.server.Connect(ctx, serverT, nil)
+	if err != nil {
+		return nil, fmt.Errorf("connect %s server session: %w", account, err)
+	}
+	client := mcp.NewClient(&mcp.Implementation{Name: "lexical-e2e", Version: "0.0.1"}, nil)
+	cs, err := client.Connect(ctx, clientT, nil)
+	if err != nil {
+		// Best-effort: the session never carried a call, and the step fails
+		// with the connect error either way.
+		_ = srv.Close()
+		return nil, fmt.Errorf("connect %s client session: %w", account, err)
+	}
+	s := &acctSearchSession{client: cs, srv: srv}
+	w.accounts[account] = s
+	return s, nil
+}
+
+func (w *lexicalWorld) closeAccountSessions() {
+	for _, s := range w.accounts {
+		// Best-effort: a session closed at teardown has no call in flight,
+		// and a close error leaves nothing a later scenario reads.
+		_ = s.client.Close()
+		_ = s.srv.Close()
+	}
+	w.accounts = map[string]*acctSearchSession{}
 }
 
 // waitForIndex returns once the lexical-index subscriber has processed every
@@ -627,16 +811,21 @@ func waitForSubscriber(ctx context.Context, manager *application.Manager, name s
 
 func readLexicalEntries(db *gorm.DB) (map[string]lexicalEntry, error) {
 	var rows []struct {
-		ID       string
-		TypeSlug string
-		Content  string
+		ID        string
+		TypeSlug  string
+		Content   string
+		CreatedBy string
+		AccountID string
 	}
-	if err := db.Raw("SELECT id, type_slug, content FROM resource_search").Scan(&rows).Error; err != nil {
+	if err := db.Raw("SELECT id, type_slug, content, created_by, account_id FROM resource_search").
+		Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := make(map[string]lexicalEntry, len(rows))
 	for _, r := range rows {
-		out[r.ID] = lexicalEntry{TypeSlug: r.TypeSlug, Content: r.Content}
+		out[r.ID] = lexicalEntry{
+			TypeSlug: r.TypeSlug, Content: r.Content, CreatedBy: r.CreatedBy, AccountID: r.AccountID,
+		}
 	}
 	return out, nil
 }
@@ -696,12 +885,16 @@ func (w *lexicalWorld) sqliteIndexFromSameEvents(ctx context.Context) (map[strin
 // inactiveLexicalIndex is an index that is not available on this instance.
 type inactiveLexicalIndex struct{}
 
-func (inactiveLexicalIndex) Active() bool                                        { return false }
-func (inactiveLexicalIndex) Engine() string                                      { return "" }
-func (inactiveLexicalIndex) Index(context.Context, string, string, string) error { return nil }
-func (inactiveLexicalIndex) Remove(context.Context, string) error                { return nil }
-func (inactiveLexicalIndex) Clear(context.Context) error                         { return nil }
-func (inactiveLexicalIndex) Search(context.Context, string, int, ...string) ([]repositories.LexicalHit, error) {
+func (inactiveLexicalIndex) Active() bool   { return false }
+func (inactiveLexicalIndex) Engine() string { return "" }
+func (inactiveLexicalIndex) Index(context.Context, string, string, string, repositories.LexicalOwner) error {
+	return nil
+}
+func (inactiveLexicalIndex) Remove(context.Context, string) error { return nil }
+func (inactiveLexicalIndex) Clear(context.Context) error          { return nil }
+func (inactiveLexicalIndex) Search(
+	context.Context, string, int, *repositories.VisibilityScope, ...string,
+) ([]repositories.LexicalHit, error) {
 	return nil, nil
 }
 
