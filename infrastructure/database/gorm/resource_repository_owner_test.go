@@ -160,6 +160,38 @@ func TestOwnerlessProjectionTables_NamesEachRowWithNoOwner(t *testing.T) {
 	}
 }
 
+// Copilot on #586: the read-back must see a row that does not exist and a
+// row another account owns, not only an ownerless one, so the reader reports
+// every table a write fills, with the owner its row holds.
+func TestProjectionRowOwners_ReportsEachTablesOwnerOrThatTheRowIsMissing(t *testing.T) {
+	t.Parallel()
+	f := seedOwnerFixture(t)
+	if err := f.repo.db.Table("instruments").Where("id = ?", f.healthy).
+		Update("account_id", "acct-2").Error; err != nil {
+		t.Fatal(err)
+	}
+	var reader repositories.ProjectionOwnerReader = f.repo
+	type row = repositories.ProjectionRowOwner
+	for id, want := range map[string][]row{
+		f.healthy:              {{Table: "loans", AccountID: "acct-1"}, {Table: "instruments", AccountID: "acct-2"}},
+		f.ownTypeRowOwnerless:  {{Table: "loans"}, {Table: "instruments", AccountID: "acct-1"}},
+		f.ancestorRowMissing:   {{Table: "loans", AccountID: "acct-1"}, {Table: "instruments", Missing: true}},
+		"urn:loan:no-such-row": {{Table: "loans", Missing: true}, {Table: "instruments", Missing: true}},
+	} {
+		got, err := reader.ProjectionRowOwners(t.Context(), id, "loan")
+		if err != nil {
+			t.Fatalf("%s: %v", id, err)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: owners %+v, want %+v", id, got, want)
+		}
+	}
+	// A missing row is not an ownerless one.
+	if got, err := reader.OwnerlessProjectionTables(t.Context(), f.ancestorRowMissing, "loan"); err != nil || len(got) != 0 {
+		t.Errorf("%s: ownerless in %v (err %v), want none", f.ancestorRowMissing, got, err)
+	}
+}
+
 // The repair the backfill makes: writing the record again fills the empty
 // owner of each row and keeps a set one.
 func TestUpdate_FillsAnOwnerlessProjectionRowFromTheRecord(t *testing.T) {

@@ -101,6 +101,23 @@ type ProjectionOwnerReader interface {
 	// no owning account, in write order. It returns none when every row there
 	// carries an owner, or when the type has no projection table.
 	OwnerlessProjectionTables(ctx context.Context, id, typeSlug string) ([]string, error)
+	// ProjectionRowOwners returns one entry per projection table a write of
+	// the resource fills — its own type's and each ancestor's, where the
+	// table exists — in write order, with the owner that table's row holds
+	// for id, or Missing when the table holds no row for id. A caller
+	// compares each owner with the one it expects: an ownerless row is not
+	// the only way a write fails to reach a row.
+	ProjectionRowOwners(ctx context.Context, id, typeSlug string) ([]ProjectionRowOwner, error)
+}
+
+// ProjectionRowOwner is the owner one projection table holds for a resource.
+type ProjectionRowOwner struct {
+	// Table is the projection table.
+	Table string
+	// AccountID is the row's owning account, empty when the row has none.
+	AccountID string
+	// Missing says the table holds no row for the resource at all.
+	Missing bool
 }
 
 // ErrProjectionRowChanged means a projection row changed after the canonical

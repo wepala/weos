@@ -97,6 +97,12 @@ func (r *backfillRepo) Update(_ context.Context, e *entities.Resource) error {
 	if r.failTypeRow[e.GetID()] {
 		return errors.New("simulated failure of the type projection row write")
 	}
+	if row.typeRowMissing {
+		// The upsert's INSERT failed, as a missing row is left.
+		return errors.New("simulated failure of the type projection row insert")
+	}
+	// The owner is fill-only, as in the gorm upsert: a row that has an owner
+	// keeps it.
 	if row.typeRowOwner == "" {
 		row.typeRowOwner = e.AccountID()
 	}
@@ -178,10 +184,24 @@ func (r *backfillRepo) FindOwnerlessByCreator(
 func (r *backfillRepo) OwnerlessProjectionTables(_ context.Context, id, typeSlug string) ([]string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if row, ok := r.rows[id]; ok && row.typeRowOwner == "" {
+	if row, ok := r.rows[id]; ok && !row.typeRowMissing && row.typeRowOwner == "" {
 		return []string{typeSlug + "s"}, nil
 	}
 	return nil, nil
+}
+
+// ProjectionRowOwners reports the one type row each resource has: its owner,
+// or that it does not exist.
+func (r *backfillRepo) ProjectionRowOwners(
+	_ context.Context, id, typeSlug string,
+) ([]repositories.ProjectionRowOwner, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	row, ok := r.rows[id]
+	if !ok || row.typeRowMissing {
+		return []repositories.ProjectionRowOwner{{Table: typeSlug + "s", Missing: true}}, nil
+	}
+	return []repositories.ProjectionRowOwner{{Table: typeSlug + "s", AccountID: row.typeRowOwner}}, nil
 }
 
 // backfillAccounts holds one account with one member.
@@ -577,5 +597,83 @@ func TestAssignOwner_AMissingProjectionRowIsListedForAReproject(t *testing.T) {
 	}
 	if after := h.events(t, id); after != stored {
 		t.Errorf("the run appended %d event(s)", after-stored)
+	}
+}
+
+// Copilot on #586: the read-back counted only ownerless rows, so a row the
+// assignment's upsert never created read as assigned. A row that does not
+// exist is out of reach of a fill, so the resource is listed for a reproject,
+// with the table, and is not counted as assigned.
+func TestAssignOwner_AProjectionRowTheAssignmentDidNotCreateIsNotCountedAsAssigned(t *testing.T) {
+	const id = "urn:task:reconcile-may"
+	h := newBackfillHarness(t, id)
+	h.repo.rows[id].typeRowMissing = true
+
+	report, err := h.run(t)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if report.Assigned() != 0 {
+		t.Errorf("report counts %d assigned, but the resource has no type row", report.Assigned())
+	}
+	if len(report.NeedsReproject) != 1 || report.NeedsReproject[0].ID != id ||
+		!strings.Contains(report.NeedsReproject[0].Reason, "no row in tasks") {
+		t.Fatalf("NeedsReproject = %+v, want %s with a reason that names tasks as having no row",
+			report.NeedsReproject, id)
+	}
+	if got := report.Types["task"]; got.NeedsReproject != 1 || got.Assigned != 0 {
+		t.Errorf("task counts = %+v, want 1 left for a reproject and none assigned", got)
+	}
+}
+
+// Copilot on #586: the upsert keeps an owner a row already has, so a row
+// owned by another account stays so after the assignment. It is not counted
+// as assigned; the resource is listed for a reproject, with the table and the
+// account the row holds.
+func TestAssignOwner_AProjectionRowOwnedByAnotherAccountIsNotCountedAsAssigned(t *testing.T) {
+	const id, elsewhere = "urn:task:reconcile-may", "urn:account:elsewhere"
+	h := newBackfillHarness(t, id)
+	h.repo.rows[id].typeRowOwner = elsewhere
+
+	report, err := h.run(t)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if report.Assigned() != 0 {
+		t.Errorf("report counts %d assigned, but the type row is owned by %s", report.Assigned(), elsewhere)
+	}
+	if len(report.NeedsReproject) != 1 || report.NeedsReproject[0].ID != id ||
+		!strings.Contains(report.NeedsReproject[0].Reason, "tasks") ||
+		!strings.Contains(report.NeedsReproject[0].Reason, elsewhere) {
+		t.Fatalf("NeedsReproject = %+v, want %s with a reason that names tasks and %s",
+			report.NeedsReproject, id, elsewhere)
+	}
+	if got := h.repo.typeRowOwner(id); got != elsewhere {
+		t.Errorf("the type row's owner is now %q; the run must not move it from %s", got, elsewhere)
+	}
+}
+
+// Copilot on #586: a row another process fills between the fill's read of
+// the rows and its write is not written by this run, so the run does not
+// count it as filled.
+func TestAssignOwner_AFillThatWritesNoRowIsNotCountedAsFilled(t *testing.T) {
+	const id = "urn:task:reconcile-may"
+	h := newBackfillHarness(t, id)
+	h.failFirstRun(t, id)
+	h.repo.beforeFill = func(id string) {
+		h.repo.mu.Lock()
+		defer h.repo.mu.Unlock()
+		h.repo.rows[id].typeRowOwner = h.repo.rows[id].accountID
+	}
+
+	report, err := h.run(t)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got := report.Types["task"]; got.Filled != 0 || got.Skipped != 1 {
+		t.Errorf("task counts = %+v, want the row another process filled skipped, and none filled", got)
+	}
+	if report.Filled() != 0 {
+		t.Errorf("report counts %d filled, but this run wrote no row", report.Filled())
 	}
 }

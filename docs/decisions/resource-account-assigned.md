@@ -113,7 +113,11 @@ reaches it. The command:
 - counts a resource as assigned only after its record **and every projection row it has** (its own
   type's table and each ancestor type's table) are read back with the owner. A record that is behind
   its event stream is skipped and listed, with `weos worker reproject` as the repair. A projection row
-  that is still ownerless stops the run with an error that names the resource and the table.
+  that is still ownerless stops the run with an error that names the resource and the table. A row the
+  write did not reach at all — one that does not exist after the upsert, or one another account owns,
+  which the fill-only upsert keeps — is not counted either: the resource is listed under
+  `NeedsReproject` with the table (and the account that holds the row), because neither a re-run's
+  fill nor a second assignment can write it.
 
 ### 4. A re-run fills a projection row from the record, with no second event
 

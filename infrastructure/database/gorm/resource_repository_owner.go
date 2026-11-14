@@ -35,28 +35,49 @@ import (
 var _ repositories.ProjectionOwnerReader = (*ResourceRepository)(nil)
 
 // OwnerlessProjectionTables returns the projection tables, in the order
-// Update writes them, that hold a row for id with no owning account.
+// Update writes them, that hold a row for id with no owning account. A table
+// with no row for id is not listed.
 func (r *ResourceRepository) OwnerlessProjectionTables(
 	ctx context.Context, id, typeSlug string,
 ) ([]string, error) {
-	tables, err := r.ownerProjectionTables(ctx, typeSlug)
+	owners, err := r.ProjectionRowOwners(ctx, id, typeSlug)
 	if err != nil {
 		return nil, err
 	}
 	var ownerless []string
-	for _, table := range tables {
-		var n int64
-		err := r.db.WithContext(ctx).Table(table).
-			Where("id = ? AND (account_id = '' OR account_id IS NULL)", id).
-			Count(&n).Error
-		if err != nil {
-			return nil, fmt.Errorf("read the owner of %s in %s: %w", id, table, err)
-		}
-		if n > 0 {
-			ownerless = append(ownerless, table)
+	for _, o := range owners {
+		if !o.Missing && o.AccountID == "" {
+			ownerless = append(ownerless, o.Table)
 		}
 	}
 	return ownerless, nil
+}
+
+// ProjectionRowOwners returns, for each projection table Update writes for a
+// typeSlug resource, in that order, the owner the table's row for id holds,
+// or that the table holds no row for id.
+func (r *ResourceRepository) ProjectionRowOwners(
+	ctx context.Context, id, typeSlug string,
+) ([]repositories.ProjectionRowOwner, error) {
+	tables, err := r.ownerProjectionTables(ctx, typeSlug)
+	if err != nil {
+		return nil, err
+	}
+	owners := make([]repositories.ProjectionRowOwner, 0, len(tables))
+	for _, table := range tables {
+		var accounts []*string
+		err := r.db.WithContext(ctx).Table(table).Where("id = ?", id).
+			Limit(1).Pluck("account_id", &accounts).Error
+		if err != nil {
+			return nil, fmt.Errorf("read the owner of %s in %s: %w", id, table, err)
+		}
+		o := repositories.ProjectionRowOwner{Table: table, Missing: len(accounts) == 0}
+		if !o.Missing && accounts[0] != nil {
+			o.AccountID = *accounts[0]
+		}
+		owners = append(owners, o)
+	}
+	return owners, nil
 }
 
 var _ repositories.ProjectionOwnerFiller = (*ResourceRepository)(nil)

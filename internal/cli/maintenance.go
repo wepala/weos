@@ -106,7 +106,9 @@ and neither an assignment nor a fill writes a row that does not exist: the
 preview and the run list it the same way, for a reproject.
 
 A resource is counted as assigned only when its record and each of its
-projection rows read back with the owner. A failed write can leave a
+projection rows read back with the owner. One with a row the write did not
+reach at all (a row that does not exist, or one another account owns) is
+listed for a reproject, naming the table. A failed write can also leave a
 projection row ownerless under a record that has the owner; the run then
 stops and names the resource. Fix the cause and run again: the run selects
 that resource, fills the row from the record, and records no second event.

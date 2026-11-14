@@ -383,7 +383,10 @@ func (s *OwnerBackfillService) PlanAssignOwner(
 // projection rows are read back with the owner. A resource whose read model is
 // behind its event stream — found before the write, or met as a version
 // conflict on it — is skipped, listed in the report's NeedsReproject, and the
-// run goes on. A write whose event was stored but whose record or projection
+// run goes on. So is one with a projection row the write did not reach at
+// all: a row that does not exist, or one another account owns (the upsert
+// keeps an owner a row already has). Neither a fill nor a second assignment
+// can write such a row. A write whose event was stored but whose record or projection
 // row did not take the owner stops the run with an error that names the
 // resource: the read model is failing, and every later write would fail the
 // same way.
@@ -584,8 +587,10 @@ func (s *OwnerBackfillService) assignOne(
 	if after.AccountID() != accountID {
 		return 0, "", errReadModelDidNotTakeOwner
 	}
-	if err := s.readBackProjectionRows(ctx, id, after.TypeSlug()); err != nil {
+	if reason, unreachable, err := s.readBackProjectionRows(ctx, id, after.TypeSlug(), accountID); err != nil {
 		return 0, "", err
+	} else if unreachable {
+		return readModelBehind, reason, nil
 	}
 	return assignedOwner, "", nil
 }
@@ -626,7 +631,8 @@ func (s *OwnerBackfillService) fillProjectionRows(
 		// Filled since the selection, by a reproject or a concurrent write.
 		return gainedOwner, "", nil
 	}
-	if _, err := s.projFiller.FillOwnerlessProjectionRows(ctx, entity); err != nil {
+	written, err := s.projFiller.FillOwnerlessProjectionRows(ctx, entity)
+	if err != nil {
 		if errors.Is(err, repositories.ErrProjectionRowChanged) {
 			return readModelBehind, fmt.Sprintf("a projection row changed after the run read the record "+
 				"at sequence %d, so the run did not write over it (%v)", entity.GetSequenceNo(), err), nil
@@ -634,23 +640,57 @@ func (s *OwnerBackfillService) fillProjectionRows(
 		return 0, "", fmt.Errorf("write the record's owner to %s: %w (%w)",
 			strings.Join(tables, ", "), err, errProjectionRowDidNotTakeOwner)
 	}
-	if err := s.readBackProjectionRows(ctx, r.ID, entity.TypeSlug()); err != nil {
+	if reason, unreachable, err := s.readBackProjectionRows(ctx, r.ID, entity.TypeSlug(), accountID); err != nil {
 		return 0, "", err
+	} else if unreachable {
+		return readModelBehind, reason, nil
+	}
+	if len(written) == 0 {
+		// Every row was filled between the read above and the write, by
+		// another process; this run wrote none, so it does not count a fill.
+		return gainedOwner, "", nil
 	}
 	return assignedOwner, "", nil
 }
 
-// readBackProjectionRows fails when a projection row of the resource has no
-// owner, and names the tables that hold such a row.
-func (s *OwnerBackfillService) readBackProjectionRows(ctx context.Context, id, typeSlug string) error {
-	tables, err := s.projOwners.OwnerlessProjectionTables(ctx, id, typeSlug)
+// readBackProjectionRows reads the owner of each projection row of the
+// resource back and compares it with accountID.
+//
+// A row with no owner is a write that failed, and a later run can fill it
+// from the record, so it returns an error that names the tables. A row that
+// does not exist, or that another account owns, is out of reach of both an
+// assignment and a fill — the upsert keeps an owner a row already has, and a
+// fill writes only rows that exist with no owner — so it returns
+// unreachable, with a reason that names each such table, and the resource is
+// left for a reproject rather than counted.
+func (s *OwnerBackfillService) readBackProjectionRows(
+	ctx context.Context, id, typeSlug, accountID string,
+) (reason string, unreachable bool, err error) {
+	owners, err := s.projOwners.ProjectionRowOwners(ctx, id, typeSlug)
 	if err != nil {
-		return fmt.Errorf("read the projection rows back: %w (%w)", err, errProjectionRowDidNotTakeOwner)
+		return "", false, fmt.Errorf("read the projection rows back: %w (%w)", err, errProjectionRowDidNotTakeOwner)
 	}
-	if len(tables) > 0 {
-		return fmt.Errorf("ownerless in %s: %w", strings.Join(tables, ", "), errProjectionRowDidNotTakeOwner)
+	var ownerless, problems []string
+	for _, o := range owners {
+		switch {
+		case o.Missing:
+			problems = append(problems, fmt.Sprintf("there is no row in %s at all", o.Table))
+		case o.AccountID == "":
+			ownerless = append(ownerless, o.Table)
+		case o.AccountID != accountID:
+			problems = append(problems, fmt.Sprintf("the row in %s is owned by %s, not %s",
+				o.Table, o.AccountID, accountID))
+		}
 	}
-	return nil
+	if len(ownerless) > 0 {
+		return "", false, fmt.Errorf("ownerless in %s: %w", strings.Join(ownerless, ", "),
+			errProjectionRowDidNotTakeOwner)
+	}
+	if len(problems) > 0 {
+		return "the record has the owner, and " + strings.Join(problems, "; ") +
+			", so the resource is missing from that listing", true, nil
+	}
+	return "", false, nil
 }
 
 // readModelBehind reports whether the event store holds events for id past
