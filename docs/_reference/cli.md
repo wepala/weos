@@ -339,8 +339,8 @@ with the first query.
 
 **Procedure.**
 
-1. Upgrade the instance to this release. A `--dry-run` may run while the instance serves: it writes
-   nothing.
+1. Upgrade the instance to this release. A `--dry-run` may run while the instance serves: it opens
+   the database read-only and starts nothing (no migration, no preset install), so it writes nothing.
 2. Run with `--dry-run`. Read the account name, the list of resources and the agent's accounts.
 3. Stop the instance, and back up the database. A real run opens the store directly, and a serving
    instance competes with it for the database (on SQLite, for the write lock).

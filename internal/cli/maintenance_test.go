@@ -228,6 +228,8 @@ var assignOwnerRunRules = []string{
 	"this release",
 	"Stop the instance",
 	"--dry-run may run while the instance serves",
+	// A dry run starts nothing that writes: no migration, no preset install.
+	"opens the database read-only",
 	// An older binary that served skipped the event in its background groups.
 	"weos worker checkpoint reset oxigraph",
 	"weos worker checkpoint reset lexical-index",

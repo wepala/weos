@@ -16,7 +16,6 @@
 package cli
 
 import (
-	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -25,8 +24,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	gormlib "gorm.io/gorm"
-	gormlogger "gorm.io/gorm/logger"
 
 	"github.com/wepala/weos/v3/domain/repositories"
 	gormdb "github.com/wepala/weos/v3/infrastructure/database/gorm"
@@ -92,44 +89,13 @@ func runAccountAuditMembers(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	dsn := GetConfig().DatabaseDSN
-	if path, missing := sqliteFileMissing(dsn); missing {
-		// Opening a SQLite path creates the file, and an audit must not leave
-		// an empty database behind a mistyped path.
-		return fmt.Errorf("no database at %s: point DATABASE_DSN or --database-dsn at the server's database", path)
-	}
-
-	// Opened on its own, not through the application module: starting the
-	// module runs migrations, installs presets and starts background writers,
-	// and a command that changes nothing must do none of that. It is not the
-	// server's dialector either: the server's SQLite pragmas switch the file to
-	// WAL journal mode, which writes to it. A SQLite file is opened read-only
-	// with no pragma.
-	db, err := gormlib.Open(gormdb.ReadOnlyDialectorForDSN(dsn), &gormlib.Config{
-		Logger: gormlogger.Default.LogMode(gormlogger.Silent),
-	})
+	// Opened read-only, never through the application module: see
+	// openReadOnlyStore.
+	tx, done, err := openReadOnlyStore(cmd.Context(), dsn)
 	if err != nil {
-		return fmt.Errorf("failed to open the database (check DATABASE_DSN): %s", redactDSN(rootCause(err).Error(), dsn))
+		return err
 	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		return fmt.Errorf("failed to open the database (check DATABASE_DSN): %s", redactDSN(rootCause(err).Error(), dsn))
-	}
-	defer func() {
-		// Everything the command needed has been read; a failed close loses
-		// nothing and the process is about to exit.
-		_ = sqlDB.Close()
-	}()
-
-	// Every read runs in one read-only transaction: Postgres refuses a write
-	// inside it, and the audit reads one consistent view of the tables.
-	tx := db.WithContext(cmd.Context()).Begin(&sql.TxOptions{ReadOnly: true})
-	if tx.Error != nil {
-		return fmt.Errorf("failed to open the database (check DATABASE_DSN): %s", redactDSN(rootCause(tx.Error).Error(), dsn))
-	}
-	defer func() {
-		// The transaction only read, so rolling it back discards nothing.
-		_ = tx.Rollback()
-	}()
+	defer done()
 
 	if err := printMembershipAudit(cmd, gormdb.ProvideAccountMembershipAudit(tx), auditMembersAccount); err != nil {
 		return errors.New(redactDSN(err.Error(), dsn))

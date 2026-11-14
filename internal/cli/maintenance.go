@@ -25,6 +25,10 @@ import (
 
 	"github.com/wepala/weos/v3/application"
 	"github.com/wepala/weos/v3/application/presets"
+	gormdb "github.com/wepala/weos/v3/infrastructure/database/gorm"
+	"github.com/wepala/weos/v3/internal/config"
+
+	authgorm "github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/database/gorm"
 
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
@@ -62,7 +66,8 @@ Before a real run:
   1. Upgrade the instance to this release. Stop the instance for the real run.
      The command opens the store directly, and a serving instance competes
      with it for the database (on SQLite, for the write lock). --dry-run may
-     run while the instance serves: it writes nothing.
+     run while the instance serves: it opens the database read-only and
+     starts nothing (no migration, no preset install), so it writes nothing.
   2. Back up the database.
   3. Run with --dry-run. It names the account, lists every selected resource
      with its type and created_at, and lists the agent's accounts.
@@ -141,28 +146,26 @@ func runMaintenanceAssignOwner(cmd *cobra.Command, _ []string) error {
 	}
 	appCfg := GetConfig().Config
 
+	// A dry run opens the database read-only and starts nothing: starting the
+	// application runs migrations and installs missing built-in presets, which
+	// write to the database before a single row is listed.
 	var svc *application.OwnerBackfillService
-	app := fx.New(
-		fx.NopLogger,
-		application.Module(appCfg, presets.NewDefaultRegistry()),
-		fx.Populate(&svc),
-	)
-	if err := app.Err(); err != nil {
-		return fmt.Errorf("could not build the owner backfill: %w", err)
+	if dryRun {
+		tx, done, err := openReadOnlyStore(cmd.Context(), appCfg.DatabaseDSN)
+		if err != nil {
+			return err
+		}
+		defer done()
+		svc = application.NewOwnerBackfillPlanner(
+			gormdb.ProvideOwnerlessResourceFinder(tx), authgorm.NewAccountRepository(tx))
+	} else {
+		started, stop, err := startOwnerBackfill(cmd.Context(), appCfg)
+		if err != nil {
+			return err
+		}
+		defer stop()
+		svc = started
 	}
-	startCtx, startCancel := context.WithTimeout(cmd.Context(), 2*time.Minute)
-	defer startCancel()
-	if err := app.Start(startCtx); err != nil {
-		return fmt.Errorf("failed to start (check DATABASE_DSN): %s",
-			redactDSN(rootCause(err).Error(), appCfg.DatabaseDSN))
-	}
-	defer func() {
-		stopCtx, stopCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
-		defer stopCancel()
-		// Each assignment committed on its own before this point, so a failed
-		// shutdown loses nothing, and the process is about to exit.
-		_ = app.Stop(stopCtx)
-	}()
 
 	out := cmd.OutOrStdout()
 	plan, err := svc.PlanAssignOwner(cmd.Context(), application.AssignOwnerCommand{
@@ -192,6 +195,33 @@ func runMaintenanceAssignOwner(cmd *cobra.Command, _ []string) error {
 	// its own, so the operator needs to know what already landed.
 	printAssignOwnerReport(out, report)
 	return assignOwnerOutcome(report, err)
+}
+
+// startOwnerBackfill starts the application against the store, for a real
+// run, and returns the backfill service with the function that stops it.
+func startOwnerBackfill(ctx context.Context, appCfg config.Config) (*application.OwnerBackfillService, func(), error) {
+	var svc *application.OwnerBackfillService
+	app := fx.New(
+		fx.NopLogger,
+		application.Module(appCfg, presets.NewDefaultRegistry()),
+		fx.Populate(&svc),
+	)
+	if err := app.Err(); err != nil {
+		return nil, nil, fmt.Errorf("could not build the owner backfill: %w", err)
+	}
+	startCtx, startCancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer startCancel()
+	if err := app.Start(startCtx); err != nil {
+		return nil, nil, fmt.Errorf("failed to start (check DATABASE_DSN): %s",
+			redactDSN(rootCause(err).Error(), appCfg.DatabaseDSN))
+	}
+	return svc, func() {
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
+		defer stopCancel()
+		// Each assignment committed on its own before this point, so a failed
+		// shutdown loses nothing, and the process is about to exit.
+		_ = app.Stop(stopCtx)
+	}, nil
 }
 
 // parseCreatedBound reads a --created-from or --created-to value: RFC 3339,

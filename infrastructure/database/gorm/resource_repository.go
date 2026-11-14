@@ -804,6 +804,14 @@ func (r *ResourceRepository) FindOwnerlessByCreator(
 
 var _ repositories.OwnerlessResourceFinder = (*ResourceRepository)(nil)
 
+// ProvideOwnerlessResourceFinder returns the ownerless-resource lookup over db
+// alone, with no projection manager. It is for a command that only reads, such
+// as `weos maintenance assign-owner --dry-run`, which opens the database
+// read-only rather than starting the application.
+func ProvideOwnerlessResourceFinder(db *gorm.DB) repositories.OwnerlessResourceFinder {
+	return &ResourceRepository{db: db}
+}
+
 // accessiblePredicate is the FindAccessibleIDs visibility rule as one SQL
 // predicate over a table with id and created_by columns: the caller created
 // the row, the row has no owner (an empty created_by), or the caller holds an

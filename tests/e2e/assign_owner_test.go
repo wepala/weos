@@ -833,3 +833,59 @@ func TestAssignOwner_TheCommandNarrowsListsAndConfirms(t *testing.T) {
 		t.Errorf("a malformed date exited %d, stderr:\n%s", code, stderr)
 	}
 }
+
+// A dry run writes nothing, even against a database whose boot would. The
+// full application runs migrations and installs missing built-in presets as it
+// starts, so a dry run built on it would recreate a built-in type that the
+// store lacks, and append that type's events, before it listed one row.
+func TestAssignOwner_TheCommandsDryRunWritesNothingAtBoot(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the weos binary")
+	}
+	env := newAssignOwnerEnv(t)
+	f := env.seed(t)
+	env.stop()
+	db, err := gorm.Open(gormprov.DialectorForDSN(env.cfg.DatabaseDSN), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+	if sqlDB, err := db.DB(); err == nil {
+		t.Cleanup(func() { _ = sqlDB.Close() })
+	}
+	env.db = db
+
+	// The notification type is auto-installed: a boot of the full
+	// application creates it when the store has never had it, as on a
+	// database from a release before the type existed.
+	if err := db.Exec("DELETE FROM resource_types WHERE slug = ?", "notification").Error; err != nil {
+		t.Fatalf("remove the notification type: %v", err)
+	}
+	if err := db.Exec("DELETE FROM events WHERE aggregate_id = ?", "urn:type:notification").Error; err != nil {
+		t.Fatalf("remove the notification type's events: %v", err)
+	}
+	typeCount := func() int64 {
+		t.Helper()
+		var n int64
+		if err := db.Table("resource_types").Count(&n).Error; err != nil {
+			t.Fatalf("count resource types: %v", err)
+		}
+		return n
+	}
+	typesBefore, eventsBefore := typeCount(), env.eventCount(t)
+
+	stdout, stderr, code := env.runWeos(t, "maintenance", "assign-owner",
+		"--account", env.ownerAccount, "--created-by", env.ownerAgent, "--dry-run")
+	if code != 0 {
+		t.Fatalf("dry run exited %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "total: 3 ownerless resource(s) would be assigned") {
+		t.Errorf("dry run output lacks the total:\n%s", stdout)
+	}
+	if after := typeCount(); after != typesBefore {
+		t.Errorf("the dry run changed the resource types: %d before, %d after", typesBefore, after)
+	}
+	if after := env.eventCount(t); after != eventsBefore {
+		t.Errorf("the dry run appended %d event(s)", after-eventsBefore)
+	}
+	env.requireOwner(t, "task", f.ownerless1, "", "after the dry run")
+}

@@ -173,6 +173,7 @@ type OwnerBackfillParams struct {
 // OwnerBackfillService gives ownerless resources their owning account.
 type OwnerBackfillService struct {
 	repo       repositories.ResourceRepository
+	finder     repositories.OwnerlessResourceFinder
 	accounts   authrepos.AccountRepository
 	eventStore domain.EventStore
 	dispatcher *domain.EventDispatcher
@@ -181,13 +182,30 @@ type OwnerBackfillService struct {
 
 // ProvideOwnerBackfillService wires the service from the container.
 func ProvideOwnerBackfillService(p OwnerBackfillParams) *OwnerBackfillService {
+	finder, _ := p.Repo.(repositories.OwnerlessResourceFinder)
 	return &OwnerBackfillService{
 		repo:       p.Repo,
+		finder:     finder,
 		accounts:   p.Accounts,
 		eventStore: p.EventStore,
 		dispatcher: p.Dispatcher,
 		logger:     p.Logger,
 	}
+}
+
+// ErrOwnerBackfillReadOnly refuses a write from a service built by
+// NewOwnerBackfillPlanner, which can only plan.
+var ErrOwnerBackfillReadOnly = errors.New("assign owner: this service only plans; it was built without an event store")
+
+// NewOwnerBackfillPlanner returns a service that can plan an assignment and
+// never write one. It needs only the two lookups a plan reads, so a dry run
+// can build it over a read-only database connection instead of starting the
+// application, whose start runs migrations and installs missing built-in
+// presets. ApplyAssignOwner on it returns ErrOwnerBackfillReadOnly.
+func NewOwnerBackfillPlanner(
+	finder repositories.OwnerlessResourceFinder, accounts authrepos.AccountRepository,
+) *OwnerBackfillService {
+	return &OwnerBackfillService{finder: finder, accounts: accounts}
 }
 
 // AssignOwner gives every resource with no owning account that cmd.CreatedBy
@@ -242,11 +260,10 @@ func (s *OwnerBackfillService) PlanAssignOwner(
 		return report, fmt.Errorf("%w: %s is a member of %d accounts (%s)", ErrOwnerAccountNotConfirmed,
 			cmd.CreatedBy, len(report.MemberOf), describeAccounts(report.MemberOf))
 	}
-	finder, ok := s.repo.(repositories.OwnerlessResourceFinder)
-	if !ok {
+	if s.finder == nil {
 		return report, fmt.Errorf("assign owner: the resource repository %T cannot list ownerless resources", s.repo)
 	}
-	ownerless, err := finder.FindOwnerlessByCreator(ctx, cmd.CreatedBy)
+	ownerless, err := s.finder.FindOwnerlessByCreator(ctx, cmd.CreatedBy)
 	if err != nil {
 		return report, fmt.Errorf("assign owner: %w", err)
 	}
@@ -281,6 +298,9 @@ func (s *OwnerBackfillService) PlanAssignOwner(
 func (s *OwnerBackfillService) ApplyAssignOwner(
 	ctx context.Context, plan AssignOwnerReport,
 ) (AssignOwnerReport, error) {
+	if s.eventStore == nil || s.dispatcher == nil {
+		return plan, ErrOwnerBackfillReadOnly
+	}
 	report := plan
 	report.DryRun = false
 	report.Types = make(map[string]AssignOwnerTypeCount, len(plan.Types))
