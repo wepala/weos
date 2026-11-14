@@ -326,6 +326,9 @@ func TestAssignOwner_ARerunFillsATypeRowTheRecordsOwnerDidNotReach(t *testing.T)
 	if len(preview.Resources) != 1 || preview.Resources[0].ID != id {
 		t.Fatalf("the preview selects %+v; want %s, whose type row is still ownerless", preview.Resources, id)
 	}
+	if got := preview.Types["task"]; got.Ownerless != 0 || got.ToFill != 1 {
+		t.Errorf("preview task counts = %+v, want 1 row to fill and nothing ownerless", got)
+	}
 	if !preview.Resources[0].RecordOwned {
 		t.Errorf("the preview does not say %s's record already has the owner", id)
 	}
@@ -334,8 +337,14 @@ func TestAssignOwner_ARerunFillsATypeRowTheRecordsOwnerDidNotReach(t *testing.T)
 	if err != nil {
 		t.Fatalf("re-run: %v", err)
 	}
-	if got := report.Types["task"]; got.Ownerless != 1 || got.Assigned != 1 {
-		t.Errorf("task counts = %+v, want 1 ownerless and 1 assigned", got)
+	// A fill stores no event, so it is counted apart from the assignments
+	// (wm-y49sxb): the assigned count must match the events the run stored.
+	if got := report.Types["task"]; got.Ownerless != 0 || got.Assigned != 0 || got.ToFill != 1 || got.Filled != 1 {
+		t.Errorf("task counts = %+v, want 1 row to fill and 1 filled, and nothing ownerless or assigned", got)
+	}
+	if report.Ownerless() != 0 || report.Assigned() != 0 || report.ToFill() != 1 || report.Filled() != 1 {
+		t.Errorf("totals = %d ownerless, %d assigned, %d to fill, %d filled; want 0, 0, 1, 1",
+			report.Ownerless(), report.Assigned(), report.ToFill(), report.Filled())
 	}
 	if got := h.repo.typeRowOwner(id); got != h.account {
 		t.Errorf("type row owner after the re-run = %q, want %q", got, h.account)

@@ -366,7 +366,17 @@ owner. The run then stops with an error that names the resource. Fix the cause a
 again: it selects that resource, fills the row from the record, and records no second event, because
 the assignment is already in the event store. The preview marks such a resource "record has the
 owner; projection row to fill". It is selected only when the record's owner is the `--account` of the
-run. A fill writes no event and does not write the record, so no version check guards it the way the
+run.
+
+The preview and the result count these rows to fill apart from the resources to assign. An assignment
+stores one `Resource.AccountAssigned` event and a fill stores no event, so only the assigned count
+matches the events a run adds to the store. A fill rewrites the whole projection row from the record
+and sets its `updated_at` to the time of the run, as `weos worker reproject` does, so it can change
+columns other than the owner where the row had drifted from the record. When the preview lists many
+rows to fill (it suggests this from 100), stop the instance and run `weos worker reproject` instead: it
+repairs every row in one pass. Then preview again.
+
+A fill writes no event and does not write the record, so no version check guards it the way the
 unit of work guards an assignment. Instead each row is written only while it still has no owner and its
 sequence number is not past the record's, checked in the write statement itself. A row that changed
 after the run read the record (a write by a serving instance) is not written over: the resource is

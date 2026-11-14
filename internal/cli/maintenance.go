@@ -107,8 +107,15 @@ projection rows read back with the owner. A failed write can leave a
 projection row ownerless under a record that has the owner; the run then
 stops and names the resource. Fix the cause and run again: the run selects
 that resource, fills the row from the record, and records no second event.
-The preview marks it "record has the owner; projection row to fill". It is
-selected only when the record's owner is the --account of the run. A fill
+The preview marks it "record has the owner; projection row to fill", and
+counts such resources as rows to fill, apart from the resources to assign:
+an assignment stores one Resource.AccountAssigned event, a fill stores no
+event, so only the assigned count matches the events a run adds. A fill
+rewrites the whole projection row from the record and sets its updated_at,
+as "weos worker reproject" does. When the preview lists many rows to fill,
+a reproject of the stopped instance repairs them all in one pass. Such a
+resource is selected only when the record's owner is the --account of the
+run. A fill
 writes no event and does not write the record, and so has no version check;
 a row that changed after the run read the record (a write by a serving
 instance) is not written over, and the resource is listed with the ones left
@@ -316,8 +323,15 @@ func windowBound(t time.Time) string {
 	return t.UTC().Format(time.RFC3339)
 }
 
+// assignOwnerManyFills is the number of rows to fill at which the report
+// suggests a reproject instead: a fill rewrites each whole row, as a
+// reproject does, and one reproject repairs every row in one pass.
+const assignOwnerManyFills = 100
+
 // printAssignOwnerReport renders what a run selected (a preview) or did (a
 // run with --write), one line per type. A preview also lists every resource.
+// Assignments (one event each) and fills (no event) are counted apart, so the
+// totals reconcile with the event store.
 func printAssignOwnerReport(out io.Writer, r application.AssignOwnerReport) {
 	if len(r.Types) == 0 {
 		_, _ = fmt.Fprintln(out, "nothing to assign: the agent has no resource without an owner"+
@@ -328,10 +342,17 @@ func printAssignOwnerReport(out io.Writer, r application.AssignOwnerReport) {
 	for _, slug := range r.TypeSlugs() {
 		c := r.Types[slug]
 		if r.DryRun {
-			_, _ = fmt.Fprintf(out, "  %-24s %d ownerless, would assign %d\n", slug, c.Ownerless, c.Ownerless)
+			_, _ = fmt.Fprintf(out, "  %-24s %d ownerless, would assign %d", slug, c.Ownerless, c.Ownerless)
+			if c.ToFill > 0 {
+				_, _ = fmt.Fprintf(out, "; %d projection row(s) to fill", c.ToFill)
+			}
+			_, _ = fmt.Fprintln(out)
 			continue
 		}
 		_, _ = fmt.Fprintf(out, "  %-24s %d ownerless, assigned %d", slug, c.Ownerless, c.Assigned)
+		if c.ToFill > 0 {
+			_, _ = fmt.Fprintf(out, "; %d projection row(s) to fill, filled %d", c.ToFill, c.Filled)
+		}
 		if c.Skipped > 0 {
 			_, _ = fmt.Fprintf(out, ", skipped %d that gained an owner during the run", c.Skipped)
 		}
@@ -351,15 +372,38 @@ func printAssignOwnerReport(out io.Writer, r application.AssignOwnerReport) {
 			_, _ = fmt.Fprintf(out, "  %-20s  %-24s %s%s\n",
 				res.CreatedAt.UTC().Format(time.RFC3339), res.TypeSlug, res.ID, note)
 		}
-		_, _ = fmt.Fprintf(out, "\ntotal: %d ownerless resource(s) would be assigned\n", r.Ownerless())
+		_, _ = fmt.Fprintf(out, "\ntotal: %d ownerless resource(s) would be assigned (%s)\n", r.Ownerless(), oneEventEach)
+		if n := r.ToFill(); n > 0 {
+			_, _ = fmt.Fprintf(out, "       %d resource(s) with a projection row to fill from the record (no event)\n", n)
+		}
+		printManyFills(out, r.ToFill())
 		return
 	}
 	_, _ = fmt.Fprintf(out, "\ntotal: %d of %d ownerless resource(s) assigned", r.Assigned(), r.Ownerless())
 	if len(r.NeedsReproject) > 0 {
 		_, _ = fmt.Fprintf(out, ", %d left for a reproject", len(r.NeedsReproject))
 	}
-	_, _ = fmt.Fprintln(out)
+	_, _ = fmt.Fprintf(out, " (%s)\n", oneEventEach)
+	if n := r.ToFill(); n > 0 {
+		_, _ = fmt.Fprintf(out, "       %d of %d resource(s) with a projection row filled from the record (no event)\n",
+			r.Filled(), n)
+	}
 	printNeedsReproject(out, r.NeedsReproject)
+}
+
+// oneEventEach says what an assignment stores, beside the count of them.
+const oneEventEach = "one Resource.AccountAssigned event each"
+
+// printManyFills suggests a reproject when a preview has many rows to fill.
+func printManyFills(out io.Writer, toFill int) {
+	if toFill < assignOwnerManyFills {
+		return
+	}
+	_, _ = fmt.Fprintf(out, "\nnote: %d resource(s) have a projection row to fill. A fill rewrites the whole projection row\n",
+		toFill)
+	_, _ = fmt.Fprintln(out, "      and sets its updated_at to the time of the run, as a reproject does. With this many,")
+	_, _ = fmt.Fprintln(out, "      consider `weos worker reproject` on the stopped instance instead: it repairs every")
+	_, _ = fmt.Fprintln(out, "      row in one pass. Then preview again.")
 }
 
 // printNeedsReproject lists the resources a run skipped because their read

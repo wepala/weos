@@ -93,19 +93,32 @@ type AssignOwnerAccount struct {
 }
 
 // AssignOwnerTypeCount is one resource type's line in the report.
+//
+// Ownerless and Assigned count assignments, each one Resource.AccountAssigned
+// event. ToFill and Filled count fills, which store no event (see
+// AssignOwnerResource.RecordOwned). They are kept apart so the assigned count
+// matches the events a run stored.
 type AssignOwnerTypeCount struct {
 	// Ownerless is how many of the creator's resources of this type had no
-	// owner when the run started.
+	// owner in their record when the run started.
 	Ownerless int
-	// Assigned is how many of them this run gave the owner. Always 0 on a
-	// dry run.
+	// Assigned is how many of them this run gave the owner, one event each.
+	// Always 0 on a dry run.
 	Assigned int
-	// Skipped is how many already had an owner by the time the run reached
-	// them — a concurrent write — and so were left as they were.
+	// ToFill is how many of the creator's resources of this type had the
+	// owner in their record and a projection row with none when the run
+	// started.
+	ToFill int
+	// Filled is how many of them this run filled from the record, with no
+	// event. Always 0 on a dry run.
+	Filled int
+	// Skipped is how many, of either kind, already had an owner by the time
+	// the run reached them — a concurrent write — and so were left as they
+	// were.
 	Skipped int
-	// NeedsReproject is how many were left ownerless because their read
-	// model is behind the event store. Each is listed in the report's
-	// NeedsReproject.
+	// NeedsReproject is how many, of either kind, were left ownerless because
+	// their read model is behind the event store or changed during the run.
+	// Each is listed in the report's NeedsReproject.
 	NeedsReproject int
 }
 
@@ -147,20 +160,34 @@ func (r AssignOwnerReport) TypeSlugs() []string {
 	return slugs
 }
 
-// Ownerless is the number of ownerless resources found, over every type.
+// Ownerless is the number of resources found with no owner in their record,
+// over every type.
 func (r AssignOwnerReport) Ownerless() int {
-	n := 0
-	for _, c := range r.Types {
-		n += c.Ownerless
-	}
-	return n
+	return r.sum(func(c AssignOwnerTypeCount) int { return c.Ownerless })
 }
 
-// Assigned is the number of resources given the owner, over every type.
+// Assigned is the number of resources given the owner, one event each, over
+// every type.
 func (r AssignOwnerReport) Assigned() int {
+	return r.sum(func(c AssignOwnerTypeCount) int { return c.Assigned })
+}
+
+// ToFill is the number of resources found with the owner in their record and
+// a projection row with none, over every type.
+func (r AssignOwnerReport) ToFill() int {
+	return r.sum(func(c AssignOwnerTypeCount) int { return c.ToFill })
+}
+
+// Filled is the number of resources whose projection rows were filled from
+// the record, with no event, over every type.
+func (r AssignOwnerReport) Filled() int {
+	return r.sum(func(c AssignOwnerTypeCount) int { return c.Filled })
+}
+
+func (r AssignOwnerReport) sum(count func(AssignOwnerTypeCount) int) int {
 	n := 0
 	for _, c := range r.Types {
-		n += c.Assigned
+		n += count(c)
 	}
 	return n
 }
@@ -291,11 +318,16 @@ func (s *OwnerBackfillService) PlanAssignOwner(
 		if r.RecordAccountID != "" && r.RecordAccountID != cmd.AccountID {
 			continue
 		}
+		recordOwned := r.RecordAccountID != ""
 		report.Resources = append(report.Resources, AssignOwnerResource{
-			ID: r.ID, TypeSlug: r.TypeSlug, CreatedAt: r.CreatedAt, RecordOwned: r.RecordAccountID != "",
+			ID: r.ID, TypeSlug: r.TypeSlug, CreatedAt: r.CreatedAt, RecordOwned: recordOwned,
 		})
 		c := report.Types[r.TypeSlug]
-		c.Ownerless++
+		if recordOwned {
+			c.ToFill++
+		} else {
+			c.Ownerless++
+		}
 		report.Types[r.TypeSlug] = c
 	}
 	return report, nil
@@ -339,7 +371,7 @@ func (s *OwnerBackfillService) ApplyAssignOwner(
 	report.DryRun = false
 	report.Types = make(map[string]AssignOwnerTypeCount, len(plan.Types))
 	for slug, c := range plan.Types {
-		report.Types[slug] = AssignOwnerTypeCount{Ownerless: c.Ownerless}
+		report.Types[slug] = AssignOwnerTypeCount{Ownerless: c.Ownerless, ToFill: c.ToFill}
 	}
 	report.NeedsReproject = nil
 	for _, r := range plan.Resources {
@@ -353,12 +385,14 @@ func (s *OwnerBackfillService) ApplyAssignOwner(
 			return report, fmt.Errorf("assign owner: %s (%s): %w", r.ID, r.TypeSlug, err)
 		}
 		c := report.Types[r.TypeSlug]
-		switch outcome {
-		case assignedOwner:
+		switch {
+		case outcome == assignedOwner && r.RecordOwned:
+			c.Filled++
+		case outcome == assignedOwner:
 			c.Assigned++
-		case gainedOwner:
+		case outcome == gainedOwner:
 			c.Skipped++
-		case readModelBehind:
+		case outcome == readModelBehind:
 			c.NeedsReproject++
 			report.NeedsReproject = append(report.NeedsReproject,
 				AssignOwnerSkip{ID: r.ID, TypeSlug: r.TypeSlug, Reason: reason})
@@ -369,7 +403,7 @@ func (s *OwnerBackfillService) ApplyAssignOwner(
 	}
 	s.logger.Info(ctx, "assigned owners to ownerless resources",
 		"account", plan.AccountID, "createdBy", plan.CreatedBy, "assigned", report.Assigned(),
-		"needsReproject", len(report.NeedsReproject))
+		"filled", report.Filled(), "needsReproject", len(report.NeedsReproject))
 	return report, nil
 }
 

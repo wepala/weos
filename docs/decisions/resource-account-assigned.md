@@ -128,6 +128,13 @@ A real run writes the record's data and owner over each ownerless projection row
 the canonical record. It skips a record that is behind the event store, that has a different owner, or
 that has a different creator.
 
+A fill rewrites the whole projection row from the record and sets its `updated_at`, as
+`weos worker reproject` does, so on a type whose row had drifted from the record it changes more than
+the owner. The preview and the result therefore count fills apart from assignments ("rows to fill",
+with no event, beside the resources to assign, with one event each), so a run's assigned count matches
+the events it stored. When the preview lists many rows to fill, a reproject of the stopped instance is
+the better repair, and the preview says so.
+
 The fill does not go through a unit of work, so no version conflict protects it from a write that
 lands between its read of the record and its write of a row (wm-5o1kcm). The write statement itself
 carries the guard instead: it updates the row only while the row has no owner and its `sequence_no` is
@@ -171,7 +178,8 @@ upgrade the instance to this release and stop it before a real run.
   has no agent to test.
 - **The first preview after an upgrade can list more rows than the ownerless records.** It also
   lists every resource whose record has the run's account but whose projection row is ownerless,
-  whatever the cause. Each such row carries the mark above.
+  whatever the cause. Each such row carries the mark above, and is counted as a row to fill, not as
+  a resource to assign.
 - The `CASE` in the upsert is tested on SQLite and, when `TEST_POSTGRES_DSN` names a server, on
   PostgreSQL.
 

@@ -264,6 +264,67 @@ func TestPrintAssignOwnerReport_DryRunMarksARecordThatHasTheOwner(t *testing.T) 
 	}
 }
 
+// A fill stores no event, so the preview and the result count it apart from
+// the assignments, and the totals reconcile with the event store
+// (wm-y49sxb).
+func TestPrintAssignOwnerReport_CountsRowsToFillApartFromAssignments(t *testing.T) {
+	var out bytes.Buffer
+	printAssignOwnerReport(&out, application.AssignOwnerReport{
+		AccountID: "acct-1", CreatedBy: "agent-1", DryRun: true,
+		Types: map[string]application.AssignOwnerTypeCount{
+			"statement": {Ownerless: 2, ToFill: 1}, "task": {ToFill: 3},
+		},
+	})
+	text := out.String()
+	for _, want := range []string{
+		"statement                2 ownerless, would assign 2; 1 projection row(s) to fill",
+		"task                     0 ownerless, would assign 0; 3 projection row(s) to fill",
+		"total: 2 ownerless resource(s) would be assigned (one Resource.AccountAssigned event each)",
+		"4 resource(s) with a projection row to fill from the record (no event)",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("preview lacks %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "consider") {
+		t.Errorf("a short fill list suggests a reproject:\n%s", text)
+	}
+
+	out.Reset()
+	printAssignOwnerReport(&out, application.AssignOwnerReport{
+		AccountID: "acct-1", CreatedBy: "agent-1",
+		Types: map[string]application.AssignOwnerTypeCount{
+			"statement": {Ownerless: 2, Assigned: 2, ToFill: 1, Filled: 1},
+		},
+	})
+	text = out.String()
+	for _, want := range []string{
+		"statement                2 ownerless, assigned 2; 1 projection row(s) to fill, filled 1",
+		"total: 2 of 2 ownerless resource(s) assigned (one Resource.AccountAssigned event each)",
+		"1 of 1 resource(s) with a projection row filled from the record (no event)",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("result lacks %q:\n%s", want, text)
+		}
+	}
+}
+
+// A fill rewrites whole rows, so a long fill list is better repaired by one
+// reproject of the stopped instance; the preview says so.
+func TestPrintAssignOwnerReport_ALongFillListSuggestsAReproject(t *testing.T) {
+	var out bytes.Buffer
+	printAssignOwnerReport(&out, application.AssignOwnerReport{
+		AccountID: "acct-1", CreatedBy: "agent-1", DryRun: true,
+		Types: map[string]application.AssignOwnerTypeCount{"task": {ToFill: assignOwnerManyFills}},
+	})
+	text := strings.Join(strings.Fields(out.String()), " ")
+	for _, want := range []string{"rewrites the whole projection row", "updated_at", "weos worker reproject"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("a preview with %d rows to fill lacks %q:\n%s", assignOwnerManyFills, want, out.String())
+		}
+	}
+}
+
 // assignOwnerRunRules are what an operator must know before a real run. The
 // command's long help and docs/_reference/cli.md both state each one.
 var assignOwnerRunRules = []string{
@@ -295,6 +356,11 @@ var assignOwnerRunRules = []string{
 	// that row has not changed since the record was read (wm-5o1kcm).
 	"changed after the run read the record",
 	"is not written over",
+	// A fill stores no event, rewrites the whole row and is counted apart;
+	// many fills are better done by a reproject (wm-y49sxb).
+	"rows to fill",
+	"rewrites the whole projection row",
+	"no event",
 }
 
 func TestMaintenanceAssignOwner_HelpStatesTheRunRules(t *testing.T) {

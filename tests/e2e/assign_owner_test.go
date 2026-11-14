@@ -656,8 +656,13 @@ func TestAssignOwner_ATypeRowThatDidNotTakeTheOwnerIsFilledByARerun(t *testing.T
 	if err != nil {
 		t.Fatalf("the re-run: %v", err)
 	}
-	if got := report.Assigned() + again.Assigned(); got != 3 {
-		t.Errorf("the runs report %d assigned, want 3", got)
+	// The fill stores no event, so it is counted apart (wm-y49sxb): the
+	// assigned counts match the events, and the one row is reported filled.
+	if got := report.Assigned() + again.Assigned(); got != 3-1 {
+		t.Errorf("the runs report %d assigned, want 2: one event per resource, and none for the fill", got)
+	}
+	if again.Filled() != 1 || again.ToFill() != 1 {
+		t.Errorf("the re-run reports %d of %d row(s) filled, want 1 of 1", again.Filled(), again.ToFill())
 	}
 	env.requireOwner(t, "task", f.ownerless1, env.ownerAccount, "after the re-run")
 	env.requireOwner(t, "task", f.ownerless2, env.ownerAccount, "after the re-run")
