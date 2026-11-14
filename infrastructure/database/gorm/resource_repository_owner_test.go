@@ -131,6 +131,53 @@ func TestFindOwnerlessByCreator_WithoutAProjectionManagerFindsTheSameRows(t *tes
 	}
 }
 
+// wm-oyoqao: a record with an owner whose projection row another account
+// owns is missing from the record owner's listing, and the fill-only upsert
+// keeps that owner. The finder lists it with the table and the account the
+// row holds, with a projection manager and without one (the preview).
+func TestFindOwnerlessByCreator_ListsARowOwnedByAnotherAccountThanTheRecord(t *testing.T) {
+	t.Parallel()
+	f := seedOwnerFixture(t)
+	for _, rt := range []models.ResourceType{
+		{ID: "rt-instrument", Name: "Instrument", Slug: "instrument",
+			Context: `{"@vocab":"https://schema.org/","weos:abstract":true}`},
+		{ID: "rt-loan", Name: "Loan", Slug: "loan",
+			Context: `{"@vocab":"https://schema.org/","rdfs:subClassOf":"instrument"}`},
+	} {
+		if err := f.repo.db.Create(&rt).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.repo.db.Table("instruments").Where("id = ?", f.healthy).
+		Update("account_id", "acct-2").Error; err != nil {
+		t.Fatal(err)
+	}
+	for name, finder := range map[string]repositories.OwnerlessResourceFinder{
+		"with a projection manager": f.repo, "without one": ProvideOwnerlessResourceFinder(f.repo.db),
+	} {
+		got, err := finder.FindOwnerlessByCreator(t.Context(), "agent-1")
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		var found *repositories.OwnerlessResource
+		for i := range got {
+			if got[i].ID == f.healthy {
+				found = &got[i]
+			} else if got[i].ForeignRowTable != "" || got[i].ForeignRowAccountID != "" {
+				t.Errorf("%s: %s is listed with a row owned by another account: %+v", name, got[i].ID, got[i])
+			}
+		}
+		if found == nil {
+			t.Fatalf("%s: listed %v, want %s too", name, ids(got), f.healthy)
+		}
+		want := repositories.OwnerlessResource{ID: f.healthy, TypeSlug: "loan", CreatedAt: found.CreatedAt,
+			RecordAccountID: "acct-1", ForeignRowTable: "instruments", ForeignRowAccountID: "acct-2"}
+		if *found != want || found.CreatedAt.IsZero() {
+			t.Errorf("%s: listed %+v, want %+v", name, *found, want)
+		}
+	}
+}
+
 func ids(rs []repositories.OwnerlessResource) []string {
 	out := make([]string, len(rs))
 	for i, r := range rs {

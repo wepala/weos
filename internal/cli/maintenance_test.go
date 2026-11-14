@@ -133,10 +133,59 @@ func TestPrintAssignOwnerReport_ListsWhatNeedsAReproject(t *testing.T) {
 		// A fill that met a row changed during the run lands in the same list
 		// (wm-5o1kcm), so the heading must not claim the read model is behind.
 		"behind the event store, changed during the run, or has no projection row at all",
+		// Copilot on #586: a resource lands here after its read-back, when
+		// its assignment event is already stored, so the heading must not say
+		// nothing was written.
+		"incomplete projection",
+		"may already have a stored assignment",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("report lacks %q:\n%s", want, text)
 		}
+	}
+	if strings.Contains(text, "A run does not write to them") {
+		t.Errorf("the heading says nothing was written to these resources:\n%s", text)
+	}
+}
+
+// Copilot on #586 and wm-oyoqao: a projection row another account owns is
+// kept by an assignment, a fill and a reproject alike. The report lists it
+// apart, preview and run, and does not send the operator to a reproject.
+func TestPrintAssignOwnerReport_ListsRowsOwnedByAnotherAccountApart(t *testing.T) {
+	for _, dryRun := range []bool{true, false} {
+		var out bytes.Buffer
+		printAssignOwnerReport(&out, application.AssignOwnerReport{
+			AccountID: "acct-1", CreatedBy: "agent-1", DryRun: dryRun,
+			Types: map[string]application.AssignOwnerTypeCount{"statement": {ForeignRows: 1}},
+			ForeignRows: []application.AssignOwnerForeignRow{{
+				ID: "urn:statement:1", TypeSlug: "statement", Table: "statements",
+				RowAccountID: "acct-2", RecordAccountID: "acct-1",
+				Reason: "the row in statements is owned by acct-2, and the record by acct-1",
+			}},
+		})
+		text := out.String()
+		for _, want := range []string{
+			"1 with a projection row owned by another account",
+			"urn:statement:1 (statement): the row in statements is owned by acct-2, and the record by acct-1",
+			"no automatic repair",
+			"needs investigation",
+		} {
+			if !strings.Contains(text, want) {
+				t.Errorf("dry run %v: report lacks %q:\n%s", dryRun, want, text)
+			}
+		}
+		if strings.Contains(text, "reproject") {
+			t.Errorf("dry run %v: the report sends a row another account owns to a reproject:\n%s", dryRun, text)
+		}
+	}
+}
+
+func TestAssignOwnerOutcome_ARunThatMetARowOwnedByAnotherAccountFails(t *testing.T) {
+	err := assignOwnerOutcome(application.AssignOwnerReport{
+		ForeignRows: []application.AssignOwnerForeignRow{{ID: "urn:statement:1"}},
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "1 resource(s) with a projection row owned by another account") {
+		t.Errorf("err = %v, want a failure naming the resources with a row owned by another account", err)
 	}
 }
 
@@ -421,6 +470,11 @@ var assignOwnerRunRules = []string{
 	// A resource with no projection row at all is listed for a reproject,
 	// in the preview too (wm-zm4sbz).
 	"no projection row at all",
+	// A projection row another account owns is listed apart, in the preview
+	// too: a reproject keeps that owner, so nothing repairs it (Copilot on
+	// #586, wm-oyoqao).
+	"no automatic repair",
+	"needs investigation",
 }
 
 func TestMaintenanceAssignOwner_HelpStatesTheRunRules(t *testing.T) {

@@ -799,7 +799,8 @@ var _ repositories.ResourceIDFinder = (*ResourceRepository)(nil)
 // FindOwnerlessByCreator lists the resources createdBy created that have no
 // owning account, across every resource type: each canonical record with an
 // empty owner, and each record with an owner whose projection row (its own
-// type's or an ancestor's) has none — see findOwnerlessProjectionRows. The
+// type's or an ancestor's) has none, does not exist, or is owned by another
+// account — see findOwnerlessProjectionRows. The
 // canonical table is the one place every type's records share, so one query
 // covers the first kind.
 func (r *ResourceRepository) FindOwnerlessByCreator(

@@ -131,10 +131,12 @@ func (r *ResourceRepository) FillOwnerlessProjectionRows(
 
 // findOwnerlessProjectionRows lists the live resources createdBy created
 // whose canonical record has an owner while a projection row of theirs has
-// none, or does not exist (wm-zm4sbz), with the record's owner in
-// RecordAccountID and the first table with no row in MissingTable. Only the
+// none, does not exist (wm-zm4sbz), or is owned by another account
+// (wm-oyoqao), with the record's owner in RecordAccountID, the first table
+// with no row in MissingTable, and the first table whose row another account
+// owns in ForeignRowTable with that account in ForeignRowAccountID. Only the
 // types of the creator's owned records are searched, and a resource is listed
-// once however many of its rows are ownerless or missing.
+// once however many of its rows are ownerless, missing or owned elsewhere.
 func (r *ResourceRepository) findOwnerlessProjectionRows(
 	ctx context.Context, createdBy string,
 ) ([]repositories.OwnerlessResource, error) {
@@ -147,17 +149,23 @@ func (r *ResourceRepository) findOwnerlessProjectionRows(
 	}
 	var out []repositories.OwnerlessResource
 	listed := map[string]int{} // id → index in out
-	add := func(found []repositories.OwnerlessResource, missingTable string) {
+	// add lists each found resource once. A later query fills in the
+	// missing table, or the table and account of a row owned elsewhere, on a
+	// resource an earlier query listed, when that one has none yet.
+	add := func(found []repositories.OwnerlessResource) {
 		for _, f := range found {
-			if i, ok := listed[f.ID]; ok {
-				if out[i].MissingTable == "" {
-					out[i].MissingTable = missingTable
-				}
+			i, ok := listed[f.ID]
+			if !ok {
+				listed[f.ID] = len(out)
+				out = append(out, f)
 				continue
 			}
-			f.MissingTable = missingTable
-			listed[f.ID] = len(out)
-			out = append(out, f)
+			if out[i].MissingTable == "" {
+				out[i].MissingTable = f.MissingTable
+			}
+			if out[i].ForeignRowTable == "" {
+				out[i].ForeignRowTable, out[i].ForeignRowAccountID = f.ForeignRowTable, f.ForeignRowAccountID
+			}
 		}
 	}
 	const columns = "resources.id AS id, resources.type_slug AS type_slug, " +
@@ -180,7 +188,7 @@ func (r *ResourceRepository) findOwnerlessProjectionRows(
 			if err != nil {
 				return nil, fmt.Errorf("read the owners in %s: %w", table, err)
 			}
-			add(found, "")
+			add(found)
 			// A row that does not exist is ownerless as far as the type's
 			// listing goes, and no join finds it.
 			var missing []repositories.OwnerlessResource
@@ -194,7 +202,30 @@ func (r *ResourceRepository) findOwnerlessProjectionRows(
 			if err != nil {
 				return nil, fmt.Errorf("find the rows missing from %s: %w", table, err)
 			}
-			add(missing, table)
+			for i := range missing {
+				missing[i].MissingTable = table
+			}
+			add(missing)
+			// A row owned by another account than the record is missing from
+			// the record owner's listing as well, and the fill-only upsert
+			// keeps the owner it holds (wm-oyoqao).
+			var foreign []repositories.OwnerlessResource
+			err = r.db.WithContext(ctx).Table(table).
+				Select(columns+fmt.Sprintf(", %s.account_id AS foreign_row_account_id", table)).
+				Joins(fmt.Sprintf("JOIN resources ON %s.id = resources.id", table)).
+				Where(owned, createdBy).
+				Where("resources.type_slug = ?", slug).
+				Where(fmt.Sprintf("%s.account_id <> '' AND %s.account_id IS NOT NULL "+
+					"AND %s.account_id <> resources.account_id", table, table, table)).
+				Order("resources.id").
+				Scan(&foreign).Error
+			if err != nil {
+				return nil, fmt.Errorf("find the rows in %s owned by another account: %w", table, err)
+			}
+			for i := range foreign {
+				foreign[i].ForeignRowTable = table
+			}
+			add(foreign)
 		}
 	}
 	return out, nil

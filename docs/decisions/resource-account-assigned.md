@@ -114,10 +114,14 @@ reaches it. The command:
   type's table and each ancestor type's table) are read back with the owner. A record that is behind
   its event stream is skipped and listed, with `weos worker reproject` as the repair. A projection row
   that is still ownerless stops the run with an error that names the resource and the table. A row the
-  write did not reach at all — one that does not exist after the upsert, or one another account owns,
-  which the fill-only upsert keeps — is not counted either: the resource is listed under
-  `NeedsReproject` with the table (and the account that holds the row), because neither a re-run's
-  fill nor a second assignment can write it.
+  write did not reach at all is not counted either, because neither a re-run's fill nor a second
+  assignment can write it. One that does not exist after the upsert is listed under `NeedsReproject`
+  with the table, because a reproject writes it. One another account owns is listed under
+  `ForeignRows` instead, with the table and the account that holds the row: a reproject uses the same
+  fill-only upsert and keeps that owner, so there is no automatic repair, and the row needs
+  investigation of how it got that owner. Both lists can hold a resource whose assignment event is
+  already stored — the read-back comes after the commit — so the command describes them as incomplete
+  projections, not as resources it left untouched.
 
 ### 4. A re-run fills a projection row from the record, with no second event
 
@@ -137,6 +141,12 @@ A real run writes the record's data and owner over each ownerless projection row
 (`FillOwnerlessProjectionRows`), and then reads the rows back. It appends no event and does not write
 the canonical record. It skips a record that is behind the event store, that has a different owner, or
 that has a different creator.
+
+A resource whose record has an owner and a projection row owned by a different account is missing
+from the record owner's listing as well (wm-oyoqao). The selection finds it (a join on each table where
+the row's owner is set and differs from the record's) and lists it under `ForeignRows`, in the preview
+and in the result, whichever account owns the record. Nothing is written to it, and the command names no
+repair for it: an assignment, a fill and `weos worker reproject` all keep an owner a row already has.
 
 A resource whose record is owned by an account other than the run's `--account` is never filled by
 that run, because the run's account check does not cover it. It is still counted, per owning account,

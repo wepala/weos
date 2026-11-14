@@ -1068,3 +1068,67 @@ func TestAssignOwner_AMissingTypeRowIsListedForAReproject(t *testing.T) {
 	env.reproject(t, "a reproject after the run")
 	env.requireOwner(t, "task", f.alreadyOwned, env.ownerAccount, "after a reproject")
 }
+
+// Copilot on #586 and wm-oyoqao: a resource whose record has the owner and
+// whose type row another account owns is missing from the record owner's
+// listing. The upsert keeps an owner a row already has, in a reproject too,
+// so the preview and the run list it apart from the ones left for a
+// reproject, with the table and the account the row holds, and write nothing
+// to it.
+func TestAssignOwner_ATypeRowOwnedByAnotherAccountIsListedApart(t *testing.T) {
+	env := newAssignOwnerEnv(t)
+	f := env.seed(t)
+	table := env.projMgr.TableName("task")
+	if err := env.db.Table(table).Where("id = ?", f.alreadyOwned).
+		Update("account_id", env.otherAccount).Error; err != nil {
+		t.Fatalf("give the type row another owner: %v", err)
+	}
+	events := env.eventCount(t)
+
+	for _, dryRun := range []bool{true, false} {
+		report, err := env.backfill.AssignOwner(context.Background(), application.AssignOwnerCommand{
+			AccountID: env.ownerAccount, CreatedBy: env.ownerAgent, DryRun: dryRun,
+		})
+		if err != nil {
+			t.Fatalf("dry run %v: %v", dryRun, err)
+		}
+		var listed bool
+		for _, r := range report.ForeignRows {
+			if r.ID == f.alreadyOwned && r.Table == table && r.RowAccountID == env.otherAccount &&
+				r.RecordAccountID == env.ownerAccount {
+				listed = true
+			}
+		}
+		if !listed {
+			t.Errorf("dry run %v: ForeignRows = %+v, want %s with %s owned by %s", dryRun,
+				report.ForeignRows, f.alreadyOwned, table, env.otherAccount)
+		}
+		for _, s := range report.NeedsReproject {
+			if s.ID == f.alreadyOwned {
+				t.Errorf("dry run %v: %s is listed for a reproject, which keeps the row's owner", dryRun, f.alreadyOwned)
+			}
+		}
+		for _, r := range report.Resources {
+			if r.ID == f.alreadyOwned {
+				t.Errorf("dry run %v: the run selects %s to write", dryRun, f.alreadyOwned)
+			}
+		}
+	}
+	// The three ownerless resources were assigned, one event each, and
+	// nothing was written for the row owned elsewhere.
+	if got := env.eventCount(t) - events; got != 3 {
+		t.Errorf("the run stored %d event(s), want 3", got)
+	}
+	if _, projection := env.owners(t, "task", f.alreadyOwned); projection != env.otherAccount {
+		t.Errorf("after the run the type row is owned by %q, want it left with %s", projection, env.otherAccount)
+	}
+
+	// A reproject is no repair either: the report must not send the
+	// operator to one.
+	env.stop()
+	env.reproject(t, "a reproject after the run")
+	if _, projection := env.owners(t, "task", f.alreadyOwned); projection != env.otherAccount {
+		t.Logf("a reproject moved the type row to %q", projection)
+		t.Errorf("a reproject changed the row's owner from %s; the report's advice must say so", env.otherAccount)
+	}
+}

@@ -71,6 +71,14 @@ type OwnerlessResource struct {
 	// one. It is set only with RecordAccountID: the resource is then missing
 	// from that type's listing, and only a reproject writes the row.
 	MissingTable string
+	// ForeignRowTable names a projection table whose row for the resource is
+	// owned by an account other than the one in RecordAccountID, when there
+	// is one, and ForeignRowAccountID is the account that row holds. The
+	// resource is missing from the record owner's listing of that type, and
+	// no write repairs it: the upsert an assignment, a fill and a reproject
+	// all use keeps an owner a row already has.
+	ForeignRowTable     string
+	ForeignRowAccountID string
 }
 
 // OwnerlessResourceFinder is implemented by a ResourceRepository that can list
@@ -84,8 +92,10 @@ type OwnerlessResourceFinder interface {
 	// record or in one of its projection rows (its own type's or an
 	// ancestor's), ordered by type and then by identifier. A resource whose
 	// record has an owner and a projection row has none, or has no row at all
-	// in one of those tables, carries the record's owner in RecordAccountID,
-	// and the table with no row in MissingTable.
+	// in one of those tables, or has a row there owned by another account,
+	// carries the record's owner in RecordAccountID, the table with no row in
+	// MissingTable, and the table and account of the row owned elsewhere in
+	// ForeignRowTable and ForeignRowAccountID.
 	FindOwnerlessByCreator(ctx context.Context, createdBy string) ([]OwnerlessResource, error)
 }
 

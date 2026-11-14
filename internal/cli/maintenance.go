@@ -106,9 +106,13 @@ and neither an assignment nor a fill writes a row that does not exist: the
 preview and the run list it the same way, for a reproject.
 
 A resource is counted as assigned only when its record and each of its
-projection rows read back with the owner. One with a row the write did not
-reach at all (a row that does not exist, or one another account owns) is
-listed for a reproject, naming the table. A failed write can also leave a
+projection rows read back with the owner. One with a row that does not exist
+is listed for a reproject, naming the table. One with a row another account
+owns is listed apart, in the preview too, naming the table and the account
+that holds the row: an assignment, a fill and "weos worker reproject" all
+keep an owner a row already has, so there is no automatic repair, and each
+such resource needs investigation of how the row got that owner. A run with
+--write that lists either kind exits non-zero. A failed write can also leave a
 projection row ownerless under a record that has the owner; the run then
 stops and names the resource. Fix the cause and run again: the run selects
 that resource, fills the row from the record, and records no second event.
@@ -282,14 +286,22 @@ func parseCreatedBound(flag, value string, end bool) (time.Time, error) {
 }
 
 // assignOwnerOutcome is the command's result. A run that left resources for a
-// reproject did not finish its job, so it fails even though it went on past
-// them: a script must not read it as done.
+// reproject, or met a projection row owned by another account, did not finish
+// its job, so it fails even though it went on past them: a script must not
+// read it as done.
 func assignOwnerOutcome(r application.AssignOwnerReport, err error) error {
 	if err != nil {
 		return err
 	}
+	var left []string
 	if n := len(r.NeedsReproject); n > 0 {
-		return fmt.Errorf("%d resource(s) left for a reproject; see the list above", n)
+		left = append(left, fmt.Sprintf("%d resource(s) left for a reproject", n))
+	}
+	if n := len(r.ForeignRows); n > 0 {
+		left = append(left, fmt.Sprintf("%d resource(s) with a projection row owned by another account", n))
+	}
+	if len(left) > 0 {
+		return fmt.Errorf("%s; see the lists above", strings.Join(left, ", "))
 	}
 	return nil
 }
@@ -359,6 +371,7 @@ func printAssignOwnerReport(out io.Writer, r application.AssignOwnerReport) {
 			if c.NeedsReproject > 0 {
 				_, _ = fmt.Fprintf(out, ", %d left for a reproject", c.NeedsReproject)
 			}
+			printForeignRowCount(out, c)
 			if c.ToFill > 0 {
 				_, _ = fmt.Fprintf(out, "; %d projection row(s) to fill", c.ToFill)
 			}
@@ -375,6 +388,7 @@ func printAssignOwnerReport(out io.Writer, r application.AssignOwnerReport) {
 		if c.NeedsReproject > 0 {
 			_, _ = fmt.Fprintf(out, ", %d left for a reproject", c.NeedsReproject)
 		}
+		printForeignRowCount(out, c)
 		_, _ = fmt.Fprintln(out)
 	}
 	if r.DryRun {
@@ -394,6 +408,7 @@ func printAssignOwnerReport(out io.Writer, r application.AssignOwnerReport) {
 		}
 		printManyFills(out, r.ToFill())
 		printNeedsReproject(out, r.NeedsReproject)
+		printForeignRows(out, r.ForeignRows)
 		return
 	}
 	_, _ = fmt.Fprintf(out, "\ntotal: %d of %d ownerless resource(s) assigned", r.Assigned(), r.Ownerless())
@@ -406,6 +421,7 @@ func printAssignOwnerReport(out io.Writer, r application.AssignOwnerReport) {
 			r.Filled(), n)
 	}
 	printNeedsReproject(out, r.NeedsReproject)
+	printForeignRows(out, r.ForeignRows)
 }
 
 // oneEventEach says what an assignment stores, beside the count of them.
@@ -445,13 +461,17 @@ func printOwnedElsewhere(out io.Writer, r application.AssignOwnerReport) {
 // printNeedsReproject lists the resources a run leaves for a reproject —
 // their read model is behind the event store, a projection row changed during
 // the run, or a projection row does not exist at all — and the one repair for
-// all three. A preview lists them too.
+// all three. A preview lists them too. A run lists a resource here after its
+// read-back too, when its assignment event is already stored, so the heading
+// does not say nothing was written.
 func printNeedsReproject(out io.Writer, skipped []application.AssignOwnerSkip) {
 	if len(skipped) == 0 {
 		return
 	}
-	_, _ = fmt.Fprintln(out, "\nThese resources are left for a reproject. A run does not write to them, because their read")
-	_, _ = fmt.Fprintln(out, "model is behind the event store, changed during the run, or has no projection row at all:")
+	_, _ = fmt.Fprintln(out, "\nThese resources have an incomplete projection and are left for a reproject.")
+	_, _ = fmt.Fprintln(out, "Some may already have a stored assignment: a run stores the event first and then reads the")
+	_, _ = fmt.Fprintln(out, "projection back.")
+	_, _ = fmt.Fprintln(out, "Their read model is behind the event store, changed during the run, or has no projection row at all:")
 	for _, s := range skipped {
 		_, _ = fmt.Fprintf(out, "  %s (%s): %s\n", s.ID, s.TypeSlug, s.Reason)
 	}
@@ -459,4 +479,30 @@ func printNeedsReproject(out io.Writer, skipped []application.AssignOwnerSkip) {
 	_, _ = fmt.Fprintln(out, "run this command again. A reproject applies an assignment already in the event store,")
 	_, _ = fmt.Fprintln(out, "writes every projection row that is missing, and brings every other record up to its")
 	_, _ = fmt.Fprintln(out, "events so the next run can assign it.")
+}
+
+// printForeignRowCount adds a type's count of resources with a projection row
+// owned by another account to its line in the report.
+func printForeignRowCount(out io.Writer, c application.AssignOwnerTypeCount) {
+	if c.ForeignRows > 0 {
+		_, _ = fmt.Fprintf(out, ", %d with a projection row owned by another account", c.ForeignRows)
+	}
+}
+
+// printForeignRows lists the resources with a projection row owned by an
+// account other than their record's owner. No command repairs such a row:
+// an assignment, a fill and a reproject all keep an owner a row already has.
+// So it names no repair, and in particular not a reproject.
+func printForeignRows(out io.Writer, rows []application.AssignOwnerForeignRow) {
+	if len(rows) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(out, "\nThese resources have a projection row owned by an account other than the owner of their")
+	_, _ = fmt.Fprintln(out, "record, so they are missing from that account's listing of the type. Some may already")
+	_, _ = fmt.Fprintln(out, "have a stored assignment.")
+	_, _ = fmt.Fprintln(out, "There is no automatic repair: every write keeps an owner a row already has.")
+	_, _ = fmt.Fprintln(out, "Each one needs investigation of how the row got that owner before anyone changes it:")
+	for _, f := range rows {
+		_, _ = fmt.Fprintf(out, "  %s (%s): %s\n", f.ID, f.TypeSlug, f.Reason)
+	}
 }

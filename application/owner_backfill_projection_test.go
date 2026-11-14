@@ -155,7 +155,8 @@ func (r *backfillRepo) recordOwner(id string) string {
 
 // FindOwnerlessByCreator lists what the gorm repository lists: every live
 // resource of the creator whose record has no owner, and every one whose
-// record has an owner while its projection row has none.
+// record has an owner while its projection row has none, does not exist, or
+// is owned by another account.
 func (r *backfillRepo) FindOwnerlessByCreator(
 	_ context.Context, createdBy string,
 ) ([]repositories.OwnerlessResource, error) {
@@ -175,6 +176,10 @@ func (r *backfillRepo) FindOwnerlessByCreator(
 		case row.typeRowOwner == "":
 			out = append(out, repositories.OwnerlessResource{ID: id, TypeSlug: row.typeSlug,
 				CreatedAt: row.createdAt, RecordAccountID: row.accountID})
+		case row.typeRowOwner != row.accountID:
+			out = append(out, repositories.OwnerlessResource{ID: id, TypeSlug: row.typeSlug,
+				CreatedAt: row.createdAt, RecordAccountID: row.accountID,
+				ForeignRowTable: row.typeSlug + "s", ForeignRowAccountID: row.typeRowOwner})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
@@ -628,8 +633,9 @@ func TestAssignOwner_AProjectionRowTheAssignmentDidNotCreateIsNotCountedAsAssign
 
 // Copilot on #586: the upsert keeps an owner a row already has, so a row
 // owned by another account stays so after the assignment. It is not counted
-// as assigned; the resource is listed for a reproject, with the table and the
-// account the row holds.
+// as assigned. A reproject uses the same fill-only upsert and keeps that
+// owner too, so the resource is not listed for a reproject: it is listed
+// apart, with the table and the account the row holds.
 func TestAssignOwner_AProjectionRowOwnedByAnotherAccountIsNotCountedAsAssigned(t *testing.T) {
 	const id, elsewhere = "urn:task:reconcile-may", "urn:account:elsewhere"
 	h := newBackfillHarness(t, id)
@@ -642,14 +648,68 @@ func TestAssignOwner_AProjectionRowOwnedByAnotherAccountIsNotCountedAsAssigned(t
 	if report.Assigned() != 0 {
 		t.Errorf("report counts %d assigned, but the type row is owned by %s", report.Assigned(), elsewhere)
 	}
-	if len(report.NeedsReproject) != 1 || report.NeedsReproject[0].ID != id ||
-		!strings.Contains(report.NeedsReproject[0].Reason, "tasks") ||
-		!strings.Contains(report.NeedsReproject[0].Reason, elsewhere) {
-		t.Fatalf("NeedsReproject = %+v, want %s with a reason that names tasks and %s",
-			report.NeedsReproject, id, elsewhere)
+	if len(report.NeedsReproject) != 0 {
+		t.Errorf("NeedsReproject = %+v; a reproject keeps the owner the row holds, so it is no repair",
+			report.NeedsReproject)
+	}
+	if len(report.ForeignRows) != 1 || report.ForeignRows[0].ID != id ||
+		report.ForeignRows[0].Table != "tasks" || report.ForeignRows[0].RowAccountID != elsewhere ||
+		!strings.Contains(report.ForeignRows[0].Reason, elsewhere) {
+		t.Fatalf("ForeignRows = %+v, want %s with table tasks and row account %s", report.ForeignRows, id, elsewhere)
+	}
+	if got := report.Types["task"]; got.ForeignRows != 1 || got.NeedsReproject != 0 || got.Assigned != 0 {
+		t.Errorf("task counts = %+v, want 1 with a row owned by another account, and none assigned", got)
 	}
 	if got := h.repo.typeRowOwner(id); got != elsewhere {
 		t.Errorf("the type row's owner is now %q; the run must not move it from %s", got, elsewhere)
+	}
+}
+
+// wm-oyoqao: a resource whose record has the run's account and whose
+// projection row another account owns is missing from the record owner's
+// listing. No assignment, fill or reproject writes over an owner a row has,
+// so the preview and the run list it apart, never as one to write and never
+// for a reproject, and write nothing to it.
+func TestAssignOwner_ARowOwnedByAnotherAccountIsListedInThePreviewToo(t *testing.T) {
+	const id, elsewhere = "urn:task:reconcile-may", "urn:account:elsewhere"
+	h := newBackfillHarness(t, id)
+	h.repo.rows[id].accountID = h.account
+	h.repo.rows[id].typeRowOwner = elsewhere
+	stored := h.events(t, id)
+	ctx := context.Background()
+
+	for _, dryRun := range []bool{true, false} {
+		report, err := h.svc.AssignOwner(ctx, AssignOwnerCommand{AccountID: h.account, CreatedBy: h.agent, DryRun: dryRun})
+		if err != nil {
+			t.Fatalf("dry run %v: %v", dryRun, err)
+		}
+		want := AssignOwnerForeignRow{ID: id, TypeSlug: "task", Table: "tasks", RowAccountID: elsewhere,
+			RecordAccountID: h.account}
+		if len(report.ForeignRows) != 1 {
+			t.Fatalf("dry run %v: ForeignRows = %+v, want %+v", dryRun, report.ForeignRows, want)
+		}
+		got := report.ForeignRows[0]
+		got.Reason = ""
+		if got != want || !strings.Contains(report.ForeignRows[0].Reason, elsewhere) {
+			t.Errorf("dry run %v: ForeignRows = %+v, want %+v with a reason naming %s",
+				dryRun, report.ForeignRows, want, elsewhere)
+		}
+		if len(report.NeedsReproject) != 0 || len(report.Resources) != 0 || len(report.OwnedElsewhere) != 0 {
+			t.Errorf("dry run %v: NeedsReproject %+v, Resources %+v, OwnedElsewhere %+v; want it listed only apart",
+				dryRun, report.NeedsReproject, report.Resources, report.OwnedElsewhere)
+		}
+		if c := report.Types["task"]; c.ForeignRows != 1 || c.ToFill != 0 || c.Ownerless != 0 || c.NeedsReproject != 0 {
+			t.Errorf("dry run %v: task counts = %+v, want only 1 with a row owned by another account", dryRun, c)
+		}
+	}
+	if u, f := h.repo.calls(); u != 0 || f != 0 {
+		t.Errorf("the run wrote to the resource: %d update(s), %d fill(s)", u, f)
+	}
+	if got := h.repo.typeRowOwner(id); got != elsewhere {
+		t.Errorf("the type row's owner is now %q; the run must not move it from %s", got, elsewhere)
+	}
+	if after := h.events(t, id); after != stored {
+		t.Errorf("the run appended %d event(s)", after-stored)
 	}
 }
 

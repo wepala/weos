@@ -366,9 +366,17 @@ preview and the run list such a resource with the ones left for a reproject, nam
 run with `--write` exits non-zero. `weos worker reproject` on the stopped instance writes the row.
 
 A resource is counted as assigned only when its record and each of its projection rows (its own
-type's table and each ancestor's) read back with the owner. One with a row the write did not reach at
-all — a row that does not exist, or one another account owns, which the upsert keeps — is listed with
-the ones left for a reproject, naming the table and the account that holds the row. The record and the rows are written one
+type's table and each ancestor's) read back with the owner. One with a row that does not exist is
+listed with the ones left for a reproject, naming the table. One with a row owned by another account
+than its record is listed apart, in the preview and in the result, naming the table and the account
+that holds the row. An assignment, a fill and `weos worker reproject` all write through the same
+upsert, which keeps an owner a row already has, so there is no automatic repair: each such resource
+needs investigation of how the row got that owner before anyone changes it. A run with `--write` that
+lists either kind exits non-zero. Both lists can hold a resource whose assignment event the run has
+already stored: the run stores the event first and reads the projection rows back after it, so these
+are incomplete projections, not resources the run left untouched.
+
+The record and the rows are written one
 after the other, so a failed write can leave a projection row ownerless under a record that has the
 owner. The run then stops with an error that names the resource. Fix the cause and run the command
 again: it selects that resource, fills the row from the record, and records no second event, because
