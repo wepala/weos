@@ -172,6 +172,9 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		fx.Provide(ProvideKnowledgeGraphService),
 		fx.Provide(storageprovider.ProvideFileService),
 		fx.Provide(ProvideAccountErasureService),
+		// Operator backfill of the owner on ownerless resources (wm-4kdhro),
+		// behind `weos maintenance assign-owner`.
+		fx.Provide(ProvideOwnerBackfillService),
 		// Generic notification store + inbox (#427): production and mark-read
 		// route through ResourceService, so writes hit the behavior/event
 		// pipeline and inbox reads inherit the ownership visibility scope.

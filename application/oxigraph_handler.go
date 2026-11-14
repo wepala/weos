@@ -54,13 +54,31 @@ func projectResourcePublished(
 		return fmt.Errorf("kg: Resource.Published for %s produced no data", event.AggregateID)
 	}
 
+	if err := loadResourceState(ctx, event.AggregateID, state.Data, store, logger); err != nil {
+		return err
+	}
+	logger.Debug(ctx, "kg projected Resource.Published",
+		"id", event.AggregateID, "transactionID", event.TransactionID)
+	return nil
+}
+
+// loadResourceState replaces a resource's subject in the graph with the
+// JSON-LD document data. Shared by the Resource.Published projection and the
+// owner assignment, which rebuilds the document from the resource's history.
+func loadResourceState(
+	ctx context.Context,
+	aggregateID string,
+	data json.RawMessage,
+	store repositories.KnowledgeGraphStore,
+	logger entities.Logger,
+) error {
 	// Drop any prior projection for this subject so an update fully replaces the
 	// previous graph (covers properties that disappeared from the JSON-LD).
-	if err := store.RemoveSubject(ctx, event.AggregateID); err != nil {
+	if err := store.RemoveSubject(ctx, aggregateID); err != nil {
 		// Continue: LoadOntology below merges into the default graph and RDF
 		// triples are a set, so a leftover prior triple at worst lingers until
 		// the next update — preferable to failing the whole event over a clear.
-		logger.Warn(ctx, "kg failed to clear prior subject", "id", event.AggregateID, "error", err)
+		logger.Warn(ctx, "kg failed to clear prior subject", "id", aggregateID, "error", err)
 	}
 
 	// Inline a remote-string @context (e.g. "https://schema.org/") as @vocab so
@@ -68,11 +86,9 @@ func projectResourcePublished(
 	// network to fetch a remote context, and @vocab expands the bare terms
 	// identically (matching the resource-type ontology projection above).
 	if err := store.LoadOntology(ctx, "application/ld+json",
-		jsonld.InlineVocabContext(state.Data)); err != nil {
-		return fmt.Errorf("kg: load resource JSON-LD for %s: %w", event.AggregateID, err)
+		jsonld.InlineVocabContext(data)); err != nil {
+		return fmt.Errorf("kg: load resource JSON-LD for %s: %w", aggregateID, err)
 	}
-	logger.Debug(ctx, "kg projected Resource.Published",
-		"id", event.AggregateID, "transactionID", event.TransactionID)
 	return nil
 }
 

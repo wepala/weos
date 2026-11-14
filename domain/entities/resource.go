@@ -18,6 +18,7 @@ package entities
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -83,6 +84,29 @@ func (e *Resource) MarkDeleted() error {
 	return e.RecordEvent(event, event.EventType())
 }
 
+// ErrResourceAlreadyOwned refuses an owner assignment on a resource that
+// already has an owner. An owner is never transferred between accounts.
+var ErrResourceAlreadyOwned = errors.New("resource already has an owner")
+
+// AssignAccount gives an ownerless resource its owning account and records
+// ResourceAccountAssigned. It refuses a resource that already has an owner,
+// even the same one, so a run can never move a resource between accounts.
+func (e *Resource) AssignAccount(accountID string) error {
+	if accountID == "" {
+		return fmt.Errorf("account id cannot be empty")
+	}
+	if e.accountID != "" {
+		return fmt.Errorf("assign account %s to %s: %w (owner %s)",
+			accountID, e.GetID(), ErrResourceAlreadyOwned, e.accountID)
+	}
+	event := ResourceAccountAssigned{}.With(accountID)
+	if err := e.RecordEvent(event, event.EventType()); err != nil {
+		return fmt.Errorf("failed to record ResourceAccountAssigned event: %w", err)
+	}
+	e.accountID = accountID
+	return nil
+}
+
 func (e *Resource) TypeSlug() string      { return e.typeSlug }
 func (e *Resource) Data() json.RawMessage { return e.data }
 func (e *Resource) Status() string        { return e.status }
@@ -130,6 +154,12 @@ func (e *Resource) ApplyEvent(
 		return nil
 	case ResourceDeleted:
 		e.status = "archived"
+		return nil
+	case ResourceAccountAssigned:
+		// Fills an empty owner only; the first owner always stands.
+		if e.accountID == "" {
+			e.accountID = payload.AccountID
+		}
 		return nil
 	case TripleCreated, TripleDeleted:
 		// Triple events are recorded on the resource entity for UoW atomicity.

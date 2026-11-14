@@ -232,16 +232,38 @@ func (r *ResourceRepository) updateProjectionBySlug(
 			updateCols = append(updateCols, col)
 		}
 	}
+	updates := clause.AssignmentColumns(updateCols)
+	// The owner is fill-only (wm-4kdhro): an existing row with no owner takes
+	// the entity's, which is how Resource.AccountAssigned reaches the
+	// projection tables, and a row that has an owner keeps it. That matches
+	// the event itself, which never moves a resource between accounts.
+	if _, ok := row["account_id"]; ok {
+		updates = append(updates, fillEmptyOwner(tableName))
+	}
 
 	err := r.writeDB(ctx).Table(tableName).
 		Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "id"}},
-			DoUpdates: clause.AssignmentColumns(updateCols),
+			DoUpdates: updates,
 		}).Create(row).Error
 	if err != nil {
 		return fmt.Errorf("failed to upsert resource in %s: %w", tableName, err)
 	}
 	return nil
+}
+
+// fillEmptyOwner is the ON CONFLICT assignment that writes the incoming
+// account_id only over an empty or NULL one. The existing row is named by its
+// table and the incoming one by EXCLUDED, which SQLite and PostgreSQL both
+// accept in an upsert.
+func fillEmptyOwner(tableName string) clause.Assignment {
+	current := clause.Column{Table: tableName, Name: "account_id"}
+	incoming := clause.Column{Table: "excluded", Name: "account_id"}
+	return clause.Assignment{
+		Column: clause.Column{Name: "account_id"},
+		Value: gorm.Expr("CASE WHEN ? IS NULL OR ? = '' THEN ? ELSE ? END",
+			current, current, incoming, current),
+	}
 }
 
 // nullClearedColumns adds an explicit nil for every declared property the
@@ -760,6 +782,27 @@ func (r *ResourceRepository) FindAllByTypeAndIDs(
 }
 
 var _ repositories.ResourceIDFinder = (*ResourceRepository)(nil)
+
+// FindOwnerlessByCreator lists the canonical records with an empty owning
+// account that createdBy created, across every resource type. The canonical
+// table is the one place every type's records share, so one query covers them
+// all.
+func (r *ResourceRepository) FindOwnerlessByCreator(
+	ctx context.Context, createdBy string,
+) ([]repositories.OwnerlessResource, error) {
+	var rows []repositories.OwnerlessResource
+	err := r.db.WithContext(ctx).Model(&models.Resource{}).
+		Select("id", "type_slug").
+		Where("(account_id = '' OR account_id IS NULL) AND created_by = ? AND deleted_at IS NULL", createdBy).
+		Order("type_slug").Order("id").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("find ownerless resources created by %s: %w", createdBy, err)
+	}
+	return rows, nil
+}
+
+var _ repositories.OwnerlessResourceFinder = (*ResourceRepository)(nil)
 
 // accessiblePredicate is the FindAccessibleIDs visibility rule as one SQL
 // predicate over a table with id and created_by columns: the caller created

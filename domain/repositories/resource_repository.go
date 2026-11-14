@@ -54,6 +54,25 @@ type ResourceIDFinder interface {
 		[]*entities.Resource, error)
 }
 
+// OwnerlessResource names a resource whose canonical record has no owning
+// account.
+type OwnerlessResource struct {
+	ID       string
+	TypeSlug string
+}
+
+// OwnerlessResourceFinder is implemented by a ResourceRepository that can list
+// the resources with no owning account that one agent created. It backs the
+// operator's owner backfill. Like ResourceIDFinder it is an interface of its
+// own so that adding it breaks no repository implemented outside this module;
+// a caller type-asserts for it.
+type OwnerlessResourceFinder interface {
+	// FindOwnerlessByCreator returns every live resource, of every type, whose
+	// owning account is empty and whose creator is createdBy, ordered by type
+	// and then by identifier.
+	FindOwnerlessByCreator(ctx context.Context, createdBy string) ([]OwnerlessResource, error)
+}
+
 type ResourceRepository interface {
 	Save(ctx context.Context, entity *entities.Resource) error
 	FindByID(ctx context.Context, id string) (*entities.Resource, error)

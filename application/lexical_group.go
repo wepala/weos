@@ -24,6 +24,7 @@ import (
 
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
+	"github.com/wepala/weos/v3/pkg/identity"
 
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/subscriptions"
@@ -83,30 +84,83 @@ func lexicalHandler(
 				return nil
 			}
 			typeSlug := publishedTypeSlug(event.Payload, state.TypeSlug)
-			var node map[string]any
-			if err := json.Unmarshal(ExtractEntityNode(state.Data), &node); err != nil {
-				logger.Error(ctx, "lexical index: unparseable entity node, skipping",
-					"resource", event.AggregateID, "error", err)
-				return nil
-			}
-			if typeSlug == "fact" {
-				if invalidated, _ := node["invalidatedAtTime"].(string); invalidated != "" {
-					return index.Remove(ctx, event.AggregateID)
-				}
-			}
-			content := lexicalContent(node)
-			if content == "" {
-				return index.Remove(ctx, event.AggregateID)
-			}
-			owner, err := lexicalOwner(ctx, eventStore, index, event, state)
-			if err != nil {
-				return err
-			}
-			return index.Index(ctx, event.AggregateID, typeSlug, content, owner)
+			return indexResource(ctx, index, logger, event.AggregateID, typeSlug, state.Data,
+				func() (repositories.LexicalOwner, error) {
+					return lexicalOwner(ctx, eventStore, index, event, state)
+				})
+		case "Resource.AccountAssigned":
+			return reindexAssignedOwner(ctx, eventStore, index, logger, event)
 		default:
 			return nil
 		}
 	}
+}
+
+// indexResource writes one resource's text to the index, or removes its row
+// when there is no text to search (or it is a superseded fact). owner is
+// called only when a row is written.
+func indexResource(
+	ctx context.Context, index repositories.LexicalIndex, logger entities.Logger,
+	aggregateID, typeSlug string, data json.RawMessage,
+	owner func() (repositories.LexicalOwner, error),
+) error {
+	var node map[string]any
+	if err := json.Unmarshal(ExtractEntityNode(data), &node); err != nil {
+		logger.Error(ctx, "lexical index: unparseable entity node, skipping",
+			"resource", aggregateID, "error", err)
+		return nil
+	}
+	if typeSlug == "fact" {
+		if invalidated, _ := node["invalidatedAtTime"].(string); invalidated != "" {
+			return index.Remove(ctx, aggregateID)
+		}
+	}
+	content := lexicalContent(node)
+	if content == "" {
+		return index.Remove(ctx, aggregateID)
+	}
+	o, err := owner()
+	if err != nil {
+		return err
+	}
+	return index.Index(ctx, aggregateID, typeSlug, content, o)
+}
+
+// reindexAssignedOwner re-indexes a resource under the account a
+// Resource.AccountAssigned gave it. The event carries only the account, so
+// the resource's text and type are rebuilt from its history, the same state a
+// Resource.Published reads. The first owner stands: a row already indexed
+// under an account keeps it. A resource deleted before the assignment, or one
+// with no text, is left as the delete or the publish left it.
+func reindexAssignedOwner(
+	ctx context.Context, eventStore domain.EventStore, index repositories.LexicalIndex,
+	logger entities.Logger, event domain.EventEnvelope[any],
+) error {
+	history, err := eventStore.GetEvents(ctx, event.AggregateID)
+	if err != nil {
+		return fmt.Errorf("lexical index: history of %s: %w", event.AggregateID, err)
+	}
+	state := buildStateFromTransaction(ctx, history, event.AggregateID, event.SequenceNo, logger)
+	if state.IsDelete || state.Data == nil {
+		return nil
+	}
+	typeSlug := state.TypeSlug
+	if typeSlug == "" {
+		typeSlug = identity.ExtractResourceTypeSlug(event.AggregateID)
+	}
+	return indexResource(ctx, index, logger, event.AggregateID, typeSlug, state.Data,
+		func() (repositories.LexicalOwner, error) {
+			owner := repositories.LexicalOwner{CreatedBy: state.CreatedBy, AccountID: state.AccountID}
+			if indexed, found, err := index.Owner(ctx, event.AggregateID); err != nil {
+				return owner, fmt.Errorf("lexical index: owner of %s: %w", event.AggregateID, err)
+			} else if found {
+				owner = indexed
+			}
+			if owner.AccountID == "" {
+				owner.AccountID = accountFromPayload(event.Payload)
+			}
+			return owner, nil
+		})
 }
 
 // lexicalOwner reads who owns the published resource from its events — never

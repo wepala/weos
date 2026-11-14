@@ -284,6 +284,37 @@ refused on its next request, and the features they resolved in it expire within
 
 ---
 
+## `weos maintenance assign-owner`
+
+Give an owning account to the resources one agent wrote with no account. A resource takes its owner
+from the session that wrote it, so a session whose active account was empty wrote resources with no
+owner, and account-scoped reads never find them.
+
+```bash
+weos maintenance assign-owner --database-dsn <dsn> --account <id> --created-by <agent id> [--dry-run]
+```
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--account` | string | Yes | The account to give the resources as their owner |
+| `--created-by` | string | Yes | The agent whose ownerless resources are assigned |
+| `--dry-run` | bool | No | Count the ownerless resources per type and change nothing |
+
+**What it changes.** Every resource, of every type, with an empty owner and the given creator gets
+one `Resource.AccountAssigned` event, written through the same unit of work as any other write. The
+projection tables, the knowledge graph and the search index all take the owner from that event, and a
+rebuild from events (`weos worker reproject`) keeps it. A resource that has an owner is never
+touched, and an owner is never moved between accounts.
+
+**Refusals.** The command refuses to run when the account does not exist, when the agent is not a
+member of it, or when no database is named.
+
+**Procedure.** Run with `--dry-run` first and read the counts per type. Back up the database, then
+run without it. A run that stops part-way has assigned what it reports; running it again assigns the
+rest.
+
+---
+
 ## Make Targets
 
 For convenience, the Makefile provides shortcuts:

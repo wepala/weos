@@ -1,0 +1,436 @@
+// Copyright (C) 2026 Wepala, LLC
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+package e2e
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/wepala/weos/v3/application"
+	"github.com/wepala/weos/v3/application/presets"
+	"github.com/wepala/weos/v3/domain/repositories"
+	gormprov "github.com/wepala/weos/v3/infrastructure/database/gorm"
+	"github.com/wepala/weos/v3/internal/config"
+	"github.com/wepala/weos/v3/internal/testpg"
+
+	"github.com/akeemphilbert/pericarp/pkg/auth"
+	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
+	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
+	"go.uber.org/fx"
+	"gorm.io/gorm"
+)
+
+// This file pins the owner backfill (wm-4kdhro): rows written while every
+// session ran with an empty active account carry no owner, and
+// `weos maintenance assign-owner` gives them one through the event stream, so
+// the owner survives a rebuild of the read model from events.
+
+type assignOwnerEnv struct {
+	cfg        config.Config
+	app        *fx.App
+	db         *gorm.DB
+	projMgr    repositories.ProjectionManager
+	eventStore domain.EventStore
+	resources  application.ResourceService
+	backfill   *application.OwnerBackfillService
+
+	ownerAgent, ownerAccount string
+	otherAgent, otherAccount string
+}
+
+func newAssignOwnerEnv(t *testing.T) *assignOwnerEnv {
+	t.Helper()
+	env := &assignOwnerEnv{cfg: config.Default()}
+	env.cfg.DatabaseDSN = filepath.Join(t.TempDir(), "assign_owner.db")
+	// The owner upsert is dialect-specific SQL, so the same tests run on
+	// PostgreSQL when a server is named.
+	if admin := os.Getenv("TEST_POSTGRES_DSN"); admin != "" {
+		dsn, err := testpg.FreshDatabase(t, admin, "weos_assign_owner")
+		if err != nil {
+			t.Fatalf("fresh postgres database: %v", err)
+		}
+		env.cfg.DatabaseDSN = dsn
+	}
+	env.cfg.LogLevel = "error"
+
+	var authService authapp.AuthenticationService
+	var types application.ResourceTypeService
+	env.app = fx.New(
+		fx.NopLogger,
+		application.Module(env.cfg, presets.NewDefaultRegistry()),
+		fx.Populate(&authService, &types, &env.resources, &env.backfill),
+		fx.Populate(&env.db, &env.projMgr, &env.eventStore),
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
+	defer cancel()
+	if err := env.app.Start(ctx); err != nil {
+		t.Fatalf("start app: %v", err)
+	}
+	t.Cleanup(env.stop)
+
+	bg := context.Background()
+	owner, _, ownerAccount, err := authService.FindOrCreateAgent(bg, authapp.UserInfo{
+		ProviderUserID: "owner-001", Email: "owner@example.com", DisplayName: "Owner", Provider: "dev",
+	})
+	if err != nil || ownerAccount == nil {
+		t.Fatalf("seed owner: %v (account %v)", err, ownerAccount)
+	}
+	other, _, otherAccount, err := authService.FindOrCreateAgent(bg, authapp.UserInfo{
+		ProviderUserID: "other-001", Email: "other@example.com", DisplayName: "Other", Provider: "dev",
+	})
+	if err != nil || otherAccount == nil {
+		t.Fatalf("seed other: %v (account %v)", err, otherAccount)
+	}
+	env.ownerAgent, env.ownerAccount = owner.GetID(), ownerAccount.GetID()
+	env.otherAgent, env.otherAccount = other.GetID(), otherAccount.GetID()
+
+	if _, err := types.InstallPreset(bg, "tasks", true); err != nil {
+		t.Fatalf("install tasks preset: %v", err)
+	}
+	return env
+}
+
+func (env *assignOwnerEnv) stop() {
+	if env.app == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
+	defer cancel()
+	_ = env.app.Stop(ctx)
+	env.app = nil
+}
+
+// create writes a resource as agent, with activeAccount as the session's
+// active account — "" reproduces the session bug that left rows ownerless.
+func (env *assignOwnerEnv) create(t *testing.T, agent, activeAccount, typeSlug, name string) string {
+	t.Helper()
+	var accounts []string
+	if activeAccount != "" {
+		accounts = []string{activeAccount}
+	}
+	ctx := auth.ContextWithAgent(context.Background(), &auth.Identity{
+		AgentID: agent, AccountIDs: accounts, ActiveAccountID: activeAccount,
+	})
+	r, err := env.resources.Create(ctx, application.CreateResourceCommand{
+		TypeSlug: typeSlug, Data: json.RawMessage(fmt.Sprintf(`{"name":%q}`, name)),
+	})
+	if err != nil {
+		t.Fatalf("create %s %q: %v", typeSlug, name, err)
+	}
+	return r.GetID()
+}
+
+// owners reads a resource's owner from the canonical record and from its
+// type's projection table.
+func (env *assignOwnerEnv) owners(t *testing.T, typeSlug, id string) (canonical, projection string) {
+	t.Helper()
+	var row struct{ AccountID string }
+	if err := env.db.Table("resources").Select("account_id").Where("id = ?", id).Scan(&row).Error; err != nil {
+		t.Fatalf("read canonical owner of %s: %v", id, err)
+	}
+	canonical = row.AccountID
+	var proj struct{ AccountID *string }
+	if err := env.db.Table(env.projMgr.TableName(typeSlug)).Select("account_id").
+		Where("id = ?", id).Scan(&proj).Error; err != nil {
+		t.Fatalf("read projection owner of %s: %v", id, err)
+	}
+	if proj.AccountID != nil {
+		projection = *proj.AccountID
+	}
+	return canonical, projection
+}
+
+func (env *assignOwnerEnv) requireOwner(t *testing.T, typeSlug, id, want, when string) {
+	t.Helper()
+	canonical, projection := env.owners(t, typeSlug, id)
+	if canonical != want || projection != want {
+		t.Fatalf("%s: owner of %s = canonical %q, projection %q; want %q in both",
+			when, id, canonical, projection, want)
+	}
+}
+
+func (env *assignOwnerEnv) eventCount(t *testing.T) int64 {
+	t.Helper()
+	var n int64
+	if err := env.db.Table("events").Count(&n).Error; err != nil {
+		t.Fatalf("count events: %v", err)
+	}
+	return n
+}
+
+type assignOwnerFixture struct {
+	ownerless1, ownerless2 string // tasks, ownerless, created by the owner agent
+	ownerlessProject       string // a project, ownerless, created by the owner agent
+	othersOwnerless        string // a task, ownerless, created by another agent
+	alreadyOwned           string // a task created by the owner agent in its account
+}
+
+func (env *assignOwnerEnv) seed(t *testing.T) assignOwnerFixture {
+	t.Helper()
+	return assignOwnerFixture{
+		ownerless1:       env.create(t, env.ownerAgent, "", "task", "Reconcile May statement"),
+		ownerless2:       env.create(t, env.ownerAgent, "", "task", "Reconcile June statement"),
+		ownerlessProject: env.create(t, env.ownerAgent, "", "project", "Bank imports"),
+		othersOwnerless:  env.create(t, env.otherAgent, "", "task", "Someone else's task"),
+		alreadyOwned:     env.create(t, env.ownerAgent, env.ownerAccount, "task", "Owned task"),
+	}
+}
+
+func TestAssignOwner_DryRunCountsPerTypeAndChangesNothing(t *testing.T) {
+	env := newAssignOwnerEnv(t)
+	f := env.seed(t)
+	before := env.eventCount(t)
+
+	report, err := env.backfill.AssignOwner(context.Background(), application.AssignOwnerCommand{
+		AccountID: env.ownerAccount, CreatedBy: env.ownerAgent, DryRun: true,
+	})
+	if err != nil {
+		t.Fatalf("dry run: %v", err)
+	}
+	if !report.DryRun {
+		t.Error("report does not say it was a dry run")
+	}
+	if got := report.Types["task"]; got.Ownerless != 2 || got.Assigned != 0 {
+		t.Errorf("task counts = %+v, want 2 ownerless and 0 assigned", got)
+	}
+	if got := report.Types["project"]; got.Ownerless != 1 || got.Assigned != 0 {
+		t.Errorf("project counts = %+v, want 1 ownerless and 0 assigned", got)
+	}
+	if report.Ownerless() != 3 || report.Assigned() != 0 {
+		t.Errorf("totals = %d ownerless, %d assigned; want 3 and 0", report.Ownerless(), report.Assigned())
+	}
+	if after := env.eventCount(t); after != before {
+		t.Errorf("a dry run wrote %d event(s)", after-before)
+	}
+	env.requireOwner(t, "task", f.ownerless1, "", "after the dry run")
+	env.requireOwner(t, "project", f.ownerlessProject, "", "after the dry run")
+}
+
+func TestAssignOwner_AssignsOnlyOwnerlessRowsOfTheGivenCreator(t *testing.T) {
+	env := newAssignOwnerEnv(t)
+	f := env.seed(t)
+
+	report, err := env.backfill.AssignOwner(context.Background(), application.AssignOwnerCommand{
+		AccountID: env.ownerAccount, CreatedBy: env.ownerAgent,
+	})
+	if err != nil {
+		t.Fatalf("assign: %v", err)
+	}
+	if report.DryRun {
+		t.Error("a real run reports itself as a dry run")
+	}
+	if got := report.Types["task"]; got.Ownerless != 2 || got.Assigned != 2 {
+		t.Errorf("task counts = %+v, want 2 ownerless and 2 assigned", got)
+	}
+	if got := report.Types["project"]; got.Ownerless != 1 || got.Assigned != 1 {
+		t.Errorf("project counts = %+v, want 1 ownerless and 1 assigned", got)
+	}
+
+	env.requireOwner(t, "task", f.ownerless1, env.ownerAccount, "after the run")
+	env.requireOwner(t, "task", f.ownerless2, env.ownerAccount, "after the run")
+	env.requireOwner(t, "project", f.ownerlessProject, env.ownerAccount, "after the run")
+	env.requireOwner(t, "task", f.othersOwnerless, "", "another creator's row")
+	env.requireOwner(t, "task", f.alreadyOwned, env.ownerAccount, "an already-owned row")
+
+	// The run is idempotent: nothing is left to assign.
+	again, err := env.backfill.AssignOwner(context.Background(), application.AssignOwnerCommand{
+		AccountID: env.ownerAccount, CreatedBy: env.ownerAgent,
+	})
+	if err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	if again.Ownerless() != 0 || again.Assigned() != 0 {
+		t.Errorf("second run found %d and assigned %d, want 0 and 0", again.Ownerless(), again.Assigned())
+	}
+
+	// The assignment advanced the aggregate's version in the read model, so a
+	// later update through the normal write path still commits.
+	ctx := auth.ContextWithAgent(context.Background(), &auth.Identity{
+		AgentID: env.ownerAgent, AccountIDs: []string{env.ownerAccount}, ActiveAccountID: env.ownerAccount,
+	})
+	if _, err := env.resources.Update(ctx, application.UpdateResourceCommand{
+		ID: f.ownerless1, Data: json.RawMessage(`{"name":"Reconcile May statement again"}`),
+	}); err != nil {
+		t.Fatalf("update after the assignment: %v", err)
+	}
+	env.requireOwner(t, "task", f.ownerless1, env.ownerAccount, "after a later update")
+}
+
+func TestAssignOwner_RefusesAnUnknownAccountOrANonMember(t *testing.T) {
+	env := newAssignOwnerEnv(t)
+	f := env.seed(t)
+	before := env.eventCount(t)
+
+	_, err := env.backfill.AssignOwner(context.Background(), application.AssignOwnerCommand{
+		AccountID: "no-such-account", CreatedBy: env.ownerAgent,
+	})
+	if !errors.Is(err, application.ErrOwnerAccountNotFound) {
+		t.Errorf("unknown account: err = %v, want ErrOwnerAccountNotFound", err)
+	}
+	_, err = env.backfill.AssignOwner(context.Background(), application.AssignOwnerCommand{
+		AccountID: env.otherAccount, CreatedBy: env.ownerAgent,
+	})
+	if !errors.Is(err, application.ErrOwnerAgentNotMember) {
+		t.Errorf("non-member: err = %v, want ErrOwnerAgentNotMember", err)
+	}
+	for _, missing := range []application.AssignOwnerCommand{
+		{CreatedBy: env.ownerAgent}, {AccountID: env.ownerAccount},
+	} {
+		if _, err := env.backfill.AssignOwner(context.Background(), missing); err == nil {
+			t.Errorf("command %+v with a missing value succeeded", missing)
+		}
+	}
+	if after := env.eventCount(t); after != before {
+		t.Errorf("a refused run wrote %d event(s)", after-before)
+	}
+	env.requireOwner(t, "task", f.ownerless1, "", "after the refused runs")
+}
+
+// A rebuild of the read model from the event stream keeps the assigned
+// owner: once over the existing rows, and once from empty tables.
+func TestAssignOwner_ARebuildFromEventsKeepsTheOwner(t *testing.T) {
+	env := newAssignOwnerEnv(t)
+	f := env.seed(t)
+	if _, err := env.backfill.AssignOwner(context.Background(), application.AssignOwnerCommand{
+		AccountID: env.ownerAccount, CreatedBy: env.ownerAgent,
+	}); err != nil {
+		t.Fatalf("assign: %v", err)
+	}
+	taskTable := env.projMgr.TableName("task")
+	projectTable := env.projMgr.TableName("project")
+	env.stop()
+
+	reproject := func(when string) {
+		t.Helper()
+		var rt application.ReprojectRuntime
+		app := fx.New(fx.NopLogger, application.ReprojectModule(env.cfg), fx.Populate(&rt, &env.db))
+		ctx, cancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
+		defer cancel()
+		if err := app.Start(ctx); err != nil {
+			t.Fatalf("%s: start reproject: %v", when, err)
+		}
+		defer func() { _ = app.Stop(context.Background()) }()
+		if _, err := application.Reproject(context.Background(), rt, application.ReprojectOptions{}); err != nil {
+			t.Fatalf("%s: reproject: %v", when, err)
+		}
+		for _, c := range []struct{ slug, id, want string }{
+			{"task", f.ownerless1, env.ownerAccount},
+			{"task", f.ownerless2, env.ownerAccount},
+			{"project", f.ownerlessProject, env.ownerAccount},
+			{"task", f.othersOwnerless, ""},
+			{"task", f.alreadyOwned, env.ownerAccount},
+		} {
+			env.requireOwner(t, c.slug, c.id, c.want, when)
+		}
+	}
+
+	// Over existing rows whose owner was lost: a hand edit of the read model
+	// is exactly what a rebuild must undo.
+	for _, table := range []string{"resources", taskTable, projectTable} {
+		if err := env.db.Exec("UPDATE " + table + " SET account_id = ''").Error; err != nil {
+			t.Fatalf("blank owners in %s: %v", table, err)
+		}
+	}
+	reproject("rebuild over existing rows")
+
+	// From empty read-model tables.
+	for _, table := range []string{"resources", taskTable, projectTable} {
+		if err := env.db.Exec("DELETE FROM " + table).Error; err != nil {
+			t.Fatalf("empty %s: %v", table, err)
+		}
+	}
+	reproject("rebuild from empty tables")
+}
+
+// runWeos runs the real weos binary against the env's store.
+func (env *assignOwnerEnv) runWeos(t *testing.T, args ...string) (stdout, stderr string, exitCode int) {
+	t.Helper()
+	binary, err := weosBinary()
+	if err != nil {
+		t.Fatalf("build weos: %v", err)
+	}
+	cmd := exec.Command(binary, args...)
+	cmd.Env = append(os.Environ(), "DATABASE_DSN="+env.cfg.DatabaseDSN, "LOG_LEVEL=error")
+	var out, errOut strings.Builder
+	cmd.Stdout, cmd.Stderr = &out, &errOut
+	if runErr := cmd.Run(); runErr != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(runErr, &exitErr) {
+			t.Fatalf("run weos: %v", runErr)
+		}
+		exitCode = exitErr.ExitCode()
+	}
+	return out.String(), errOut.String(), exitCode
+}
+
+// The operator command, as the shipped binary runs it against a stopped
+// instance's store.
+func TestAssignOwner_TheCommandDryRunsThenAssigns(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the weos binary")
+	}
+	env := newAssignOwnerEnv(t)
+	f := env.seed(t)
+	// The instance is stopped, as the command's help asks; the test reads
+	// the store through a plain connection of its own.
+	env.stop()
+	db, err := gorm.Open(gormprov.DialectorForDSN(env.cfg.DatabaseDSN), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+	if sqlDB, err := db.DB(); err == nil {
+		t.Cleanup(func() { _ = sqlDB.Close() })
+	}
+	env.db = db
+
+	args := []string{"maintenance", "assign-owner", "--account", env.ownerAccount, "--created-by", env.ownerAgent}
+	stdout, stderr, code := env.runWeos(t, append(args, "--dry-run")...)
+	if code != 0 {
+		t.Fatalf("dry run exited %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+	}
+	for _, want := range []string{"DRY RUN", "project", "1 ownerless, would assign 1",
+		"task", "2 ownerless, would assign 2", "total: 3 ownerless resource(s) would be assigned"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("dry run output lacks %q:\n%s", want, stdout)
+		}
+	}
+	env.requireOwner(t, "task", f.ownerless1, "", "after the command's dry run")
+
+	stdout, stderr, code = env.runWeos(t, args...)
+	if code != 0 {
+		t.Fatalf("real run exited %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "total: 3 of 3 ownerless resource(s) assigned") {
+		t.Errorf("real run output lacks the total:\n%s", stdout)
+	}
+	env.requireOwner(t, "task", f.ownerless1, env.ownerAccount, "after the command")
+	env.requireOwner(t, "project", f.ownerlessProject, env.ownerAccount, "after the command")
+	env.requireOwner(t, "task", f.othersOwnerless, "", "another creator's row after the command")
+
+	// A creator who is not a member of the account is refused, non-zero.
+	_, stderr, code = env.runWeos(t, "maintenance", "assign-owner",
+		"--account", env.otherAccount, "--created-by", env.ownerAgent)
+	if code == 0 || !strings.Contains(stderr, "is not a member of account") {
+		t.Errorf("non-member run exited %d, stderr:\n%s", code, stderr)
+	}
+}
