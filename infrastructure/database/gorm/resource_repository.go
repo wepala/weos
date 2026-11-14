@@ -806,8 +806,8 @@ var _ repositories.OwnerlessResourceFinder = (*ResourceRepository)(nil)
 
 // ProvideOwnerlessResourceFinder returns the ownerless-resource lookup over db
 // alone, with no projection manager. It is for a command that only reads, such
-// as `weos maintenance assign-owner --dry-run`, which opens the database
-// read-only rather than starting the application.
+// as the preview of `weos maintenance assign-owner` (a run without --write),
+// which opens the database read-only rather than starting the application.
 func ProvideOwnerlessResourceFinder(db *gorm.DB) repositories.OwnerlessResourceFinder {
 	return &ResourceRepository{db: db}
 }

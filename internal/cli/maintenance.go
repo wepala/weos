@@ -58,19 +58,26 @@ It only ever fills an empty owner. A resource that has an owner is never
 touched, and an owner is never moved from one account to another. An
 assignment cannot be undone; only a database restore reverses a run. The
 account must exist and the agent must be a member of it. When the agent is a
-member of more than one account, a real run also needs --confirm-account with
-the same id as --account.
+member of more than one account, a run with --write also needs
+--confirm-account with the same id as --account.
 
-Before a real run:
+PREVIEW BY DEFAULT: without --write the command names the account, lists
+every selected resource with its type and created_at, lists the agent's
+accounts, and writes nothing. Only --write assigns.
 
-  1. Upgrade the instance to this release. Stop the instance for the real run.
-     The command opens the store directly, and a serving instance competes
-     with it for the database (on SQLite, for the write lock). --dry-run may
-     run while the instance serves: it opens the database read-only and
-     starts nothing (no migration, no preset install), so it writes nothing.
-  2. Back up the database.
-  3. Run with --dry-run. It names the account, lists every selected resource
-     with its type and created_at, and lists the agent's accounts.
+Procedure:
+
+  1. Upgrade the instance to this release. The preview (no flag) may run
+     while the instance serves: it opens the database read-only and starts
+     nothing (no migration, no preset install), so it writes nothing.
+  2. Preview first: run with no flag. Read the account name, the list of
+     resources and the agent's accounts.
+  3. Stop the instance for the real run, and back up the database. A run
+     with --write opens the store directly, and a serving instance competes
+     with it for the database (on SQLite, for the write lock).
+  4. Run again with --write (and --confirm-account when the preview said the
+     agent is in more than one account). It prints the account before it
+     writes.
 
 Where the ids come from. Run these against the same database:
 
@@ -85,19 +92,19 @@ Where the ids come from. Run these against the same database:
 A --created-by that wrote no ownerless resource prints "nothing to assign" and
 exits 0; check the id with the first query.
 
-What a real run changes besides the owner: every repaired row's updated_at is
-set to the time of the run, so lists sorted by last update show those rows
-first.
+What a run with --write changes besides the owner: every repaired row's
+updated_at is set to the time of the run, so lists sorted by last update show
+those rows first.
 
-A run that stops part-way has assigned what it reports; running it again
-assigns the rest. A resource whose record is behind its event stream is
+A run that stops part-way has assigned what it reports; running it again with
+--write assigns the rest. A resource whose record is behind its event stream is
 skipped and listed, and the command exits non-zero: stop the instance, run
 "weos worker reproject" against the same database, then run this command
 again.
 
-If a binary older than this release served during or after a real run, its
-background workers skipped the new event, so the knowledge graph and the
-search index do not have the owner. With this release, run
+If a binary older than this release served during or after a run with
+--write, its background workers skipped the new event, so the knowledge graph
+and the search index do not have the owner. With this release, run
 "weos worker checkpoint reset oxigraph" and
 "weos worker checkpoint reset lexical-index", then start the instance; the
 workers replay the history.
@@ -111,14 +118,14 @@ The command refuses to run without an explicit DATABASE_DSN or --database-dsn.`,
 func init() {
 	maintenanceAssignOwnerCmd.Flags().String("account", "", "the account id to give the resources as their owner (required)")
 	maintenanceAssignOwnerCmd.Flags().String("created-by", "", "the agent id whose ownerless resources are assigned (required)")
-	maintenanceAssignOwnerCmd.Flags().Bool("dry-run", false,
-		"list the ownerless resources (id, type, created_at) and the counts per type, and change nothing")
+	maintenanceAssignOwnerCmd.Flags().Bool("write", false,
+		"apply the assignment (default is a preview that lists the resources and writes nothing)")
 	maintenanceAssignOwnerCmd.Flags().String("created-from", "",
 		"only resources created at or after this time (RFC 3339, or a date YYYY-MM-DD meaning 00:00 UTC)")
 	maintenanceAssignOwnerCmd.Flags().String("created-to", "",
 		"only resources created at or before this time (RFC 3339, or a date YYYY-MM-DD meaning that whole day, UTC)")
 	maintenanceAssignOwnerCmd.Flags().String("confirm-account", "",
-		"repeat the --account id; a real run requires it when the --created-by agent is a member of more than one account")
+		"repeat the --account id; --write requires it when the --created-by agent is a member of more than one account")
 	maintenanceCmd.AddCommand(maintenanceAssignOwnerCmd)
 	rootCmd.AddCommand(maintenanceCmd)
 }
@@ -126,7 +133,10 @@ func init() {
 func runMaintenanceAssignOwner(cmd *cobra.Command, _ []string) error {
 	accountID, _ := cmd.Flags().GetString("account")
 	createdBy, _ := cmd.Flags().GetString("created-by")
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	// A preview is the default: an assignment cannot be undone, so a run that
+	// forgets a flag must cost a preview, never a write.
+	write, _ := cmd.Flags().GetBool("write")
+	dryRun := !write
 	confirm, _ := cmd.Flags().GetString("confirm-account")
 	fromFlag, _ := cmd.Flags().GetString("created-from")
 	toFlag, _ := cmd.Flags().GetString("created-to")
@@ -146,7 +156,7 @@ func runMaintenanceAssignOwner(cmd *cobra.Command, _ []string) error {
 	}
 	appCfg := GetConfig().Config
 
-	// A dry run opens the database read-only and starts nothing: starting the
+	// A preview opens the database read-only and starts nothing: starting the
 	// application runs migrations and installs missing built-in presets, which
 	// write to the database before a single row is listed.
 	var svc *application.OwnerBackfillService
@@ -179,8 +189,8 @@ func runMaintenanceAssignOwner(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("agent %s is not a member of account %s, so the account cannot own what it wrote",
 			createdBy, accountID)
 	case errors.Is(err, application.ErrOwnerAccountNotConfirmed):
-		return fmt.Errorf("%w.\nAn assignment cannot be undone. Run with --dry-run to see the account and the rows, "+
-			"then repeat the account to confirm it: --confirm-account %s", err, accountID)
+		return fmt.Errorf("%w.\nAn assignment cannot be undone. Run without --write to see the account and the rows, "+
+			"then repeat the account to confirm it: --write --confirm-account %s", err, accountID)
 	case err != nil:
 		return err
 	}
@@ -262,7 +272,7 @@ func assignOwnerOutcome(r application.AssignOwnerReport, err error) error {
 // account, before anything is written.
 func printAssignOwnerTarget(out io.Writer, r application.AssignOwnerReport) {
 	if r.DryRun {
-		_, _ = fmt.Fprintln(out, "assign-owner: DRY RUN — nothing was written. Re-run without --dry-run to apply.")
+		_, _ = fmt.Fprintln(out, "assign-owner: DRY RUN — nothing was written. Re-run with --write to apply.")
 	} else {
 		_, _ = fmt.Fprintln(out, "assign-owner: assigning owners through the event stream. An assignment cannot be undone.")
 	}
@@ -282,7 +292,7 @@ func printAssignOwnerTarget(out io.Writer, r application.AssignOwnerReport) {
 		_, _ = fmt.Fprintf(out, "note: %s is a member of %d accounts: %s.\n", r.CreatedBy, len(r.MemberOf),
 			strings.Join(names, ", "))
 		if r.DryRun {
-			_, _ = fmt.Fprintf(out, "      A real run needs the account repeated: --confirm-account %s\n", r.AccountID)
+			_, _ = fmt.Fprintf(out, "      A run with --write needs the account repeated: --confirm-account %s\n", r.AccountID)
 		}
 	}
 }
@@ -294,8 +304,8 @@ func windowBound(t time.Time) string {
 	return t.UTC().Format(time.RFC3339)
 }
 
-// printAssignOwnerReport renders what a run selected (a dry run) or did (a
-// real run), one line per type. A dry run also lists every resource.
+// printAssignOwnerReport renders what a run selected (a preview) or did (a
+// run with --write), one line per type. A preview also lists every resource.
 func printAssignOwnerReport(out io.Writer, r application.AssignOwnerReport) {
 	if len(r.Types) == 0 {
 		_, _ = fmt.Fprintln(out, "nothing to assign: the agent has no resource without an owner"+

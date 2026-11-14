@@ -404,7 +404,7 @@ func (env *assignOwnerEnv) runWeos(t *testing.T, args ...string) (stdout, stderr
 
 // The operator command, as the shipped binary runs it against a stopped
 // instance's store.
-func TestAssignOwner_TheCommandDryRunsThenAssigns(t *testing.T) {
+func TestAssignOwner_TheCommandPreviewsThenAssignsWithWrite(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds the weos binary")
 	}
@@ -430,19 +430,19 @@ func TestAssignOwner_TheCommandDryRunsThenAssigns(t *testing.T) {
 	env.db = db
 
 	args := []string{"maintenance", "assign-owner", "--account", env.ownerAccount, "--created-by", env.ownerAgent}
-	stdout, stderr, code := env.runWeos(t, append(args, "--dry-run")...)
+	stdout, stderr, code := env.runWeos(t, args...)
 	if code != 0 {
-		t.Fatalf("dry run exited %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+		t.Fatalf("preview exited %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}
 	for _, want := range []string{"DRY RUN", "project", "1 ownerless, would assign 1",
 		"task", "2 ownerless, would assign 2", "total: 3 ownerless resource(s) would be assigned"} {
 		if !strings.Contains(stdout, want) {
-			t.Errorf("dry run output lacks %q:\n%s", want, stdout)
+			t.Errorf("preview output lacks %q:\n%s", want, stdout)
 		}
 	}
-	env.requireOwner(t, "task", f.ownerless1, "", "after the command's dry run")
+	env.requireOwner(t, "task", f.ownerless1, "", "after the command's preview")
 
-	stdout, stderr, code = env.runWeos(t, args...)
+	stdout, stderr, code = env.runWeos(t, append(args, "--write")...)
 	if code != 0 {
 		t.Fatalf("real run exited %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}
@@ -455,7 +455,7 @@ func TestAssignOwner_TheCommandDryRunsThenAssigns(t *testing.T) {
 
 	// A creator who is not a member of the account is refused, non-zero.
 	_, stderr, code = env.runWeos(t, "maintenance", "assign-owner",
-		"--account", env.otherAccount, "--created-by", env.ownerAgent)
+		"--account", env.otherAccount, "--created-by", env.ownerAgent, "--write")
 	if code == 0 || !strings.Contains(stderr, "is not a member of account") {
 		t.Errorf("non-member run exited %d, stderr:\n%s", code, stderr)
 	}
@@ -792,31 +792,31 @@ func TestAssignOwner_TheCommandNarrowsListsAndConfirms(t *testing.T) {
 
 	base := []string{"maintenance", "assign-owner", "--account", env.ownerAccount, "--created-by", env.ownerAgent,
 		"--created-from", "2026-08-01", "--created-to", "2026-08-10"}
-	stdout, stderr, code := env.runWeos(t, append(base, "--dry-run")...)
+	stdout, stderr, code := env.runWeos(t, base...)
 	if code != 0 {
-		t.Fatalf("dry run exited %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+		t.Fatalf("preview exited %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}
 	for _, want := range []string{
 		f.ownerless1, "2026-08-10T18:00:00Z", "total: 1 ownerless resource(s) would be assigned",
 		fmt.Sprintf("account %s (%s)", name, env.ownerAccount), "member of 2 accounts", "--confirm-account",
 	} {
 		if !strings.Contains(stdout, want) {
-			t.Errorf("dry run output lacks %q:\n%s", want, stdout)
+			t.Errorf("preview output lacks %q:\n%s", want, stdout)
 		}
 	}
 	for _, unwanted := range []string{f.ownerless2, f.ownerlessProject} {
 		if strings.Contains(stdout, unwanted) {
-			t.Errorf("dry run lists %s, outside the window:\n%s", unwanted, stdout)
+			t.Errorf("preview lists %s, outside the window:\n%s", unwanted, stdout)
 		}
 	}
 
-	_, stderr, code = env.runWeos(t, base...)
+	_, stderr, code = env.runWeos(t, append(base, "--write")...)
 	if code == 0 || !strings.Contains(stderr, "--confirm-account") {
 		t.Errorf("an unconfirmed real run exited %d, stderr:\n%s", code, stderr)
 	}
 	env.requireOwner(t, "task", f.ownerless1, "", "after the unconfirmed command")
 
-	stdout, stderr, code = env.runWeos(t, append(base, "--confirm-account", env.ownerAccount)...)
+	stdout, stderr, code = env.runWeos(t, append(base, "--write", "--confirm-account", env.ownerAccount)...)
 	if code != 0 {
 		t.Fatalf("confirmed run exited %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}
@@ -828,17 +828,19 @@ func TestAssignOwner_TheCommandNarrowsListsAndConfirms(t *testing.T) {
 	env.requireOwner(t, "task", f.ownerless2, "", "outside the window after the command")
 
 	_, stderr, code = env.runWeos(t, "maintenance", "assign-owner", "--account", env.ownerAccount,
-		"--created-by", env.ownerAgent, "--created-from", "August 1", "--dry-run")
+		"--created-by", env.ownerAgent, "--created-from", "August 1")
 	if code == 0 || !strings.Contains(stderr, "--created-from") {
 		t.Errorf("a malformed date exited %d, stderr:\n%s", code, stderr)
 	}
 }
 
-// A dry run writes nothing, even against a database whose boot would. The
-// full application runs migrations and installs missing built-in presets as it
-// starts, so a dry run built on it would recreate a built-in type that the
-// store lacks, and append that type's events, before it listed one row.
-func TestAssignOwner_TheCommandsDryRunWritesNothingAtBoot(t *testing.T) {
+// A run with no flag is a preview, and writes nothing, even against a
+// database whose boot would. An assignment cannot be undone, so a forgotten
+// flag must cost a preview, never a write. The full application runs
+// migrations and installs missing built-in presets as it starts, so a preview
+// built on it would recreate a built-in type that the store lacks, and append
+// that type's events, before it listed one row.
+func TestAssignOwner_TheCommandWithNoFlagWritesNothing(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds the weos binary")
 	}
@@ -874,18 +876,25 @@ func TestAssignOwner_TheCommandsDryRunWritesNothingAtBoot(t *testing.T) {
 	typesBefore, eventsBefore := typeCount(), env.eventCount(t)
 
 	stdout, stderr, code := env.runWeos(t, "maintenance", "assign-owner",
-		"--account", env.ownerAccount, "--created-by", env.ownerAgent, "--dry-run")
+		"--account", env.ownerAccount, "--created-by", env.ownerAgent)
 	if code != 0 {
-		t.Fatalf("dry run exited %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+		t.Fatalf("a run with no flag exited %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}
-	if !strings.Contains(stdout, "total: 3 ownerless resource(s) would be assigned") {
-		t.Errorf("dry run output lacks the total:\n%s", stdout)
+	for _, want := range []string{"DRY RUN", "--write", "total: 3 ownerless resource(s) would be assigned"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("a run with no flag does not read as a preview; output lacks %q:\n%s", want, stdout)
+		}
 	}
 	if after := typeCount(); after != typesBefore {
-		t.Errorf("the dry run changed the resource types: %d before, %d after", typesBefore, after)
+		t.Errorf("a run with no flag changed the resource types: %d before, %d after", typesBefore, after)
 	}
 	if after := env.eventCount(t); after != eventsBefore {
-		t.Errorf("the dry run appended %d event(s)", after-eventsBefore)
+		t.Errorf("a run with no flag appended %d event(s)", after-eventsBefore)
 	}
-	env.requireOwner(t, "task", f.ownerless1, "", "after the dry run")
+	const when = "after a run with no flag"
+	env.requireOwner(t, "task", f.ownerless1, "", when)
+	env.requireOwner(t, "task", f.ownerless2, "", when)
+	env.requireOwner(t, "project", f.ownerlessProject, "", when)
+	env.requireOwner(t, "task", f.othersOwnerless, "", when)
+	env.requireOwner(t, "task", f.alreadyOwned, env.ownerAccount, when)
 }

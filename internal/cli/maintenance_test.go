@@ -38,7 +38,7 @@ func TestPrintAssignOwnerReport_DryRunListsCountsPerType(t *testing.T) {
 	printAssignOwnerReport(&out, r)
 	text := out.String()
 	for _, want := range []string{
-		"DRY RUN — nothing was written",
+		"DRY RUN — nothing was written. Re-run with --write to apply.",
 		"account acct-1, resources created by agent-1",
 		"statement                15 ownerless, would assign 15",
 		"transaction              412 ownerless, would assign 412",
@@ -92,10 +92,18 @@ func TestMaintenanceAssignOwner_IsRegisteredAndNeedsBothIDs(t *testing.T) {
 	if err != nil || found != maintenanceAssignOwnerCmd {
 		t.Fatalf("weos maintenance assign-owner is not registered: %v", err)
 	}
-	for _, flag := range []string{"account", "created-by", "dry-run", "created-from", "created-to", "confirm-account"} {
+	for _, flag := range []string{"account", "created-by", "write", "created-from", "created-to", "confirm-account"} {
 		if maintenanceAssignOwnerCmd.Flags().Lookup(flag) == nil {
 			t.Errorf("flag --%s is missing", flag)
 		}
+	}
+	// A preview is the default, so there is no flag to ask for one: a run
+	// that forgets a flag must never write.
+	if maintenanceAssignOwnerCmd.Flags().Lookup("dry-run") != nil {
+		t.Error("flag --dry-run is still registered; a preview is the default and --write applies")
+	}
+	if f := maintenanceAssignOwnerCmd.Flags().Lookup("write"); f != nil && f.DefValue != "false" {
+		t.Errorf("--write defaults to %s, want false", f.DefValue)
 	}
 	// With neither id the command refuses before it opens any store.
 	if err := runMaintenanceAssignOwner(maintenanceAssignOwnerCmd, nil); err == nil ||
@@ -182,7 +190,7 @@ func TestPrintAssignOwnerTarget_NamesTheAccountAndTheWindow(t *testing.T) {
 		"account Household (acct-1), resources created by agent-1",
 		"created from 2026-08-01T00:00:00Z to 2026-08-10T23:59:59Z",
 		"agent-1 is a member of 2 accounts: Household (acct-1), Studio (acct-2)",
-		"--confirm-account acct-1",
+		"A run with --write needs the account repeated: --confirm-account acct-1",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("target lacks %q:\n%s", want, text)
@@ -227,8 +235,11 @@ var assignOwnerRunRules = []string{
 	// The instance runs this release, and is stopped for a real run.
 	"this release",
 	"Stop the instance",
-	"--dry-run may run while the instance serves",
-	// A dry run starts nothing that writes: no migration, no preset install.
+	// A preview is the default; only --write assigns, and the preview comes first.
+	"may run while the instance serves",
+	"Preview first: run with no flag",
+	"--write",
+	// A preview starts nothing that writes: no migration, no preset install.
 	"opens the database read-only",
 	// An older binary that served skipped the event in its background groups.
 	"weos worker checkpoint reset oxigraph",
@@ -249,6 +260,9 @@ func TestMaintenanceAssignOwner_HelpStatesTheRunRules(t *testing.T) {
 		if !strings.Contains(help, rule) {
 			t.Errorf("the long help does not state %q", rule)
 		}
+	}
+	if strings.Contains(help, "--dry-run") {
+		t.Error("the long help still names --dry-run; a preview is the default and --write applies")
 	}
 	if strings.Contains(help, "needs no running server") {
 		t.Error("the long help still reads as safe to run while the server runs")
@@ -275,6 +289,9 @@ func TestMaintenanceAssignOwner_DocsStateTheRunRules(t *testing.T) {
 		if !strings.Contains(section, rule) {
 			t.Errorf("the cli.md section does not state %q", rule)
 		}
+	}
+	if strings.Contains(section, "--dry-run") {
+		t.Error("the cli.md section still names --dry-run; a preview is the default and --write applies")
 	}
 	if strings.Contains(section, "needs no running server") {
 		t.Error("the cli.md section still reads as safe to run while the server runs")
