@@ -410,8 +410,15 @@ func TestAssignOwner_TheCommandDryRunsThenAssigns(t *testing.T) {
 	}
 	env := newAssignOwnerEnv(t)
 	f := env.seed(t)
-	// The instance is stopped, as the command's help asks; the test reads
-	// the store through a plain connection of its own.
+
+	// The help says to stop the instance for a real run. This test follows
+	// that rule, so it checks the help still states it.
+	help, _, code := env.runWeos(t, "maintenance", "assign-owner", "--help")
+	if code != 0 || !strings.Contains(help, "Stop the instance for the real run") {
+		t.Fatalf("assign-owner --help (exit %d) no longer says to stop the instance:\n%s", code, help)
+	}
+	// The instance is stopped, as the help asks; the test reads the store
+	// through a plain connection of its own.
 	env.stop()
 	db, err := gorm.Open(gormprov.DialectorForDSN(env.cfg.DatabaseDSN), &gorm.Config{})
 	if err != nil {

@@ -17,6 +17,7 @@ package cli
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -217,5 +218,63 @@ func TestPrintAssignOwnerReport_DryRunListsEachResource(t *testing.T) {
 	})
 	if want := "2026-08-05T12:00:00Z  statement                urn:statement:1"; !strings.Contains(out.String(), want) {
 		t.Errorf("dry run lacks %q:\n%s", want, out.String())
+	}
+}
+
+// assignOwnerRunRules are what an operator must know before a real run. The
+// command's long help and docs/_reference/cli.md both state each one.
+var assignOwnerRunRules = []string{
+	// The instance runs this release, and is stopped for a real run.
+	"this release",
+	"Stop the instance",
+	"--dry-run may run while the instance serves",
+	// An older binary that served skipped the event in its background groups.
+	"weos worker checkpoint reset oxigraph",
+	"weos worker checkpoint reset lexical-index",
+	// Where the ids come from.
+	"SELECT DISTINCT created_by FROM resources",
+	"account_members",
+	"credentials",
+	// The side effect on update time.
+	"updated_at",
+	// What a stale record needs.
+	"weos worker reproject",
+}
+
+func TestMaintenanceAssignOwner_HelpStatesTheRunRules(t *testing.T) {
+	help := strings.Join(strings.Fields(maintenanceAssignOwnerCmd.Long), " ")
+	for _, rule := range assignOwnerRunRules {
+		if !strings.Contains(help, rule) {
+			t.Errorf("the long help does not state %q", rule)
+		}
+	}
+	if strings.Contains(help, "needs no running server") {
+		t.Error("the long help still reads as safe to run while the server runs")
+	}
+}
+
+func TestMaintenanceAssignOwner_DocsStateTheRunRules(t *testing.T) {
+	raw, err := os.ReadFile("../../docs/_reference/cli.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := string(raw)
+	start := strings.Index(doc, "## `weos maintenance assign-owner`")
+	if start < 0 {
+		t.Fatal("docs/_reference/cli.md has no assign-owner section")
+	}
+	section := doc[start:]
+	if end := strings.Index(section[3:], "\n## "); end >= 0 {
+		section = section[:end+3]
+	}
+	// Code marks are presentation; the words are what an operator reads.
+	section = strings.Join(strings.Fields(strings.ReplaceAll(section, "`", "")), " ")
+	for _, rule := range append(assignOwnerRunRules, "--created-from", "--created-to", "--confirm-account") {
+		if !strings.Contains(section, rule) {
+			t.Errorf("the cli.md section does not state %q", rule)
+		}
+	}
+	if strings.Contains(section, "needs no running server") {
+		t.Error("the cli.md section still reads as safe to run while the server runs")
 	}
 }

@@ -40,7 +40,8 @@ var maintenanceAssignOwnerCmd = &cobra.Command{
 	Short: "Give an owning account to the resources one agent wrote with no account",
 	Long: `Finds every resource, of every type, that has no owning account and was
 created by the agent named by --created-by, and gives each one the account
-named by --account as its owner.
+named by --account as its owner. --created-from and --created-to narrow the
+selection to a creation-time window.
 
 A resource takes its owner from the session that wrote it. A session whose
 active account was empty wrote resources with no owner, and account-scoped
@@ -50,16 +51,53 @@ of work as any other write, so the projection tables, the knowledge graph and
 the search index all see the owner, and a rebuild from events keeps it.
 
 It only ever fills an empty owner. A resource that has an owner is never
-touched, and an owner is never moved from one account to another. The account
-must exist and the agent must be a member of it.
+touched, and an owner is never moved from one account to another. An
+assignment cannot be undone; only a database restore reverses a run. The
+account must exist and the agent must be a member of it. When the agent is a
+member of more than one account, a real run also needs --confirm-account with
+the same id as --account.
 
---dry-run counts the ownerless resources per type and writes nothing. Run it
-first. A real run that stops part-way has assigned what it reports; running it
-again assigns the rest.
+Before a real run:
 
-The command opens the store directly, so it needs no running server, and it
-refuses to run without an explicit DATABASE_DSN or --database-dsn. Back up the
-database before a real run.`,
+  1. Upgrade the instance to this release. Stop the instance for the real run.
+     The command opens the store directly, and a serving instance competes
+     with it for the database (on SQLite, for the write lock). --dry-run may
+     run while the instance serves: it writes nothing.
+  2. Back up the database.
+  3. Run with --dry-run. It names the account, lists every selected resource
+     with its type and created_at, and lists the agent's accounts.
+
+Where the ids come from. Run these against the same database:
+
+  --created-by  SELECT DISTINCT created_by FROM resources
+                  WHERE account_id = '' OR account_id IS NULL;
+                or, from a person's email address:
+                SELECT agent_id FROM credentials WHERE email = '<address>';
+  --account     SELECT a.id, a.name, m.role_id FROM account_members m
+                  JOIN accounts a ON a.id = m.account_id
+                  WHERE m.agent_id = '<agent id>';
+
+A --created-by that wrote no ownerless resource prints "nothing to assign" and
+exits 0; check the id with the first query.
+
+What a real run changes besides the owner: every repaired row's updated_at is
+set to the time of the run, so lists sorted by last update show those rows
+first.
+
+A run that stops part-way has assigned what it reports; running it again
+assigns the rest. A resource whose record is behind its event stream is
+skipped and listed, and the command exits non-zero: stop the instance, run
+"weos worker reproject" against the same database, then run this command
+again.
+
+If a binary older than this release served during or after a real run, its
+background workers skipped the new event, so the knowledge graph and the
+search index do not have the owner. With this release, run
+"weos worker checkpoint reset oxigraph" and
+"weos worker checkpoint reset lexical-index", then start the instance; the
+workers replay the history.
+
+The command refuses to run without an explicit DATABASE_DSN or --database-dsn.`,
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
 	RunE:         runMaintenanceAssignOwner,
