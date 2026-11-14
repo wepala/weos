@@ -69,6 +69,17 @@ type AssignOwnerTypeCount struct {
 	// Skipped is how many already had an owner by the time the run reached
 	// them — a concurrent write — and so were left as they were.
 	Skipped int
+	// NeedsReproject is how many were left ownerless because their read
+	// model is behind the event store. Each is listed in the report's
+	// NeedsReproject.
+	NeedsReproject int
+}
+
+// AssignOwnerSkip names a resource a run left ownerless, and why.
+type AssignOwnerSkip struct {
+	ID       string
+	TypeSlug string
+	Reason   string
 }
 
 // AssignOwnerReport says what a run found and did, per resource type.
@@ -77,6 +88,10 @@ type AssignOwnerReport struct {
 	CreatedBy string
 	DryRun    bool
 	Types     map[string]AssignOwnerTypeCount
+	// NeedsReproject lists the resources the run skipped because their read
+	// model is behind the event store. `weos worker reproject` brings the read
+	// model up to the store; a later run then assigns what is still ownerless.
+	NeedsReproject []AssignOwnerSkip
 }
 
 // TypeSlugs returns the report's resource types in name order.
@@ -145,6 +160,14 @@ func ProvideOwnerBackfillService(p OwnerBackfillParams) *OwnerBackfillService {
 // its own, so a run that stops part-way has assigned what it reports, and
 // running it again finishes the rest: a resource already assigned is no
 // longer ownerless and is not selected again.
+//
+// A resource is counted as assigned only once its record is read back with
+// the owner. A resource whose read model is behind its event stream — found
+// before the write, or met as a version conflict on it — is skipped, listed in
+// the report's NeedsReproject, and the run goes on. A write whose event was
+// stored but whose record did not take the owner stops the run with an error
+// that names the resource: the read model is failing, and every later write
+// would fail the same way.
 func (s *OwnerBackfillService) AssignOwner(
 	ctx context.Context, cmd AssignOwnerCommand,
 ) (AssignOwnerReport, error) {
@@ -178,20 +201,29 @@ func (s *OwnerBackfillService) AssignOwner(
 		return report, nil
 	}
 	for _, r := range ownerless {
-		assigned, err := s.assignOne(ctx, r.ID, cmd.AccountID, cmd.CreatedBy)
+		outcome, reason, err := s.assignOne(ctx, r.ID, cmd.AccountID, cmd.CreatedBy)
 		if err != nil {
+			s.logger.Error(ctx, "assign owner stopped", "id", r.ID, "type", r.TypeSlug, "error", err)
 			return report, fmt.Errorf("assign owner: %s (%s): %w", r.ID, r.TypeSlug, err)
 		}
 		c := report.Types[r.TypeSlug]
-		if assigned {
+		switch outcome {
+		case assignedOwner:
 			c.Assigned++
-		} else {
+		case gainedOwner:
 			c.Skipped++
+		case readModelBehind:
+			c.NeedsReproject++
+			report.NeedsReproject = append(report.NeedsReproject,
+				AssignOwnerSkip{ID: r.ID, TypeSlug: r.TypeSlug, Reason: reason})
+			s.logger.Warn(ctx, "assign owner skipped a resource whose read model is behind the event store",
+				"id", r.ID, "type", r.TypeSlug, "reason", reason)
 		}
 		report.Types[r.TypeSlug] = c
 	}
 	s.logger.Info(ctx, "assigned owners to ownerless resources",
-		"account", cmd.AccountID, "createdBy", cmd.CreatedBy, "assigned", report.Assigned())
+		"account", cmd.AccountID, "createdBy", cmd.CreatedBy, "assigned", report.Assigned(),
+		"needsReproject", len(report.NeedsReproject))
 	return report, nil
 }
 
@@ -213,26 +245,98 @@ func (s *OwnerBackfillService) checkMembership(ctx context.Context, accountID, a
 	return nil
 }
 
+// assignOutcome is what assignOne did with one resource.
+type assignOutcome int
+
+const (
+	// assignedOwner: the event is stored and the record reads back the owner.
+	assignedOwner assignOutcome = iota
+	// gainedOwner: the resource gained an owner (or changed creator) since
+	// the selection, so it was left alone.
+	gainedOwner
+	// readModelBehind: the record is behind the event store, so an append
+	// from it would conflict. Nothing was written.
+	readModelBehind
+)
+
+// errReadModelDidNotTakeOwner is the read-back failure after a stored
+// assignment: the event is in the store and the record is still ownerless.
+var errReadModelDidNotTakeOwner = errors.New("the Resource.AccountAssigned event is stored, " +
+	"but the resource's record did not take the owner (the projection write failed). " +
+	"Stop the instance and run `weos worker reproject` to apply the stored event, then run this command again")
+
 // assignOne gives one resource its owner. It reads the resource again first,
 // so a resource that gained an owner (or changed creator) since the selection
 // is left alone and reported as skipped rather than refused.
-func (s *OwnerBackfillService) assignOne(ctx context.Context, id, accountID, createdBy string) (bool, error) {
+//
+// The record's version is compared with the event store's before the write.
+// A record behind the store would make the append conflict, and every run
+// after it would conflict on the same record, so it is reported as behind
+// instead, with what the store holds past it.
+func (s *OwnerBackfillService) assignOne(
+	ctx context.Context, id, accountID, createdBy string,
+) (assignOutcome, string, error) {
 	entity, err := s.repo.FindByID(ctx, id)
 	if err != nil {
-		return false, err
+		return 0, "", err
 	}
 	if entity.AccountID() != "" || entity.CreatedBy() != createdBy {
-		return false, nil
+		return gainedOwner, "", nil
+	}
+	recordSeq := entity.GetSequenceNo()
+	if reason, behind, err := s.readModelBehind(ctx, id, recordSeq); err != nil {
+		return 0, "", err
+	} else if behind {
+		return readModelBehind, reason, nil
 	}
 	if err := entity.AssignAccount(accountID); err != nil {
-		return false, err
+		return 0, "", err
 	}
 	uow := esapp.NewSimpleUnitOfWork(s.eventStore, s.dispatcher)
 	if err := uow.Track(entity); err != nil {
-		return false, fmt.Errorf("track resource: %w", err)
+		return 0, "", fmt.Errorf("track resource: %w", err)
 	}
 	if err := uow.Commit(ctx); err != nil {
-		return false, fmt.Errorf("commit the assignment: %w", err)
+		if errors.Is(err, domain.ErrConcurrencyConflict) {
+			return readModelBehind, fmt.Sprintf("version conflict on the append from sequence %d: %v",
+				recordSeq, err), nil
+		}
+		return 0, "", fmt.Errorf("commit the assignment: %w", err)
 	}
-	return true, nil
+	// The unit of work stores the event and then dispatches it to the
+	// projection, and it drops the projection's error. Only a read-back
+	// shows whether the record took the owner.
+	after, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return 0, "", fmt.Errorf("read the record back: %w (%w)", err, errReadModelDidNotTakeOwner)
+	}
+	if after.AccountID() != accountID {
+		return 0, "", errReadModelDidNotTakeOwner
+	}
+	return assignedOwner, "", nil
+}
+
+// readModelBehind reports whether the event store holds events for id past
+// the record's sequence number, and if so, what they are.
+func (s *OwnerBackfillService) readModelBehind(
+	ctx context.Context, id string, recordSeq int,
+) (string, bool, error) {
+	storeSeq, err := s.eventStore.GetCurrentVersion(ctx, id)
+	if err != nil {
+		return "", false, fmt.Errorf("read the event store version: %w", err)
+	}
+	if storeSeq <= recordSeq {
+		return "", false, nil
+	}
+	ahead, err := s.eventStore.GetEventsRange(ctx, id, recordSeq+1, -1)
+	if err != nil {
+		return "", false, fmt.Errorf("read the events past the record: %w", err)
+	}
+	for _, env := range ahead {
+		if env.EventType == (entities.ResourceAccountAssigned{}).EventType() {
+			return fmt.Sprintf("the event store already holds a Resource.AccountAssigned at sequence %d "+
+				"that the record (at sequence %d) has not applied", env.SequenceNo, recordSeq), true, nil
+		}
+	}
+	return fmt.Sprintf("the record is at sequence %d and the event store at %d", recordSeq, storeSeq), true, nil
 }

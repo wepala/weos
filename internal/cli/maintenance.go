@@ -118,7 +118,20 @@ func runMaintenanceAssignOwner(cmd *cobra.Command, _ []string) error {
 	// Printed even when the run stopped part-way: each resource commits on
 	// its own, so the operator needs to know what already landed.
 	printAssignOwnerReport(cmd.OutOrStdout(), report)
-	return err
+	return assignOwnerOutcome(report, err)
+}
+
+// assignOwnerOutcome is the command's result. A run that left resources for a
+// reproject did not finish its job, so it fails even though it went on past
+// them: a script must not read it as done.
+func assignOwnerOutcome(r application.AssignOwnerReport, err error) error {
+	if err != nil {
+		return err
+	}
+	if n := len(r.NeedsReproject); n > 0 {
+		return fmt.Errorf("%d resource(s) left for a reproject; see the list above", n)
+	}
+	return nil
 }
 
 // printAssignOwnerReport renders a run for the operator, one line per type.
@@ -144,11 +157,35 @@ func printAssignOwnerReport(out io.Writer, r application.AssignOwnerReport) {
 		if c.Skipped > 0 {
 			_, _ = fmt.Fprintf(out, ", skipped %d that gained an owner during the run", c.Skipped)
 		}
+		if c.NeedsReproject > 0 {
+			_, _ = fmt.Fprintf(out, ", %d left for a reproject", c.NeedsReproject)
+		}
 		_, _ = fmt.Fprintln(out)
 	}
 	if r.DryRun {
 		_, _ = fmt.Fprintf(out, "\ntotal: %d ownerless resource(s) would be assigned\n", r.Ownerless())
 		return
 	}
-	_, _ = fmt.Fprintf(out, "\ntotal: %d of %d ownerless resource(s) assigned\n", r.Assigned(), r.Ownerless())
+	_, _ = fmt.Fprintf(out, "\ntotal: %d of %d ownerless resource(s) assigned", r.Assigned(), r.Ownerless())
+	if len(r.NeedsReproject) > 0 {
+		_, _ = fmt.Fprintf(out, ", %d left for a reproject", len(r.NeedsReproject))
+	}
+	_, _ = fmt.Fprintln(out)
+	printNeedsReproject(out, r.NeedsReproject)
+}
+
+// printNeedsReproject lists the resources a run skipped because their read
+// model is behind the event store, and the one repair for that.
+func printNeedsReproject(out io.Writer, skipped []application.AssignOwnerSkip) {
+	if len(skipped) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(out, "\nThese resources are still ownerless. Their read model is behind the event store, so")
+	_, _ = fmt.Fprintln(out, "this run did not write to them:")
+	for _, s := range skipped {
+		_, _ = fmt.Fprintf(out, "  %s (%s): %s\n", s.ID, s.TypeSlug, s.Reason)
+	}
+	_, _ = fmt.Fprintln(out, "\nStop the instance and run `weos worker reproject` against the same database, then")
+	_, _ = fmt.Fprintln(out, "run this command again. A reproject applies an assignment already in the event store,")
+	_, _ = fmt.Fprintln(out, "and brings every other record up to its events so the next run can assign it.")
 }

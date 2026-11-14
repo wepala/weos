@@ -28,6 +28,7 @@ import (
 
 	"github.com/wepala/weos/v3/application"
 	"github.com/wepala/weos/v3/application/presets"
+	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
 	gormprov "github.com/wepala/weos/v3/infrastructure/database/gorm"
 	"github.com/wepala/weos/v3/internal/config"
@@ -35,6 +36,7 @@ import (
 
 	"github.com/akeemphilbert/pericarp/pkg/auth"
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
+	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 	"go.uber.org/fx"
 	"gorm.io/gorm"
@@ -53,6 +55,13 @@ type assignOwnerEnv struct {
 	eventStore domain.EventStore
 	resources  application.ResourceService
 	backfill   *application.OwnerBackfillService
+
+	// The backfill's own dependencies, so a test can build the service over
+	// a wrapped event store.
+	resourceRepo repositories.ResourceRepository
+	accountRepo  authrepos.AccountRepository
+	dispatcher   *domain.EventDispatcher
+	logger       entities.Logger
 
 	ownerAgent, ownerAccount string
 	otherAgent, otherAccount string
@@ -80,6 +89,7 @@ func newAssignOwnerEnv(t *testing.T) *assignOwnerEnv {
 		application.Module(env.cfg, presets.NewDefaultRegistry()),
 		fx.Populate(&authService, &types, &env.resources, &env.backfill),
 		fx.Populate(&env.db, &env.projMgr, &env.eventStore),
+		fx.Populate(&env.resourceRepo, &env.accountRepo, &env.dispatcher, &env.logger),
 	)
 	ctx, cancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
 	defer cancel()
@@ -322,17 +332,7 @@ func TestAssignOwner_ARebuildFromEventsKeepsTheOwner(t *testing.T) {
 
 	reproject := func(when string) {
 		t.Helper()
-		var rt application.ReprojectRuntime
-		app := fx.New(fx.NopLogger, application.ReprojectModule(env.cfg), fx.Populate(&rt, &env.db))
-		ctx, cancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
-		defer cancel()
-		if err := app.Start(ctx); err != nil {
-			t.Fatalf("%s: start reproject: %v", when, err)
-		}
-		defer func() { _ = app.Stop(context.Background()) }()
-		if _, err := application.Reproject(context.Background(), rt, application.ReprojectOptions{}); err != nil {
-			t.Fatalf("%s: reproject: %v", when, err)
-		}
+		env.reproject(t, when)
 		for _, c := range []struct{ slug, id, want string }{
 			{"task", f.ownerless1, env.ownerAccount},
 			{"task", f.ownerless2, env.ownerAccount},
@@ -360,6 +360,23 @@ func TestAssignOwner_ARebuildFromEventsKeepsTheOwner(t *testing.T) {
 		}
 	}
 	reproject("rebuild from empty tables")
+}
+
+// reproject runs `weos worker reproject` in process, against a stopped
+// instance's store, and leaves env.db open on the store for reads.
+func (env *assignOwnerEnv) reproject(t *testing.T, when string) {
+	t.Helper()
+	var rt application.ReprojectRuntime
+	app := fx.New(fx.NopLogger, application.ReprojectModule(env.cfg), fx.Populate(&rt, &env.db))
+	ctx, cancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
+	defer cancel()
+	if err := app.Start(ctx); err != nil {
+		t.Fatalf("%s: start reproject: %v", when, err)
+	}
+	defer func() { _ = app.Stop(context.Background()) }()
+	if _, err := application.Reproject(context.Background(), rt, application.ReprojectOptions{}); err != nil {
+		t.Fatalf("%s: reproject: %v", when, err)
+	}
 }
 
 // runWeos runs the real weos binary against the env's store.
@@ -433,4 +450,143 @@ func TestAssignOwner_TheCommandDryRunsThenAssigns(t *testing.T) {
 	if code == 0 || !strings.Contains(stderr, "is not a member of account") {
 		t.Errorf("non-member run exited %d, stderr:\n%s", code, stderr)
 	}
+}
+
+func (env *assignOwnerEnv) isPostgres() bool {
+	return strings.HasPrefix(env.cfg.DatabaseDSN, "postgres")
+}
+
+// failOwnerWrites makes every write that gives the canonical record of id an
+// owner fail, as a busy database or a lost connection would fail the
+// synchronous projection write after the event was stored.
+func (env *assignOwnerEnv) failOwnerWrites(t *testing.T, id string) (restore func()) {
+	t.Helper()
+	if env.isPostgres() {
+		t.Skip("the failing-write trigger is SQLite only")
+	}
+	trigger := fmt.Sprintf(`CREATE TRIGGER fail_owner_write BEFORE UPDATE ON resources
+		WHEN NEW.id = '%s' AND NEW.account_id <> ''
+		BEGIN SELECT RAISE(ABORT, 'simulated projection write failure'); END`, id)
+	if err := env.db.Exec(trigger).Error; err != nil {
+		t.Fatalf("install the failing-write trigger: %v", err)
+	}
+	return func() {
+		if err := env.db.Exec("DROP TRIGGER fail_owner_write").Error; err != nil {
+			t.Fatalf("drop the failing-write trigger: %v", err)
+		}
+	}
+}
+
+// ownedCount is how many of ids carry want as their canonical owner.
+func (env *assignOwnerEnv) ownedCount(t *testing.T, want string, ids ...string) int {
+	t.Helper()
+	var n int64
+	if err := env.db.Table("resources").Where("id IN ? AND account_id = ?", ids, want).
+		Count(&n).Error; err != nil {
+		t.Fatalf("count owned rows: %v", err)
+	}
+	return int(n)
+}
+
+// A projection write that fails after the event was stored must not be
+// reported as an assignment: the row is still ownerless.
+func TestAssignOwner_AFailedProjectionWriteIsNotCountedAsAssigned(t *testing.T) {
+	env := newAssignOwnerEnv(t)
+	f := env.seed(t)
+	restore := env.failOwnerWrites(t, f.ownerless1)
+
+	report, err := env.backfill.AssignOwner(context.Background(), application.AssignOwnerCommand{
+		AccountID: env.ownerAccount, CreatedBy: env.ownerAgent,
+	})
+	if err == nil {
+		t.Fatalf("a run whose projection write failed returned no error; report %+v", report)
+	}
+	for _, want := range []string{f.ownerless1, "weos worker reproject"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not name %q", err, want)
+		}
+	}
+	all := []string{f.ownerless1, f.ownerless2, f.ownerlessProject}
+	if owned := env.ownedCount(t, env.ownerAccount, all...); report.Assigned() != owned {
+		t.Errorf("report says %d assigned, but %d row(s) carry the owner", report.Assigned(), owned)
+	}
+	env.requireOwner(t, "task", f.ownerless1, "", "after the failed write")
+	restore()
+
+	// The event is stored and the row is a version behind it. A re-run must
+	// not stall on that row: it skips it, names it for a reproject, and
+	// assigns everything else.
+	again, err := env.backfill.AssignOwner(context.Background(), application.AssignOwnerCommand{
+		AccountID: env.ownerAccount, CreatedBy: env.ownerAgent,
+	})
+	if err != nil {
+		t.Fatalf("a re-run stalled on the stale row: %v", err)
+	}
+	if len(again.NeedsReproject) != 1 || again.NeedsReproject[0].ID != f.ownerless1 {
+		t.Fatalf("re-run lists %+v for a reproject, want only %s", again.NeedsReproject, f.ownerless1)
+	}
+	if reason := again.NeedsReproject[0].Reason; !strings.Contains(reason, "Resource.AccountAssigned") {
+		t.Errorf("reason %q does not say the assignment is already in the event store", reason)
+	}
+	if got := again.Types["task"].NeedsReproject; got != 1 {
+		t.Errorf("task count needing a reproject = %d, want 1", got)
+	}
+	if owned := env.ownedCount(t, env.ownerAccount, f.ownerless2, f.ownerlessProject); owned != 2 {
+		t.Errorf("%d of the 2 healthy rows carry the owner after the re-run", owned)
+	}
+	if owned := env.ownedCount(t, env.ownerAccount, all...); again.Assigned()+report.Assigned() != owned {
+		t.Errorf("the runs report %d assigned, but %d row(s) carry the owner",
+			again.Assigned()+report.Assigned(), owned)
+	}
+
+	// The advice holds: a reproject replays the stored assignment.
+	env.stop()
+	env.reproject(t, "the advised reproject")
+	env.requireOwner(t, "task", f.ownerless1, env.ownerAccount, "after the advised reproject")
+}
+
+// conflictingStore refuses every append to one aggregate with a version
+// conflict, as a write that landed between the run's read and its append
+// would.
+type conflictingStore struct {
+	domain.EventStore
+	aggregateID string
+}
+
+func (s conflictingStore) Append(
+	ctx context.Context, aggregateID string, expected int, events ...domain.EventEnvelope[any],
+) error {
+	if aggregateID == s.aggregateID {
+		return fmt.Errorf("%w: expected version %d, got %d", domain.ErrConcurrencyConflict, expected, expected+1)
+	}
+	return s.EventStore.Append(ctx, aggregateID, expected, events...)
+}
+
+func TestAssignOwner_ASequenceConflictSkipsTheResourceAndContinues(t *testing.T) {
+	env := newAssignOwnerEnv(t)
+	f := env.seed(t)
+	svc := application.ProvideOwnerBackfillService(application.OwnerBackfillParams{
+		Repo: env.resourceRepo, Accounts: env.accountRepo,
+		EventStore: conflictingStore{EventStore: env.eventStore, aggregateID: f.ownerless1},
+		Dispatcher: env.dispatcher, Logger: env.logger,
+	})
+
+	report, err := svc.AssignOwner(context.Background(), application.AssignOwnerCommand{
+		AccountID: env.ownerAccount, CreatedBy: env.ownerAgent,
+	})
+	if err != nil {
+		t.Fatalf("a sequence conflict stopped the run: %v", err)
+	}
+	if len(report.NeedsReproject) != 1 || report.NeedsReproject[0].ID != f.ownerless1 {
+		t.Fatalf("run lists %+v for a reproject, want only %s", report.NeedsReproject, f.ownerless1)
+	}
+	if reason := report.NeedsReproject[0].Reason; !strings.Contains(reason, "conflict") {
+		t.Errorf("reason %q does not name the conflict", reason)
+	}
+	if report.Assigned() != 2 {
+		t.Errorf("assigned %d, want the 2 resources after and around the conflict", report.Assigned())
+	}
+	env.requireOwner(t, "task", f.ownerless1, "", "the conflicting row")
+	env.requireOwner(t, "task", f.ownerless2, env.ownerAccount, "a row after the conflict")
+	env.requireOwner(t, "project", f.ownerlessProject, env.ownerAccount, "a row before the conflict")
 }

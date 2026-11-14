@@ -97,3 +97,40 @@ func TestMaintenanceAssignOwner_IsRegisteredAndNeedsBothIDs(t *testing.T) {
 		t.Fatalf("err = %v, want a refusal naming both flags", err)
 	}
 }
+
+func TestPrintAssignOwnerReport_ListsWhatNeedsAReproject(t *testing.T) {
+	var out bytes.Buffer
+	printAssignOwnerReport(&out, application.AssignOwnerReport{
+		AccountID: "acct-1", CreatedBy: "agent-1",
+		Types: map[string]application.AssignOwnerTypeCount{
+			"statement": {Ownerless: 3, Assigned: 2, NeedsReproject: 1},
+		},
+		NeedsReproject: []application.AssignOwnerSkip{{
+			ID: "urn:statement:1", TypeSlug: "statement",
+			Reason: "the record is at sequence 2 and the event store at 3",
+		}},
+	})
+	text := out.String()
+	for _, want := range []string{
+		"statement                3 ownerless, assigned 2, 1 left for a reproject",
+		"urn:statement:1 (statement): the record is at sequence 2 and the event store at 3",
+		"weos worker reproject",
+		"total: 2 of 3 ownerless resource(s) assigned, 1 left for a reproject",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("report lacks %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestAssignOwnerOutcome_ARunThatLeftRowsForAReprojectFails(t *testing.T) {
+	if err := assignOwnerOutcome(application.AssignOwnerReport{}, nil); err != nil {
+		t.Errorf("a clean run returned %v", err)
+	}
+	err := assignOwnerOutcome(application.AssignOwnerReport{
+		NeedsReproject: []application.AssignOwnerSkip{{ID: "urn:statement:1"}},
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "1 resource(s) left for a reproject") {
+		t.Errorf("err = %v, want a failure naming the resources left for a reproject", err)
+	}
+}
