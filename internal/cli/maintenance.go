@@ -159,6 +159,8 @@ func runMaintenanceAssignOwner(cmd *cobra.Command, _ []string) error {
 	defer func() {
 		stopCtx, stopCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
 		defer stopCancel()
+		// Each assignment committed on its own before this point, so a failed
+		// shutdown loses nothing, and the process is about to exit.
 		_ = app.Stop(stopCtx)
 	}()
 
