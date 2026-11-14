@@ -97,4 +97,29 @@ func (e ResourcePublished) EventType() string {
 	return "Resource.Published"
 }
 
+// ResourceAccountAssigned gives an ownerless resource its owning account.
+//
+// Resource.Created is the only other event that sets the owner, and a
+// resource written by a session whose active account was empty stored an
+// empty one there. Nothing else could change it afterwards, so a projection
+// row fixed by hand lost its owner again on the next rebuild. This event puts
+// the owner into the stream, where every rebuild reads it.
+//
+// It fills an empty owner only. It is never a transfer between accounts:
+// Resource.AssignAccount refuses a resource that already has an owner, and
+// every consumer keeps the first owner it saw. Once written, this event type
+// stays readable for as long as the stream does.
+type ResourceAccountAssigned struct {
+	AccountID string
+	Timestamp time.Time
+}
+
+func (e ResourceAccountAssigned) With(accountID string) ResourceAccountAssigned {
+	return ResourceAccountAssigned{AccountID: accountID, Timestamp: time.Now()}
+}
+
+func (e ResourceAccountAssigned) EventType() string {
+	return "Resource.AccountAssigned"
+}
+
 const ResourceEventPattern = "Resource.%"

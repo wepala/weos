@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/wepala/weos/v3/domain/entities"
 )
@@ -52,6 +53,26 @@ type ResourceIDFinder interface {
 	// identifier with no such resource is left out.
 	FindAllByTypeAndIDs(ctx context.Context, typeSlug string, ids []string, scope *VisibilityScope) (
 		[]*entities.Resource, error)
+}
+
+// OwnerlessResource names a resource whose canonical record has no owning
+// account, and when it was created.
+type OwnerlessResource struct {
+	ID        string
+	TypeSlug  string
+	CreatedAt time.Time
+}
+
+// OwnerlessResourceFinder is implemented by a ResourceRepository that can list
+// the resources with no owning account that one agent created. It backs the
+// operator's owner backfill. Like ResourceIDFinder it is an interface of its
+// own so that adding it breaks no repository implemented outside this module;
+// a caller type-asserts for it.
+type OwnerlessResourceFinder interface {
+	// FindOwnerlessByCreator returns every live resource, of every type, whose
+	// owning account is empty and whose creator is createdBy, ordered by type
+	// and then by identifier.
+	FindOwnerlessByCreator(ctx context.Context, createdBy string) ([]OwnerlessResource, error)
 }
 
 type ResourceRepository interface {

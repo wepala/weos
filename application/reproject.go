@@ -310,6 +310,8 @@ func typedForReplay(env domain.EventEnvelope[any]) (domain.EventEnvelope[any], b
 		return retype[entities.ResourcePublished](env)
 	case "Resource.Deleted":
 		return retype[entities.ResourceDeleted](env)
+	case "Resource.AccountAssigned":
+		return retype[entities.ResourceAccountAssigned](env)
 	case "Triple.Created":
 		return retype[entities.TripleCreated](env)
 	case "Triple.Deleted":

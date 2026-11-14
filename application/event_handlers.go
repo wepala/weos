@@ -182,12 +182,69 @@ func subscribeResourceHandlers(
 		return err
 	}
 
+	if err := domain.Subscribe(d, "Resource.AccountAssigned",
+		func(ctx context.Context, env domain.EventEnvelope[entities.ResourceAccountAssigned]) error {
+			return handleResourceAccountAssigned(ctx, env, repo, logger)
+		},
+	); err != nil {
+		return err
+	}
+
 	return domain.Subscribe(d, "Resource.Deleted",
 		func(ctx context.Context, env domain.EventEnvelope[entities.ResourceDeleted]) error {
 			logger.Info(ctx, "projecting Resource.Deleted", "id", env.AggregateID)
 			return repo.Delete(ctx, env.AggregateID)
 		},
 	)
+}
+
+// handleResourceAccountAssigned writes an assigned owner into the canonical
+// record and every projection row of the resource. It fills an empty owner
+// only, as the event does on the aggregate, so a replay over rows that already
+// carry the owner changes nothing but the version.
+//
+// The version is written in every case: the next write through the normal
+// path loads the resource from this record and appends after its sequence
+// number, so a record left one version behind would fail that append.
+//
+// A resource whose record is gone (deleted later in the stream, during a
+// replay) has nothing to project, so that is not an error.
+func handleResourceAccountAssigned(
+	ctx context.Context,
+	env domain.EventEnvelope[entities.ResourceAccountAssigned],
+	repo repositories.ResourceRepository,
+	logger entities.Logger,
+) error {
+	existing, err := repo.FindByID(ctx, env.AggregateID)
+	if err != nil {
+		if errors.Is(err, repositories.ErrNotFound) {
+			logger.Info(ctx, "Resource.AccountAssigned for a resource with no record, skipping",
+				"id", env.AggregateID)
+			return nil
+		}
+		return fmt.Errorf("projection read failed: %w", err)
+	}
+	account := existing.AccountID()
+	if account == "" {
+		account = env.Payload.AccountID
+	} else if account != env.Payload.AccountID {
+		logger.Warn(ctx, "Resource.AccountAssigned names a different account than the record's owner; "+
+			"keeping the owner", "id", env.AggregateID, "owner", account, "assigned", env.Payload.AccountID)
+	}
+	sequenceNo := existing.GetSequenceNo()
+	if env.SequenceNo > sequenceNo {
+		sequenceNo = env.SequenceNo
+	}
+	if err := existing.Restore(
+		env.AggregateID, existing.TypeSlug(), existing.Status(),
+		existing.Data(), existing.CreatedBy(), account,
+		existing.CreatedAt(), sequenceNo,
+	); err != nil {
+		return err
+	}
+	logger.Info(ctx, "projecting Resource.AccountAssigned",
+		"id", env.AggregateID, "account", account, "sequenceNo", sequenceNo)
+	return repo.Update(ctx, existing)
 }
 
 // txResourceState holds the resource state built from transaction events.

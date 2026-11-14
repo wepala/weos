@@ -284,6 +284,93 @@ refused on its next request, and the features they resolved in it expire within
 
 ---
 
+## `weos maintenance assign-owner`
+
+Give an owning account to the resources one agent wrote with no account. A resource takes its owner
+from the session that wrote it, so a session whose active account was empty wrote resources with no
+owner, and account-scoped reads never find them.
+
+```bash
+weos maintenance assign-owner --database-dsn <dsn> --account <id> --created-by <agent id> \
+  [--created-from <time>] [--created-to <time>] [--confirm-account <id>] [--write]
+```
+
+**Preview by default.** Without `--write` the command names the account, lists every selected
+resource and the agent's accounts, and writes nothing. Only `--write` assigns. An assignment cannot be
+undone, so a forgotten flag costs a preview, never a write.
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--account` | string | Yes | The account to give the resources as their owner |
+| `--created-by` | string | Yes | The agent whose ownerless resources are assigned |
+| `--created-from` | string | No | Only resources created at or after this time: RFC 3339, or a date (`2026-08-01`, 00:00 UTC) |
+| `--created-to` | string | No | Only resources created at or before this time: RFC 3339, or a date, which takes that whole day (UTC) |
+| `--confirm-account` | string | With `--write`, when the agent is in more than one account | The same id as `--account`, repeated. A run with `--write` refuses without it when the agent is a member of more than one account |
+| `--write` | bool | No | Apply the assignment. Without it (the default) the command is a preview: it names the account, lists every selected resource (created_at, type, id) and the counts per type, and changes nothing |
+
+**What it changes.** Every resource, of every type, with an empty owner and the given creator (inside
+the window, when one is given) gets one `Resource.AccountAssigned` event, written through the same
+unit of work as any other write. The projection tables, the knowledge graph and the search index all
+take the owner from that event, and a rebuild from events (`weos worker reproject`) keeps it. A
+resource that has an owner is never touched, and an owner is never moved between accounts. **An
+assignment cannot be undone**: only a database restore reverses a run. The decision is recorded in
+[An Ownerless Resource Is Given Its Owner Through the Event Stream]({% link decisions/resource-account-assigned.md %}).
+
+A run with `--write` also sets `updated_at` on every repaired row to the time of the run, so lists sorted by
+last update show those rows first.
+
+**Refusals.** The command refuses to run when the account does not exist, when the agent is not a
+member of it, when no database is named, or — with `--write` — when the agent is a member of more
+than one account and `--confirm-account` does not repeat `--account`.
+
+**Where the ids come from.** No `weos` command lists accounts or agents, so read them from the same
+database:
+
+```sql
+-- --created-by: the agents that wrote ownerless resources
+SELECT DISTINCT created_by FROM resources WHERE account_id = '' OR account_id IS NULL;
+-- or one person's agent id, from an email address
+SELECT agent_id FROM credentials WHERE email = '<address>';
+
+-- --account: the accounts that agent is a member of
+SELECT a.id, a.name, m.role_id FROM account_members m
+  JOIN accounts a ON a.id = m.account_id
+  WHERE m.agent_id = '<agent id>';
+```
+
+A `--created-by` that wrote no ownerless resource prints "nothing to assign" and exits 0. Check the id
+with the first query.
+
+**Procedure.**
+
+1. Upgrade the instance to this release. The preview (no flag) may run while the instance serves: it
+   opens the database read-only and starts nothing (no migration, no preset install), so it writes
+   nothing.
+2. Preview first: run with no flag. Read the account name, the list of resources and the agent's
+   accounts.
+3. Stop the instance, and back up the database. A run with `--write` opens the store directly, and a
+   serving instance competes with it for the database (on SQLite, for the write lock).
+4. Add `--write` and run again (with `--confirm-account` when the preview said the agent is in more
+   than one account). The command prints the account before it writes.
+5. Start the instance.
+
+A run that stops part-way has assigned what it reports; running it again with `--write` assigns the
+rest. A resource whose record is behind its event stream is skipped and listed, and the command exits
+non-zero: with the instance stopped, run `weos worker reproject` against the same database, then run
+this command again.
+
+**If an older binary served during or after a run with `--write`.** A binary built before this release does not
+know `Resource.AccountAssigned`. Its background workers skip the event and move their checkpoints
+past it, so the knowledge graph and the search index never get the owner, and nothing reports it. With
+this release, run these two commands, then start the instance; the workers replay the history:
+
+```bash
+weos worker checkpoint reset oxigraph
+weos worker checkpoint reset lexical-index
+```
+
+---
+
 ## Make Targets
 
 For convenience, the Makefile provides shortcuts:

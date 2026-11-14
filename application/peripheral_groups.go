@@ -140,6 +140,8 @@ func (p *oxigraphProjector) dispatch(ctx context.Context, event domain.EventEnve
 		return p.projectPublished(ctx, event)
 	case "Resource.Deleted":
 		return p.projectDeleted(ctx, event)
+	case "Resource.AccountAssigned":
+		return p.projectAccountAssigned(ctx, event)
 	case "ResourceType.Created", "ResourceType.Updated":
 		return p.projectType(ctx, event)
 	default:
@@ -201,6 +203,39 @@ func (p *oxigraphProjector) projectPublished(
 		}
 	}
 	return projectResourcePublished(ctx, event, p.eventStore, store, p.logger)
+}
+
+// projectAccountAssigned projects a resource into its newly assigned owner's
+// graph. In per-account mode the resource's earlier events were skipped as
+// accountless writes, so it is in no account's graph yet; its whole history is
+// replayed here to rebuild it, the same state the synchronous projection
+// holds. In single-tenant mode this re-projects the resource in place, which
+// changes nothing. A resource deleted before the assignment projects nothing.
+func (p *oxigraphProjector) projectAccountAssigned(
+	ctx context.Context, event domain.EventEnvelope[any],
+) error {
+	account, err := p.accountForEvent(ctx, event)
+	if err != nil {
+		return err
+	}
+	store, err := p.stores.ForAccount(ctx, account)
+	if err != nil {
+		return err
+	}
+	history, err := p.eventStore.GetEvents(ctx, event.AggregateID)
+	if err != nil {
+		return fmt.Errorf("kg: load history for %s: %w", event.AggregateID, err)
+	}
+	state := buildStateFromTransaction(ctx, history, event.AggregateID, event.SequenceNo, p.logger)
+	if state.IsDelete || state.Data == nil {
+		return nil
+	}
+	if p.stores.PerAccount() {
+		if err := p.ensureAccountOntology(ctx, store, account, event.AggregateID); err != nil {
+			return err
+		}
+	}
+	return loadResourceState(ctx, event.AggregateID, state.Data, store, p.logger)
 }
 
 func (p *oxigraphProjector) projectDeleted(
@@ -305,9 +340,11 @@ func (p *oxigraphProjector) ownerFromHistory(
 }
 
 // resourceOwnerFromHistory reads a resource's owning account and creator from
-// its Resource.Created event, which has always carried both and which nothing
-// changes afterwards. Empty values with a nil error mean the aggregate has no
-// such event (or an ownerless one).
+// its history. Resource.Created has always carried both. A resource created
+// with an empty account can be given one later by Resource.AccountAssigned,
+// which fills an empty owner only, so the first owner in the history wins.
+// Empty values with a nil error mean the aggregate has no such event (or an
+// ownerless one).
 func resourceOwnerFromHistory(
 	ctx context.Context, eventStore domain.EventStore, aggregateID string,
 ) (accountID, createdBy string, err error) {
@@ -316,11 +353,19 @@ func resourceOwnerFromHistory(
 		return "", "", fmt.Errorf("load history for %q: %w", aggregateID, err)
 	}
 	for _, e := range events {
-		if e.EventType == "Resource.Created" {
-			return accountFromPayload(e.Payload), createdByFromPayload(e.Payload), nil
+		switch e.EventType {
+		case "Resource.Created":
+			createdBy = createdByFromPayload(e.Payload)
+			if accountID == "" {
+				accountID = accountFromPayload(e.Payload)
+			}
+		case "Resource.AccountAssigned":
+			if accountID == "" {
+				accountID = accountFromPayload(e.Payload)
+			}
 		}
 	}
-	return "", "", nil
+	return accountID, createdBy, nil
 }
 
 // ensureAccountOntology projects a type's ontology into an account store the
@@ -372,6 +417,8 @@ func accountFromPayload(payload any) string {
 	case entities.ResourceUpdated:
 		return p.AccountID
 	case entities.ResourceDeleted:
+		return p.AccountID
+	case entities.ResourceAccountAssigned:
 		return p.AccountID
 	case entities.TripleCreated:
 		return p.AccountID
