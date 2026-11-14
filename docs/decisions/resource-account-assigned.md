@@ -110,8 +110,26 @@ reaches it. The command:
 - requires the account to be given a second time (`--confirm-account`) when the creator is a member
   of more than one account;
 - writes one event per resource through the normal unit of work;
-- counts a resource as assigned only after its record is read back with the owner. A record that is
-  behind its event stream is skipped and listed, with `weos worker reproject` as the repair.
+- counts a resource as assigned only after its record **and every projection row it has** (its own
+  type's table and each ancestor type's table) are read back with the owner. A record that is behind
+  its event stream is skipped and listed, with `weos worker reproject` as the repair. A projection row
+  that is still ownerless stops the run with an error that names the resource and the table.
+
+### 4. A re-run fills a projection row from the record, with no second event
+
+Projection writes are not transactional (`Save` and `Update` say so on purpose), so the record can
+take the owner while a projection row does not. The resource then has its event, and
+`AssignAccount` refuses a second one.
+
+The command therefore also selects a resource whose record already has the run's `--account` but
+whose projection rows do not. The preview marks it "(record has the owner; projection row to fill)".
+A real run writes the record again through the repository's `Update`, whose upsert only fills an
+empty owner, and then reads the rows back. It appends no event. It skips a record that is behind the
+event store, that has a different owner, or that has a different creator.
+
+This is a read-model write, which option 1 rejects. Option 1 is rejected because the owner would not
+be in the stream. Here the `Resource.AccountAssigned` event is already in the stream, so a rebuild
+writes the same owner, and the write only makes the read model agree with the stream sooner.
 
 ## Consequences
 
@@ -143,6 +161,9 @@ upgrade the instance to this release and stop it before a real run.
   last update show the repaired rows first after the run.
 - **A resource with no creator** (a system write) cannot be selected, because the membership check
   has no agent to test.
+- **The first preview after an upgrade can list more rows than the ownerless records.** It also
+  lists every resource whose record has the run's account but whose projection row is ownerless,
+  whatever the cause. Each such row carries the mark above.
 - The `CASE` in the upsert is tested on SQLite and, when `TEST_POSTGRES_DSN` names a server, on
   PostgreSQL.
 
