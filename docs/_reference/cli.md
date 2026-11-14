@@ -359,6 +359,15 @@ rest. A resource whose record is behind its event stream is skipped and listed, 
 non-zero: with the instance stopped, run `weos worker reproject` against the same database, then run
 this command again.
 
+A resource is counted as assigned only when its record and each of its projection rows (its own
+type's table and each ancestor's) read back with the owner. The record and the rows are written one
+after the other, so a failed write can leave a projection row ownerless under a record that has the
+owner. The run then stops with an error that names the resource. Fix the cause and run the command
+again: it selects that resource, fills the row from the record, and records no second event, because
+the assignment is already in the event store. The preview marks such a resource "record has the
+owner; projection row to fill". It is selected only when the record's owner is the `--account` of the
+run.
+
 **If an older binary served during or after a run with `--write`.** A binary built before this release does not
 know `Resource.AccountAssigned`. Its background workers skip the event and move their checkpoints
 past it, so the knowledge graph and the search index never get the owner, and nothing reports it. With

@@ -229,6 +229,38 @@ func TestPrintAssignOwnerReport_DryRunListsEachResource(t *testing.T) {
 	}
 }
 
+// A resource whose record already has the owner is listed as such, so the
+// operator can tell a row the run fills from one it assigns (wm-mttt4k).
+func TestPrintAssignOwnerReport_DryRunMarksARecordThatHasTheOwner(t *testing.T) {
+	var out bytes.Buffer
+	printAssignOwnerReport(&out, application.AssignOwnerReport{
+		AccountID: "acct-1", CreatedBy: "agent-1", DryRun: true,
+		Types: map[string]application.AssignOwnerTypeCount{"statement": {Ownerless: 2}},
+		Resources: []application.AssignOwnerResource{
+			{ID: "urn:statement:1", TypeSlug: "statement", CreatedAt: time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)},
+			{ID: "urn:statement:2", TypeSlug: "statement", CreatedAt: time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC),
+				RecordOwned: true},
+		},
+	})
+	lines := strings.Split(out.String(), "\n")
+	var first, second string
+	for _, l := range lines {
+		switch {
+		case strings.Contains(l, "urn:statement:1"):
+			first = l
+		case strings.Contains(l, "urn:statement:2"):
+			second = l
+		}
+	}
+	const mark = "record has the owner; projection row to fill"
+	if strings.Contains(first, mark) {
+		t.Errorf("an ownerless record is marked as owned: %q", first)
+	}
+	if !strings.Contains(second, mark) {
+		t.Errorf("a record that has the owner is not marked %q: %q\n%s", mark, second, out.String())
+	}
+}
+
 // assignOwnerRunRules are what an operator must know before a real run. The
 // command's long help and docs/_reference/cli.md both state each one.
 var assignOwnerRunRules = []string{
@@ -252,6 +284,10 @@ var assignOwnerRunRules = []string{
 	"updated_at",
 	// What a stale record needs.
 	"weos worker reproject",
+	// A record with the owner whose projection row has none (wm-mttt4k): the
+	// next run fills the row from the record, with no second event.
+	"projection row",
+	"fills the row from the record",
 }
 
 func TestMaintenanceAssignOwner_HelpStatesTheRunRules(t *testing.T) {

@@ -102,6 +102,14 @@ skipped and listed, and the command exits non-zero: stop the instance, run
 "weos worker reproject" against the same database, then run this command
 again.
 
+A resource is counted as assigned only when its record and each of its
+projection rows read back with the owner. A failed write can leave a
+projection row ownerless under a record that has the owner; the run then
+stops and names the resource. Fix the cause and run again: the run selects
+that resource, fills the row from the record, and records no second event.
+The preview marks it "record has the owner; projection row to fill". It is
+selected only when the record's owner is the --account of the run.
+
 If a binary older than this release served during or after a run with
 --write, its background workers skipped the new event, so the knowledge graph
 and the search index do not have the owner. With this release, run
@@ -332,7 +340,12 @@ func printAssignOwnerReport(out io.Writer, r application.AssignOwnerReport) {
 		_, _ = fmt.Fprintln(out)
 		_, _ = fmt.Fprintf(out, "  %-20s  %-24s %s\n", "CREATED AT", "TYPE", "ID")
 		for _, res := range r.Resources {
-			_, _ = fmt.Fprintf(out, "  %-20s  %-24s %s\n", res.CreatedAt.UTC().Format(time.RFC3339), res.TypeSlug, res.ID)
+			note := ""
+			if res.RecordOwned {
+				note = "  (record has the owner; projection row to fill)"
+			}
+			_, _ = fmt.Fprintf(out, "  %-20s  %-24s %s%s\n",
+				res.CreatedAt.UTC().Format(time.RFC3339), res.TypeSlug, res.ID, note)
 		}
 		_, _ = fmt.Fprintf(out, "\ntotal: %d ownerless resource(s) would be assigned\n", r.Ownerless())
 		return

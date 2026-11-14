@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -783,10 +784,12 @@ func (r *ResourceRepository) FindAllByTypeAndIDs(
 
 var _ repositories.ResourceIDFinder = (*ResourceRepository)(nil)
 
-// FindOwnerlessByCreator lists the canonical records with an empty owning
-// account that createdBy created, across every resource type. The canonical
-// table is the one place every type's records share, so one query covers them
-// all.
+// FindOwnerlessByCreator lists the resources createdBy created that have no
+// owning account, across every resource type: each canonical record with an
+// empty owner, and each record with an owner whose projection row (its own
+// type's or an ancestor's) has none — see findOwnerlessProjectionRows. The
+// canonical table is the one place every type's records share, so one query
+// covers the first kind.
 func (r *ResourceRepository) FindOwnerlessByCreator(
 	ctx context.Context, createdBy string,
 ) ([]repositories.OwnerlessResource, error) {
@@ -799,6 +802,20 @@ func (r *ResourceRepository) FindOwnerlessByCreator(
 	if err != nil {
 		return nil, fmt.Errorf("find ownerless resources created by %s: %w", createdBy, err)
 	}
+	gaps, err := r.findOwnerlessProjectionRows(ctx, createdBy)
+	if err != nil {
+		return nil, fmt.Errorf("find ownerless projection rows of resources created by %s: %w", createdBy, err)
+	}
+	if len(gaps) == 0 {
+		return rows, nil
+	}
+	rows = append(rows, gaps...)
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].TypeSlug != rows[j].TypeSlug {
+			return rows[i].TypeSlug < rows[j].TypeSlug
+		}
+		return rows[i].ID < rows[j].ID
+	})
 	return rows, nil
 }
 

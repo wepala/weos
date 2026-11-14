@@ -554,6 +554,124 @@ func TestAssignOwner_AFailedProjectionWriteIsNotCountedAsAssigned(t *testing.T) 
 	env.requireOwner(t, "task", f.ownerless1, env.ownerAccount, "after the advised reproject")
 }
 
+// failTypeRowOwnerWrites makes every write that gives id's row in typeSlug's
+// projection table an owner fail, while the canonical record's write goes
+// through: the two are written one after the other, not in one transaction.
+func (env *assignOwnerEnv) failTypeRowOwnerWrites(t *testing.T, typeSlug, id string) (restore func()) {
+	t.Helper()
+	if env.isPostgres() {
+		t.Skip("the failing-write trigger is SQLite only")
+	}
+	trigger := fmt.Sprintf(`CREATE TRIGGER fail_type_row_owner_write BEFORE UPDATE ON %s
+		WHEN NEW.id = '%s' AND NEW.account_id <> ''
+		BEGIN SELECT RAISE(ABORT, 'simulated type projection row write failure'); END`,
+		env.projMgr.TableName(typeSlug), id)
+	if err := env.db.Exec(trigger).Error; err != nil {
+		t.Fatalf("install the failing type-row trigger: %v", err)
+	}
+	return func() {
+		if err := env.db.Exec("DROP TRIGGER fail_type_row_owner_write").Error; err != nil {
+			t.Fatalf("drop the failing type-row trigger: %v", err)
+		}
+	}
+}
+
+// assignedEvents is how many Resource.AccountAssigned events the store holds
+// for id.
+func (env *assignOwnerEnv) assignedEvents(t *testing.T, id string) int64 {
+	t.Helper()
+	var n int64
+	if err := env.db.Table("events").Where("aggregate_id = ? AND event_type = ?", id, "Resource.AccountAssigned").
+		Count(&n).Error; err != nil {
+		t.Fatalf("count the assignments of %s: %v", id, err)
+	}
+	return n
+}
+
+// wm-mttt4k: the record takes the owner and the type's projection row does
+// not. The run must not count the resource as assigned, and a re-run must fill
+// the row from the record without a second event.
+func TestAssignOwner_ATypeRowThatDidNotTakeTheOwnerIsFilledByARerun(t *testing.T) {
+	env := newAssignOwnerEnv(t)
+	f := env.seed(t)
+	restore := env.failTypeRowOwnerWrites(t, "task", f.ownerless1)
+	cmd := application.AssignOwnerCommand{AccountID: env.ownerAccount, CreatedBy: env.ownerAgent}
+
+	report, err := env.backfill.AssignOwner(context.Background(), cmd)
+	if err == nil {
+		t.Fatalf("a run whose type projection row stayed ownerless returned no error; report %+v", report)
+	}
+	for _, want := range []string{f.ownerless1, "projection row", "run this command again"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not say %q", err, want)
+		}
+	}
+	canonical, projection := env.owners(t, "task", f.ownerless1)
+	if canonical != env.ownerAccount || projection != "" {
+		t.Fatalf("after the failed type-row write: canonical %q, type row %q; want the owner, then none",
+			canonical, projection)
+	}
+	fully := 0
+	for _, r := range []struct{ slug, id string }{
+		{"task", f.ownerless1}, {"task", f.ownerless2}, {"project", f.ownerlessProject},
+	} {
+		if c, p := env.owners(t, r.slug, r.id); c == env.ownerAccount && p == env.ownerAccount {
+			fully++
+		}
+	}
+	if report.Assigned() != fully {
+		t.Errorf("report says %d assigned, but %d resource(s) carry the owner in the record and the type row",
+			report.Assigned(), fully)
+	}
+	restore()
+
+	// The preview selects the resource and says its record has the owner.
+	preview, err := env.backfill.AssignOwner(context.Background(), application.AssignOwnerCommand{
+		AccountID: env.ownerAccount, CreatedBy: env.ownerAgent, DryRun: true,
+	})
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	var listed *application.AssignOwnerResource
+	for i := range preview.Resources {
+		if preview.Resources[i].ID == f.ownerless1 {
+			listed = &preview.Resources[i]
+		}
+	}
+	if listed == nil || !listed.RecordOwned {
+		t.Fatalf("the preview lists %+v; want %s marked as a record that has the owner", preview.Resources, f.ownerless1)
+	}
+	// The command's preview reads the store read-only, with no projection
+	// manager, and must still find and mark the row.
+	if !testing.Short() {
+		stdout, stderr, code := env.runWeos(t, "maintenance", "assign-owner",
+			"--account", env.ownerAccount, "--created-by", env.ownerAgent)
+		want := f.ownerless1 + "  (record has the owner; projection row to fill)"
+		if code != 0 || !strings.Contains(stdout, want) {
+			t.Errorf("the command's preview (exit %d) lacks %q:\n%s\nstderr:\n%s", code, want, stdout, stderr)
+		}
+	}
+
+	again, err := env.backfill.AssignOwner(context.Background(), cmd)
+	if err != nil {
+		t.Fatalf("the re-run: %v", err)
+	}
+	if got := report.Assigned() + again.Assigned(); got != 3 {
+		t.Errorf("the runs report %d assigned, want 3", got)
+	}
+	env.requireOwner(t, "task", f.ownerless1, env.ownerAccount, "after the re-run")
+	env.requireOwner(t, "task", f.ownerless2, env.ownerAccount, "after the re-run")
+	env.requireOwner(t, "project", f.ownerlessProject, env.ownerAccount, "after the re-run")
+	if n := env.assignedEvents(t, f.ownerless1); n != 1 {
+		t.Errorf("the store holds %d assignment(s) of %s, want the one the first run stored", n, f.ownerless1)
+	}
+
+	// A rebuild keeps the owner the filled row now carries.
+	env.stop()
+	env.reproject(t, "a rebuild after the re-run")
+	env.requireOwner(t, "task", f.ownerless1, env.ownerAccount, "after a rebuild")
+}
+
 // conflictingStore refuses every append to one aggregate with a version
 // conflict, as a write that landed between the run's read and its append
 // would.

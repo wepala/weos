@@ -55,12 +55,17 @@ type ResourceIDFinder interface {
 		[]*entities.Resource, error)
 }
 
-// OwnerlessResource names a resource whose canonical record has no owning
-// account, and when it was created.
+// OwnerlessResource names a resource with no owning account in its canonical
+// record or in one of its projection rows, and when it was created.
 type OwnerlessResource struct {
 	ID        string
 	TypeSlug  string
 	CreatedAt time.Time
+	// RecordAccountID is the owner the canonical record already carries. It
+	// is empty when the record itself has no owner. When it is set, only a
+	// projection row of the resource lacks the owner: the write that gave the
+	// record its owner did not reach that row.
+	RecordAccountID string
 }
 
 // OwnerlessResourceFinder is implemented by a ResourceRepository that can list
@@ -70,9 +75,26 @@ type OwnerlessResource struct {
 // a caller type-asserts for it.
 type OwnerlessResourceFinder interface {
 	// FindOwnerlessByCreator returns every live resource, of every type, whose
-	// owning account is empty and whose creator is createdBy, ordered by type
-	// and then by identifier.
+	// creator is createdBy and whose owning account is empty in its canonical
+	// record or in one of its projection rows (its own type's or an
+	// ancestor's), ordered by type and then by identifier. A resource whose
+	// record has an owner and a projection row has none carries the record's
+	// owner in RecordAccountID.
 	FindOwnerlessByCreator(ctx context.Context, createdBy string) ([]OwnerlessResource, error)
+}
+
+// ProjectionOwnerReader is implemented by a ResourceRepository that can read
+// the owner of a resource's projection rows. The canonical record and the
+// projection rows are written one after the other, not in one transaction, so
+// a reader of the record alone cannot tell whether a write reached the rows.
+// Like OwnerlessResourceFinder it is an interface of its own; a caller
+// type-asserts for it.
+type ProjectionOwnerReader interface {
+	// OwnerlessProjectionTables returns the projection tables — the
+	// resource's own type's and each ancestor's — that hold a row for id with
+	// no owning account, in write order. It returns none when every row there
+	// carries an owner, or when the type has no projection table.
+	OwnerlessProjectionTables(ctx context.Context, id, typeSlug string) ([]string, error)
 }
 
 type ResourceRepository interface {
