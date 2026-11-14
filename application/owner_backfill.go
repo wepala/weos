@@ -20,6 +20,8 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
+	"time"
 
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
@@ -47,15 +49,42 @@ var (
 	// ErrOwnerAgentNotMember means the creator is not a member of the account
 	// to assign, so the account cannot be the owner of what it wrote.
 	ErrOwnerAgentNotMember = errors.New("assign owner: the creator is not a member of the account")
+	// ErrOwnerAccountNotConfirmed refuses a real run for a creator who is a
+	// member of more than one account, until the command repeats the account
+	// in ConfirmAccount. An assignment cannot be undone, and with two
+	// accounts to choose from a wrong --account is one typo away.
+	ErrOwnerAccountNotConfirmed = errors.New("assign owner: the creator is a member of more than one account " +
+		"and the account was not confirmed")
 )
 
 // AssignOwnerCommand selects the resources to give an owner: those with no
-// owning account that CreatedBy created. AccountID is the owner to give them.
-// DryRun counts them and writes nothing.
+// owning account that CreatedBy created, optionally only those created inside
+// [CreatedFrom, CreatedTo]. AccountID is the owner to give them. DryRun lists
+// them and writes nothing.
 type AssignOwnerCommand struct {
 	AccountID string
 	CreatedBy string
-	DryRun    bool
+	// CreatedFrom and CreatedTo bound the selection by creation time. Both
+	// are inclusive; a zero value leaves that end open.
+	CreatedFrom time.Time
+	CreatedTo   time.Time
+	// ConfirmAccount must repeat AccountID for a real run when CreatedBy is a
+	// member of more than one account. A dry run does not need it.
+	ConfirmAccount string
+	DryRun         bool
+}
+
+// AssignOwnerResource is one selected resource, as a dry run lists it.
+type AssignOwnerResource struct {
+	ID        string
+	TypeSlug  string
+	CreatedAt time.Time
+}
+
+// AssignOwnerAccount names an account the creator is a member of.
+type AssignOwnerAccount struct {
+	ID   string
+	Name string
 }
 
 // AssignOwnerTypeCount is one resource type's line in the report.
@@ -85,8 +114,17 @@ type AssignOwnerSkip struct {
 // AssignOwnerReport says what a run found and did, per resource type.
 type AssignOwnerReport struct {
 	AccountID string
-	CreatedBy string
-	DryRun    bool
+	// AccountName is the display name of the account to assign, so the
+	// operator can see which account a run writes before it writes.
+	AccountName string
+	CreatedBy   string
+	CreatedFrom time.Time
+	CreatedTo   time.Time
+	DryRun      bool
+	// MemberOf lists every account the creator is a member of.
+	MemberOf []AssignOwnerAccount
+	// Resources lists every selected resource, in type and then id order.
+	Resources []AssignOwnerResource
 	Types     map[string]AssignOwnerTypeCount
 	// NeedsReproject lists the resources the run skipped because their read
 	// model is behind the event store. `weos worker reproject` brings the read
@@ -153,26 +191,33 @@ func ProvideOwnerBackfillService(p OwnerBackfillParams) *OwnerBackfillService {
 }
 
 // AssignOwner gives every resource with no owning account that cmd.CreatedBy
-// created the owner cmd.AccountID, one Resource.AccountAssigned per resource.
-//
-// It refuses to run unless the account exists and the creator is a member of
-// it. A resource that has an owner is never touched. Each resource commits on
-// its own, so a run that stops part-way has assigned what it reports, and
-// running it again finishes the rest: a resource already assigned is no
-// longer ownerless and is not selected again.
-//
-// A resource is counted as assigned only once its record is read back with
-// the owner. A resource whose read model is behind its event stream — found
-// before the write, or met as a version conflict on it — is skipped, listed in
-// the report's NeedsReproject, and the run goes on. A write whose event was
-// stored but whose record did not take the owner stops the run with an error
-// that names the resource: the read model is failing, and every later write
-// would fail the same way.
+// created (inside the creation window, when one is given) the owner
+// cmd.AccountID, one Resource.AccountAssigned per resource. A dry run only
+// plans: see PlanAssignOwner.
 func (s *OwnerBackfillService) AssignOwner(
+	ctx context.Context, cmd AssignOwnerCommand,
+) (AssignOwnerReport, error) {
+	report, err := s.PlanAssignOwner(ctx, cmd)
+	if err != nil || cmd.DryRun {
+		return report, err
+	}
+	return s.ApplyAssignOwner(ctx, report)
+}
+
+// PlanAssignOwner checks a command and selects what it would assign, and
+// writes nothing. The report names the account and lists every selected
+// resource with its type and creation time.
+//
+// It refuses unless the account exists and the creator is a member of it. For
+// a real run (cmd.DryRun false) it also refuses a creator who is a member of
+// more than one account unless cmd.ConfirmAccount repeats the account. A dry
+// run is allowed either way, and its report lists the creator's accounts.
+func (s *OwnerBackfillService) PlanAssignOwner(
 	ctx context.Context, cmd AssignOwnerCommand,
 ) (AssignOwnerReport, error) {
 	report := AssignOwnerReport{
 		AccountID: cmd.AccountID, CreatedBy: cmd.CreatedBy, DryRun: cmd.DryRun,
+		CreatedFrom: cmd.CreatedFrom, CreatedTo: cmd.CreatedTo,
 		Types: map[string]AssignOwnerTypeCount{},
 	}
 	if cmd.AccountID == "" {
@@ -181,8 +226,21 @@ func (s *OwnerBackfillService) AssignOwner(
 	if cmd.CreatedBy == "" {
 		return report, errors.New("assign owner: no creator agent id given")
 	}
-	if err := s.checkMembership(ctx, cmd.AccountID, cmd.CreatedBy); err != nil {
+	if !cmd.CreatedFrom.IsZero() && !cmd.CreatedTo.IsZero() && cmd.CreatedTo.Before(cmd.CreatedFrom) {
+		return report, fmt.Errorf("assign owner: the creation window ends (%s) before it starts (%s)",
+			cmd.CreatedTo.Format(time.RFC3339), cmd.CreatedFrom.Format(time.RFC3339))
+	}
+	name, err := s.checkMembership(ctx, cmd.AccountID, cmd.CreatedBy)
+	if err != nil {
 		return report, err
+	}
+	report.AccountName = name
+	if report.MemberOf, err = s.memberAccounts(ctx, cmd.CreatedBy); err != nil {
+		return report, err
+	}
+	if !cmd.DryRun && len(report.MemberOf) > 1 && cmd.ConfirmAccount != cmd.AccountID {
+		return report, fmt.Errorf("%w: %s is a member of %d accounts (%s)", ErrOwnerAccountNotConfirmed,
+			cmd.CreatedBy, len(report.MemberOf), describeAccounts(report.MemberOf))
 	}
 	finder, ok := s.repo.(repositories.OwnerlessResourceFinder)
 	if !ok {
@@ -192,16 +250,46 @@ func (s *OwnerBackfillService) AssignOwner(
 	if err != nil {
 		return report, fmt.Errorf("assign owner: %w", err)
 	}
+	// The window is applied here rather than in SQL: each dialect stores a
+	// time differently, and the creator's ownerless rows are few.
 	for _, r := range ownerless {
+		if !inWindow(r.CreatedAt, cmd.CreatedFrom, cmd.CreatedTo) {
+			continue
+		}
+		report.Resources = append(report.Resources,
+			AssignOwnerResource{ID: r.ID, TypeSlug: r.TypeSlug, CreatedAt: r.CreatedAt})
 		c := report.Types[r.TypeSlug]
 		c.Ownerless++
 		report.Types[r.TypeSlug] = c
 	}
-	if cmd.DryRun {
-		return report, nil
+	return report, nil
+}
+
+// ApplyAssignOwner assigns what a plan from PlanAssignOwner selected. A
+// resource that has an owner is never touched. Each resource commits on its
+// own, so a run that stops part-way has assigned what it reports, and running
+// it again finishes the rest: a resource already assigned is no longer
+// ownerless and is not selected again.
+//
+// A resource is counted as assigned only once its record is read back with
+// the owner. A resource whose read model is behind its event stream — found
+// before the write, or met as a version conflict on it — is skipped, listed in
+// the report's NeedsReproject, and the run goes on. A write whose event was
+// stored but whose record did not take the owner stops the run with an error
+// that names the resource: the read model is failing, and every later write
+// would fail the same way.
+func (s *OwnerBackfillService) ApplyAssignOwner(
+	ctx context.Context, plan AssignOwnerReport,
+) (AssignOwnerReport, error) {
+	report := plan
+	report.DryRun = false
+	report.Types = make(map[string]AssignOwnerTypeCount, len(plan.Types))
+	for slug, c := range plan.Types {
+		report.Types[slug] = AssignOwnerTypeCount{Ownerless: c.Ownerless}
 	}
-	for _, r := range ownerless {
-		outcome, reason, err := s.assignOne(ctx, r.ID, cmd.AccountID, cmd.CreatedBy)
+	report.NeedsReproject = nil
+	for _, r := range plan.Resources {
+		outcome, reason, err := s.assignOne(ctx, r.ID, plan.AccountID, plan.CreatedBy)
 		if err != nil {
 			s.logger.Error(ctx, "assign owner stopped", "id", r.ID, "type", r.TypeSlug, "error", err)
 			return report, fmt.Errorf("assign owner: %s (%s): %w", r.ID, r.TypeSlug, err)
@@ -222,27 +310,65 @@ func (s *OwnerBackfillService) AssignOwner(
 		report.Types[r.TypeSlug] = c
 	}
 	s.logger.Info(ctx, "assigned owners to ownerless resources",
-		"account", cmd.AccountID, "createdBy", cmd.CreatedBy, "assigned", report.Assigned(),
+		"account", plan.AccountID, "createdBy", plan.CreatedBy, "assigned", report.Assigned(),
 		"needsReproject", len(report.NeedsReproject))
 	return report, nil
 }
 
-func (s *OwnerBackfillService) checkMembership(ctx context.Context, accountID, agentID string) error {
+// inWindow reports whether t lies in [from, to]; a zero bound is open.
+func inWindow(t, from, to time.Time) bool {
+	if !from.IsZero() && t.Before(from) {
+		return false
+	}
+	if !to.IsZero() && t.After(to) {
+		return false
+	}
+	return true
+}
+
+func describeAccounts(accounts []AssignOwnerAccount) string {
+	parts := make([]string, len(accounts))
+	for i, a := range accounts {
+		parts[i] = fmt.Sprintf("%s (%s)", a.Name, a.ID)
+	}
+	return strings.Join(parts, ", ")
+}
+
+// memberAccounts lists every account the agent is a member of, in id order.
+func (s *OwnerBackfillService) memberAccounts(ctx context.Context, agentID string) ([]AssignOwnerAccount, error) {
+	accounts, err := s.accounts.FindByMember(ctx, agentID)
+	if err != nil {
+		return nil, fmt.Errorf("assign owner: list the accounts of %s: %w", agentID, err)
+	}
+	out := make([]AssignOwnerAccount, 0, len(accounts))
+	for _, a := range accounts {
+		if a == nil {
+			continue
+		}
+		out = append(out, AssignOwnerAccount{ID: a.GetID(), Name: a.Name()})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}
+
+// checkMembership refuses an account that does not exist or that the agent is
+// not a member of, and returns the account's name.
+func (s *OwnerBackfillService) checkMembership(ctx context.Context, accountID, agentID string) (string, error) {
 	account, err := s.accounts.FindByID(ctx, accountID)
 	if err != nil {
-		return fmt.Errorf("assign owner: load account %s: %w", accountID, err)
+		return "", fmt.Errorf("assign owner: load account %s: %w", accountID, err)
 	}
 	if account == nil {
-		return fmt.Errorf("%w: %s", ErrOwnerAccountNotFound, accountID)
+		return "", fmt.Errorf("%w: %s", ErrOwnerAccountNotFound, accountID)
 	}
 	role, err := s.accounts.FindMemberRole(ctx, accountID, agentID)
 	if err != nil {
-		return fmt.Errorf("assign owner: read the membership of %s in %s: %w", agentID, accountID, err)
+		return "", fmt.Errorf("assign owner: read the membership of %s in %s: %w", agentID, accountID, err)
 	}
 	if role == "" {
-		return fmt.Errorf("%w: %s is not a member of %s", ErrOwnerAgentNotMember, agentID, accountID)
+		return "", fmt.Errorf("%w: %s is not a member of %s", ErrOwnerAgentNotMember, agentID, accountID)
 	}
-	return nil
+	return account.Name(), nil
 }
 
 // assignOutcome is what assignOne did with one resource.

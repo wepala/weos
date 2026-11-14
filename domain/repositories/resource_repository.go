@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/wepala/weos/v3/domain/entities"
 )
@@ -55,10 +56,11 @@ type ResourceIDFinder interface {
 }
 
 // OwnerlessResource names a resource whose canonical record has no owning
-// account.
+// account, and when it was created.
 type OwnerlessResource struct {
-	ID       string
-	TypeSlug string
+	ID        string
+	TypeSlug  string
+	CreatedAt time.Time
 }
 
 // OwnerlessResourceFinder is implemented by a ResourceRepository that can list

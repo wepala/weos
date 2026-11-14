@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wepala/weos/v3/application"
 	"github.com/wepala/weos/v3/application/presets"
@@ -36,6 +37,7 @@ import (
 
 	"github.com/akeemphilbert/pericarp/pkg/auth"
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
+	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 	"go.uber.org/fx"
@@ -589,4 +591,238 @@ func TestAssignOwner_ASequenceConflictSkipsTheResourceAndContinues(t *testing.T)
 	env.requireOwner(t, "task", f.ownerless1, "", "the conflicting row")
 	env.requireOwner(t, "task", f.ownerless2, env.ownerAccount, "a row after the conflict")
 	env.requireOwner(t, "project", f.ownerlessProject, env.ownerAccount, "a row before the conflict")
+}
+
+// setCreatedAt moves a resource's creation time, as if it had been written
+// then.
+func (env *assignOwnerEnv) setCreatedAt(t *testing.T, id string, at time.Time) {
+	t.Helper()
+	if err := env.db.Table("resources").Where("id = ?", id).Update("created_at", at).Error; err != nil {
+		t.Fatalf("set created_at of %s: %v", id, err)
+	}
+}
+
+func (env *assignOwnerEnv) accountName(t *testing.T, id string) string {
+	t.Helper()
+	account, err := env.accountRepo.FindByID(context.Background(), id)
+	if err != nil || account == nil {
+		t.Fatalf("load account %s: %v", id, err)
+	}
+	return account.Name()
+}
+
+// joinOtherAccount makes the owner agent a member of the other account too,
+// so the agent belongs to two accounts.
+func (env *assignOwnerEnv) joinOtherAccount(t *testing.T) {
+	t.Helper()
+	if err := env.accountRepo.SaveMember(context.Background(), env.otherAccount, env.ownerAgent,
+		authentities.RoleMember); err != nil {
+		t.Fatalf("add the owner agent to the other account: %v", err)
+	}
+}
+
+var (
+	augustFifth  = time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+	julyLast     = time.Date(2026, 7, 31, 23, 0, 0, 0, time.UTC)
+	windowFrom   = time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	windowTo     = time.Date(2026, 8, 10, 23, 59, 59, 999999999, time.UTC)
+	augustTenthL = time.Date(2026, 8, 10, 18, 0, 0, 0, time.UTC)
+)
+
+func TestAssignOwner_DryRunListsEachResourceAndTheAccountName(t *testing.T) {
+	env := newAssignOwnerEnv(t)
+	f := env.seed(t)
+	env.setCreatedAt(t, f.ownerless1, augustFifth)
+
+	report, err := env.backfill.AssignOwner(context.Background(), application.AssignOwnerCommand{
+		AccountID: env.ownerAccount, CreatedBy: env.ownerAgent, DryRun: true,
+	})
+	if err != nil {
+		t.Fatalf("dry run: %v", err)
+	}
+	if want := env.accountName(t, env.ownerAccount); want == "" || report.AccountName != want {
+		t.Errorf("account name = %q, want %q", report.AccountName, want)
+	}
+	byID := map[string]application.AssignOwnerResource{}
+	for _, r := range report.Resources {
+		byID[r.ID] = r
+	}
+	if len(report.Resources) != 3 {
+		t.Fatalf("dry run lists %d resource(s), want 3: %+v", len(report.Resources), report.Resources)
+	}
+	for id, typeSlug := range map[string]string{
+		f.ownerless1: "task", f.ownerless2: "task", f.ownerlessProject: "project",
+	} {
+		r, ok := byID[id]
+		if !ok {
+			t.Errorf("dry run does not list %s", id)
+			continue
+		}
+		if r.TypeSlug != typeSlug || r.CreatedAt.IsZero() {
+			t.Errorf("%s listed as %+v, want type %s and a creation time", id, r, typeSlug)
+		}
+	}
+	if got := byID[f.ownerless1].CreatedAt; !got.Equal(augustFifth) {
+		t.Errorf("created_at of %s = %v, want %v", f.ownerless1, got, augustFifth)
+	}
+}
+
+func TestAssignOwner_TheCreationWindowNarrowsTheSelection(t *testing.T) {
+	env := newAssignOwnerEnv(t)
+	f := env.seed(t)
+	env.setCreatedAt(t, f.ownerless1, augustFifth)
+	env.setCreatedAt(t, f.ownerlessProject, julyLast)
+	// f.ownerless2 keeps today's creation time, after the window.
+
+	cmd := application.AssignOwnerCommand{
+		AccountID: env.ownerAccount, CreatedBy: env.ownerAgent,
+		CreatedFrom: windowFrom, CreatedTo: windowTo, DryRun: true,
+	}
+	preview, err := env.backfill.AssignOwner(context.Background(), cmd)
+	if err != nil {
+		t.Fatalf("dry run: %v", err)
+	}
+	if preview.Ownerless() != 1 || len(preview.Resources) != 1 || preview.Resources[0].ID != f.ownerless1 {
+		t.Fatalf("window selects %+v, want only %s", preview.Resources, f.ownerless1)
+	}
+
+	cmd.DryRun = false
+	report, err := env.backfill.AssignOwner(context.Background(), cmd)
+	if err != nil {
+		t.Fatalf("assign: %v", err)
+	}
+	if report.Assigned() != 1 {
+		t.Errorf("assigned %d, want 1", report.Assigned())
+	}
+	env.requireOwner(t, "task", f.ownerless1, env.ownerAccount, "inside the window")
+	env.requireOwner(t, "task", f.ownerless2, "", "after the window")
+	env.requireOwner(t, "project", f.ownerlessProject, "", "before the window")
+
+	// An open end: from the window's start, with no end, takes today's row too.
+	open, err := env.backfill.AssignOwner(context.Background(), application.AssignOwnerCommand{
+		AccountID: env.ownerAccount, CreatedBy: env.ownerAgent, CreatedFrom: windowFrom, DryRun: true,
+	})
+	if err != nil {
+		t.Fatalf("open-ended dry run: %v", err)
+	}
+	if open.Ownerless() != 1 || open.Resources[0].ID != f.ownerless2 {
+		t.Errorf("open-ended window selects %+v, want only %s", open.Resources, f.ownerless2)
+	}
+
+	if _, err := env.backfill.AssignOwner(context.Background(), application.AssignOwnerCommand{
+		AccountID: env.ownerAccount, CreatedBy: env.ownerAgent, CreatedFrom: windowTo, CreatedTo: windowFrom,
+		DryRun: true,
+	}); err == nil {
+		t.Error("a window that ends before it starts was accepted")
+	}
+}
+
+func TestAssignOwner_AnAgentInTwoAccountsNeedsTheAccountConfirmed(t *testing.T) {
+	env := newAssignOwnerEnv(t)
+	f := env.seed(t)
+	env.joinOtherAccount(t)
+	before := env.eventCount(t)
+
+	// A dry run is allowed, and it says which accounts the agent is in.
+	preview, err := env.backfill.AssignOwner(context.Background(), application.AssignOwnerCommand{
+		AccountID: env.ownerAccount, CreatedBy: env.ownerAgent, DryRun: true,
+	})
+	if err != nil {
+		t.Fatalf("dry run: %v", err)
+	}
+	if len(preview.MemberOf) != 2 {
+		t.Errorf("dry run names %d account(s) for the agent, want 2: %+v", len(preview.MemberOf), preview.MemberOf)
+	}
+
+	for _, confirm := range []string{"", env.otherAccount} {
+		_, err := env.backfill.AssignOwner(context.Background(), application.AssignOwnerCommand{
+			AccountID: env.ownerAccount, CreatedBy: env.ownerAgent, ConfirmAccount: confirm,
+		})
+		if !errors.Is(err, application.ErrOwnerAccountNotConfirmed) {
+			t.Errorf("confirm %q: err = %v, want ErrOwnerAccountNotConfirmed", confirm, err)
+		}
+	}
+	if after := env.eventCount(t); after != before {
+		t.Fatalf("an unconfirmed run wrote %d event(s)", after-before)
+	}
+	env.requireOwner(t, "task", f.ownerless1, "", "after the unconfirmed runs")
+
+	report, err := env.backfill.AssignOwner(context.Background(), application.AssignOwnerCommand{
+		AccountID: env.ownerAccount, CreatedBy: env.ownerAgent, ConfirmAccount: env.ownerAccount,
+	})
+	if err != nil {
+		t.Fatalf("confirmed run: %v", err)
+	}
+	if report.Assigned() != 3 {
+		t.Errorf("confirmed run assigned %d, want 3", report.Assigned())
+	}
+	env.requireOwner(t, "task", f.ownerless1, env.ownerAccount, "after the confirmed run")
+}
+
+// The operator command narrows by dates, lists each row, names the account,
+// and asks for the account again when the agent is in two.
+func TestAssignOwner_TheCommandNarrowsListsAndConfirms(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the weos binary")
+	}
+	env := newAssignOwnerEnv(t)
+	f := env.seed(t)
+	// Late on the window's last day: a date for --created-to takes that
+	// whole day.
+	env.setCreatedAt(t, f.ownerless1, augustTenthL)
+	env.setCreatedAt(t, f.ownerlessProject, julyLast)
+	env.joinOtherAccount(t)
+	name := env.accountName(t, env.ownerAccount)
+	env.stop()
+	db, err := gorm.Open(gormprov.DialectorForDSN(env.cfg.DatabaseDSN), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+	if sqlDB, err := db.DB(); err == nil {
+		t.Cleanup(func() { _ = sqlDB.Close() })
+	}
+	env.db = db
+
+	base := []string{"maintenance", "assign-owner", "--account", env.ownerAccount, "--created-by", env.ownerAgent,
+		"--created-from", "2026-08-01", "--created-to", "2026-08-10"}
+	stdout, stderr, code := env.runWeos(t, append(base, "--dry-run")...)
+	if code != 0 {
+		t.Fatalf("dry run exited %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		f.ownerless1, "2026-08-10T18:00:00Z", "total: 1 ownerless resource(s) would be assigned",
+		fmt.Sprintf("account %s (%s)", name, env.ownerAccount), "member of 2 accounts", "--confirm-account",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("dry run output lacks %q:\n%s", want, stdout)
+		}
+	}
+	for _, unwanted := range []string{f.ownerless2, f.ownerlessProject} {
+		if strings.Contains(stdout, unwanted) {
+			t.Errorf("dry run lists %s, outside the window:\n%s", unwanted, stdout)
+		}
+	}
+
+	_, stderr, code = env.runWeos(t, base...)
+	if code == 0 || !strings.Contains(stderr, "--confirm-account") {
+		t.Errorf("an unconfirmed real run exited %d, stderr:\n%s", code, stderr)
+	}
+	env.requireOwner(t, "task", f.ownerless1, "", "after the unconfirmed command")
+
+	stdout, stderr, code = env.runWeos(t, append(base, "--confirm-account", env.ownerAccount)...)
+	if code != 0 {
+		t.Fatalf("confirmed run exited %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+	}
+	nameAt, totalAt := strings.Index(stdout, name), strings.Index(stdout, "total: 1 of 1")
+	if nameAt < 0 || totalAt < 0 || nameAt > totalAt {
+		t.Errorf("the real run does not name the account before its result:\n%s", stdout)
+	}
+	env.requireOwner(t, "task", f.ownerless1, env.ownerAccount, "after the confirmed command")
+	env.requireOwner(t, "task", f.ownerless2, "", "outside the window after the command")
+
+	_, stderr, code = env.runWeos(t, "maintenance", "assign-owner", "--account", env.ownerAccount,
+		"--created-by", env.ownerAgent, "--created-from", "August 1", "--dry-run")
+	if code == 0 || !strings.Contains(stderr, "--created-from") {
+		t.Errorf("a malformed date exited %d, stderr:\n%s", code, stderr)
+	}
 }

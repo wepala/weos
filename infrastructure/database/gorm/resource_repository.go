@@ -792,7 +792,7 @@ func (r *ResourceRepository) FindOwnerlessByCreator(
 ) ([]repositories.OwnerlessResource, error) {
 	var rows []repositories.OwnerlessResource
 	err := r.db.WithContext(ctx).Model(&models.Resource{}).
-		Select("id", "type_slug").
+		Select("id", "type_slug", "created_at").
 		Where("(account_id = '' OR account_id IS NULL) AND created_by = ? AND deleted_at IS NULL", createdBy).
 		Order("type_slug").Order("id").
 		Scan(&rows).Error
