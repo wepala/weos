@@ -27,3 +27,4 @@ Architecture Decision Records (ADRs) capture significant technical decisions mad
 | [An MCP Filter Can Read the Stored Document]({% link decisions/mcp-filter-reads-document-property.md %}) | Accepted (Implemented) | 2026-10-26 |
 | [A PostgreSQL Lexical Index, and a Type Filter on Lexical Search]({% link decisions/postgres-lexical-index.md %}) | Accepted (Implemented) | 2026-11-11 |
 | [An Any-Word Match Mode on Lexical Search]({% link decisions/lexical-any-word-match.md %}) | Accepted (Implemented) | 2026-11-12 |
+| [An Ownerless Resource Is Given Its Owner Through the Event Stream]({% link decisions/resource-account-assigned.md %}) | Accepted (Implemented) | 2026-11-13 |
