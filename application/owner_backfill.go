@@ -79,6 +79,11 @@ type AssignOwnerResource struct {
 	ID        string
 	TypeSlug  string
 	CreatedAt time.Time
+	// RecordOwned says the resource's canonical record already carries the
+	// owner and only a projection row does not: an earlier assignment stored
+	// its event and the projection write did not reach that row. A run fills
+	// the row from the record and records no second event.
+	RecordOwned bool
 }
 
 // AssignOwnerAccount names an account the creator is a member of.
@@ -88,20 +93,38 @@ type AssignOwnerAccount struct {
 }
 
 // AssignOwnerTypeCount is one resource type's line in the report.
+//
+// Ownerless and Assigned count assignments, each one Resource.AccountAssigned
+// event. ToFill and Filled count fills, which store no event (see
+// AssignOwnerResource.RecordOwned). They are kept apart so the assigned count
+// matches the events a run stored.
 type AssignOwnerTypeCount struct {
 	// Ownerless is how many of the creator's resources of this type had no
-	// owner when the run started.
+	// owner in their record when the run started.
 	Ownerless int
-	// Assigned is how many of them this run gave the owner. Always 0 on a
-	// dry run.
+	// Assigned is how many of them this run gave the owner, one event each.
+	// Always 0 on a dry run.
 	Assigned int
-	// Skipped is how many already had an owner by the time the run reached
-	// them — a concurrent write — and so were left as they were.
+	// ToFill is how many of the creator's resources of this type had the
+	// owner in their record and a projection row with none when the run
+	// started.
+	ToFill int
+	// Filled is how many of them this run filled from the record, with no
+	// event. Always 0 on a dry run.
+	Filled int
+	// Skipped is how many, of either kind, already had an owner by the time
+	// the run reached them — a concurrent write — and so were left as they
+	// were.
 	Skipped int
-	// NeedsReproject is how many were left ownerless because their read
-	// model is behind the event store. Each is listed in the report's
+	// NeedsReproject is how many were left for a reproject: their read model
+	// is behind the event store or changed during the run, or a projection
+	// row does not exist at all. Each is listed in the report's
 	// NeedsReproject.
 	NeedsReproject int
+	// ForeignRows is how many have a projection row owned by an account
+	// other than their record's owner. Each is listed in the report's
+	// ForeignRows.
+	ForeignRows int
 }
 
 // AssignOwnerSkip names a resource a run left ownerless, and why.
@@ -109,6 +132,34 @@ type AssignOwnerSkip struct {
 	ID       string
 	TypeSlug string
 	Reason   string
+}
+
+// AssignOwnerForeignRow names a resource with a projection row that an
+// account other than its record's owner holds. The upsert that an
+// assignment, a fill and `weos worker reproject` all use keeps an owner a row
+// already has, so none of them repairs it: the resource is missing from the
+// record owner's listing of that type until someone finds out how the row
+// got that owner and corrects it.
+type AssignOwnerForeignRow struct {
+	ID       string
+	TypeSlug string
+	// Table is the first projection table whose row another account holds.
+	Table string
+	// RowAccountID is the account that row holds.
+	RowAccountID string
+	// RecordAccountID is the owner the resource's record holds.
+	RecordAccountID string
+	// Reason names every projection row of the resource that is not as its
+	// record says.
+	Reason string
+}
+
+// AssignOwnerElsewhere counts the creator's resources whose record another
+// account owns and whose projection row has no owner. A run fills a row only
+// from a record its own account owns, so these need a run with AccountID.
+type AssignOwnerElsewhere struct {
+	AccountID string
+	Resources int
 }
 
 // AssignOwnerReport says what a run found and did, per resource type.
@@ -126,10 +177,24 @@ type AssignOwnerReport struct {
 	// Resources lists every selected resource, in type and then id order.
 	Resources []AssignOwnerResource
 	Types     map[string]AssignOwnerTypeCount
-	// NeedsReproject lists the resources the run skipped because their read
-	// model is behind the event store. `weos worker reproject` brings the read
-	// model up to the store; a later run then assigns what is still ownerless.
+	// NeedsReproject lists the resources a run leaves for a reproject: those
+	// whose read model is behind the event store or changed during the run,
+	// and, already in the plan, those with no projection row at all in one
+	// of their type tables. A resource listed after its read-back already has
+	// its assignment event stored; only its projection is incomplete.
+	// `weos worker reproject` brings the read model up to the store; a later
+	// run then assigns what is still ownerless.
 	NeedsReproject []AssignOwnerSkip
+	// OwnedElsewhere counts, per owning account in id order, the creator's
+	// resources (in the window) with a projection row to fill whose record
+	// another account owns. The run leaves them; a run with that account as
+	// --account fills them.
+	OwnedElsewhere []AssignOwnerElsewhere
+	// ForeignRows lists the resources, in the preview and in the result,
+	// with a projection row owned by an account other than their record's
+	// owner. No run and no reproject writes such a row, so they are kept
+	// apart from NeedsReproject.
+	ForeignRows []AssignOwnerForeignRow
 }
 
 // TypeSlugs returns the report's resource types in name order.
@@ -142,20 +207,34 @@ func (r AssignOwnerReport) TypeSlugs() []string {
 	return slugs
 }
 
-// Ownerless is the number of ownerless resources found, over every type.
+// Ownerless is the number of resources found with no owner in their record,
+// over every type.
 func (r AssignOwnerReport) Ownerless() int {
-	n := 0
-	for _, c := range r.Types {
-		n += c.Ownerless
-	}
-	return n
+	return r.sum(func(c AssignOwnerTypeCount) int { return c.Ownerless })
 }
 
-// Assigned is the number of resources given the owner, over every type.
+// Assigned is the number of resources given the owner, one event each, over
+// every type.
 func (r AssignOwnerReport) Assigned() int {
+	return r.sum(func(c AssignOwnerTypeCount) int { return c.Assigned })
+}
+
+// ToFill is the number of resources found with the owner in their record and
+// a projection row with none, over every type.
+func (r AssignOwnerReport) ToFill() int {
+	return r.sum(func(c AssignOwnerTypeCount) int { return c.ToFill })
+}
+
+// Filled is the number of resources whose projection rows were filled from
+// the record, with no event, over every type.
+func (r AssignOwnerReport) Filled() int {
+	return r.sum(func(c AssignOwnerTypeCount) int { return c.Filled })
+}
+
+func (r AssignOwnerReport) sum(count func(AssignOwnerTypeCount) int) int {
 	n := 0
 	for _, c := range r.Types {
-		n += c.Assigned
+		n += count(c)
 	}
 	return n
 }
@@ -174,6 +253,8 @@ type OwnerBackfillParams struct {
 type OwnerBackfillService struct {
 	repo       repositories.ResourceRepository
 	finder     repositories.OwnerlessResourceFinder
+	projOwners repositories.ProjectionOwnerReader
+	projFiller repositories.ProjectionOwnerFiller
 	accounts   authrepos.AccountRepository
 	eventStore domain.EventStore
 	dispatcher *domain.EventDispatcher
@@ -183,9 +264,13 @@ type OwnerBackfillService struct {
 // ProvideOwnerBackfillService wires the service from the container.
 func ProvideOwnerBackfillService(p OwnerBackfillParams) *OwnerBackfillService {
 	finder, _ := p.Repo.(repositories.OwnerlessResourceFinder)
+	projOwners, _ := p.Repo.(repositories.ProjectionOwnerReader)
+	projFiller, _ := p.Repo.(repositories.ProjectionOwnerFiller)
 	return &OwnerBackfillService{
 		repo:       p.Repo,
 		finder:     finder,
+		projOwners: projOwners,
+		projFiller: projFiller,
 		accounts:   p.Accounts,
 		eventStore: p.EventStore,
 		dispatcher: p.Dispatcher,
@@ -269,16 +354,73 @@ func (s *OwnerBackfillService) PlanAssignOwner(
 	}
 	// The window is applied here rather than in SQL: each dialect stores a
 	// time differently, and the creator's ownerless rows are few.
+	elsewhere := map[string]int{}
 	for _, r := range ownerless {
 		if !inWindow(r.CreatedAt, cmd.CreatedFrom, cmd.CreatedTo) {
 			continue
 		}
-		report.Resources = append(report.Resources,
-			AssignOwnerResource{ID: r.ID, TypeSlug: r.TypeSlug, CreatedAt: r.CreatedAt})
+		// A projection row owned by another account than the record is out
+		// of reach of every write this command or a reproject makes: the
+		// upsert keeps an owner a row already has. It is listed apart, in the
+		// preview too, whichever account owns the record, and nothing is
+		// written to it (wm-oyoqao).
+		if r.ForeignRowTable != "" {
+			reason := fmt.Sprintf("the row in %s is owned by %s, and the record by %s",
+				r.ForeignRowTable, r.ForeignRowAccountID, r.RecordAccountID)
+			if r.MissingTable != "" {
+				reason += fmt.Sprintf("; there is no row in %s at all", r.MissingTable)
+			}
+			report.ForeignRows = append(report.ForeignRows, AssignOwnerForeignRow{
+				ID: r.ID, TypeSlug: r.TypeSlug, Table: r.ForeignRowTable, RowAccountID: r.ForeignRowAccountID,
+				RecordAccountID: r.RecordAccountID, Reason: reason,
+			})
+			c := report.Types[r.TypeSlug]
+			c.ForeignRows++
+			report.Types[r.TypeSlug] = c
+			continue
+		}
+		// A record that has an owner with a projection row that has none is
+		// selected only when the record's owner is this run's account: the
+		// run then finishes its own assignment. A record owned by another
+		// account is not this run's to touch, but it is counted, so the
+		// report can name the account a second run needs.
+		if r.RecordAccountID != "" && r.RecordAccountID != cmd.AccountID {
+			elsewhere[r.RecordAccountID]++
+			continue
+		}
+		// A projection row that does not exist is out of reach of both an
+		// assignment and a fill, which only write rows that exist; only a
+		// reproject writes it. The resource is listed for one, in the
+		// preview too, so a run does not read clean while the resource is
+		// still missing from its type's listing.
+		if r.MissingTable != "" {
+			report.NeedsReproject = append(report.NeedsReproject, AssignOwnerSkip{
+				ID: r.ID, TypeSlug: r.TypeSlug, Reason: fmt.Sprintf("the record has the owner, and there is "+
+					"no row in %s at all, so the resource is missing from that listing", r.MissingTable),
+			})
+			c := report.Types[r.TypeSlug]
+			c.NeedsReproject++
+			report.Types[r.TypeSlug] = c
+			continue
+		}
+		recordOwned := r.RecordAccountID != ""
+		report.Resources = append(report.Resources, AssignOwnerResource{
+			ID: r.ID, TypeSlug: r.TypeSlug, CreatedAt: r.CreatedAt, RecordOwned: recordOwned,
+		})
 		c := report.Types[r.TypeSlug]
-		c.Ownerless++
+		if recordOwned {
+			c.ToFill++
+		} else {
+			c.Ownerless++
+		}
 		report.Types[r.TypeSlug] = c
 	}
+	for account, n := range elsewhere {
+		report.OwnedElsewhere = append(report.OwnedElsewhere, AssignOwnerElsewhere{AccountID: account, Resources: n})
+	}
+	sort.Slice(report.OwnedElsewhere, func(i, j int) bool {
+		return report.OwnedElsewhere[i].AccountID < report.OwnedElsewhere[j].AccountID
+	})
 	return report, nil
 }
 
@@ -288,50 +430,91 @@ func (s *OwnerBackfillService) PlanAssignOwner(
 // it again finishes the rest: a resource already assigned is no longer
 // ownerless and is not selected again.
 //
-// A resource is counted as assigned only once its record is read back with
-// the owner. A resource whose read model is behind its event stream — found
-// before the write, or met as a version conflict on it — is skipped, listed in
-// the report's NeedsReproject, and the run goes on. A write whose event was
-// stored but whose record did not take the owner stops the run with an error
-// that names the resource: the read model is failing, and every later write
-// would fail the same way.
+// A resource is counted as assigned only once its record and every one of its
+// projection rows are read back with the owner. A resource whose read model is
+// behind its event stream — found before the write, or met as a version
+// conflict on it — is skipped, listed in the report's NeedsReproject, and the
+// run goes on. So is one with a projection row that does not exist: neither a
+// fill nor a second assignment writes a row that does not exist, and a
+// reproject does. One with a projection row another account owns is listed in
+// the report's ForeignRows instead: the upsert keeps an owner a row already
+// has, in a reproject too, so no repair this command can name exists. Both
+// can be listed after the assignment's event was stored. A write whose event
+// was stored but whose record or projection row did not take the owner stops
+// the run with an error that names the resource: the read model is failing,
+// and every later write would fail the same way.
+//
+// A resource whose record has the owner and a projection row has none (see
+// AssignOwnerResource.RecordOwned) is not given a second event. Its record is
+// written to each ownerless projection row, and it is counted once the rows
+// read back with the owner. A row that changed after the record was read is
+// not written; the resource is listed in NeedsReproject.
 func (s *OwnerBackfillService) ApplyAssignOwner(
 	ctx context.Context, plan AssignOwnerReport,
 ) (AssignOwnerReport, error) {
 	if s.eventStore == nil || s.dispatcher == nil {
 		return plan, ErrOwnerBackfillReadOnly
 	}
+	if s.projOwners == nil {
+		return plan, fmt.Errorf("assign owner: the resource repository %T cannot read the owner of its "+
+			"projection rows, so an assignment could not be checked", s.repo)
+	}
+	if s.projFiller == nil {
+		return plan, fmt.Errorf("assign owner: the resource repository %T cannot fill the owner of its "+
+			"projection rows", s.repo)
+	}
 	report := plan
 	report.DryRun = false
 	report.Types = make(map[string]AssignOwnerTypeCount, len(plan.Types))
 	for slug, c := range plan.Types {
-		report.Types[slug] = AssignOwnerTypeCount{Ownerless: c.Ownerless}
+		report.Types[slug] = AssignOwnerTypeCount{
+			Ownerless: c.Ownerless, ToFill: c.ToFill, NeedsReproject: c.NeedsReproject,
+			ForeignRows: c.ForeignRows,
+		}
 	}
-	report.NeedsReproject = nil
+	// What the plan already left for a reproject, or found with a row owned
+	// by another account, stays listed.
+	report.NeedsReproject = append([]AssignOwnerSkip(nil), plan.NeedsReproject...)
+	report.ForeignRows = append([]AssignOwnerForeignRow(nil), plan.ForeignRows...)
 	for _, r := range plan.Resources {
-		outcome, reason, err := s.assignOne(ctx, r.ID, plan.AccountID, plan.CreatedBy)
+		assign := s.assignOne
+		if r.RecordOwned {
+			assign = s.fillProjectionRows
+		}
+		outcome, note, err := assign(ctx, r, plan.AccountID, plan.CreatedBy)
 		if err != nil {
 			s.logger.Error(ctx, "assign owner stopped", "id", r.ID, "type", r.TypeSlug, "error", err)
 			return report, fmt.Errorf("assign owner: %s (%s): %w", r.ID, r.TypeSlug, err)
 		}
 		c := report.Types[r.TypeSlug]
-		switch outcome {
-		case assignedOwner:
+		switch {
+		case outcome == assignedOwner && r.RecordOwned:
+			c.Filled++
+		case outcome == assignedOwner:
 			c.Assigned++
-		case gainedOwner:
+		case outcome == gainedOwner:
 			c.Skipped++
-		case readModelBehind:
+		case outcome == readModelBehind:
 			c.NeedsReproject++
 			report.NeedsReproject = append(report.NeedsReproject,
-				AssignOwnerSkip{ID: r.ID, TypeSlug: r.TypeSlug, Reason: reason})
-			s.logger.Warn(ctx, "assign owner skipped a resource whose read model is behind the event store",
-				"id", r.ID, "type", r.TypeSlug, "reason", reason)
+				AssignOwnerSkip{ID: r.ID, TypeSlug: r.TypeSlug, Reason: note.reason})
+			s.logger.Warn(ctx, "assign owner left a resource whose projection is incomplete for a reproject",
+				"id", r.ID, "type", r.TypeSlug, "reason", note.reason)
+		case outcome == rowOwnedElsewhere:
+			c.ForeignRows++
+			report.ForeignRows = append(report.ForeignRows, AssignOwnerForeignRow{
+				ID: r.ID, TypeSlug: r.TypeSlug, Table: note.row.Table, RowAccountID: note.row.AccountID,
+				RecordAccountID: plan.AccountID, Reason: note.reason,
+			})
+			s.logger.Warn(ctx, "assign owner met a projection row owned by another account",
+				"id", r.ID, "type", r.TypeSlug, "reason", note.reason)
 		}
 		report.Types[r.TypeSlug] = c
 	}
 	s.logger.Info(ctx, "assigned owners to ownerless resources",
 		"account", plan.AccountID, "createdBy", plan.CreatedBy, "assigned", report.Assigned(),
-		"needsReproject", len(report.NeedsReproject))
+		"filled", report.Filled(), "needsReproject", len(report.NeedsReproject),
+		"foreignRows", len(report.ForeignRows))
 	return report, nil
 }
 
@@ -400,16 +583,38 @@ const (
 	// gainedOwner: the resource gained an owner (or changed creator) since
 	// the selection, so it was left alone.
 	gainedOwner
-	// readModelBehind: the record is behind the event store, so an append
-	// from it would conflict. Nothing was written.
+	// readModelBehind: the resource's projection is incomplete in a way a
+	// reproject repairs — the record is behind the event store, a row changed
+	// during the run, or a row does not exist. The assignment's event may
+	// already be stored.
 	readModelBehind
+	// rowOwnedElsewhere: a projection row of the resource is owned by an
+	// account other than the record's. No write this command or a reproject
+	// makes changes that owner. The assignment's event may already be stored.
+	rowOwnedElsewhere
 )
+
+// assignNote says why a resource was not counted, and for rowOwnedElsewhere
+// which projection row another account holds.
+type assignNote struct {
+	reason string
+	row    repositories.ProjectionRowOwner
+}
 
 // errReadModelDidNotTakeOwner is the read-back failure after a stored
 // assignment: the event is in the store and the record is still ownerless.
 var errReadModelDidNotTakeOwner = errors.New("the Resource.AccountAssigned event is stored, " +
 	"but the resource's record did not take the owner (the projection write failed). " +
 	"Stop the instance and run `weos worker reproject` to apply the stored event, then run this command again")
+
+// errProjectionRowDidNotTakeOwner is the read-back failure when the record
+// has the owner and a projection row of the resource does not. The record and
+// the rows are written one after the other, so the record alone does not show
+// it. The record holds the owner, so a later run can fill the row from it.
+var errProjectionRowDidNotTakeOwner = errors.New("the resource's record has the owner, " +
+	"but its projection row did not take it (the projection write failed). " +
+	"Fix the cause, then run this command again: it fills the row from the record. " +
+	"`weos worker reproject` on the stopped instance repairs it as well")
 
 // assignOne gives one resource its owner. It reads the resource again first,
 // so a resource that gained an owner (or changed creator) since the selection
@@ -420,46 +625,166 @@ var errReadModelDidNotTakeOwner = errors.New("the Resource.AccountAssigned event
 // after it would conflict on the same record, so it is reported as behind
 // instead, with what the store holds past it.
 func (s *OwnerBackfillService) assignOne(
-	ctx context.Context, id, accountID, createdBy string,
-) (assignOutcome, string, error) {
+	ctx context.Context, r AssignOwnerResource, accountID, createdBy string,
+) (assignOutcome, assignNote, error) {
+	id := r.ID
 	entity, err := s.repo.FindByID(ctx, id)
 	if err != nil {
-		return 0, "", err
+		return 0, assignNote{}, err
 	}
 	if entity.AccountID() != "" || entity.CreatedBy() != createdBy {
-		return gainedOwner, "", nil
+		return gainedOwner, assignNote{}, nil
 	}
 	recordSeq := entity.GetSequenceNo()
 	if reason, behind, err := s.readModelBehind(ctx, id, recordSeq); err != nil {
-		return 0, "", err
+		return 0, assignNote{}, err
 	} else if behind {
-		return readModelBehind, reason, nil
+		return readModelBehind, assignNote{reason: reason}, nil
 	}
 	if err := entity.AssignAccount(accountID); err != nil {
-		return 0, "", err
+		return 0, assignNote{}, err
 	}
 	uow := esapp.NewSimpleUnitOfWork(s.eventStore, s.dispatcher)
 	if err := uow.Track(entity); err != nil {
-		return 0, "", fmt.Errorf("track resource: %w", err)
+		return 0, assignNote{}, fmt.Errorf("track resource: %w", err)
 	}
 	if err := uow.Commit(ctx); err != nil {
 		if errors.Is(err, domain.ErrConcurrencyConflict) {
-			return readModelBehind, fmt.Sprintf("version conflict on the append from sequence %d: %v",
-				recordSeq, err), nil
+			return readModelBehind, assignNote{reason: fmt.Sprintf(
+				"version conflict on the append from sequence %d: %v", recordSeq, err)}, nil
 		}
-		return 0, "", fmt.Errorf("commit the assignment: %w", err)
+		return 0, assignNote{}, fmt.Errorf("commit the assignment: %w", err)
 	}
 	// The unit of work stores the event and then dispatches it to the
 	// projection, and it drops the projection's error. Only a read-back
 	// shows whether the record took the owner.
 	after, err := s.repo.FindByID(ctx, id)
 	if err != nil {
-		return 0, "", fmt.Errorf("read the record back: %w (%w)", err, errReadModelDidNotTakeOwner)
+		return 0, assignNote{}, fmt.Errorf("read the record back: %w (%w)", err, errReadModelDidNotTakeOwner)
 	}
 	if after.AccountID() != accountID {
-		return 0, "", errReadModelDidNotTakeOwner
+		return 0, assignNote{}, errReadModelDidNotTakeOwner
 	}
-	return assignedOwner, "", nil
+	return s.readBackProjectionRows(ctx, id, after.TypeSlug(), accountID)
+}
+
+// fillProjectionRows finishes an assignment whose event is stored and whose
+// record has the owner, but whose projection row does not. It writes the
+// record over each ownerless projection row and records no event: the owner
+// is already in the stream, so a rebuild keeps it, and the background workers
+// saw the stored event. The canonical record is not written.
+//
+// A record behind its event stream is left for a reproject, as in assignOne:
+// writing it would put a stale record back over its rows. The fill runs
+// outside a unit of work, so it cannot rely on a version conflict the way
+// assignOne does; the repository writes each row only while that row has no
+// owner and is not past the record's sequence, checked in the write statement
+// itself. A row that fails that check changed after the record was read — the
+// instance is serving — and the resource is left for a reproject too.
+func (s *OwnerBackfillService) fillProjectionRows(
+	ctx context.Context, r AssignOwnerResource, accountID, createdBy string,
+) (assignOutcome, assignNote, error) {
+	entity, err := s.repo.FindByID(ctx, r.ID)
+	if err != nil {
+		return 0, assignNote{}, err
+	}
+	if entity.AccountID() != accountID || entity.CreatedBy() != createdBy {
+		return gainedOwner, assignNote{}, nil
+	}
+	if reason, behind, err := s.readModelBehind(ctx, r.ID, entity.GetSequenceNo()); err != nil {
+		return 0, assignNote{}, err
+	} else if behind {
+		return readModelBehind, assignNote{reason: reason}, nil
+	}
+	tables, err := s.projOwners.OwnerlessProjectionTables(ctx, r.ID, entity.TypeSlug())
+	if err != nil {
+		return 0, assignNote{}, fmt.Errorf("read the owner of the projection rows: %w", err)
+	}
+	if len(tables) == 0 {
+		// No row is ownerless any more. It was filled since the selection, by
+		// a reproject or a concurrent write, only when every row now holds the
+		// account: a row that disappeared, or that another account took, is
+		// listed as the read-back finds it, never skipped as clean.
+		outcome, note, err := s.readBackProjectionRows(ctx, r.ID, entity.TypeSlug(), accountID)
+		if err != nil || outcome != assignedOwner {
+			return outcome, note, err
+		}
+		return gainedOwner, assignNote{}, nil
+	}
+	written, err := s.projFiller.FillOwnerlessProjectionRows(ctx, entity)
+	if err != nil {
+		if errors.Is(err, repositories.ErrProjectionRowChanged) {
+			return readModelBehind, assignNote{reason: fmt.Sprintf("a projection row changed after the run "+
+				"read the record at sequence %d, so the run did not write over it (%v)",
+				entity.GetSequenceNo(), err)}, nil
+		}
+		return 0, assignNote{}, fmt.Errorf("write the record's owner to %s: %w (%w)",
+			strings.Join(tables, ", "), err, errProjectionRowDidNotTakeOwner)
+	}
+	outcome, note, err := s.readBackProjectionRows(ctx, r.ID, entity.TypeSlug(), accountID)
+	if err != nil || outcome != assignedOwner {
+		return outcome, note, err
+	}
+	if len(written) == 0 {
+		// Every row was filled between the read above and the write, by
+		// another process; this run wrote none, so it does not count a fill.
+		return gainedOwner, assignNote{}, nil
+	}
+	return assignedOwner, assignNote{}, nil
+}
+
+// readBackProjectionRows reads the owner of each projection row of the
+// resource back and compares it with accountID. It returns assignedOwner when
+// every row holds it.
+//
+// A row with no owner is a write that failed, and a later run can fill it
+// from the record, so it returns an error that names the tables. A row that
+// does not exist, or that another account owns, is out of reach of both an
+// assignment and a fill — the upsert keeps an owner a row already has, and a
+// fill writes only rows that exist with no owner — so the resource is not
+// counted. A row another account owns returns rowOwnedElsewhere, naming the
+// first such row: a reproject uses the same upsert and keeps that owner too,
+// so it is no repair. Otherwise a row that does not exist returns
+// readModelBehind, for the reproject that writes it. The reason names each
+// row that is not as the record says.
+func (s *OwnerBackfillService) readBackProjectionRows(
+	ctx context.Context, id, typeSlug, accountID string,
+) (assignOutcome, assignNote, error) {
+	owners, err := s.projOwners.ProjectionRowOwners(ctx, id, typeSlug)
+	if err != nil {
+		return 0, assignNote{}, fmt.Errorf("read the projection rows back: %w (%w)", err,
+			errProjectionRowDidNotTakeOwner)
+	}
+	var ownerless, problems []string
+	var foreign *repositories.ProjectionRowOwner
+	for i, o := range owners {
+		switch {
+		case o.Missing:
+			problems = append(problems, fmt.Sprintf("there is no row in %s at all", o.Table))
+		case o.AccountID == "":
+			ownerless = append(ownerless, o.Table)
+		case o.AccountID != accountID:
+			problems = append(problems, fmt.Sprintf("the row in %s is owned by %s, not %s",
+				o.Table, o.AccountID, accountID))
+			if foreign == nil {
+				foreign = &owners[i]
+			}
+		}
+	}
+	if len(ownerless) > 0 {
+		return 0, assignNote{}, fmt.Errorf("ownerless in %s: %w", strings.Join(ownerless, ", "),
+			errProjectionRowDidNotTakeOwner)
+	}
+	if len(problems) == 0 {
+		return assignedOwner, assignNote{}, nil
+	}
+	note := assignNote{reason: "the record has the owner, and " + strings.Join(problems, "; ") +
+		", so the resource is missing from that listing"}
+	if foreign != nil {
+		note.row = *foreign
+		return rowOwnedElsewhere, note, nil
+	}
+	return readModelBehind, note, nil
 }
 
 // readModelBehind reports whether the event store holds events for id past

@@ -359,6 +359,51 @@ rest. A resource whose record is behind its event stream is skipped and listed, 
 non-zero: with the instance stopped, run `weos worker reproject` against the same database, then run
 this command again.
 
+A resource whose record has the `--account` owner but that has no projection row at all in one of its
+type tables (its own type's or an ancestor's) is missing from that type's listing just as surely as
+one whose row has no owner. Neither an assignment nor a fill writes a row that does not exist, so the
+preview and the run list such a resource with the ones left for a reproject, naming the table, and a
+run with `--write` exits non-zero. `weos worker reproject` on the stopped instance writes the row.
+
+A resource is counted as assigned only when its record and each of its projection rows (its own
+type's table and each ancestor's) read back with the owner. One with a row that does not exist is
+listed with the ones left for a reproject, naming the table. One with a row owned by another account
+than its record is listed apart, in the preview and in the result, naming the table and the account
+that holds the row. An assignment, a fill and `weos worker reproject` all write through the same
+upsert, which keeps an owner a row already has, so there is no automatic repair: each such resource
+needs investigation of how the row got that owner before anyone changes it. A run with `--write` that
+lists either kind exits non-zero. Both lists can hold a resource whose assignment event the run has
+already stored: the run stores the event first and reads the projection rows back after it, so these
+are incomplete projections, not resources the run left untouched.
+
+The record and the rows are written one
+after the other, so a failed write can leave a projection row ownerless under a record that has the
+owner. The run then stops with an error that names the resource. Fix the cause and run the command
+again: it selects that resource, fills the row from the record, and records no second event, because
+the assignment is already in the event store. The preview marks such a resource "record has the
+owner; projection row to fill". It is selected only when the record's owner is the `--account` of the
+run. A resource whose record is owned by another account is left alone, but it is not dropped silently:
+the preview and the result count such resources per owning account and print each account id, so the
+operator can run again with that `--account` (or, when the agent is not a member of it, run
+`weos worker reproject` on the stopped instance).
+
+The preview and the result count these rows to fill apart from the resources to assign. An assignment
+stores one `Resource.AccountAssigned` event and a fill stores no event, so only the assigned count
+matches the events a run adds to the store. A fill rewrites the whole projection row from the record
+and sets its `updated_at` to the time of the run, as `weos worker reproject` does, so it can change
+columns other than the owner where the row had drifted from the record. When the preview lists many
+rows to fill (it suggests this from 100), stop the instance and run `weos worker reproject` instead: it
+repairs every row in one pass. Then preview again.
+
+A fill writes no event and does not write the record, so no version check guards it the way the
+unit of work guards an assignment. Instead each row is written only while it still has no owner and its
+sequence number is not past the record's, checked in the write statement itself. A row that changed
+after the run read the record (a write by a serving instance) is not written over: the resource is
+listed with the ones left for a reproject, and the command exits non-zero. A row to fill that a serving instance
+filled meanwhile is skipped. One that disappeared or that another account took since the preview is
+listed, not skipped: the run reads the rows back and lists the resource with the ones left for a
+reproject or with the rows another account owns, so a run with `--write` still exits non-zero.
+
 **If an older binary served during or after a run with `--write`.** A binary built before this release does not
 know `Resource.AccountAssigned`. Its background workers skip the event and move their checkpoints
 past it, so the knowledge graph and the search index never get the owner, and nothing reports it. With

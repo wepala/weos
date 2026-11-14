@@ -55,12 +55,30 @@ type ResourceIDFinder interface {
 		[]*entities.Resource, error)
 }
 
-// OwnerlessResource names a resource whose canonical record has no owning
-// account, and when it was created.
+// OwnerlessResource names a resource with no owning account in its canonical
+// record or in one of its projection rows, and when it was created.
 type OwnerlessResource struct {
 	ID        string
 	TypeSlug  string
 	CreatedAt time.Time
+	// RecordAccountID is the owner the canonical record already carries. It
+	// is empty when the record itself has no owner. When it is set, only a
+	// projection row of the resource lacks the owner: the write that gave the
+	// record its owner did not reach that row.
+	RecordAccountID string
+	// MissingTable names a projection table (its own type's or an
+	// ancestor's) that holds no row for the resource at all, when there is
+	// one. It is set only with RecordAccountID: the resource is then missing
+	// from that type's listing, and only a reproject writes the row.
+	MissingTable string
+	// ForeignRowTable names a projection table whose row for the resource is
+	// owned by an account other than the one in RecordAccountID, when there
+	// is one, and ForeignRowAccountID is the account that row holds. The
+	// resource is missing from the record owner's listing of that type, and
+	// no write repairs it: the upsert an assignment, a fill and a reproject
+	// all use keeps an owner a row already has.
+	ForeignRowTable     string
+	ForeignRowAccountID string
 }
 
 // OwnerlessResourceFinder is implemented by a ResourceRepository that can list
@@ -70,9 +88,69 @@ type OwnerlessResource struct {
 // a caller type-asserts for it.
 type OwnerlessResourceFinder interface {
 	// FindOwnerlessByCreator returns every live resource, of every type, whose
-	// owning account is empty and whose creator is createdBy, ordered by type
-	// and then by identifier.
+	// creator is createdBy and whose owning account is empty in its canonical
+	// record or in one of its projection rows (its own type's or an
+	// ancestor's), ordered by type and then by identifier. A resource whose
+	// record has an owner and a projection row has none, or has no row at all
+	// in one of those tables, or has a row there owned by another account,
+	// carries the record's owner in RecordAccountID, the table with no row in
+	// MissingTable, and the table and account of the row owned elsewhere in
+	// ForeignRowTable and ForeignRowAccountID.
 	FindOwnerlessByCreator(ctx context.Context, createdBy string) ([]OwnerlessResource, error)
+}
+
+// ProjectionOwnerReader is implemented by a ResourceRepository that can read
+// the owner of a resource's projection rows. The canonical record and the
+// projection rows are written one after the other, not in one transaction, so
+// a reader of the record alone cannot tell whether a write reached the rows.
+// Like OwnerlessResourceFinder it is an interface of its own; a caller
+// type-asserts for it.
+type ProjectionOwnerReader interface {
+	// OwnerlessProjectionTables returns the projection tables — the
+	// resource's own type's and each ancestor's — that hold a row for id with
+	// no owning account, in write order. It returns none when every row there
+	// carries an owner, or when the type has no projection table.
+	OwnerlessProjectionTables(ctx context.Context, id, typeSlug string) ([]string, error)
+	// ProjectionRowOwners returns one entry per projection table a write of
+	// the resource fills — its own type's and each ancestor's, where the
+	// table exists — in write order, with the owner that table's row holds
+	// for id, or Missing when the table holds no row for id. A caller
+	// compares each owner with the one it expects: an ownerless row is not
+	// the only way a write fails to reach a row.
+	ProjectionRowOwners(ctx context.Context, id, typeSlug string) ([]ProjectionRowOwner, error)
+}
+
+// ProjectionRowOwner is the owner one projection table holds for a resource.
+type ProjectionRowOwner struct {
+	// Table is the projection table.
+	Table string
+	// AccountID is the row's owning account, empty when the row has none.
+	AccountID string
+	// Missing says the table holds no row for the resource at all.
+	Missing bool
+}
+
+// ErrProjectionRowChanged means a projection row changed after the canonical
+// record was read, so a write of that record would put older data over it.
+var ErrProjectionRowChanged = errors.New("the projection row changed after the record was read")
+
+// ProjectionOwnerFiller is implemented by a ResourceRepository that can fill
+// the empty owner of a resource's projection rows from its canonical record.
+// Like ProjectionOwnerReader it is an interface of its own; a caller
+// type-asserts for it.
+type ProjectionOwnerFiller interface {
+	// FillOwnerlessProjectionRows writes entity, the canonical record as the
+	// caller just read it, over each of the resource's projection rows (its
+	// own type's and each ancestor's) that has no owner, and returns the
+	// tables it wrote, in write order. The canonical record is not written.
+	//
+	// Each row is written whole, as Update writes it, and only while it still
+	// has no owner and its sequence number is not past the entity's. That
+	// check is part of the write statement itself, so a write that lands
+	// between the caller's read and this write is never overwritten: the row
+	// is left as it is, and the call returns ErrProjectionRowChanged naming
+	// the table. Rows written before that table stay written.
+	FillOwnerlessProjectionRows(ctx context.Context, entity *entities.Resource) ([]string, error)
 }
 
 type ResourceRepository interface {

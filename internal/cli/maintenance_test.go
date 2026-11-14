@@ -130,10 +130,62 @@ func TestPrintAssignOwnerReport_ListsWhatNeedsAReproject(t *testing.T) {
 		"urn:statement:1 (statement): the record is at sequence 2 and the event store at 3",
 		"weos worker reproject",
 		"total: 2 of 3 ownerless resource(s) assigned, 1 left for a reproject",
+		// A fill that met a row changed during the run lands in the same list
+		// (wm-5o1kcm), so the heading must not claim the read model is behind.
+		"behind the event store, changed during the run, or has no projection row at all",
+		// Copilot on #586: a resource lands here after its read-back, when
+		// its assignment event is already stored, so the heading must not say
+		// nothing was written.
+		"incomplete projection",
+		"may already have a stored assignment",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("report lacks %q:\n%s", want, text)
 		}
+	}
+	if strings.Contains(text, "A run does not write to them") {
+		t.Errorf("the heading says nothing was written to these resources:\n%s", text)
+	}
+}
+
+// Copilot on #586 and wm-oyoqao: a projection row another account owns is
+// kept by an assignment, a fill and a reproject alike. The report lists it
+// apart, preview and run, and does not send the operator to a reproject.
+func TestPrintAssignOwnerReport_ListsRowsOwnedByAnotherAccountApart(t *testing.T) {
+	for _, dryRun := range []bool{true, false} {
+		var out bytes.Buffer
+		printAssignOwnerReport(&out, application.AssignOwnerReport{
+			AccountID: "acct-1", CreatedBy: "agent-1", DryRun: dryRun,
+			Types: map[string]application.AssignOwnerTypeCount{"statement": {ForeignRows: 1}},
+			ForeignRows: []application.AssignOwnerForeignRow{{
+				ID: "urn:statement:1", TypeSlug: "statement", Table: "statements",
+				RowAccountID: "acct-2", RecordAccountID: "acct-1",
+				Reason: "the row in statements is owned by acct-2, and the record by acct-1",
+			}},
+		})
+		text := out.String()
+		for _, want := range []string{
+			"1 with a projection row owned by another account",
+			"urn:statement:1 (statement): the row in statements is owned by acct-2, and the record by acct-1",
+			"no automatic repair",
+			"needs investigation",
+		} {
+			if !strings.Contains(text, want) {
+				t.Errorf("dry run %v: report lacks %q:\n%s", dryRun, want, text)
+			}
+		}
+		if strings.Contains(text, "reproject") {
+			t.Errorf("dry run %v: the report sends a row another account owns to a reproject:\n%s", dryRun, text)
+		}
+	}
+}
+
+func TestAssignOwnerOutcome_ARunThatMetARowOwnedByAnotherAccountFails(t *testing.T) {
+	err := assignOwnerOutcome(application.AssignOwnerReport{
+		ForeignRows: []application.AssignOwnerForeignRow{{ID: "urn:statement:1"}},
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "1 resource(s) with a projection row owned by another account") {
+		t.Errorf("err = %v, want a failure naming the resources with a row owned by another account", err)
 	}
 }
 
@@ -229,6 +281,152 @@ func TestPrintAssignOwnerReport_DryRunListsEachResource(t *testing.T) {
 	}
 }
 
+// A resource whose record already has the owner is listed as such, so the
+// operator can tell a row the run fills from one it assigns (wm-mttt4k).
+func TestPrintAssignOwnerReport_DryRunMarksARecordThatHasTheOwner(t *testing.T) {
+	var out bytes.Buffer
+	printAssignOwnerReport(&out, application.AssignOwnerReport{
+		AccountID: "acct-1", CreatedBy: "agent-1", DryRun: true,
+		Types: map[string]application.AssignOwnerTypeCount{"statement": {Ownerless: 2}},
+		Resources: []application.AssignOwnerResource{
+			{ID: "urn:statement:1", TypeSlug: "statement", CreatedAt: time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)},
+			{ID: "urn:statement:2", TypeSlug: "statement", CreatedAt: time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC),
+				RecordOwned: true},
+		},
+	})
+	lines := strings.Split(out.String(), "\n")
+	var first, second string
+	for _, l := range lines {
+		switch {
+		case strings.Contains(l, "urn:statement:1"):
+			first = l
+		case strings.Contains(l, "urn:statement:2"):
+			second = l
+		}
+	}
+	const mark = "record has the owner; projection row to fill"
+	if strings.Contains(first, mark) {
+		t.Errorf("an ownerless record is marked as owned: %q", first)
+	}
+	if !strings.Contains(second, mark) {
+		t.Errorf("a record that has the owner is not marked %q: %q\n%s", mark, second, out.String())
+	}
+}
+
+// A fill stores no event, so the preview and the result count it apart from
+// the assignments, and the totals reconcile with the event store
+// (wm-y49sxb).
+func TestPrintAssignOwnerReport_CountsRowsToFillApartFromAssignments(t *testing.T) {
+	var out bytes.Buffer
+	printAssignOwnerReport(&out, application.AssignOwnerReport{
+		AccountID: "acct-1", CreatedBy: "agent-1", DryRun: true,
+		Types: map[string]application.AssignOwnerTypeCount{
+			"statement": {Ownerless: 2, ToFill: 1}, "task": {ToFill: 3},
+		},
+	})
+	text := out.String()
+	for _, want := range []string{
+		"statement                2 ownerless, would assign 2; 1 projection row(s) to fill",
+		"task                     0 ownerless, would assign 0; 3 projection row(s) to fill",
+		"total: 2 ownerless resource(s) would be assigned (one Resource.AccountAssigned event each)",
+		"4 resource(s) with a projection row to fill from the record (no event)",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("preview lacks %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "consider") {
+		t.Errorf("a short fill list suggests a reproject:\n%s", text)
+	}
+
+	out.Reset()
+	printAssignOwnerReport(&out, application.AssignOwnerReport{
+		AccountID: "acct-1", CreatedBy: "agent-1",
+		Types: map[string]application.AssignOwnerTypeCount{
+			"statement": {Ownerless: 2, Assigned: 2, ToFill: 1, Filled: 1},
+		},
+	})
+	text = out.String()
+	for _, want := range []string{
+		"statement                2 ownerless, assigned 2; 1 projection row(s) to fill, filled 1",
+		"total: 2 of 2 ownerless resource(s) assigned (one Resource.AccountAssigned event each)",
+		"1 of 1 resource(s) with a projection row filled from the record (no event)",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("result lacks %q:\n%s", want, text)
+		}
+	}
+}
+
+// A fill rewrites whole rows, so a long fill list is better repaired by one
+// reproject of the stopped instance; the preview says so.
+func TestPrintAssignOwnerReport_ALongFillListSuggestsAReproject(t *testing.T) {
+	var out bytes.Buffer
+	printAssignOwnerReport(&out, application.AssignOwnerReport{
+		AccountID: "acct-1", CreatedBy: "agent-1", DryRun: true,
+		Types: map[string]application.AssignOwnerTypeCount{"task": {ToFill: assignOwnerManyFills}},
+	})
+	text := strings.Join(strings.Fields(out.String()), " ")
+	for _, want := range []string{"rewrites the whole projection row", "updated_at", "weos worker reproject"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("a preview with %d rows to fill lacks %q:\n%s", assignOwnerManyFills, want, out.String())
+		}
+	}
+}
+
+// A row to fill whose record another account owns is not this run's, but it
+// is not dropped silently either: the report names the account to run again
+// with (wm-v16sea).
+func TestPrintAssignOwnerReport_NamesTheAccountsThatOwnRowsLeftToFill(t *testing.T) {
+	for _, dryRun := range []bool{true, false} {
+		var out bytes.Buffer
+		printAssignOwnerReport(&out, application.AssignOwnerReport{
+			AccountID: "acct-1", CreatedBy: "agent-1", DryRun: dryRun,
+			Types: map[string]application.AssignOwnerTypeCount{},
+			OwnedElsewhere: []application.AssignOwnerElsewhere{
+				{AccountID: "acct-2", Resources: 3}, {AccountID: "acct-3", Resources: 1},
+			},
+		})
+		text := out.String()
+		for _, want := range []string{
+			"4 resource(s) created by agent-1 have a projection row that is ownerless or missing, " +
+				"but their record is owned by another account",
+			"--account acct-2   3 resource(s)",
+			"--account acct-3   1 resource(s)",
+		} {
+			if !strings.Contains(text, want) {
+				t.Errorf("dry run %v: report lacks %q:\n%s", dryRun, want, text)
+			}
+		}
+		if strings.Contains(text, "has no resource without an owner") {
+			t.Errorf("dry run %v: the report says nothing is ownerless:\n%s", dryRun, text)
+		}
+	}
+}
+
+// A preview lists what a run would leave for a reproject — a resource with
+// no projection row at all (wm-zm4sbz) — so it does not read clean.
+func TestPrintAssignOwnerReport_DryRunListsWhatNeedsAReproject(t *testing.T) {
+	var out bytes.Buffer
+	printAssignOwnerReport(&out, application.AssignOwnerReport{
+		AccountID: "acct-1", CreatedBy: "agent-1", DryRun: true,
+		Types: map[string]application.AssignOwnerTypeCount{"statement": {NeedsReproject: 1}},
+		NeedsReproject: []application.AssignOwnerSkip{{
+			ID: "urn:statement:1", TypeSlug: "statement", Reason: "no row in statements",
+		}},
+	})
+	text := out.String()
+	for _, want := range []string{
+		"statement                0 ownerless, would assign 0, 1 left for a reproject",
+		"urn:statement:1 (statement): no row in statements",
+		"weos worker reproject",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("preview lacks %q:\n%s", want, text)
+		}
+	}
+}
+
 // assignOwnerRunRules are what an operator must know before a real run. The
 // command's long help and docs/_reference/cli.md both state each one.
 var assignOwnerRunRules = []string{
@@ -252,6 +450,35 @@ var assignOwnerRunRules = []string{
 	"updated_at",
 	// What a stale record needs.
 	"weos worker reproject",
+	// A record with the owner whose projection row has none (wm-mttt4k): the
+	// next run fills the row from the record, with no second event.
+	"projection row",
+	"fills the row from the record",
+	// The fill runs outside a unit of work, so it writes a row only while
+	// that row has not changed since the record was read (wm-5o1kcm).
+	"changed after the run read the record",
+	"is not written over",
+	// A fill stores no event, rewrites the whole row and is counted apart;
+	// many fills are better done by a reproject (wm-y49sxb).
+	"rows to fill",
+	"rewrites the whole projection row",
+	"no event",
+	// A row to fill under a record another account owns is counted and
+	// named, for a second run with that account (wm-v16sea).
+	"owned by another account",
+	"run again with that --account",
+	// A resource with no projection row at all is listed for a reproject,
+	// in the preview too (wm-zm4sbz).
+	"no projection row at all",
+	// A projection row another account owns is listed apart, in the preview
+	// too: a reproject keeps that owner, so nothing repairs it (Copilot on
+	// #586, wm-oyoqao).
+	"no automatic repair",
+	"needs investigation",
+	// A row to fill that disappeared or that another account took after the
+	// preview is listed as the read-back finds it, not skipped as clean
+	// (Copilot on #586).
+	"since the preview is listed, not skipped",
 }
 
 func TestMaintenanceAssignOwner_HelpStatesTheRunRules(t *testing.T) {
