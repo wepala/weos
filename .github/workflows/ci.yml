@@ -33,6 +33,29 @@ jobs:
           name: admin-dist
           path: web/admin/.output/public
 
+  # The admin's unit tests (web/admin/tests/unit) guard client behaviour no Go
+  # job sees, such as the api-origin pin of wepala/weos#352. They are TypeScript
+  # run by Node's own test runner, which strips types from Node 23.6 on, so this
+  # job runs a newer Node than the frontend build's 20 (the Dockerfile's).
+  admin-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/admin/package-lock.json
+
+      - name: Install admin dependencies
+        working-directory: web/admin
+        run: npm ci
+
+      - name: Run admin unit tests
+        run: make test-admin-unit
+
   build:
     runs-on: ubuntu-latest
     needs: frontend
