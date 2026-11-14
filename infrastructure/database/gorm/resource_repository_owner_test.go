@@ -1,6 +1,7 @@
 package gorm
 
 import (
+	"encoding/json"
 	"errors"
 	"reflect"
 	"strings"
@@ -328,5 +329,97 @@ func TestFillOwnerlessProjectionRows_LeavesARowThatIsPastTheRecord(t *testing.T)
 	}
 	if row.Name != "renamed" || row.AccountID != "" {
 		t.Errorf("the row after the refused fill = %+v, want the concurrent write's name and no owner", row)
+	}
+}
+
+// Copilot on #586: a type named `resource`, or one that descends from it,
+// maps to `resources`, the canonical table itself. The canonical record is
+// not a projection row: the gap queries would join `resources` to itself and
+// fail on an ambiguous column, ending the whole preview or run, and the
+// read-back and the fill would treat the record as a row to check or write.
+// Every list of projection tables the backfill uses leaves it out, with a
+// projection manager and without one (the preview).
+func TestOwnerProjectionTables_LeaveOutTheCanonicalTable(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	if err := db.AutoMigrate(&models.Resource{}, &models.ResourcePermission{}, &models.ResourceType{}); err != nil {
+		t.Fatal(err)
+	}
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	repo := &ResourceRepository{db: db, projMgr: pm, logger: &testLogger{}}
+	ctx := t.Context()
+	parentCtx := `{"@vocab":"https://schema.org/","weos:abstract":true}`
+	childCtx := `{"@vocab":"https://schema.org/","rdfs:subClassOf":"resource"}`
+	schema := json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`)
+	if err := pm.EnsureTable(ctx, "note", schema, json.RawMessage(childCtx)); err != nil {
+		t.Fatal(err)
+	}
+	const ownerless, healthy = "urn:note:row-ownerless", "urn:note:healthy"
+	// Saved before the `resource` type is known, so Save writes the record
+	// and the notes row only, as it would for any type with no ancestor.
+	for _, id := range []string{ownerless, healthy} {
+		if err := repo.Save(ctx, makeTestResourceForAgent(t, id, "note", `{"name":"x"}`, "agent-1", "acct-1")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := pm.EnsureTable(ctx, "resource", schema, json.RawMessage(parentCtx)); err != nil {
+		t.Fatal(err)
+	}
+	for _, rt := range []models.ResourceType{
+		{ID: "rt-resource", Name: "Resource", Slug: "resource", Context: parentCtx},
+		{ID: "rt-note", Name: "Note", Slug: "note", Context: childCtx},
+	} {
+		if err := db.Create(&rt).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Table("notes").Where("id = ?", ownerless).Update("account_id", "").Error; err != nil {
+		t.Fatal(err)
+	}
+	if !pm.HasProjectionTable("resource") || pm.TableName("resource") != "resources" {
+		t.Fatalf("the fixture does not map the resource type to the canonical table")
+	}
+
+	for name, r := range map[string]*ResourceRepository{
+		"with a projection manager": repo, "without one": ProvideOwnerlessResourceFinder(db).(*ResourceRepository),
+	} {
+		got, err := r.FindOwnerlessByCreator(ctx, "agent-1")
+		if err != nil {
+			t.Fatalf("%s: find: %v", name, err)
+		}
+		if len(got) != 1 || got[0].ID != ownerless || got[0].MissingTable != "" || got[0].ForeignRowTable != "" {
+			t.Errorf("%s: listed %+v, want only %s with an ownerless notes row", name, got, ownerless)
+		}
+		owners, err := r.ProjectionRowOwners(ctx, healthy, "note")
+		if err != nil {
+			t.Fatalf("%s: owners: %v", name, err)
+		}
+		if want := []repositories.ProjectionRowOwner{{Table: "notes", AccountID: "acct-1"}}; !reflect.DeepEqual(owners, want) {
+			t.Errorf("%s: owners %+v, want %+v", name, owners, want)
+		}
+		tables, err := r.OwnerlessProjectionTables(ctx, ownerless, "note")
+		if err != nil || !reflect.DeepEqual(tables, []string{"notes"}) {
+			t.Errorf("%s: ownerless in %v (err %v), want [notes]", name, tables, err)
+		}
+	}
+
+	e, err := repo.FindByID(ctx, ownerless)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var before models.Resource
+	if err := db.Where("id = ?", ownerless).First(&before).Error; err != nil {
+		t.Fatal(err)
+	}
+	written, err := repo.FillOwnerlessProjectionRows(ctx, e)
+	if err != nil || !reflect.DeepEqual(written, []string{"notes"}) {
+		t.Fatalf("fill wrote %v (err %v), want [notes]", written, err)
+	}
+	var after models.Resource
+	if err := db.Where("id = ?", ownerless).First(&after).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !after.UpdatedAt.Equal(before.UpdatedAt) {
+		t.Errorf("the fill rewrote the canonical record (updated_at %v, was %v)", after.UpdatedAt, before.UpdatedAt)
 	}
 }

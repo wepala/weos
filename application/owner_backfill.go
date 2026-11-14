@@ -701,7 +701,14 @@ func (s *OwnerBackfillService) fillProjectionRows(
 		return 0, assignNote{}, fmt.Errorf("read the owner of the projection rows: %w", err)
 	}
 	if len(tables) == 0 {
-		// Filled since the selection, by a reproject or a concurrent write.
+		// No row is ownerless any more. It was filled since the selection, by
+		// a reproject or a concurrent write, only when every row now holds the
+		// account: a row that disappeared, or that another account took, is
+		// listed as the read-back finds it, never skipped as clean.
+		outcome, note, err := s.readBackProjectionRows(ctx, r.ID, entity.TypeSlug(), accountID)
+		if err != nil || outcome != assignedOwner {
+			return outcome, note, err
+		}
 		return gainedOwner, assignNote{}, nil
 	}
 	written, err := s.projFiller.FillOwnerlessProjectionRows(ctx, entity)

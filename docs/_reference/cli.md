@@ -399,7 +399,10 @@ A fill writes no event and does not write the record, so no version check guards
 unit of work guards an assignment. Instead each row is written only while it still has no owner and its
 sequence number is not past the record's, checked in the write statement itself. A row that changed
 after the run read the record (a write by a serving instance) is not written over: the resource is
-listed with the ones left for a reproject, and the command exits non-zero.
+listed with the ones left for a reproject, and the command exits non-zero. A row to fill that a serving instance
+filled meanwhile is skipped. One that disappeared or that another account took since the preview is
+listed, not skipped: the run reads the rows back and lists the resource with the ones left for a
+reproject or with the rows another account owns, so a run with `--write` still exits non-zero.
 
 **If an older binary served during or after a run with `--write`.** A binary built before this release does not
 know `Resource.AccountAssigned`. Its background workers skip the event and move their checkpoints

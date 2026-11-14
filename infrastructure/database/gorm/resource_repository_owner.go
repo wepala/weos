@@ -23,6 +23,7 @@ import (
 
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
+	"github.com/wepala/weos/v3/infrastructure/models"
 	"github.com/wepala/weos/v3/pkg/jsonld"
 )
 
@@ -90,7 +91,7 @@ const ownerlessRow = "id = ? AND (account_id = '' OR account_id IS NULL) AND COA
 
 // FillOwnerlessProjectionRows writes entity over each of its projection rows
 // that has no owner, guarded by ownerlessRow, and never writes the canonical
-// record. It needs the projection manager, which knows each table's columns.
+// record, even where a type maps to its table. It needs the projection manager, which knows each table's columns.
 func (r *ResourceRepository) FillOwnerlessProjectionRows(
 	ctx context.Context, entity *entities.Resource,
 ) ([]string, error) {
@@ -104,6 +105,9 @@ func (r *ResourceRepository) FillOwnerlessProjectionRows(
 			continue
 		}
 		table := r.projMgr.TableName(slug)
+		if isCanonicalTable(table) {
+			continue
+		}
 		var n int64
 		if err := r.db.WithContext(ctx).Table(table).
 			Where("id = ? AND (account_id = '' OR account_id IS NULL)", id).Count(&n).Error; err != nil {
@@ -231,9 +235,17 @@ func (r *ResourceRepository) findOwnerlessProjectionRows(
 	return out, nil
 }
 
+// isCanonicalTable reports whether table is the canonical resources table. A
+// type named `resource`, or an ancestor of that name, maps to it, and the
+// canonical record is not a projection row: a gap query would join the table
+// to itself, and a fill would write the record over itself.
+func isCanonicalTable(table string) bool {
+	return table == (models.Resource{}).TableName()
+}
+
 // ownerProjectionTables returns the projection tables a write of a typeSlug
 // resource fills: its own type's, then each ancestor's, where the table
-// exists. With a projection manager these are exactly the tables Update
+// exists, leaving out the canonical table. With a projection manager these are exactly the tables Update
 // writes. Without one — the read-only connection a preview opens — they are
 // found from the stored resource types, the same rdfs:subClassOf chain the
 // projection manager caches, without creating anything.
@@ -241,8 +253,11 @@ func (r *ResourceRepository) ownerProjectionTables(ctx context.Context, typeSlug
 	if r.projMgr != nil {
 		var tables []string
 		for _, slug := range append([]string{typeSlug}, r.projMgr.AncestorSlugs(typeSlug)...) {
-			if r.projMgr.HasProjectionTable(slug) {
-				tables = append(tables, r.projMgr.TableName(slug))
+			if !r.projMgr.HasProjectionTable(slug) {
+				continue
+			}
+			if table := r.projMgr.TableName(slug); !isCanonicalTable(table) {
+				tables = append(tables, table)
 			}
 		}
 		return tables, nil
@@ -253,7 +268,8 @@ func (r *ResourceRepository) ownerProjectionTables(ctx context.Context, typeSlug
 	visited := map[string]bool{}
 	for slug := typeSlug; slug != "" && !visited[slug]; {
 		visited[slug] = true
-		if table := slugToTableName(slug); migrator.HasTable(table) && migrator.HasColumn(table, "account_id") {
+		if table := slugToTableName(slug); !isCanonicalTable(table) &&
+			migrator.HasTable(table) && migrator.HasColumn(table, "account_id") {
 			tables = append(tables, table)
 		}
 		var contexts []string

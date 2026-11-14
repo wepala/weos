@@ -737,3 +737,67 @@ func TestAssignOwner_AFillThatWritesNoRowIsNotCountedAsFilled(t *testing.T) {
 		t.Errorf("report counts %d filled, but this run wrote no row", report.Filled())
 	}
 }
+
+// Copilot on #586: a row the plan selected to fill that disappears, or that
+// another account takes, before the run reaches it has nothing ownerless left
+// to fill. That is not a clean skip: the fill reads the rows back and lists
+// the resource as the read-back finds it, so a --write run does not exit 0
+// over a resource still missing from the record owner's listing.
+func TestAssignOwner_AFillWhoseRowChangedSinceThePlanIsListedAsTheReadBackFindsIt(t *testing.T) {
+	const elsewhere = "urn:account:elsewhere"
+	for _, tc := range []struct {
+		name   string
+		change func(row *backfillRow)
+		check  func(t *testing.T, report AssignOwnerReport, id string)
+	}{
+		{
+			name:   "the row disappeared",
+			change: func(row *backfillRow) { row.typeRowMissing = true },
+			check: func(t *testing.T, report AssignOwnerReport, id string) {
+				if len(report.NeedsReproject) != 1 || report.NeedsReproject[0].ID != id ||
+					!strings.Contains(report.NeedsReproject[0].Reason, "no row in tasks") {
+					t.Errorf("NeedsReproject = %+v, want %s with a reason that names tasks as having no row",
+						report.NeedsReproject, id)
+				}
+			},
+		},
+		{
+			name:   "another account took the row",
+			change: func(row *backfillRow) { row.typeRowOwner = elsewhere },
+			check: func(t *testing.T, report AssignOwnerReport, id string) {
+				if len(report.ForeignRows) != 1 || report.ForeignRows[0].ID != id ||
+					report.ForeignRows[0].Table != "tasks" || report.ForeignRows[0].RowAccountID != elsewhere {
+					t.Errorf("ForeignRows = %+v, want %s with table tasks and row account %s",
+						report.ForeignRows, id, elsewhere)
+				}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const id = "urn:task:reconcile-may"
+			h := newBackfillHarness(t, id)
+			h.failFirstRun(t, id)
+			ctx := context.Background()
+			plan, err := h.svc.PlanAssignOwner(ctx, AssignOwnerCommand{AccountID: h.account, CreatedBy: h.agent})
+			if err != nil || len(plan.Resources) != 1 || !plan.Resources[0].RecordOwned {
+				t.Fatalf("plan = %+v (err %v), want %s as a row to fill", plan.Resources, err, id)
+			}
+			h.repo.mu.Lock()
+			tc.change(h.repo.rows[id])
+			h.repo.mu.Unlock()
+			_, fills := h.repo.calls()
+
+			report, err := h.svc.ApplyAssignOwner(ctx, plan)
+			if err != nil {
+				t.Fatalf("apply: %v", err)
+			}
+			if got := report.Types["task"]; got.Skipped != 0 || got.Filled != 0 {
+				t.Errorf("task counts = %+v, want the resource neither skipped nor filled", got)
+			}
+			tc.check(t, report, id)
+			if _, f := h.repo.calls(); f != fills {
+				t.Errorf("the run wrote to the resource (%d fill call(s))", f-fills)
+			}
+		})
+	}
+}

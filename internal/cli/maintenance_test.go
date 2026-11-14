@@ -475,6 +475,10 @@ var assignOwnerRunRules = []string{
 	// #586, wm-oyoqao).
 	"no automatic repair",
 	"needs investigation",
+	// A row to fill that disappeared or that another account took after the
+	// preview is listed as the read-back finds it, not skipped as clean
+	// (Copilot on #586).
+	"since the preview is listed, not skipped",
 }
 
 func TestMaintenanceAssignOwner_HelpStatesTheRunRules(t *testing.T) {

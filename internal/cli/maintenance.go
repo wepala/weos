@@ -130,7 +130,9 @@ that --account (or, when the agent is not a member of it, reproject). A fill
 writes no event and does not write the record, and so has no version check;
 a row that changed after the run read the record (a write by a serving
 instance) is not written over, and the resource is listed with the ones left
-for a reproject.
+for a reproject. A row to fill that a serving instance filled meanwhile is
+skipped; one that disappeared or that another account took since the preview
+is listed, not skipped, as the read-back finds it.
 
 If a binary older than this release served during or after a run with
 --write, its background workers skipped the new event, so the knowledge graph

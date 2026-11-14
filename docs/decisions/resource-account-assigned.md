@@ -165,7 +165,16 @@ lands between its read of the record and its write of a row (wm-5o1kcm). The wri
 carries the guard instead: it updates the row only while the row has no owner and its `sequence_no` is
 not past the record's. A row that fails the guard is left as it is, and the resource is listed under
 `NeedsReproject` with the reason. That only happens when the instance serves during the run, which the
-procedure forbids.
+procedure forbids. A row to fill that has no owner to fill any more when the run reaches it is
+read back before the resource is skipped: it is skipped only when every row holds the run's account. A
+row that disappeared is listed under `NeedsReproject`, and one another account took under
+`ForeignRows`, so a run with `--write` does not exit 0 over them.
+
+The canonical table is never one of a resource's projection tables. A type named `resource`, or one
+that descends from it, maps to `resources`, the canonical table. The selection, the read-back and the
+fill leave that table out of every list of projection tables, with a projection manager and without one:
+a gap query would otherwise join the table to itself and fail on an ambiguous column, ending the whole
+preview or run, and the record is not a projection row.
 
 This is a read-model write, which option 1 rejects. Option 1 is rejected because the owner would not
 be in the stream. Here the `Resource.AccountAssigned` event is already in the stream, so a rebuild
