@@ -123,6 +123,12 @@ take the owner while a projection row does not. The resource then has its event,
 
 The command therefore also selects a resource whose record already has the run's `--account` but
 whose projection rows do not. The preview marks it "(record has the owner; projection row to fill)".
+A resource whose record has the run's `--account` but that has no projection row at all in one of its
+type tables is missing from that listing too, and neither an assignment nor a fill writes a row that
+does not exist (wm-zm4sbz). The selection finds it (`NOT EXISTS` against each table) and lists it under
+`NeedsReproject`, in the preview and in the result, with `weos worker reproject` as the repair. It is
+not filled.
+
 A real run writes the record's data and owner over each ownerless projection row
 (`FillOwnerlessProjectionRows`), and then reads the rows back. It appends no event and does not write
 the canonical record. It skips a record that is behind the event store, that has a different owner, or

@@ -100,7 +100,10 @@ A run that stops part-way has assigned what it reports; running it again with
 --write assigns the rest. A resource whose record is behind its event stream is
 skipped and listed, and the command exits non-zero: stop the instance, run
 "weos worker reproject" against the same database, then run this command
-again.
+again. A resource whose record has the --account and that has no projection
+row at all in one of its type tables is missing from that type's listing,
+and neither an assignment nor a fill writes a row that does not exist: the
+preview and the run list it the same way, for a reproject.
 
 A resource is counted as assigned only when its record and each of its
 projection rows read back with the owner. A failed write can leave a
@@ -351,6 +354,9 @@ func printAssignOwnerReport(out io.Writer, r application.AssignOwnerReport) {
 		c := r.Types[slug]
 		if r.DryRun {
 			_, _ = fmt.Fprintf(out, "  %-24s %d ownerless, would assign %d", slug, c.Ownerless, c.Ownerless)
+			if c.NeedsReproject > 0 {
+				_, _ = fmt.Fprintf(out, ", %d left for a reproject", c.NeedsReproject)
+			}
 			if c.ToFill > 0 {
 				_, _ = fmt.Fprintf(out, "; %d projection row(s) to fill", c.ToFill)
 			}
@@ -385,6 +391,7 @@ func printAssignOwnerReport(out io.Writer, r application.AssignOwnerReport) {
 			_, _ = fmt.Fprintf(out, "       %d resource(s) with a projection row to fill from the record (no event)\n", n)
 		}
 		printManyFills(out, r.ToFill())
+		printNeedsReproject(out, r.NeedsReproject)
 		return
 	}
 	_, _ = fmt.Fprintf(out, "\ntotal: %d of %d ownerless resource(s) assigned", r.Assigned(), r.Ownerless())
@@ -424,7 +431,8 @@ func printOwnedElsewhere(out io.Writer, r application.AssignOwnerReport) {
 	for _, e := range r.OwnedElsewhere {
 		n += e.Resources
 	}
-	_, _ = fmt.Fprintf(out, "\n%d resource(s) created by %s have a projection row to fill, but their record is owned by "+
+	_, _ = fmt.Fprintf(out, "\n%d resource(s) created by %s have a projection row that is ownerless or missing, but "+
+		"their record is owned by "+
 		"another account,\nso this run leaves them. Run again with that --account (or, when the agent is not a member "+
 		"of it,\nrun `weos worker reproject` on the stopped instance):\n", n, r.CreatedBy)
 	for _, e := range r.OwnedElsewhere {
@@ -432,19 +440,21 @@ func printOwnedElsewhere(out io.Writer, r application.AssignOwnerReport) {
 	}
 }
 
-// printNeedsReproject lists the resources a run skipped because their read
-// model is behind the event store, or because a projection row changed during
-// the run, and the one repair for both.
+// printNeedsReproject lists the resources a run leaves for a reproject —
+// their read model is behind the event store, a projection row changed during
+// the run, or a projection row does not exist at all — and the one repair for
+// all three. A preview lists them too.
 func printNeedsReproject(out io.Writer, skipped []application.AssignOwnerSkip) {
 	if len(skipped) == 0 {
 		return
 	}
-	_, _ = fmt.Fprintln(out, "\nThese resources are still ownerless. This run did not write to them, because their")
-	_, _ = fmt.Fprintln(out, "read model is behind the event store or changed during the run:")
+	_, _ = fmt.Fprintln(out, "\nThese resources are left for a reproject. A run does not write to them, because their read")
+	_, _ = fmt.Fprintln(out, "model is behind the event store, changed during the run, or has no projection row at all:")
 	for _, s := range skipped {
 		_, _ = fmt.Fprintf(out, "  %s (%s): %s\n", s.ID, s.TypeSlug, s.Reason)
 	}
 	_, _ = fmt.Fprintln(out, "\nStop the instance and run `weos worker reproject` against the same database, then")
 	_, _ = fmt.Fprintln(out, "run this command again. A reproject applies an assignment already in the event store,")
-	_, _ = fmt.Fprintln(out, "and brings every other record up to its events so the next run can assign it.")
+	_, _ = fmt.Fprintln(out, "writes every projection row that is missing, and brings every other record up to its")
+	_, _ = fmt.Fprintln(out, "events so the next run can assign it.")
 }

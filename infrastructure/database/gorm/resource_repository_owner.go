@@ -110,9 +110,10 @@ func (r *ResourceRepository) FillOwnerlessProjectionRows(
 
 // findOwnerlessProjectionRows lists the live resources createdBy created
 // whose canonical record has an owner while a projection row of theirs has
-// none, with the record's owner in RecordAccountID. Only the types of the
-// creator's owned records are searched, and a resource is listed once however
-// many of its rows are ownerless.
+// none, or does not exist (wm-zm4sbz), with the record's owner in
+// RecordAccountID and the first table with no row in MissingTable. Only the
+// types of the creator's owned records are searched, and a resource is listed
+// once however many of its rows are ownerless or missing.
 func (r *ResourceRepository) findOwnerlessProjectionRows(
 	ctx context.Context, createdBy string,
 ) ([]repositories.OwnerlessResource, error) {
@@ -124,7 +125,22 @@ func (r *ResourceRepository) findOwnerlessProjectionRows(
 		return nil, err
 	}
 	var out []repositories.OwnerlessResource
-	listed := map[string]bool{}
+	listed := map[string]int{} // id → index in out
+	add := func(found []repositories.OwnerlessResource, missingTable string) {
+		for _, f := range found {
+			if i, ok := listed[f.ID]; ok {
+				if out[i].MissingTable == "" {
+					out[i].MissingTable = missingTable
+				}
+				continue
+			}
+			f.MissingTable = missingTable
+			listed[f.ID] = len(out)
+			out = append(out, f)
+		}
+	}
+	const columns = "resources.id AS id, resources.type_slug AS type_slug, " +
+		"resources.created_at AS created_at, resources.account_id AS record_account_id"
 	for _, slug := range slugs {
 		tables, err := r.ownerProjectionTables(ctx, slug)
 		if err != nil {
@@ -133,8 +149,7 @@ func (r *ResourceRepository) findOwnerlessProjectionRows(
 		for _, table := range tables {
 			var found []repositories.OwnerlessResource
 			err := r.db.WithContext(ctx).Table(table).
-				Select("resources.id AS id, resources.type_slug AS type_slug, "+
-					"resources.created_at AS created_at, resources.account_id AS record_account_id").
+				Select(columns).
 				Joins(fmt.Sprintf("JOIN resources ON %s.id = resources.id", table)).
 				Where(owned, createdBy).
 				Where("resources.type_slug = ?", slug).
@@ -144,12 +159,21 @@ func (r *ResourceRepository) findOwnerlessProjectionRows(
 			if err != nil {
 				return nil, fmt.Errorf("read the owners in %s: %w", table, err)
 			}
-			for _, f := range found {
-				if !listed[f.ID] {
-					listed[f.ID] = true
-					out = append(out, f)
-				}
+			add(found, "")
+			// A row that does not exist is ownerless as far as the type's
+			// listing goes, and no join finds it.
+			var missing []repositories.OwnerlessResource
+			err = r.db.WithContext(ctx).Table("resources").
+				Select(columns).
+				Where(owned, createdBy).
+				Where("resources.type_slug = ?", slug).
+				Where(fmt.Sprintf("NOT EXISTS (SELECT 1 FROM %s WHERE %s.id = resources.id)", table, table)).
+				Order("resources.id").
+				Scan(&missing).Error
+			if err != nil {
+				return nil, fmt.Errorf("find the rows missing from %s: %w", table, err)
 			}
+			add(missing, table)
 		}
 	}
 	return out, nil

@@ -19,6 +19,9 @@ type ownerFixture struct {
 	repo                                         *ResourceRepository
 	recordOwnerless, ancestorRowOwnerless        string
 	ownTypeRowOwnerless, healthy, othersAncestor string
+	// ancestorRowMissing has the owner in its record and its own type's row,
+	// and no row at all in the ancestor's table (wm-zm4sbz).
+	ancestorRowMissing string
 }
 
 func seedOwnerFixture(t *testing.T) ownerFixture {
@@ -34,6 +37,7 @@ func seedOwnerFixture(t *testing.T) ownerFixture {
 		ownTypeRowOwnerless:  "urn:loan:own-row-ownerless",
 		healthy:              "urn:loan:healthy",
 		othersAncestor:       "urn:loan:others-ancestor-row-ownerless",
+		ancestorRowMissing:   "urn:loan:ancestor-row-missing",
 	}
 	for _, s := range []struct{ id, agent, account string }{
 		{f.recordOwnerless, "agent-1", ""},
@@ -41,6 +45,7 @@ func seedOwnerFixture(t *testing.T) ownerFixture {
 		{f.ownTypeRowOwnerless, "agent-1", "acct-1"},
 		{f.healthy, "agent-1", "acct-1"},
 		{f.othersAncestor, "agent-2", "acct-1"},
+		{f.ancestorRowMissing, "agent-1", "acct-1"},
 	} {
 		if err := repo.Save(ctx, makeTestResourceForAgent(t, s.id, "loan", `{"name":"x"}`, s.agent, s.account)); err != nil {
 			t.Fatal(err)
@@ -56,6 +61,12 @@ func seedOwnerFixture(t *testing.T) ownerFixture {
 	blank("instruments", f.ancestorRowOwnerless)
 	blank("instruments", f.othersAncestor)
 	blank("loans", f.ownTypeRowOwnerless)
+	// The row was never written: an insert that failed, or a table that
+	// arrived after the resource.
+	if err := repo.db.Table("instruments").Where("id = ?", f.ancestorRowMissing).
+		Delete(map[string]any{}).Error; err != nil {
+		t.Fatal(err)
+	}
 	return f
 }
 
@@ -70,6 +81,7 @@ func TestFindOwnerlessByCreator_ListsARecordWithAnOwnerWhoseProjectionRowHasNone
 		f.ancestorRowOwnerless: "acct-1",
 		f.ownTypeRowOwnerless:  "acct-1",
 		f.recordOwnerless:      "",
+		f.ancestorRowMissing:   "acct-1",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("listed %+v, want %v", got, want)
@@ -78,6 +90,11 @@ func TestFindOwnerlessByCreator_ListsARecordWithAnOwnerWhoseProjectionRowHasNone
 		owner, ok := want[r.ID]
 		if !ok || r.RecordAccountID != owner || r.TypeSlug != "loan" || r.CreatedAt.IsZero() {
 			t.Errorf("listed %+v; want record owner %q for it (listed: %v)", r, owner, ok)
+		}
+		// A resource with no row at all in a table is listed with that table
+		// (wm-zm4sbz); no other is.
+		if wantMissing := map[bool]string{true: "instruments"}[r.ID == f.ancestorRowMissing]; r.MissingTable != wantMissing {
+			t.Errorf("%s: MissingTable %q, want %q", r.ID, r.MissingTable, wantMissing)
 		}
 		if i > 0 && got[i-1].ID >= r.ID {
 			t.Errorf("not in id order: %s before %s", got[i-1].ID, r.ID)
@@ -109,7 +126,7 @@ func TestFindOwnerlessByCreator_WithoutAProjectionManagerFindsTheSameRows(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 3 || !reflect.DeepEqual(ids(got), ids(withMgr)) {
+	if len(got) != 4 || !reflect.DeepEqual(ids(got), ids(withMgr)) {
 		t.Errorf("without a projection manager listed %v, with one %v", ids(got), ids(withMgr))
 	}
 }
@@ -117,7 +134,7 @@ func TestFindOwnerlessByCreator_WithoutAProjectionManagerFindsTheSameRows(t *tes
 func ids(rs []repositories.OwnerlessResource) []string {
 	out := make([]string, len(rs))
 	for i, r := range rs {
-		out[i] = r.ID + "@" + r.RecordAccountID
+		out[i] = r.ID + "@" + r.RecordAccountID + "/" + r.MissingTable
 	}
 	return out
 }

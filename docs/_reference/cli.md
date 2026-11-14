@@ -359,6 +359,12 @@ rest. A resource whose record is behind its event stream is skipped and listed, 
 non-zero: with the instance stopped, run `weos worker reproject` against the same database, then run
 this command again.
 
+A resource whose record has the `--account` owner but that has no projection row at all in one of its
+type tables (its own type's or an ancestor's) is missing from that type's listing just as surely as
+one whose row has no owner. Neither an assignment nor a fill writes a row that does not exist, so the
+preview and the run list such a resource with the ones left for a reproject, naming the table, and a
+run with `--write` exits non-zero. `weos worker reproject` on the stopped instance writes the row.
+
 A resource is counted as assigned only when its record and each of its projection rows (its own
 type's table and each ancestor's) read back with the owner. The record and the rows are written one
 after the other, so a failed write can leave a projection row ownerless under a record that has the

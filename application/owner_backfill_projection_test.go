@@ -52,6 +52,8 @@ type backfillRow struct {
 	typeRowOwner                   string
 	// typeRowSeq is the sequence number the type row was last written at.
 	typeRowSeq int
+	// typeRowMissing says the type row does not exist at all.
+	typeRowMissing bool
 }
 
 // backfillRepo is a ResourceRepository with a canonical record and one type
@@ -161,6 +163,9 @@ func (r *backfillRepo) FindOwnerlessByCreator(
 		switch {
 		case row.accountID == "":
 			out = append(out, repositories.OwnerlessResource{ID: id, TypeSlug: row.typeSlug, CreatedAt: row.createdAt})
+		case row.typeRowMissing:
+			out = append(out, repositories.OwnerlessResource{ID: id, TypeSlug: row.typeSlug,
+				CreatedAt: row.createdAt, RecordAccountID: row.accountID, MissingTable: row.typeSlug + "s"})
 		case row.typeRowOwner == "":
 			out = append(out, repositories.OwnerlessResource{ID: id, TypeSlug: row.typeSlug,
 				CreatedAt: row.createdAt, RecordAccountID: row.accountID})
@@ -532,6 +537,43 @@ func TestAssignOwner_AFillDoesNotWriteARowThatChangedSinceTheRecordWasRead(t *te
 	}
 	if u, _ := h.repo.calls(); u != 1 {
 		t.Errorf("Update was called %d time(s), want only the first run's: the fill must not rewrite the record", u)
+	}
+	if after := h.events(t, id); after != stored {
+		t.Errorf("the run appended %d event(s)", after-stored)
+	}
+}
+
+// wm-zm4sbz: a resource whose record has the owner and whose projection row
+// does not exist at all is missing from its type's listing as surely as one
+// with an ownerless row. Neither an assignment nor a fill can reach it, so the
+// preview and the run list it for a reproject instead of reading clean.
+func TestAssignOwner_AMissingProjectionRowIsListedForAReproject(t *testing.T) {
+	const id = "urn:task:reconcile-may"
+	h := newBackfillHarness(t, id)
+	h.repo.rows[id].accountID = h.account
+	h.repo.rows[id].typeRowMissing = true
+	stored := h.events(t, id)
+	ctx := context.Background()
+
+	for _, dryRun := range []bool{true, false} {
+		report, err := h.svc.AssignOwner(ctx, AssignOwnerCommand{AccountID: h.account, CreatedBy: h.agent, DryRun: dryRun})
+		if err != nil {
+			t.Fatalf("dry run %v: %v", dryRun, err)
+		}
+		if len(report.NeedsReproject) != 1 || report.NeedsReproject[0].ID != id ||
+			!strings.Contains(report.NeedsReproject[0].Reason, "no row") {
+			t.Errorf("dry run %v: NeedsReproject = %+v, want %s with a reason that says it has no row",
+				dryRun, report.NeedsReproject, id)
+		}
+		if got := report.Types["task"]; got.NeedsReproject != 1 || got.ToFill != 0 || got.Ownerless != 0 {
+			t.Errorf("dry run %v: task counts = %+v, want only 1 left for a reproject", dryRun, got)
+		}
+		if len(report.Resources) != 0 {
+			t.Errorf("dry run %v: the run selects %+v to write", dryRun, report.Resources)
+		}
+	}
+	if u, f := h.repo.calls(); u != 0 || f != 0 {
+		t.Errorf("the run wrote to a resource with no row: %d update(s), %d fill(s)", u, f)
 	}
 	if after := h.events(t, id); after != stored {
 		t.Errorf("the run appended %d event(s)", after-stored)

@@ -116,9 +116,10 @@ type AssignOwnerTypeCount struct {
 	// the run reached them — a concurrent write — and so were left as they
 	// were.
 	Skipped int
-	// NeedsReproject is how many, of either kind, were left ownerless because
-	// their read model is behind the event store or changed during the run.
-	// Each is listed in the report's NeedsReproject.
+	// NeedsReproject is how many were left for a reproject: their read model
+	// is behind the event store or changed during the run, or a projection
+	// row does not exist at all. Each is listed in the report's
+	// NeedsReproject.
 	NeedsReproject int
 }
 
@@ -152,9 +153,11 @@ type AssignOwnerReport struct {
 	// Resources lists every selected resource, in type and then id order.
 	Resources []AssignOwnerResource
 	Types     map[string]AssignOwnerTypeCount
-	// NeedsReproject lists the resources the run skipped because their read
-	// model is behind the event store. `weos worker reproject` brings the read
-	// model up to the store; a later run then assigns what is still ownerless.
+	// NeedsReproject lists the resources a run leaves for a reproject: those
+	// whose read model is behind the event store or changed during the run,
+	// and, already in the plan, those with no projection row at all in one
+	// of their type tables. `weos worker reproject` brings the read model up
+	// to the store; a later run then assigns what is still ownerless.
 	NeedsReproject []AssignOwnerSkip
 	// OwnedElsewhere counts, per owning account in id order, the creator's
 	// resources (in the window) with a projection row to fill whose record
@@ -334,6 +337,21 @@ func (s *OwnerBackfillService) PlanAssignOwner(
 			elsewhere[r.RecordAccountID]++
 			continue
 		}
+		// A projection row that does not exist is out of reach of both an
+		// assignment and a fill, which only write rows that exist; only a
+		// reproject writes it. The resource is listed for one, in the
+		// preview too, so a run does not read clean while the resource is
+		// still missing from its type's listing.
+		if r.MissingTable != "" {
+			report.NeedsReproject = append(report.NeedsReproject, AssignOwnerSkip{
+				ID: r.ID, TypeSlug: r.TypeSlug, Reason: fmt.Sprintf("the record has the owner, and there is "+
+					"no row in %s at all, so the resource is missing from that listing", r.MissingTable),
+			})
+			c := report.Types[r.TypeSlug]
+			c.NeedsReproject++
+			report.Types[r.TypeSlug] = c
+			continue
+		}
 		recordOwned := r.RecordAccountID != ""
 		report.Resources = append(report.Resources, AssignOwnerResource{
 			ID: r.ID, TypeSlug: r.TypeSlug, CreatedAt: r.CreatedAt, RecordOwned: recordOwned,
@@ -393,9 +411,12 @@ func (s *OwnerBackfillService) ApplyAssignOwner(
 	report.DryRun = false
 	report.Types = make(map[string]AssignOwnerTypeCount, len(plan.Types))
 	for slug, c := range plan.Types {
-		report.Types[slug] = AssignOwnerTypeCount{Ownerless: c.Ownerless, ToFill: c.ToFill}
+		report.Types[slug] = AssignOwnerTypeCount{
+			Ownerless: c.Ownerless, ToFill: c.ToFill, NeedsReproject: c.NeedsReproject,
+		}
 	}
-	report.NeedsReproject = nil
+	// What the plan already left for a reproject stays listed.
+	report.NeedsReproject = append([]AssignOwnerSkip(nil), plan.NeedsReproject...)
 	for _, r := range plan.Resources {
 		assign := s.assignOne
 		if r.RecordOwned {

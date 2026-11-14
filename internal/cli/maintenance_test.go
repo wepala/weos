@@ -132,7 +132,7 @@ func TestPrintAssignOwnerReport_ListsWhatNeedsAReproject(t *testing.T) {
 		"total: 2 of 3 ownerless resource(s) assigned, 1 left for a reproject",
 		// A fill that met a row changed during the run lands in the same list
 		// (wm-5o1kcm), so the heading must not claim the read model is behind.
-		"behind the event store or changed during the run",
+		"behind the event store, changed during the run, or has no projection row at all",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("report lacks %q:\n%s", want, text)
@@ -340,7 +340,8 @@ func TestPrintAssignOwnerReport_NamesTheAccountsThatOwnRowsLeftToFill(t *testing
 		})
 		text := out.String()
 		for _, want := range []string{
-			"4 resource(s) created by agent-1 have a projection row to fill, but their record is owned by another account",
+			"4 resource(s) created by agent-1 have a projection row that is ownerless or missing, " +
+				"but their record is owned by another account",
 			"--account acct-2   3 resource(s)",
 			"--account acct-3   1 resource(s)",
 		} {
@@ -350,6 +351,29 @@ func TestPrintAssignOwnerReport_NamesTheAccountsThatOwnRowsLeftToFill(t *testing
 		}
 		if strings.Contains(text, "has no resource without an owner") {
 			t.Errorf("dry run %v: the report says nothing is ownerless:\n%s", dryRun, text)
+		}
+	}
+}
+
+// A preview lists what a run would leave for a reproject — a resource with
+// no projection row at all (wm-zm4sbz) — so it does not read clean.
+func TestPrintAssignOwnerReport_DryRunListsWhatNeedsAReproject(t *testing.T) {
+	var out bytes.Buffer
+	printAssignOwnerReport(&out, application.AssignOwnerReport{
+		AccountID: "acct-1", CreatedBy: "agent-1", DryRun: true,
+		Types: map[string]application.AssignOwnerTypeCount{"statement": {NeedsReproject: 1}},
+		NeedsReproject: []application.AssignOwnerSkip{{
+			ID: "urn:statement:1", TypeSlug: "statement", Reason: "no row in statements",
+		}},
+	})
+	text := out.String()
+	for _, want := range []string{
+		"statement                0 ownerless, would assign 0, 1 left for a reproject",
+		"urn:statement:1 (statement): no row in statements",
+		"weos worker reproject",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("preview lacks %q:\n%s", want, text)
 		}
 	}
 }
@@ -394,6 +418,9 @@ var assignOwnerRunRules = []string{
 	// named, for a second run with that account (wm-v16sea).
 	"owned by another account",
 	"run again with that --account",
+	// A resource with no projection row at all is listed for a reproject,
+	// in the preview too (wm-zm4sbz).
+	"no projection row at all",
 }
 
 func TestMaintenanceAssignOwner_HelpStatesTheRunRules(t *testing.T) {

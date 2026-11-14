@@ -1021,3 +1021,50 @@ func TestAssignOwner_TheCommandWithNoFlagWritesNothing(t *testing.T) {
 	env.requireOwner(t, "task", f.othersOwnerless, "", when)
 	env.requireOwner(t, "task", f.alreadyOwned, env.ownerAccount, when)
 }
+
+// wm-zm4sbz: a resource whose record has the owner and whose type row does
+// not exist at all is missing from the type's listing. The run must not read
+// clean: the preview and the run list it for a reproject, and a reproject
+// writes the row.
+func TestAssignOwner_AMissingTypeRowIsListedForAReproject(t *testing.T) {
+	env := newAssignOwnerEnv(t)
+	f := env.seed(t)
+	if err := env.db.Table(env.projMgr.TableName("task")).Where("id = ?", f.alreadyOwned).
+		Delete(map[string]any{}).Error; err != nil {
+		t.Fatalf("delete the type row: %v", err)
+	}
+	events := env.eventCount(t)
+
+	for _, dryRun := range []bool{true, false} {
+		report, err := env.backfill.AssignOwner(context.Background(), application.AssignOwnerCommand{
+			AccountID: env.ownerAccount, CreatedBy: env.ownerAgent, DryRun: dryRun,
+		})
+		if err != nil {
+			t.Fatalf("dry run %v: %v", dryRun, err)
+		}
+		var listed bool
+		for _, s := range report.NeedsReproject {
+			if s.ID == f.alreadyOwned && strings.Contains(s.Reason, env.projMgr.TableName("task")) {
+				listed = true
+			}
+		}
+		if !listed {
+			t.Errorf("dry run %v: NeedsReproject = %+v, want %s naming its missing row", dryRun,
+				report.NeedsReproject, f.alreadyOwned)
+		}
+		for _, r := range report.Resources {
+			if r.ID == f.alreadyOwned {
+				t.Errorf("dry run %v: the run selects %s to write", dryRun, f.alreadyOwned)
+			}
+		}
+	}
+	// The three ownerless resources were assigned, one event each, and
+	// nothing was written for the missing row.
+	if got := env.eventCount(t) - events; got != 3 {
+		t.Errorf("the run stored %d event(s), want 3", got)
+	}
+
+	env.stop()
+	env.reproject(t, "a reproject after the run")
+	env.requireOwner(t, "task", f.alreadyOwned, env.ownerAccount, "after a reproject")
+}
