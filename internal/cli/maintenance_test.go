@@ -325,6 +325,35 @@ func TestPrintAssignOwnerReport_ALongFillListSuggestsAReproject(t *testing.T) {
 	}
 }
 
+// A row to fill whose record another account owns is not this run's, but it
+// is not dropped silently either: the report names the account to run again
+// with (wm-v16sea).
+func TestPrintAssignOwnerReport_NamesTheAccountsThatOwnRowsLeftToFill(t *testing.T) {
+	for _, dryRun := range []bool{true, false} {
+		var out bytes.Buffer
+		printAssignOwnerReport(&out, application.AssignOwnerReport{
+			AccountID: "acct-1", CreatedBy: "agent-1", DryRun: dryRun,
+			Types: map[string]application.AssignOwnerTypeCount{},
+			OwnedElsewhere: []application.AssignOwnerElsewhere{
+				{AccountID: "acct-2", Resources: 3}, {AccountID: "acct-3", Resources: 1},
+			},
+		})
+		text := out.String()
+		for _, want := range []string{
+			"4 resource(s) created by agent-1 have a projection row to fill, but their record is owned by another account",
+			"--account acct-2   3 resource(s)",
+			"--account acct-3   1 resource(s)",
+		} {
+			if !strings.Contains(text, want) {
+				t.Errorf("dry run %v: report lacks %q:\n%s", dryRun, want, text)
+			}
+		}
+		if strings.Contains(text, "has no resource without an owner") {
+			t.Errorf("dry run %v: the report says nothing is ownerless:\n%s", dryRun, text)
+		}
+	}
+}
+
 // assignOwnerRunRules are what an operator must know before a real run. The
 // command's long help and docs/_reference/cli.md both state each one.
 var assignOwnerRunRules = []string{
@@ -361,6 +390,10 @@ var assignOwnerRunRules = []string{
 	"rows to fill",
 	"rewrites the whole projection row",
 	"no event",
+	// A row to fill under a record another account owns is counted and
+	// named, for a second run with that account (wm-v16sea).
+	"owned by another account",
+	"run again with that --account",
 }
 
 func TestMaintenanceAssignOwner_HelpStatesTheRunRules(t *testing.T) {

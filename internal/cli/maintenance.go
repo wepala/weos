@@ -115,7 +115,9 @@ rewrites the whole projection row from the record and sets its updated_at,
 as "weos worker reproject" does. When the preview lists many rows to fill,
 a reproject of the stopped instance repairs them all in one pass. Such a
 resource is selected only when the record's owner is the --account of the
-run. A fill
+run. One whose record is owned by another account is left alone, and the
+preview and the result count it under that account's id: run again with
+that --account (or, when the agent is not a member of it, reproject). A fill
 writes no event and does not write the record, and so has no version check;
 a row that changed after the run read the record (a write by a serving
 instance) is not written over, and the resource is listed with the ones left
@@ -334,10 +336,16 @@ const assignOwnerManyFills = 100
 // totals reconcile with the event store.
 func printAssignOwnerReport(out io.Writer, r application.AssignOwnerReport) {
 	if len(r.Types) == 0 {
+		if len(r.OwnedElsewhere) > 0 {
+			_, _ = fmt.Fprintln(out, "nothing to assign to this account.")
+			printOwnedElsewhere(out, r)
+			return
+		}
 		_, _ = fmt.Fprintln(out, "nothing to assign: the agent has no resource without an owner"+
 			" (in the window, when one is given). Check that --created-by is the agent id that wrote them.")
 		return
 	}
+	defer printOwnedElsewhere(out, r)
 	_, _ = fmt.Fprintln(out)
 	for _, slug := range r.TypeSlugs() {
 		c := r.Types[slug]
@@ -404,6 +412,24 @@ func printManyFills(out io.Writer, toFill int) {
 	_, _ = fmt.Fprintln(out, "      and sets its updated_at to the time of the run, as a reproject does. With this many,")
 	_, _ = fmt.Fprintln(out, "      consider `weos worker reproject` on the stopped instance instead: it repairs every")
 	_, _ = fmt.Fprintln(out, "      row in one pass. Then preview again.")
+}
+
+// printOwnedElsewhere names the accounts that own the records of rows this
+// run left to fill, so the operator knows which second run finishes them.
+func printOwnedElsewhere(out io.Writer, r application.AssignOwnerReport) {
+	if len(r.OwnedElsewhere) == 0 {
+		return
+	}
+	n := 0
+	for _, e := range r.OwnedElsewhere {
+		n += e.Resources
+	}
+	_, _ = fmt.Fprintf(out, "\n%d resource(s) created by %s have a projection row to fill, but their record is owned by "+
+		"another account,\nso this run leaves them. Run again with that --account (or, when the agent is not a member "+
+		"of it,\nrun `weos worker reproject` on the stopped instance):\n", n, r.CreatedBy)
+	for _, e := range r.OwnedElsewhere {
+		_, _ = fmt.Fprintf(out, "  --account %s   %d resource(s)\n", e.AccountID, e.Resources)
+	}
 }
 
 // printNeedsReproject lists the resources a run skipped because their read

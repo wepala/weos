@@ -129,6 +129,14 @@ type AssignOwnerSkip struct {
 	Reason   string
 }
 
+// AssignOwnerElsewhere counts the creator's resources whose record another
+// account owns and whose projection row has no owner. A run fills a row only
+// from a record its own account owns, so these need a run with AccountID.
+type AssignOwnerElsewhere struct {
+	AccountID string
+	Resources int
+}
+
 // AssignOwnerReport says what a run found and did, per resource type.
 type AssignOwnerReport struct {
 	AccountID string
@@ -148,6 +156,11 @@ type AssignOwnerReport struct {
 	// model is behind the event store. `weos worker reproject` brings the read
 	// model up to the store; a later run then assigns what is still ownerless.
 	NeedsReproject []AssignOwnerSkip
+	// OwnedElsewhere counts, per owning account in id order, the creator's
+	// resources (in the window) with a projection row to fill whose record
+	// another account owns. The run leaves them; a run with that account as
+	// --account fills them.
+	OwnedElsewhere []AssignOwnerElsewhere
 }
 
 // TypeSlugs returns the report's resource types in name order.
@@ -307,6 +320,7 @@ func (s *OwnerBackfillService) PlanAssignOwner(
 	}
 	// The window is applied here rather than in SQL: each dialect stores a
 	// time differently, and the creator's ownerless rows are few.
+	elsewhere := map[string]int{}
 	for _, r := range ownerless {
 		if !inWindow(r.CreatedAt, cmd.CreatedFrom, cmd.CreatedTo) {
 			continue
@@ -314,8 +328,10 @@ func (s *OwnerBackfillService) PlanAssignOwner(
 		// A record that has an owner with a projection row that has none is
 		// selected only when the record's owner is this run's account: the
 		// run then finishes its own assignment. A record owned by another
-		// account is not this run's to touch.
+		// account is not this run's to touch, but it is counted, so the
+		// report can name the account a second run needs.
 		if r.RecordAccountID != "" && r.RecordAccountID != cmd.AccountID {
+			elsewhere[r.RecordAccountID]++
 			continue
 		}
 		recordOwned := r.RecordAccountID != ""
@@ -330,6 +346,12 @@ func (s *OwnerBackfillService) PlanAssignOwner(
 		}
 		report.Types[r.TypeSlug] = c
 	}
+	for account, n := range elsewhere {
+		report.OwnedElsewhere = append(report.OwnedElsewhere, AssignOwnerElsewhere{AccountID: account, Resources: n})
+	}
+	sort.Slice(report.OwnedElsewhere, func(i, j int) bool {
+		return report.OwnedElsewhere[i].AccountID < report.OwnedElsewhere[j].AccountID
+	})
 	return report, nil
 }
 

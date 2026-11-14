@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -376,6 +377,21 @@ func TestAssignOwner_ATypeRowIsNotFilledForARecordOwnedByAnotherAccount(t *testi
 	}
 	if got := h.repo.typeRowOwner(id); got != "" {
 		t.Errorf("the type row took %q", got)
+	}
+	// It is not dropped silently (wm-v16sea): the plan and the result count
+	// it under the account that owns the record, so the operator knows a run
+	// with that --account is still needed.
+	want := []AssignOwnerElsewhere{{AccountID: "urn:account:elsewhere", Resources: 1}}
+	if !reflect.DeepEqual(report.OwnedElsewhere, want) {
+		t.Errorf("OwnedElsewhere = %+v, want %+v", report.OwnedElsewhere, want)
+	}
+	preview, err := h.svc.PlanAssignOwner(context.Background(),
+		AssignOwnerCommand{AccountID: h.account, CreatedBy: h.agent, DryRun: true})
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	if !reflect.DeepEqual(preview.OwnedElsewhere, want) {
+		t.Errorf("preview OwnedElsewhere = %+v, want %+v", preview.OwnedElsewhere, want)
 	}
 }
 

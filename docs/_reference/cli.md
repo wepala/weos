@@ -366,7 +366,10 @@ owner. The run then stops with an error that names the resource. Fix the cause a
 again: it selects that resource, fills the row from the record, and records no second event, because
 the assignment is already in the event store. The preview marks such a resource "record has the
 owner; projection row to fill". It is selected only when the record's owner is the `--account` of the
-run.
+run. A resource whose record is owned by another account is left alone, but it is not dropped silently:
+the preview and the result count such resources per owning account and print each account id, so the
+operator can run again with that `--account` (or, when the agent is not a member of it, run
+`weos worker reproject` on the stopped instance).
 
 The preview and the result count these rows to fill apart from the resources to assign. An assignment
 stores one `Resource.AccountAssigned` event and a fill stores no event, so only the assigned count

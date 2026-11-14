@@ -128,6 +128,11 @@ A real run writes the record's data and owner over each ownerless projection row
 the canonical record. It skips a record that is behind the event store, that has a different owner, or
 that has a different creator.
 
+A resource whose record is owned by an account other than the run's `--account` is never filled by
+that run, because the run's account check does not cover it. It is still counted, per owning account,
+and the preview and the result print each account id (wm-v16sea), so a creator who is a member of more
+than one account learns that a run with the other account is needed instead of reading a clean run.
+
 A fill rewrites the whole projection row from the record and sets its `updated_at`, as
 `weos worker reproject` does, so on a type whose row had drifted from the record it changes more than
 the owner. The preview and the result therefore count fills apart from assignments ("rows to fill",
