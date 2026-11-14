@@ -130,6 +130,9 @@ func TestPrintAssignOwnerReport_ListsWhatNeedsAReproject(t *testing.T) {
 		"urn:statement:1 (statement): the record is at sequence 2 and the event store at 3",
 		"weos worker reproject",
 		"total: 2 of 3 ownerless resource(s) assigned, 1 left for a reproject",
+		// A fill that met a row changed during the run lands in the same list
+		// (wm-5o1kcm), so the heading must not claim the read model is behind.
+		"behind the event store or changed during the run",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("report lacks %q:\n%s", want, text)
@@ -288,6 +291,10 @@ var assignOwnerRunRules = []string{
 	// next run fills the row from the record, with no second event.
 	"projection row",
 	"fills the row from the record",
+	// The fill runs outside a unit of work, so it writes a row only while
+	// that row has not changed since the record was read (wm-5o1kcm).
+	"changed after the run read the record",
+	"is not written over",
 }
 
 func TestMaintenanceAssignOwner_HelpStatesTheRunRules(t *testing.T) {

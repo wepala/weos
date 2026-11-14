@@ -366,7 +366,11 @@ owner. The run then stops with an error that names the resource. Fix the cause a
 again: it selects that resource, fills the row from the record, and records no second event, because
 the assignment is already in the event store. The preview marks such a resource "record has the
 owner; projection row to fill". It is selected only when the record's owner is the `--account` of the
-run.
+run. A fill writes no event and does not write the record, so no version check guards it the way the
+unit of work guards an assignment. Instead each row is written only while it still has no owner and its
+sequence number is not past the record's, checked in the write statement itself. A row that changed
+after the run read the record (a write by a serving instance) is not written over: the resource is
+listed with the ones left for a reproject, and the command exits non-zero.
 
 **If an older binary served during or after a run with `--write`.** A binary built before this release does not
 know `Resource.AccountAssigned`. Its background workers skip the event and move their checkpoints

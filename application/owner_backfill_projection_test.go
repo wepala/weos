@@ -49,6 +49,8 @@ type backfillRow struct {
 	seq                            int
 	createdAt                      time.Time
 	typeRowOwner                   string
+	// typeRowSeq is the sequence number the type row was last written at.
+	typeRowSeq int
 }
 
 // backfillRepo is a ResourceRepository with a canonical record and one type
@@ -60,6 +62,12 @@ type backfillRepo struct {
 	mu          sync.Mutex
 	rows        map[string]*backfillRow
 	failTypeRow map[string]bool
+	// beforeFill runs at the start of FillOwnerlessProjectionRows, before
+	// the fill reads the row: the moment a concurrent write would land.
+	beforeFill func(id string)
+	// updates and fills count the calls to Update and to
+	// FillOwnerlessProjectionRows.
+	updates, fills int
 }
 
 func (r *backfillRepo) FindByID(_ context.Context, id string) (*entities.Resource, error) {
@@ -80,6 +88,7 @@ func (r *backfillRepo) FindByID(_ context.Context, id string) (*entities.Resourc
 func (r *backfillRepo) Update(_ context.Context, e *entities.Resource) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.updates++
 	row := r.rows[e.GetID()]
 	row.accountID, row.seq = e.AccountID(), e.GetSequenceNo()
 	if r.failTypeRow[e.GetID()] {
@@ -88,7 +97,39 @@ func (r *backfillRepo) Update(_ context.Context, e *entities.Resource) error {
 	if row.typeRowOwner == "" {
 		row.typeRowOwner = e.AccountID()
 	}
+	row.typeRowSeq = e.GetSequenceNo()
 	return nil
+}
+
+// FillOwnerlessProjectionRows writes the record to the type row when the row
+// is still ownerless and not past the record's sequence, as the gorm
+// repository's guarded write does. The record itself is not written.
+func (r *backfillRepo) FillOwnerlessProjectionRows(_ context.Context, e *entities.Resource) ([]string, error) {
+	if r.beforeFill != nil {
+		r.beforeFill(e.GetID())
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.fills++
+	row := r.rows[e.GetID()]
+	if row.typeRowOwner != "" {
+		return nil, nil
+	}
+	table := row.typeSlug + "s"
+	if row.typeRowSeq > e.GetSequenceNo() {
+		return nil, fmt.Errorf("%s in %s: %w", e.GetID(), table, repositories.ErrProjectionRowChanged)
+	}
+	if r.failTypeRow[e.GetID()] {
+		return nil, errors.New("simulated failure of the type projection row write")
+	}
+	row.typeRowOwner, row.typeRowSeq = e.AccountID(), e.GetSequenceNo()
+	return []string{table}, nil
+}
+
+func (r *backfillRepo) calls() (updates, fills int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.updates, r.fills
 }
 
 func (r *backfillRepo) typeRowOwner(id string) string {
@@ -205,7 +246,8 @@ func newBackfillHarness(t *testing.T, ids ...string) *backfillHarness {
 		if err != nil {
 			t.Fatal(err)
 		}
-		h.repo.rows[id] = &backfillRow{typeSlug: "task", createdBy: agent, seq: seq, createdAt: time.Now()}
+		h.repo.rows[id] = &backfillRow{typeSlug: "task", createdBy: agent, seq: seq, createdAt: time.Now(),
+			typeRowSeq: seq}
 	}
 	d := domain.NewEventDispatcher()
 	if err := domain.Subscribe(d, "Resource.AccountAssigned",
@@ -343,5 +385,130 @@ func TestAssignOwner_ARepairThatDoesNotReachTheTypeRowIsNotCounted(t *testing.T)
 	}
 	if report.Assigned() != 0 {
 		t.Errorf("a failed repair counts %d assigned", report.Assigned())
+	}
+}
+
+// failFirstRun runs the backfill once with id's type-row write failing, so
+// the record has the owner and the type row has none, then lets writes
+// through again.
+func (h *backfillHarness) failFirstRun(t *testing.T, id string) {
+	t.Helper()
+	h.repo.failTypeRow[id] = true
+	if _, err := h.run(t); err == nil {
+		t.Fatal("the first run did not fail on the ownerless type row")
+	}
+	delete(h.repo.failTypeRow, id)
+}
+
+// appendPastTheRecord stores an event for id that the record has not
+// applied, so the record is behind its event stream.
+func (h *backfillHarness) appendPastTheRecord(t *testing.T, id string) {
+	t.Helper()
+	e, err := h.repo.FindByID(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Update(json.RawMessage(`{"name":"renamed"}`)); err != nil {
+		t.Fatal(err)
+	}
+	uow := esapp.NewSimpleUnitOfWork(h.store, domain.NewEventDispatcher())
+	if err := uow.Track(e); err != nil {
+		t.Fatal(err)
+	}
+	if err := uow.Commit(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// wm-5o1kcm: a fill writes the record over its rows, so a record that is
+// behind its event stream would put stale data back. It is left for a
+// reproject, and nothing is written.
+func TestAssignOwner_AFillLeavesARecordBehindItsStreamForAReproject(t *testing.T) {
+	const id = "urn:task:reconcile-may"
+	h := newBackfillHarness(t, id)
+	h.failFirstRun(t, id)
+	h.appendPastTheRecord(t, id)
+	updates, fills := h.repo.calls()
+
+	report, err := h.run(t)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(report.NeedsReproject) != 1 || report.NeedsReproject[0].ID != id {
+		t.Fatalf("NeedsReproject = %+v, want %s", report.NeedsReproject, id)
+	}
+	if u, f := h.repo.calls(); u != updates || f != fills {
+		t.Errorf("the run wrote a record behind its stream: %d update(s), %d fill(s)", u-updates, f-fills)
+	}
+	if got := h.repo.typeRowOwner(id); got != "" {
+		t.Errorf("the type row took %q from a stale record", got)
+	}
+}
+
+// wm-5o1kcm: a row that a reproject or another write filled between the plan
+// and the run is left alone, and not counted as filled by this run.
+func TestAssignOwner_AFillSkipsARowFilledBetweenThePlanAndTheRun(t *testing.T) {
+	const id = "urn:task:reconcile-may"
+	h := newBackfillHarness(t, id)
+	h.failFirstRun(t, id)
+	ctx := context.Background()
+	plan, err := h.svc.PlanAssignOwner(ctx, AssignOwnerCommand{AccountID: h.account, CreatedBy: h.agent})
+	if err != nil || len(plan.Resources) != 1 || !plan.Resources[0].RecordOwned {
+		t.Fatalf("plan = %+v (err %v), want %s as a row to fill", plan.Resources, err, id)
+	}
+	h.repo.mu.Lock()
+	h.repo.rows[id].typeRowOwner = h.account
+	h.repo.mu.Unlock()
+	_, fills := h.repo.calls()
+
+	report, err := h.svc.ApplyAssignOwner(ctx, plan)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if got := report.Types["task"]; got.Skipped != 1 {
+		t.Errorf("task counts = %+v, want the filled row skipped", got)
+	}
+	if _, f := h.repo.calls(); f != fills {
+		t.Errorf("the run wrote a row that already had its owner (%d fill call(s))", f-fills)
+	}
+	if len(report.NeedsReproject) != 0 {
+		t.Errorf("NeedsReproject = %+v, want none", report.NeedsReproject)
+	}
+}
+
+// wm-5o1kcm: a write that lands between the fill's read of the record and its
+// write of the row moves the row past the record. The fill must not write the
+// stale record over it: it skips the resource and lists it, and the user's
+// write stands.
+func TestAssignOwner_AFillDoesNotWriteARowThatChangedSinceTheRecordWasRead(t *testing.T) {
+	const id = "urn:task:reconcile-may"
+	h := newBackfillHarness(t, id)
+	h.failFirstRun(t, id)
+	h.repo.beforeFill = func(id string) {
+		h.repo.mu.Lock()
+		defer h.repo.mu.Unlock()
+		h.repo.rows[id].typeRowSeq = h.repo.rows[id].seq + 1
+	}
+	stored := h.events(t, id)
+
+	report, err := h.run(t)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(report.NeedsReproject) != 1 || report.NeedsReproject[0].ID != id ||
+		!strings.Contains(report.NeedsReproject[0].Reason, "changed") {
+		t.Fatalf("NeedsReproject = %+v, want %s with a reason that says the row changed", report.NeedsReproject, id)
+	}
+	if report.Assigned() != 0 {
+		t.Errorf("a skipped fill counts %d", report.Assigned())
+	}
+	if got := h.repo.typeRowOwner(id); got != "" {
+		t.Errorf("the fill wrote the stale record over a row that changed: owner %q", got)
+	}
+	if u, _ := h.repo.calls(); u != 1 {
+		t.Errorf("Update was called %d time(s), want only the first run's: the fill must not rewrite the record", u)
+	}
+	if after := h.events(t, id); after != stored {
+		t.Errorf("the run appended %d event(s)", after-stored)
 	}
 }

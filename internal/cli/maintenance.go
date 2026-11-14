@@ -108,7 +108,11 @@ projection row ownerless under a record that has the owner; the run then
 stops and names the resource. Fix the cause and run again: the run selects
 that resource, fills the row from the record, and records no second event.
 The preview marks it "record has the owner; projection row to fill". It is
-selected only when the record's owner is the --account of the run.
+selected only when the record's owner is the --account of the run. A fill
+writes no event and does not write the record, and so has no version check;
+a row that changed after the run read the record (a write by a serving
+instance) is not written over, and the resource is listed with the ones left
+for a reproject.
 
 If a binary older than this release served during or after a run with
 --write, its background workers skipped the new event, so the knowledge graph
@@ -359,13 +363,14 @@ func printAssignOwnerReport(out io.Writer, r application.AssignOwnerReport) {
 }
 
 // printNeedsReproject lists the resources a run skipped because their read
-// model is behind the event store, and the one repair for that.
+// model is behind the event store, or because a projection row changed during
+// the run, and the one repair for both.
 func printNeedsReproject(out io.Writer, skipped []application.AssignOwnerSkip) {
 	if len(skipped) == 0 {
 		return
 	}
-	_, _ = fmt.Fprintln(out, "\nThese resources are still ownerless. Their read model is behind the event store, so")
-	_, _ = fmt.Fprintln(out, "this run did not write to them:")
+	_, _ = fmt.Fprintln(out, "\nThese resources are still ownerless. This run did not write to them, because their")
+	_, _ = fmt.Fprintln(out, "read model is behind the event store or changed during the run:")
 	for _, s := range skipped {
 		_, _ = fmt.Fprintf(out, "  %s (%s): %s\n", s.ID, s.TypeSlug, s.Reason)
 	}

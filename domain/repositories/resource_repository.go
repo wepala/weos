@@ -97,6 +97,29 @@ type ProjectionOwnerReader interface {
 	OwnerlessProjectionTables(ctx context.Context, id, typeSlug string) ([]string, error)
 }
 
+// ErrProjectionRowChanged means a projection row changed after the canonical
+// record was read, so a write of that record would put older data over it.
+var ErrProjectionRowChanged = errors.New("the projection row changed after the record was read")
+
+// ProjectionOwnerFiller is implemented by a ResourceRepository that can fill
+// the empty owner of a resource's projection rows from its canonical record.
+// Like ProjectionOwnerReader it is an interface of its own; a caller
+// type-asserts for it.
+type ProjectionOwnerFiller interface {
+	// FillOwnerlessProjectionRows writes entity, the canonical record as the
+	// caller just read it, over each of the resource's projection rows (its
+	// own type's and each ancestor's) that has no owner, and returns the
+	// tables it wrote, in write order. The canonical record is not written.
+	//
+	// Each row is written whole, as Update writes it, and only while it still
+	// has no owner and its sequence number is not past the entity's. That
+	// check is part of the write statement itself, so a write that lands
+	// between the caller's read and this write is never overwritten: the row
+	// is left as it is, and the call returns ErrProjectionRowChanged naming
+	// the table. Rows written before that table stay written.
+	FillOwnerlessProjectionRows(ctx context.Context, entity *entities.Resource) ([]string, error)
+}
+
 type ResourceRepository interface {
 	Save(ctx context.Context, entity *entities.Resource) error
 	FindByID(ctx context.Context, id string) (*entities.Resource, error)

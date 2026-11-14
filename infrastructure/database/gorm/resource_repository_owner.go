@@ -18,8 +18,10 @@ package gorm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
+	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
 	"github.com/wepala/weos/v3/pkg/jsonld"
 )
@@ -55,6 +57,55 @@ func (r *ResourceRepository) OwnerlessProjectionTables(
 		}
 	}
 	return ownerless, nil
+}
+
+var _ repositories.ProjectionOwnerFiller = (*ResourceRepository)(nil)
+
+// ownerlessRow is the condition a projection row the fill writes must still
+// meet at the moment of the write: no owner, and a sequence number not past
+// the record's. It is the WHERE of the write statement itself, so a write that
+// lands after the record was read is never overwritten (wm-5o1kcm).
+const ownerlessRow = "id = ? AND (account_id = '' OR account_id IS NULL) AND COALESCE(sequence_no, 0) <= ?"
+
+// FillOwnerlessProjectionRows writes entity over each of its projection rows
+// that has no owner, guarded by ownerlessRow, and never writes the canonical
+// record. It needs the projection manager, which knows each table's columns.
+func (r *ResourceRepository) FillOwnerlessProjectionRows(
+	ctx context.Context, entity *entities.Resource,
+) ([]string, error) {
+	if r.projMgr == nil {
+		return nil, errors.New("fill the owner of the projection rows: no projection manager")
+	}
+	id, seq := entity.GetID(), entity.GetSequenceNo()
+	var written []string
+	for _, slug := range append([]string{entity.TypeSlug()}, r.projMgr.AncestorSlugs(entity.TypeSlug())...) {
+		if !r.projMgr.HasProjectionTable(slug) {
+			continue
+		}
+		table := r.projMgr.TableName(slug)
+		var n int64
+		if err := r.db.WithContext(ctx).Table(table).
+			Where("id = ? AND (account_id = '' OR account_id IS NULL)", id).Count(&n).Error; err != nil {
+			return written, fmt.Errorf("read the owner of %s in %s: %w", id, table, err)
+		}
+		if n == 0 {
+			continue
+		}
+		row := r.projectionRow(ctx, entity, slug)
+		for _, col := range []string{"id", "created_at", "created_by"} {
+			delete(row, col)
+		}
+		res := r.writeDB(ctx).Table(table).Where(ownerlessRow, id, seq).Updates(row)
+		if res.Error != nil {
+			return written, fmt.Errorf("fill the owner of %s in %s: %w", id, table, res.Error)
+		}
+		if res.RowsAffected == 0 {
+			return written, fmt.Errorf("%s in %s, which took an owner or moved past sequence %d: %w",
+				id, table, seq, repositories.ErrProjectionRowChanged)
+		}
+		written = append(written, table)
+	}
+	return written, nil
 }
 
 // findOwnerlessProjectionRows lists the live resources createdBy created

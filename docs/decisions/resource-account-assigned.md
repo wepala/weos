@@ -123,9 +123,17 @@ take the owner while a projection row does not. The resource then has its event,
 
 The command therefore also selects a resource whose record already has the run's `--account` but
 whose projection rows do not. The preview marks it "(record has the owner; projection row to fill)".
-A real run writes the record again through the repository's `Update`, whose upsert only fills an
-empty owner, and then reads the rows back. It appends no event. It skips a record that is behind the
-event store, that has a different owner, or that has a different creator.
+A real run writes the record's data and owner over each ownerless projection row
+(`FillOwnerlessProjectionRows`), and then reads the rows back. It appends no event and does not write
+the canonical record. It skips a record that is behind the event store, that has a different owner, or
+that has a different creator.
+
+The fill does not go through a unit of work, so no version conflict protects it from a write that
+lands between its read of the record and its write of a row (wm-5o1kcm). The write statement itself
+carries the guard instead: it updates the row only while the row has no owner and its `sequence_no` is
+not past the record's. A row that fails the guard is left as it is, and the resource is listed under
+`NeedsReproject` with the reason. That only happens when the instance serves during the run, which the
+procedure forbids.
 
 This is a read-model write, which option 1 rejects. Option 1 is rejected because the owner would not
 be in the stream. Here the `Resource.AccountAssigned` event is already in the stream, so a rebuild

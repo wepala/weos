@@ -1,7 +1,9 @@
 package gorm
 
 import (
+	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/wepala/weos/v3/domain/repositories"
@@ -157,5 +159,78 @@ func TestUpdate_FillsAnOwnerlessProjectionRowFromTheRecord(t *testing.T) {
 		if got, err := f.repo.OwnerlessProjectionTables(t.Context(), id, "loan"); err != nil || len(got) != 0 {
 			t.Errorf("%s after the update: ownerless in %v (err %v)", id, got, err)
 		}
+	}
+}
+
+// wm-5o1kcm: the backfill's fill writes the record over each ownerless row
+// and leaves the record and every owned row as they were.
+func TestFillOwnerlessProjectionRows_WritesOnlyTheOwnerlessRows(t *testing.T) {
+	t.Parallel()
+	f := seedOwnerFixture(t)
+	var filler repositories.ProjectionOwnerFiller = f.repo
+	for id, want := range map[string][]string{
+		f.ancestorRowOwnerless: {"instruments"},
+		f.ownTypeRowOwnerless:  {"loans"},
+		f.healthy:              nil,
+	} {
+		e, err := f.repo.FindByID(t.Context(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var before models.Resource
+		if err := f.repo.db.Where("id = ?", id).First(&before).Error; err != nil {
+			t.Fatal(err)
+		}
+		got, err := filler.FillOwnerlessProjectionRows(t.Context(), e)
+		if err != nil {
+			t.Fatalf("%s: %v", id, err)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: wrote %v, want %v", id, got, want)
+		}
+		if left, err := f.repo.OwnerlessProjectionTables(t.Context(), id, "loan"); err != nil || len(left) != 0 {
+			t.Errorf("%s after the fill: ownerless in %v (err %v)", id, left, err)
+		}
+		var after models.Resource
+		if err := f.repo.db.Where("id = ?", id).First(&after).Error; err != nil {
+			t.Fatal(err)
+		}
+		if !after.UpdatedAt.Equal(before.UpdatedAt) {
+			t.Errorf("%s: the fill rewrote the canonical record (updated_at %v, was %v)", id,
+				after.UpdatedAt, before.UpdatedAt)
+		}
+	}
+}
+
+// wm-5o1kcm: a write that lands between the read of the record and the fill
+// moves the row past the record. The fill must not put the older record over
+// it; the check is in the write statement itself.
+func TestFillOwnerlessProjectionRows_LeavesARowThatIsPastTheRecord(t *testing.T) {
+	t.Parallel()
+	f := seedOwnerFixture(t)
+	e, err := f.repo.FindByID(t.Context(), f.ownTypeRowOwnerless)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The concurrent write: the row moves to a later sequence with new data.
+	if err := f.repo.db.Table("loans").Where("id = ?", f.ownTypeRowOwnerless).
+		Updates(map[string]any{"sequence_no": e.GetSequenceNo() + 1, "name": "renamed"}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := f.repo.FillOwnerlessProjectionRows(t.Context(), e)
+	if !errors.Is(err, repositories.ErrProjectionRowChanged) || !strings.Contains(err.Error(), "loans") {
+		t.Fatalf("fill = (%v, %v), want ErrProjectionRowChanged naming loans", got, err)
+	}
+	var row struct {
+		Name      string
+		AccountID string
+	}
+	if err := f.repo.db.Table("loans").Select("name, account_id").
+		Where("id = ?", f.ownTypeRowOwnerless).Scan(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	if row.Name != "renamed" || row.AccountID != "" {
+		t.Errorf("the row after the refused fill = %+v, want the concurrent write's name and no owner", row)
 	}
 }

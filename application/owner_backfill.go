@@ -180,6 +180,7 @@ type OwnerBackfillService struct {
 	repo       repositories.ResourceRepository
 	finder     repositories.OwnerlessResourceFinder
 	projOwners repositories.ProjectionOwnerReader
+	projFiller repositories.ProjectionOwnerFiller
 	accounts   authrepos.AccountRepository
 	eventStore domain.EventStore
 	dispatcher *domain.EventDispatcher
@@ -190,10 +191,12 @@ type OwnerBackfillService struct {
 func ProvideOwnerBackfillService(p OwnerBackfillParams) *OwnerBackfillService {
 	finder, _ := p.Repo.(repositories.OwnerlessResourceFinder)
 	projOwners, _ := p.Repo.(repositories.ProjectionOwnerReader)
+	projFiller, _ := p.Repo.(repositories.ProjectionOwnerFiller)
 	return &OwnerBackfillService{
 		repo:       p.Repo,
 		finder:     finder,
 		projOwners: projOwners,
+		projFiller: projFiller,
 		accounts:   p.Accounts,
 		eventStore: p.EventStore,
 		dispatcher: p.Dispatcher,
@@ -315,8 +318,9 @@ func (s *OwnerBackfillService) PlanAssignOwner(
 //
 // A resource whose record has the owner and a projection row has none (see
 // AssignOwnerResource.RecordOwned) is not given a second event. Its record is
-// written again to its projection rows, which fill an empty owner only, and
-// it is counted as assigned once the rows read back with the owner.
+// written to each ownerless projection row, and it is counted once the rows
+// read back with the owner. A row that changed after the record was read is
+// not written; the resource is listed in NeedsReproject.
 func (s *OwnerBackfillService) ApplyAssignOwner(
 	ctx context.Context, plan AssignOwnerReport,
 ) (AssignOwnerReport, error) {
@@ -326,6 +330,10 @@ func (s *OwnerBackfillService) ApplyAssignOwner(
 	if s.projOwners == nil {
 		return plan, fmt.Errorf("assign owner: the resource repository %T cannot read the owner of its "+
 			"projection rows, so an assignment could not be checked", s.repo)
+	}
+	if s.projFiller == nil {
+		return plan, fmt.Errorf("assign owner: the resource repository %T cannot fill the owner of its "+
+			"projection rows", s.repo)
 	}
 	report := plan
 	report.DryRun = false
@@ -507,12 +515,17 @@ func (s *OwnerBackfillService) assignOne(
 
 // fillProjectionRows finishes an assignment whose event is stored and whose
 // record has the owner, but whose projection row does not. It writes the
-// record again through the repository, whose projection upsert fills an empty
-// owner only, and records no event: the owner is already in the stream, so a
-// rebuild keeps it, and the background workers saw the stored event.
+// record over each ownerless projection row and records no event: the owner
+// is already in the stream, so a rebuild keeps it, and the background workers
+// saw the stored event. The canonical record is not written.
 //
 // A record behind its event stream is left for a reproject, as in assignOne:
-// writing it would put a stale record back over its rows.
+// writing it would put a stale record back over its rows. The fill runs
+// outside a unit of work, so it cannot rely on a version conflict the way
+// assignOne does; the repository writes each row only while that row has no
+// owner and is not past the record's sequence, checked in the write statement
+// itself. A row that fails that check changed after the record was read — the
+// instance is serving — and the resource is left for a reproject too.
 func (s *OwnerBackfillService) fillProjectionRows(
 	ctx context.Context, r AssignOwnerResource, accountID, createdBy string,
 ) (assignOutcome, string, error) {
@@ -536,7 +549,11 @@ func (s *OwnerBackfillService) fillProjectionRows(
 		// Filled since the selection, by a reproject or a concurrent write.
 		return gainedOwner, "", nil
 	}
-	if err := s.repo.Update(ctx, entity); err != nil {
+	if _, err := s.projFiller.FillOwnerlessProjectionRows(ctx, entity); err != nil {
+		if errors.Is(err, repositories.ErrProjectionRowChanged) {
+			return readModelBehind, fmt.Sprintf("a projection row changed after the run read the record "+
+				"at sequence %d, so the run did not write over it (%v)", entity.GetSequenceNo(), err), nil
+		}
 		return 0, "", fmt.Errorf("write the record's owner to %s: %w (%w)",
 			strings.Join(tables, ", "), err, errProjectionRowDidNotTakeOwner)
 	}

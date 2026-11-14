@@ -189,6 +189,44 @@ func (r *ResourceRepository) updateProjectionBySlug(
 	ctx context.Context, entity *entities.Resource, targetSlug string,
 ) error {
 	tableName := r.projMgr.TableName(targetSlug)
+	row := r.projectionRow(ctx, entity, targetSlug)
+
+	// Build column list for ON CONFLICT UPDATE, excluding immutable fields.
+	immutable := map[string]bool{"id": true, "created_at": true, "created_by": true, "account_id": true}
+	updateCols := make([]string, 0, len(row))
+	for col := range row {
+		if !immutable[col] {
+			updateCols = append(updateCols, col)
+		}
+	}
+	updates := clause.AssignmentColumns(updateCols)
+	// The owner is fill-only (wm-4kdhro): an existing row with no owner takes
+	// the entity's, which is how Resource.AccountAssigned reaches the
+	// projection tables, and a row that has an owner keeps it. That matches
+	// the event itself, which never moves a resource between accounts.
+	if _, ok := row["account_id"]; ok {
+		updates = append(updates, fillEmptyOwner(tableName))
+	}
+
+	err := r.writeDB(ctx).Table(tableName).
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "id"}},
+			DoUpdates: updates,
+		}).Create(row).Error
+	if err != nil {
+		return fmt.Errorf("failed to upsert resource in %s: %w", tableName, err)
+	}
+	return nil
+}
+
+// projectionRow builds the whole projection row a write of entity puts in
+// targetSlug's table: the standard columns, the columns extracted from the
+// data (with a cleared property nulled after a complete read), and the
+// display columns of its references. Update upserts it; the owner backfill's
+// fill writes it over an ownerless row.
+func (r *ResourceRepository) projectionRow(
+	ctx context.Context, entity *entities.Resource, targetSlug string,
+) map[string]any {
 	row := map[string]any{
 		"id":          entity.GetID(),
 		"type_slug":   entity.TypeSlug(),
@@ -224,33 +262,7 @@ func (r *ResourceRepository) updateProjectionBySlug(
 	}
 	r.populateDisplayColumns(ctx, targetSlug, row,
 		buildLookupScope(entity.AccountID(), entity.CreatedBy()))
-
-	// Build column list for ON CONFLICT UPDATE, excluding immutable fields.
-	immutable := map[string]bool{"id": true, "created_at": true, "created_by": true, "account_id": true}
-	updateCols := make([]string, 0, len(row))
-	for col := range row {
-		if !immutable[col] {
-			updateCols = append(updateCols, col)
-		}
-	}
-	updates := clause.AssignmentColumns(updateCols)
-	// The owner is fill-only (wm-4kdhro): an existing row with no owner takes
-	// the entity's, which is how Resource.AccountAssigned reaches the
-	// projection tables, and a row that has an owner keeps it. That matches
-	// the event itself, which never moves a resource between accounts.
-	if _, ok := row["account_id"]; ok {
-		updates = append(updates, fillEmptyOwner(tableName))
-	}
-
-	err := r.writeDB(ctx).Table(tableName).
-		Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "id"}},
-			DoUpdates: updates,
-		}).Create(row).Error
-	if err != nil {
-		return fmt.Errorf("failed to upsert resource in %s: %w", tableName, err)
-	}
-	return nil
+	return row
 }
 
 // fillEmptyOwner is the ON CONFLICT assignment that writes the incoming
