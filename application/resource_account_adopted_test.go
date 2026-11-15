@@ -696,3 +696,29 @@ func TestProjector_TwoAdoptionsInOrderEndInTheLastAccount(t *testing.T) {
 		}
 	})
 }
+
+// Copilot review 5913504768 (peripheral_groups.go:299): before the move
+// loads the resource into the target graph it removes the nested nodes a
+// first run of the same move left there, and only the resource's own.
+func TestProjector_AccountAdoptedClearsTheTargetsNestedNodesBeforeItLoads(t *testing.T) {
+	t.Parallel()
+	adopted := adoptedEnv("urn:note:1", orphanAcct, targetAcct, 3)
+	es := &fakeEventStore{byAggregate: map[string][]domain.EventEnvelope[any]{
+		"urn:note:1": append(historyIn("urn:note:1", "agent-a", orphanAcct), adopted),
+	}}
+	stores := newAccountStores()
+	if err := newOxigraphProjector(es, stores, noteType(), noopLogger{}).handle(context.Background(), adopted); err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	nested := 0
+	for _, u := range stores.store(targetAcct).updates {
+		if strings.HasPrefix(u, "DELETE { ?b") && strings.Contains(u, "<urn:note:1> ?q1 ?b1 . FILTER(isBlank(?b1))") {
+			nested++
+			continue
+		}
+		t.Errorf("the move ran an update on the target graph that is not a nested-node delete: %s", u)
+	}
+	if nested == 0 {
+		t.Errorf("the move cleared no nested nodes in the target graph before loading it")
+	}
+}

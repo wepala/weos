@@ -315,6 +315,14 @@ func (p *oxigraphProjector) projectAccountAdopted(
 	if err := p.ensureAccountOntology(ctx, target, to, event.AggregateID); err != nil {
 		return err
 	}
+	// loadResourceState clears only the resource's own subject. When this
+	// move runs again — a retry after a later step failed, or a replayed
+	// checkpoint — the target already holds the nested nodes the first load
+	// wrote, so they go first, or the reload would add a second copy beside
+	// them (Copilot review 5913504768).
+	if err := repositories.RemoveNestedNodes(ctx, target, event.AggregateID); err != nil {
+		return fmt.Errorf("kg: remove the nested nodes of %s from the graph of %s: %w", event.AggregateID, to, err)
+	}
 	if err := loadResourceState(ctx, event.AggregateID, state.Data, target, p.logger); err != nil {
 		return err
 	}

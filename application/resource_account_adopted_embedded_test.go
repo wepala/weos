@@ -157,6 +157,18 @@ func TestEmbeddedAccountAdopted_MovesTheNestedNodesWithTheResource(t *testing.T)
 	if got := recipeStatements(graphStatements(t, stores.store(targetAcct))); !slices.Equal(got, before) {
 		t.Errorf("target graph holds the recipe as\n%v\nwant the same statements the source held\n%v", got, before)
 	}
+
+	// Copilot review 5913504768: the same move processed again — a retry
+	// after a later step of the handler failed, or a replayed checkpoint —
+	// reloads the target graph. It must replace the nested nodes the first
+	// load wrote, not add a second copy beside them.
+	if err := proj.handle(ctx, adopted); err != nil {
+		t.Fatalf("adopt again: %v", err)
+	}
+	if got := recipeStatements(graphStatements(t, stores.store(targetAcct))); !slices.Equal(got, before) {
+		t.Errorf("after the move ran twice the target graph holds the recipe as\n%v\nwant one copy, as the source held it\n%v",
+			got, before)
+	}
 }
 
 // recipeStatements keeps the statements of the recipe: its own and those of
