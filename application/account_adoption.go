@@ -27,6 +27,8 @@ import (
 
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
+	"github.com/wepala/weos/v3/domain/services"
+	"github.com/wepala/weos/v3/infrastructure/storage"
 
 	"github.com/akeemphilbert/pericarp/pkg/auth"
 	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
@@ -57,6 +59,14 @@ var (
 	// invitation: accepting it makes a member of an account the move would
 	// have emptied (wm-m0ci05).
 	ErrAdoptSourceHasInvites = errors.New("adopt account: the account to move from has a pending invitation")
+	// ErrAdoptSourceHasUploads refuses an account with an uploaded file, or
+	// with a resource that names one (Copilot 4580310631). The run moves
+	// resources, not files: a file in an account's folder is served only to
+	// that account, and erasing the account deletes the folder, so a moved
+	// resource would name a file its new account can never read. The move of
+	// uploads is wm-lhc55a.
+	ErrAdoptSourceHasUploads = errors.New("adopt account: the account to move from has uploaded files, " +
+		"and moving uploads is not supported yet")
 	// ErrAdoptTargetNotFound means the account to move to does not exist.
 	ErrAdoptTargetNotFound = errors.New("adopt account: the account to move to does not exist")
 	// ErrAdoptSameAccount refuses a move into the account it comes from.
@@ -135,6 +145,12 @@ type AdoptAccountReport struct {
 	// FromInvites is the source account's count of pending, unexpired
 	// invitations, which the run requires to be 0.
 	FromInvites int
+	// FromFiles is how many files are stored in the source account's folder
+	// (its uploads), and FromFileReferences how many of its live resources
+	// name a file in that folder. The run requires both to be 0: it does not
+	// move files yet.
+	FromFiles          int
+	FromFileReferences int
 	// FromCreators lists each agent that created a live resource of the
 	// source account. An agent keeps access to what it created with no
 	// membership, so one that still has a credential, or wrote recently, is a
@@ -212,6 +228,7 @@ type AccountAdoptionParams struct {
 	Accounts    authrepos.AccountRepository
 	Members     repositories.AccountUsageReader
 	Permissions ResourcePermissionService
+	Files       services.FileService
 	EventStore  domain.EventStore
 	Dispatcher  *domain.EventDispatcher
 	Logger      entities.Logger
@@ -226,6 +243,7 @@ type AccountAdoptionService struct {
 	accounts    authrepos.AccountRepository
 	members     repositories.AccountUsageReader
 	permissions ResourcePermissionService
+	files       services.FileService
 	eventStore  domain.EventStore
 	dispatcher  *domain.EventDispatcher
 	logger      entities.Logger
@@ -238,19 +256,20 @@ func ProvideAccountAdoptionService(p AccountAdoptionParams) *AccountAdoptionServ
 	mover, _ := p.Repo.(repositories.ProjectionOwnerMover)
 	return &AccountAdoptionService{
 		repo: p.Repo, finder: finder, projOwners: projOwners, mover: mover,
-		accounts: p.Accounts, members: p.Members, permissions: p.Permissions,
+		accounts: p.Accounts, members: p.Members, permissions: p.Permissions, files: p.Files,
 		eventStore: p.EventStore, dispatcher: p.Dispatcher, logger: p.Logger,
 	}
 }
 
 // NewAccountAdoptionPlanner returns a service that can plan a move and never
 // write one, over the lookups a plan reads, so a preview can run over a
-// read-only connection without starting the application.
+// read-only connection without starting the application. files is read to
+// count the source account's uploads.
 func NewAccountAdoptionPlanner(
 	finder repositories.AccountResourceFinder, accounts authrepos.AccountRepository,
-	members repositories.AccountUsageReader,
+	members repositories.AccountUsageReader, files services.FileService,
 ) *AccountAdoptionService {
-	return &AccountAdoptionService{finder: finder, accounts: accounts, members: members}
+	return &AccountAdoptionService{finder: finder, accounts: accounts, members: members, files: files}
 }
 
 // AdoptAccount plans a move and, unless cmd.DryRun, applies it.
@@ -294,6 +313,9 @@ func (s *AccountAdoptionService) PlanAdoptAccount(
 	}
 	report.FromAccountName = from.Name()
 	if err := s.checkSourceUnused(ctx, &report); err != nil {
+		return report, err
+	}
+	if err := s.checkSourceUploads(ctx, &report); err != nil {
 		return report, err
 	}
 	if report.FromCreators, err = s.members.AccountCreators(ctx, cmd.FromAccountID); err != nil {
@@ -377,6 +399,37 @@ func (s *AccountAdoptionService) checkSourceUnused(ctx context.Context, report *
 	return nil
 }
 
+// checkSourceUploads refuses a source account with uploads the move would
+// strand (Copilot 4580310631): a file stored in its folder, or a live
+// resource of it that names one. It records both counts on the report. A
+// store that cannot count refuses too: an unread count is not a zero.
+func (s *AccountAdoptionService) checkSourceUploads(ctx context.Context, report *AdoptAccountReport) error {
+	counter, ok := s.files.(services.AccountFileCounter)
+	if !ok {
+		return fmt.Errorf("adopt account: the file storage %T cannot count the files of an account, "+
+			"so the run cannot tell whether the move would strand an upload", s.files)
+	}
+	if s.finder == nil {
+		return fmt.Errorf("adopt account: the resource repository %T cannot list an account's resources", s.repo)
+	}
+	var err error
+	if report.FromFiles, err = counter.CountAccountFiles(ctx, report.FromAccountID); err != nil {
+		return fmt.Errorf("adopt account: count the uploaded files of %s: %w", report.FromAccountID, err)
+	}
+	fragment := storage.AccountFolder(report.FromAccountID) + "/uploads/"
+	if report.FromFileReferences, err = s.finder.CountResourcesReferencing(
+		ctx, report.FromAccountID, fragment); err != nil {
+		return fmt.Errorf("adopt account: %w", err)
+	}
+	if report.FromFiles > 0 || report.FromFileReferences > 0 {
+		return fmt.Errorf("%w: %s has %d uploaded file(s) and %d resource(s) that name one; "+
+			"a move would leave the files where only %s can read them, and erasing %s deletes them",
+			ErrAdoptSourceHasUploads, report.FromAccountID, report.FromFiles, report.FromFileReferences,
+			report.FromAccountID, report.FromAccountID)
+	}
+	return nil
+}
+
 // ApplyAdoptAccount moves what a plan selected. Each resource commits on its
 // own, so a run that stops part-way has moved what it reports, and a re-run
 // finishes the rest: a moved resource is no longer in the source account.
@@ -420,6 +473,9 @@ func (s *AccountAdoptionService) ApplyAdoptAccountWithProgress(
 	// between the preview and the run, and the run moves only out of an
 	// account nobody can use (wm-m0ci05).
 	if err := s.checkSourceUnused(ctx, &report); err != nil {
+		return report, err
+	}
+	if err := s.checkSourceUploads(ctx, &report); err != nil {
 		return report, err
 	}
 	report.Types = make(map[string]AdoptAccountTypeCount, len(plan.Types))

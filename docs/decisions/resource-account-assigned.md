@@ -206,6 +206,15 @@ larger decision has a narrow answer here:
   creator rule: an agent keeps access to what it created with no membership. The preview therefore lists
   each creator of the source's resources, whether it still has a credential and when it last wrote one,
   and leaves that judgment to the operator.
+- **Its files.** The command moves resources, not files. An upload is stored under
+  `accounts/<account>/` and its URL names that folder; the file route serves it only to that account,
+  and erasure deletes the folder. A moved resource that names one would point at a file its new account
+  can never read, and erasing the emptied source would delete the file. So the command refuses, in the
+  preview and again when the real run starts, a source account with any file in its folder (counted in
+  every configured storage backend through `services.AccountFileCounter`) or any live resource whose
+  stored data names a URL in that folder, and the refusal gives both counts. Moving the files with
+  their resources, and rewriting the URLs through events, is a separate decision (wm-lhc55a); until it
+  is made, moving uploads is not supported yet.
 - **Its grants.** `resource_permissions` rows name an agent and a resource, not an account, so a move
   leaves them as they are. The resource's creator is unchanged too. Lists and `memory_search` show a
   caller what it created or holds a read grant on, so the run gives the agent named for it a read grant

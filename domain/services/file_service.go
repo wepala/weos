@@ -56,3 +56,18 @@ type FileService interface {
 	// behind in any store is data that was promised gone.
 	DeleteAccountFolder(ctx context.Context, accountID string) error
 }
+
+// AccountFileCounter is implemented by a FileService that can count the
+// files stored under an account's folder, accounts/<accountID>/ — its
+// uploads. The account adoption (wm-c7xehr) moves resources and not files:
+// the upload route serves a file in an account's folder only to that account,
+// and erasing the account deletes the folder. So the adoption refuses a
+// source account that has any file stored. Like the repository's optional
+// interfaces it is an interface of its own; a caller type-asserts for it.
+type AccountFileCounter interface {
+	// CountAccountFiles returns how many files are stored under the account's
+	// folder. A folder that does not exist holds none. A backend that fans out
+	// to others returns the largest count any of them reports, since they hold
+	// copies of the same files, and fails when any of them cannot answer.
+	CountAccountFiles(ctx context.Context, accountID string) (int, error)
+}

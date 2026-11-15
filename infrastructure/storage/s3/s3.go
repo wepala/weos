@@ -169,6 +169,28 @@ func (s *s3FileService) DeleteAccountFolder(ctx context.Context, accountID strin
 	return nil
 }
 
+// CountAccountFiles walks every page of ListObjectsV2 under
+// accounts/<accountID>/ and counts the keys. It deletes nothing.
+func (s *s3FileService) CountAccountFiles(ctx context.Context, accountID string) (int, error) {
+	if err := storage.ValidateAccountID(accountID); err != nil {
+		return 0, fmt.Errorf("invalid account ID: %w", err)
+	}
+	prefix := storage.AccountPrefix(accountID)
+	pages := s3sdk.NewListObjectsV2Paginator(s.client, &s3sdk.ListObjectsV2Input{
+		Bucket: aws.String(s.bucket),
+		Prefix: aws.String(prefix),
+	})
+	n := 0
+	for pages.HasMorePages() {
+		page, err := pages.NextPage(ctx)
+		if err != nil {
+			return 0, fmt.Errorf("list S3 objects under %s: %w", prefix, err)
+		}
+		n += len(page.Contents)
+	}
+	return n, nil
+}
+
 // deleteBatch deletes one batch of at most deleteBatchSize keys and reports
 // how many went. S3 answers a partial failure with a 200 carrying per-key
 // errors, so the count of errors is what decides, not the call's own error.

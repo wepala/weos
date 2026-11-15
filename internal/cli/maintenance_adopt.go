@@ -26,12 +26,15 @@ import (
 	"github.com/wepala/weos/v3/application"
 	"github.com/wepala/weos/v3/application/presets"
 	gormdb "github.com/wepala/weos/v3/infrastructure/database/gorm"
+	"github.com/wepala/weos/v3/infrastructure/logging"
+	storageprovider "github.com/wepala/weos/v3/infrastructure/storage/provider"
 	"github.com/wepala/weos/v3/internal/config"
 
 	authgorm "github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/database/gorm"
 
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
+	"go.uber.org/zap"
 )
 
 var maintenanceAdoptAccountCmd = &cobra.Command{
@@ -53,9 +56,15 @@ It refuses unless:
   - the --from account exists, has no members and has no pending invitation
     that has not expired (accepting one would make a member);
   - the --account account exists and is not the --from account;
-  - the --agent agent is an owner or admin of the --account account.
-A run with --write reads the member and invitation checks again before it
-moves anything.
+  - the --agent agent is an owner or admin of the --account account;
+  - the --from account has no uploaded file in its folder and no live
+    resource that names one. The command moves resources, not files: the
+    file route serves a file in an account's folder only to that account,
+    and erasing the account deletes the folder, so a moved resource would
+    name a file its new account can never read. Moving uploads is not
+    supported yet.
+A run with --write reads the member, invitation and upload checks again
+before it moves anything.
 
 It never touches a resource of any other account. Each move is
 compare-and-set on the --from account, so a resource that left it is
@@ -64,7 +73,7 @@ by this command. A move cannot be undone; only a database restore reverses a
 run.
 
 PREVIEW BY DEFAULT: without --write the command names both accounts, shows
-the member and invitation checks, counts the resources to move per type, and
+the member, invitation and upload checks, counts the resources to move per type, and
 writes nothing. Only --write moves.
 
 The preview also lists each agent that created the --from account's
@@ -182,8 +191,16 @@ func runMaintenanceAdoptAccount(cmd *cobra.Command, _ []string) error {
 			return err
 		}
 		defer done()
+		// The preview reads the file storage too, to count the source
+		// account's uploads; it creates nothing there.
+		files, closeFiles, err := storageprovider.NewFileService(appCfg.Storage, logging.NewZapLogger(zap.NewNop()))
+		if err != nil {
+			return fmt.Errorf("open the file storage: %w", err)
+		}
+		// The client was only read through, so a failed close loses nothing.
+		defer func() { _ = closeFiles() }()
 		svc = application.NewAccountAdoptionPlanner(gormdb.ProvideAccountResourceFinder(tx),
-			authgorm.NewAccountRepository(tx), gormdb.ProvideAccountUsageReader(tx))
+			authgorm.NewAccountRepository(tx), gormdb.ProvideAccountUsageReader(tx), files)
 	} else {
 		started, stop, err := startAccountAdoption(cmd.Context(), appCfg)
 		if err != nil {
@@ -206,6 +223,11 @@ func runMaintenanceAdoptAccount(cmd *cobra.Command, _ []string) error {
 	case errors.Is(err, application.ErrAdoptSourceHasInvites):
 		return fmt.Errorf("account %s has %d pending invitation(s); accepting one makes a member. adopt-account "+
 			"moves only out of an account nobody can use: revoke the invitations first", from, plan.FromInvites)
+	case errors.Is(err, application.ErrAdoptSourceHasUploads):
+		return fmt.Errorf("account %s has %d uploaded file(s) in its folder and %d resource(s) that name one. "+
+			"adopt-account moves resources, not files: a moved resource would name a file only %s can read, "+
+			"and erasing %s deletes the files. Moving uploads is not supported yet; nothing was moved",
+			from, plan.FromFiles, plan.FromFileReferences, from, from)
 	case errors.Is(err, application.ErrAdoptTargetNotFound):
 		return fmt.Errorf("no account with id %s exists on this instance", accountID)
 	case errors.Is(err, application.ErrAdoptSameAccount):
@@ -298,8 +320,9 @@ func printAdoptAccountTarget(out io.Writer, r application.AdoptAccountReport) {
 	} else {
 		_, _ = fmt.Fprintln(out, "adopt-account: moving resources through the event stream. A move cannot be undone.")
 	}
-	_, _ = fmt.Fprintf(out, "from %s (%s): %d members, %d pending invitations\n",
-		r.FromAccountName, r.FromAccountID, r.FromMembers, r.FromInvites)
+	_, _ = fmt.Fprintf(out, "from %s (%s): %d members, %d pending invitations, %d uploaded files, "+
+		"%d resources naming one\n", r.FromAccountName, r.FromAccountID, r.FromMembers, r.FromInvites,
+		r.FromFiles, r.FromFileReferences)
 	// An agent keeps access to what it created with no membership, so the
 	// creators say whether anyone is still using the account (wm-m0ci05).
 	live := 0

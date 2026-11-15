@@ -146,3 +146,28 @@ func (s *gcsFileService) DeleteAccountFolder(ctx context.Context, accountID stri
 		"bucket", s.bucket, "prefix", prefix, "objects", deleted.Load(), "listed", listed)
 	return nil
 }
+
+// CountAccountFiles lists every object under accounts/<accountID>/ and
+// counts them. It deletes nothing.
+func (s *gcsFileService) CountAccountFiles(ctx context.Context, accountID string) (int, error) {
+	if err := storage.ValidateAccountID(accountID); err != nil {
+		return 0, fmt.Errorf("invalid account ID: %w", err)
+	}
+	prefix := storage.AccountPrefix(accountID)
+	query := &gcsstorage.Query{Prefix: prefix}
+	if err := query.SetAttrSelection([]string{"Name"}); err != nil {
+		return 0, fmt.Errorf("select the GCS listing's fields: %w", err)
+	}
+	it := s.client.Bucket(s.bucket).Objects(ctx, query)
+	n := 0
+	for {
+		_, err := it.Next()
+		if errors.Is(err, iterator.Done) {
+			return n, nil
+		}
+		if err != nil {
+			return 0, fmt.Errorf("list GCS objects under %s: %w", prefix, err)
+		}
+		n++
+	}
+}

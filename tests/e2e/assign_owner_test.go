@@ -95,6 +95,9 @@ func newAssignOwnerEnvWith(t *testing.T, runWorkers bool) *assignOwnerEnv {
 		env.cfg.Oxigraph = config.OxigraphConfig{}
 	}
 	env.cfg.DatabaseDSN = filepath.Join(t.TempDir(), "assign_owner.db")
+	// Each test's uploads in a folder of its own: the account adoption
+	// counts the files in an account's folder (wm-c7xehr).
+	env.cfg.Storage.LocalPath = filepath.Join(t.TempDir(), "uploads")
 	// The owner upsert is dialect-specific SQL, so the same tests run on
 	// PostgreSQL when a server is named.
 	if admin := os.Getenv("TEST_POSTGRES_DSN"); admin != "" {
@@ -411,7 +414,8 @@ func (env *assignOwnerEnv) runWeos(t *testing.T, args ...string) (stdout, stderr
 		t.Fatalf("build weos: %v", err)
 	}
 	cmd := exec.Command(binary, args...)
-	cmd.Env = append(os.Environ(), "DATABASE_DSN="+env.cfg.DatabaseDSN, "LOG_LEVEL=error")
+	cmd.Env = append(os.Environ(), "DATABASE_DSN="+env.cfg.DatabaseDSN, "LOG_LEVEL=error",
+		"STORAGE_LOCAL_PATH="+env.cfg.Storage.LocalPath)
 	var out, errOut strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &errOut
 	if runErr := cmd.Run(); runErr != nil {

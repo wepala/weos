@@ -427,8 +427,8 @@ weos maintenance adopt-account --database-dsn <dsn> --from <account id> --accoun
   --agent <agent id> [--write]
 ```
 
-**Preview by default.** Without `--write` the command names both accounts, shows the member count and
-the pending invitations of the `--from` account and the agent's role in the `--account` account, counts
+**Preview by default.** Without `--write` the command names both accounts, shows the member count,
+the pending invitations and the uploads of the `--from` account and the agent's role in the `--account` account, counts
 the resources to move per type, and writes nothing. Only `--write` moves. A move cannot be undone, so a forgotten flag costs a
 preview, never a write.
 
@@ -463,8 +463,18 @@ relations (each `Triple.Created` its history still holds) into the `--account` a
 **Refusals.** The command refuses to run when the `--from` account does not exist, has a member, or has
 a pending invitation that has not expired (accepting it would make a member), when the `--account`
 account does not exist or is the `--from` account, when the agent is not an owner or admin of the
-`--account` account, or when no database is named. A run with `--write` reads the member and invitation
-checks again before it moves anything, so one that arrived after the preview still refuses the run.
+`--account` account, when the `--from` account has an uploaded file, or when no database is named. A
+run with `--write` reads the member, invitation and upload checks again before it moves anything, so
+one that arrived after the preview still refuses the run.
+
+**Uploads are refused, not moved.** The command moves resources, not files. A file the storage
+backend holds in `accounts/<--from>/` is served only to the `--from` account, and erasing that account
+deletes the folder, so a moved resource that names one would point at a file its new account can never
+read. The command therefore refuses, in the preview and again with `--write`, when the `--from`
+account has any uploaded file in its folder (every configured backend is counted: local, S3 or GCS) or
+any live resource whose data names a URL in that folder, and the refusal names both counts. Moving
+uploads with their resources is not supported yet. The preview reads the file storage but creates
+nothing in it.
 
 **Who still uses the account.** An agent keeps access to the resources it created with no membership at
 all, so an account with no members can still be in use. The preview lists each agent that created the
@@ -493,8 +503,8 @@ SELECT agent_id FROM credentials WHERE email = '<address>';
 
 1. Upgrade the instance to this release. The preview (no flag) may run while the instance serves: it
    opens the database read-only and starts nothing, so it writes nothing.
-2. Preview first: run with no flag. Read both account names, the member and invitation counts of the
-   `--from` account (both must be 0), the creators of its resources and the counts per type.
+2. Preview first: run with no flag. Read both account names, the member, invitation and upload counts
+   of the `--from` account (all must be 0), the creators of its resources and the counts per type.
 3. Stop the instance for the real run, and back up the database. A run with `--write` opens the store
    directly, and a serving instance competes with it for the database (on SQLite, for the write lock).
 4. Add `--write` and run again. The command names both accounts before it writes, and prints its

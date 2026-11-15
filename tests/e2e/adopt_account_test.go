@@ -20,6 +20,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -395,7 +397,7 @@ func TestAdoptAccount_TheCommandPreviewsThenMovesWithWrite(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("preview exited %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}
-	for _, want := range []string{"DRY RUN", orphanAccountName, ownerName, "0 members",
+	for _, want := range []string{"DRY RUN", orphanAccountName, ownerName, "0 members", "0 uploaded files",
 		"project", "1 to move", "task", "2 to move", "total: 3 resource(s) would be moved"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("preview output lacks %q:\n%s", want, stdout)
@@ -798,4 +800,168 @@ func TestAdoptAccount_AnExistingGrantKeepsItsActions(t *testing.T) {
 	if got := read(f.orphanTask2); !strings.Contains(got, "delete") {
 		t.Errorf("grant on %s = %s, want it left as it was", f.orphanTask2, got)
 	}
+}
+
+// storeFile writes a file into account's upload folder, where the local
+// storage backend writes an upload.
+func (env *assignOwnerEnv) storeFile(t *testing.T, account, name string) {
+	t.Helper()
+	dir := filepath.Join(env.cfg.Storage.LocalPath, "accounts", account, "uploads")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name), []byte("receipt"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// uploadURL is the URL the local storage backend hands out for a file in
+// account's upload folder.
+func uploadURL(account, name string) string {
+	return "/api/uploads/files/accounts/" + account + "/uploads/" + name
+}
+
+// createNaming writes a task in account whose description names url.
+func (env *assignOwnerEnv) createNaming(t *testing.T, agent, account, url string) string {
+	t.Helper()
+	ctx := auth.ContextWithAgent(context.Background(), &auth.Identity{
+		AgentID: agent, AccountIDs: []string{account}, ActiveAccountID: account,
+	})
+	data, err := json.Marshal(map[string]string{"name": "Receipt for May", "description": "See " + url})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := env.resources.Create(ctx, application.CreateResourceCommand{TypeSlug: "task", Data: data})
+	if err != nil {
+		t.Fatalf("create a task naming %s: %v", url, err)
+	}
+	return r.GetID()
+}
+
+// Copilot 4580310631: the run moves resources, not files. A file in an
+// account's upload folder is served only to that account, and erasing the
+// account deletes the folder, so a moved resource would name a file its new
+// account can never read. Until the files move too (wm-lhc55a), a source
+// account with a stored file, or with a resource naming one of its files, is
+// refused — in the preview and in a real run — and nothing moves.
+func TestAdoptAccount_RefusesASourceWithUploadedFiles(t *testing.T) {
+	ctx := context.Background()
+	for name, c := range map[string]struct {
+		seed             func(env *assignOwnerEnv, t *testing.T)
+		files, resources int
+	}{
+		"a file in its upload folder": {
+			seed:  func(env *assignOwnerEnv, t *testing.T) { env.storeFile(t, orphanAccountID, "2abc-receipt.jpg") },
+			files: 1,
+		},
+		"a resource naming one of its files": {
+			seed: func(env *assignOwnerEnv, t *testing.T) {
+				env.createNaming(t, orphanWriter, orphanAccountID, uploadURL(orphanAccountID, "2abc-receipt.jpg"))
+			},
+			resources: 1,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			env := newAssignOwnerEnv(t)
+			f := env.seedOrphan(t)
+			c.seed(env, t)
+			before := env.eventCount(t)
+
+			for _, dryRun := range []bool{true, false} {
+				report, err := env.adoption.AdoptAccount(ctx, env.adoptCommand(dryRun))
+				if !errors.Is(err, application.ErrAdoptSourceHasUploads) {
+					t.Fatalf("dry run %v: err = %v, want the uploads refusal", dryRun, err)
+				}
+				if report.FromFiles != c.files || report.FromFileReferences != c.resources {
+					t.Errorf("dry run %v: counted %d file(s) and %d resource(s) naming one, want %d and %d",
+						dryRun, report.FromFiles, report.FromFileReferences, c.files, c.resources)
+				}
+				for _, want := range []string{fmt.Sprint(c.files) + " uploaded file",
+					fmt.Sprint(c.resources) + " resource", "not supported yet"} {
+					if !strings.Contains(err.Error(), want) {
+						t.Errorf("dry run %v: the refusal %q does not say %q", dryRun, err, want)
+					}
+				}
+			}
+			if after := env.eventCount(t); after != before {
+				t.Errorf("the refused runs wrote %d event(s)", after-before)
+			}
+			env.requireOwner(t, "task", f.orphanTask1, orphanAccountID, "after the refused runs")
+		})
+	}
+}
+
+// A source with no file of its own passes, even when another account has
+// files and a resource of the source names another account's file: only the
+// source's own uploads are stranded by a move.
+func TestAdoptAccount_ASourceWithNoUploadsOfItsOwnMoves(t *testing.T) {
+	env := newAssignOwnerEnv(t)
+	f := env.seedOrphan(t)
+	env.storeFile(t, env.ownerAccount, "2abc-owner.jpg")
+	env.createNaming(t, orphanWriter, orphanAccountID, uploadURL(env.ownerAccount, "2abc-owner.jpg"))
+
+	report, err := env.adoption.AdoptAccount(context.Background(), env.adoptCommand(false))
+	if err != nil {
+		t.Fatalf("move: %v", err)
+	}
+	if report.FromFiles != 0 || report.FromFileReferences != 0 {
+		t.Errorf("counted %d file(s) and %d resource(s) naming one, want none", report.FromFiles, report.FromFileReferences)
+	}
+	env.requireAdopted(t, f, "after the move")
+}
+
+// The uploads check is read again when the real run starts: a file stored
+// after the preview refuses the run, and nothing moves.
+func TestAdoptAccount_TheRunChecksForUploadsAgainBeforeItMovesAnything(t *testing.T) {
+	ctx := context.Background()
+	env := newAssignOwnerEnv(t)
+	f := env.seedOrphan(t)
+	plan, err := env.adoption.PlanAdoptAccount(ctx, env.adoptCommand(false))
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	env.storeFile(t, orphanAccountID, "2abc-late.jpg")
+	before := env.eventCount(t)
+	if _, err := env.adoption.ApplyAdoptAccount(ctx, plan); !errors.Is(err, application.ErrAdoptSourceHasUploads) {
+		t.Fatalf("apply after a file arrived: err = %v, want the uploads refusal", err)
+	}
+	if after := env.eventCount(t); after != before {
+		t.Errorf("the refused run wrote %d event(s)", after-before)
+	}
+	env.requireOwner(t, "task", f.orphanTask1, orphanAccountID, "after the refused run")
+}
+
+// The operator command refuses a source with uploads in its preview and with
+// --write, names the counts and says the move of uploads is not supported.
+func TestAdoptAccount_TheCommandRefusesASourceWithUploads(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the weos binary")
+	}
+	env := newAssignOwnerEnv(t)
+	f := env.seedOrphan(t)
+	env.storeFile(t, orphanAccountID, "2abc-receipt.jpg")
+	env.stop()
+	db, err := gorm.Open(gormprov.DialectorForDSN(env.cfg.DatabaseDSN), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+	if sqlDB, err := db.DB(); err == nil {
+		t.Cleanup(func() { _ = sqlDB.Close() })
+	}
+	env.db = db
+
+	args := []string{"maintenance", "adopt-account", "--from", orphanAccountID,
+		"--account", env.ownerAccount, "--agent", env.ownerAgent}
+	for _, extra := range [][]string{nil, {"--write"}} {
+		_, stderr, code := env.runWeos(t, append(args, extra...)...)
+		if code == 0 {
+			t.Fatalf("%v: a source with an uploaded file exited 0", extra)
+		}
+		for _, want := range []string{"1 uploaded file", "not supported yet"} {
+			if !strings.Contains(stderr, want) {
+				t.Errorf("%v: stderr lacks %q:\n%s", extra, want, stderr)
+			}
+		}
+	}
+	env.requireOwner(t, "task", f.orphanTask1, orphanAccountID, "after the refused command")
 }

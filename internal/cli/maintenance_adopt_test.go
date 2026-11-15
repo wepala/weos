@@ -44,7 +44,7 @@ func TestPrintAdoptAccount_APreviewNamesBothAccountsTheMemberCheckAndCountsPerTy
 	text := out.String()
 	for _, want := range []string{
 		"DRY RUN — nothing was written. Re-run with --write to apply.",
-		"from Old local twin (acct-old): 0 members",
+		"from Old local twin (acct-old): 0 members, 0 pending invitations, 0 uploaded files, 0 resources naming one",
 		"to   Akeem (acct-new): agent-1 is owner",
 		"project                  2130 to move",
 		"task                     4260 to move",
@@ -177,6 +177,9 @@ var adoptAccountRunRules = []string{
 	"memory_search",
 	"safe to re-run",
 	"relations",
+	// Copilot 4580310631: the run moves resources, not files.
+	"uploaded file",
+	"not supported yet",
 }
 
 func TestMaintenanceAdoptAccount_HelpStatesTheRunRules(t *testing.T) {

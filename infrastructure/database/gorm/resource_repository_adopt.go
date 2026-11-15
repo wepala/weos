@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/wepala/weos/v3/domain/entities"
@@ -150,6 +151,29 @@ func (r *ResourceRepository) FindForAdoption(
 		return out[i].ID < out[j].ID
 	})
 	return out, nil
+}
+
+// likeEscaper escapes the LIKE wildcards and the escape character itself, so
+// a fragment matches only as written: an account id may hold "_".
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
+// CountResourcesReferencing counts the live resources of accountID whose
+// stored data holds fragment, with LIKE and an explicit escape character,
+// which SQLite and PostgreSQL both accept.
+func (r *ResourceRepository) CountResourcesReferencing(
+	ctx context.Context, accountID, fragment string,
+) (int, error) {
+	if accountID == "" || fragment == "" {
+		return 0, errors.New("count the resources naming a file: the account and the fragment must both be given")
+	}
+	var n int64
+	if err := r.db.WithContext(ctx).Table("resources").
+		Where("account_id = ? AND deleted_at IS NULL", accountID).
+		Where(`data LIKE ? ESCAPE '\'`, "%"+likeEscaper.Replace(fragment)+"%").
+		Count(&n).Error; err != nil {
+		return 0, fmt.Errorf("count the resources of %s naming %s: %w", accountID, fragment, err)
+	}
+	return int(n), nil
 }
 
 // liveTypeSlugs lists the types of the live records an account owns.

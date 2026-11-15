@@ -289,3 +289,46 @@ func TestWriteAccountAdoption_KeepsReferenceLabelsAndWritesOnlyTheOwner(t *testi
 		}
 	}
 }
+
+// The adoption refuses a source account whose resources name one of its
+// uploaded files (wm-c7xehr, Copilot 4580310631): the file is served only to
+// the account whose folder holds it, so a moved resource would point at a
+// file its new account cannot read. Only live resources of the account count,
+// and only a URL into that account's own folder.
+func TestCountResourcesReferencing_CountsLiveResourcesOfTheAccountNamingTheFragment(t *testing.T) {
+	t.Parallel()
+	repo, _, ctx := setupDualProjectionTest(t)
+	const from = "acct_up"
+	fragment := "accounts/" + from + "/uploads/"
+	for _, s := range []struct{ id, account, data string }{
+		{"urn:loan:local", from, `{"name":"x","image":"/api/uploads/files/accounts/acct_up/uploads/2abc-photo.jpg"}`},
+		{"urn:loan:bucket", from, `{"name":"x","url":"https://s3.us-east-1.amazonaws.com/b/accounts/acct_up/uploads/x.pdf"}`},
+		{"urn:loan:plain", from, `{"name":"no file"}`},
+		// "_" is a LIKE wildcard: acctXup must not match acct_up.
+		{"urn:loan:lookalike", from, `{"name":"x","image":"/api/uploads/files/accounts/acctXup/uploads/y.jpg"}`},
+		{"urn:loan:third", adoptThird, `{"name":"x","image":"/api/uploads/files/accounts/acct_up/uploads/z.jpg"}`},
+		{"urn:loan:deleted", from, `{"name":"x","image":"/api/uploads/files/accounts/acct_up/uploads/w.jpg"}`},
+	} {
+		if err := repo.Save(ctx, makeTestResourceForAgent(t, s.id, "loan", s.data, "agent-1", s.account)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := repo.db.Table("resources").Where("id = ?", "urn:loan:deleted").
+		Update("deleted_at", time.Now()).Error; err != nil {
+		t.Fatal(err)
+	}
+	for name, finder := range map[string]repositories.AccountResourceFinder{
+		"with a projection manager": repo, "without one (the preview)": ProvideAccountResourceFinder(repo.db),
+	} {
+		got, err := finder.CountResourcesReferencing(ctx, from, fragment)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if got != 2 {
+			t.Errorf("%s: counted %d, want 2 (the local and the bucket URL)", name, got)
+		}
+	}
+	if _, err := repo.CountResourcesReferencing(ctx, from, ""); err == nil {
+		t.Error("an empty fragment was accepted; it would match every resource")
+	}
+}

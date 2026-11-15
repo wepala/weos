@@ -223,6 +223,13 @@ type AccountResourceFinder interface {
 	// record is in toAccountID while one of its projection rows is still in
 	// fromAccountID, ordered by type and then by identifier.
 	FindForAdoption(ctx context.Context, fromAccountID, toAccountID string) ([]AccountResource, error)
+	// CountResourcesReferencing returns how many live resources whose
+	// canonical record is in accountID hold fragment, as written, in their
+	// stored data. The adoption uses it to find a resource that names a file
+	// in the account's upload folder (wm-c7xehr): a move would leave that
+	// file where the resource's new account cannot read it. An empty fragment
+	// is refused, since it would match every resource.
+	CountResourcesReferencing(ctx context.Context, accountID, fragment string) (int, error)
 }
 
 // AccountUsageReader reads what says an account is still in use. The account
