@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -458,5 +459,38 @@ func TestProjector_AccountAdoptedCarriesTheRelationsToTheTarget(t *testing.T) {
 	want := repositories.Triple{Subject: "urn:note:1", Predicate: "https://schema.org/about", Object: "urn:project:kept"}
 	if len(added) != 1 || added[0] != want {
 		t.Fatalf("target graph got relations %+v, want only %+v", added, want)
+	}
+}
+
+// Copilot 4580547731: before the move removes the resource from the source
+// graph it removes the blank nodes nested below it, and only those — a
+// triple of another resource that points at the moved one is that
+// resource's, so nothing of the form ?s ?p <urn> is deleted.
+func TestProjector_AccountAdoptedRemovesTheNestedNodesFromTheSource(t *testing.T) {
+	t.Parallel()
+	adopted := adoptedEnv("urn:note:1", orphanAcct, targetAcct, 3)
+	es := &fakeEventStore{byAggregate: map[string][]domain.EventEnvelope[any]{
+		"urn:note:1": append(historyIn("urn:note:1", "agent-a", orphanAcct), adopted),
+	}}
+	stores := newAccountStores()
+	proj := newOxigraphProjector(es, stores, noteType(), noopLogger{})
+	if err := proj.handle(context.Background(), adopted); err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	source := stores.store(orphanAcct)
+	nested := 0
+	for _, u := range source.updates {
+		switch {
+		case strings.HasPrefix(u, "DELETE { ?b") && strings.Contains(u, "<urn:note:1> ?q1 ?b1 . FILTER(isBlank(?b1))"):
+			nested++
+		default:
+			t.Errorf("the move ran an update on the source graph that is not a nested-node delete: %s", u)
+		}
+	}
+	if nested == 0 {
+		t.Errorf("the move removed no nested nodes from the source graph; updates %v", source.updates)
+	}
+	if len(source.subjectsRemoved) != 1 || source.subjectsRemoved[0] != "urn:note:1" {
+		t.Errorf("source graph removed %v, want the resource", source.subjectsRemoved)
 	}
 }

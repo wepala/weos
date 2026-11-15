@@ -113,16 +113,35 @@ func (s singleStores) DropAccount(ctx context.Context, _ string, subjects []stri
 		if !safeIRI(subject) {
 			return fmt.Errorf("knowledge graph: refusing to drop %q, which is not a plain IRI", subject)
 		}
-		for depth := nestedNodeDepth; depth >= 1; depth-- {
-			if err := s.store.Update(ctx, deleteNestedNodes(subject, depth)); err != nil {
-				return fmt.Errorf("knowledge graph: remove the nested nodes of %s: %w", subject, err)
-			}
+		if err := RemoveNestedNodes(ctx, s.store, subject); err != nil {
+			return err
 		}
 		if err := s.store.Update(ctx, fmt.Sprintf("DELETE WHERE { ?s ?p <%s> }", subject)); err != nil {
 			return fmt.Errorf("knowledge graph: remove the triples pointing at %s: %w", subject, err)
 		}
 		if err := s.store.RemoveSubject(ctx, subject); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// RemoveNestedNodes removes from store the blank nodes nested below
+// subject: every blank node reachable from it through blank nodes only,
+// deepest first so each level is still reachable when its turn comes. These
+// are the parts of a resource's JSON-LD document that carry no @id of their
+// own — an ingredient list, a nutrition block, a step — and that nothing but
+// the resource reaches. The resource's own triples, the triples of other
+// resources that point at it, and a nested node with an @id of its own (an
+// IRI, which cannot be told from a link to another resource) are left.
+// Callers remove the subject itself afterwards.
+func RemoveNestedNodes(ctx context.Context, store KnowledgeGraphStore, subject string) error {
+	if !safeIRI(subject) {
+		return fmt.Errorf("knowledge graph: refusing to remove the nested nodes of %q, which is not a plain IRI", subject)
+	}
+	for depth := nestedNodeDepth; depth >= 1; depth-- {
+		if err := store.Update(ctx, deleteNestedNodes(subject, depth)); err != nil {
+			return fmt.Errorf("knowledge graph: remove the nested nodes of %s: %w", subject, err)
 		}
 	}
 	return nil

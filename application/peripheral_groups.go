@@ -274,6 +274,12 @@ func (p *oxigraphProjector) projectAccountAdopted(
 	if err != nil {
 		return err
 	}
+	// The resource's nested objects are blank nodes only it reaches; they go
+	// first, while the resource still reaches them (Copilot 4580547731). The
+	// target gets them back from the document loaded below.
+	if err := repositories.RemoveNestedNodes(ctx, source, event.AggregateID); err != nil {
+		return fmt.Errorf("kg: remove the nested nodes of %s from the graph of %s: %w", event.AggregateID, from, err)
+	}
 	if err := source.RemoveSubject(ctx, event.AggregateID); err != nil {
 		return fmt.Errorf("kg: remove %s from the graph of %s: %w", event.AggregateID, from, err)
 	}
