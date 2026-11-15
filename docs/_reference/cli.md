@@ -427,9 +427,9 @@ weos maintenance adopt-account --database-dsn <dsn> --from <account id> --accoun
   --agent <agent id> [--write]
 ```
 
-**Preview by default.** Without `--write` the command names both accounts, shows the member count of
-the `--from` account and the agent's role in the `--account` account, counts the resources to move per
-type, and writes nothing. Only `--write` moves. A move cannot be undone, so a forgotten flag costs a
+**Preview by default.** Without `--write` the command names both accounts, shows the member count and
+the pending invitations of the `--from` account and the agent's role in the `--account` account, counts
+the resources to move per type, and writes nothing. Only `--write` moves. A move cannot be undone, so a forgotten flag costs a
 preview, never a write.
 
 | Flag | Type | Required | Description |
@@ -451,9 +451,17 @@ in the section on the one case where an owner moves.
 
 A run with `--write` also sets `updated_at` on every moved row to the time of the run.
 
-**Refusals.** The command refuses to run when the `--from` account does not exist or has a member, when
-the `--account` account does not exist or is the `--from` account, when the agent is not an owner or
-admin of the `--account` account, or when no database is named.
+**Refusals.** The command refuses to run when the `--from` account does not exist, has a member, or has
+a pending invitation that has not expired (accepting it would make a member), when the `--account`
+account does not exist or is the `--from` account, when the agent is not an owner or admin of the
+`--account` account, or when no database is named. A run with `--write` reads the member and invitation
+checks again before it moves anything, so one that arrived after the preview still refuses the run.
+
+**Who still uses the account.** An agent keeps access to the resources it created with no membership at
+all, so an account with no members can still be in use. The preview lists each agent that created the
+`--from` account's resources, with how many, when it last wrote one, and whether it still has a
+credential (an active one), and warns when one can still sign in. The command does not refuse on this; read it before
+adding `--write`.
 
 **Where the ids come from.** Read them from the same database:
 
@@ -476,8 +484,8 @@ SELECT agent_id FROM credentials WHERE email = '<address>';
 
 1. Upgrade the instance to this release. The preview (no flag) may run while the instance serves: it
    opens the database read-only and starts nothing, so it writes nothing.
-2. Preview first: run with no flag. Read both account names, the member count of the `--from` account
-   (it must be 0) and the counts per type.
+2. Preview first: run with no flag. Read both account names, the member and invitation counts of the
+   `--from` account (both must be 0), the creators of its resources and the counts per type.
 3. Stop the instance for the real run, and back up the database. A run with `--write` opens the store
    directly, and a serving instance competes with it for the database (on SQLite, for the write lock).
 4. Add `--write` and run again. The command names both accounts before it writes.

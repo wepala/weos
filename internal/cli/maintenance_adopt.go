@@ -50,9 +50,12 @@ such an account. "weos maintenance assign-owner" still only fills an empty
 owner.
 
 It refuses unless:
-  - the --from account exists and has no members;
+  - the --from account exists, has no members and has no pending invitation
+    that has not expired (accepting one would make a member);
   - the --account account exists and is not the --from account;
   - the --agent agent is an owner or admin of the --account account.
+A run with --write reads the member and invitation checks again before it
+moves anything.
 
 It never touches a resource of any other account. Each move is
 compare-and-set on the --from account, so a resource that left it is
@@ -61,8 +64,15 @@ by this command. A move cannot be undone; only a database restore reverses a
 run.
 
 PREVIEW BY DEFAULT: without --write the command names both accounts, shows
-the member check, counts the resources to move per type, and writes nothing.
-Only --write moves.
+the member and invitation checks, counts the resources to move per type, and
+writes nothing. Only --write moves.
+
+The preview also lists each agent that created the --from account's
+resources: how many, when it last wrote one, and whether it still has a
+credential. An agent keeps access to what it created with no membership at
+all, so a creator that can still sign in, or that wrote recently, means the
+account may still be in use. The command does not refuse on this; read it
+before you add --write.
 
 Procedure:
 
@@ -158,7 +168,7 @@ func runMaintenanceAdoptAccount(cmd *cobra.Command, _ []string) error {
 		}
 		defer done()
 		svc = application.NewAccountAdoptionPlanner(gormdb.ProvideAccountResourceFinder(tx),
-			authgorm.NewAccountRepository(tx), gormdb.ProvideAccountMemberCounter(tx))
+			authgorm.NewAccountRepository(tx), gormdb.ProvideAccountUsageReader(tx))
 	} else {
 		started, stop, err := startAccountAdoption(cmd.Context(), appCfg)
 		if err != nil {
@@ -178,6 +188,9 @@ func runMaintenanceAdoptAccount(cmd *cobra.Command, _ []string) error {
 	case errors.Is(err, application.ErrAdoptSourceHasMembers):
 		return fmt.Errorf("account %s has %d member(s), so someone can still use it. adopt-account moves only "+
 			"out of an account with no members", from, plan.FromMembers)
+	case errors.Is(err, application.ErrAdoptSourceHasInvites):
+		return fmt.Errorf("account %s has %d pending invitation(s); accepting one makes a member. adopt-account "+
+			"moves only out of an account nobody can use: revoke the invitations first", from, plan.FromInvites)
 	case errors.Is(err, application.ErrAdoptTargetNotFound):
 		return fmt.Errorf("no account with id %s exists on this instance", accountID)
 	case errors.Is(err, application.ErrAdoptSameAccount):
@@ -255,7 +268,27 @@ func printAdoptAccountTarget(out io.Writer, r application.AdoptAccountReport) {
 	} else {
 		_, _ = fmt.Fprintln(out, "adopt-account: moving resources through the event stream. A move cannot be undone.")
 	}
-	_, _ = fmt.Fprintf(out, "from %s (%s): %d members\n", r.FromAccountName, r.FromAccountID, r.FromMembers)
+	_, _ = fmt.Fprintf(out, "from %s (%s): %d members, %d pending invitations\n",
+		r.FromAccountName, r.FromAccountID, r.FromMembers, r.FromInvites)
+	// An agent keeps access to what it created with no membership, so the
+	// creators say whether anyone is still using the account (wm-m0ci05).
+	live := 0
+	for _, c := range r.FromCreators {
+		agent, signIn := c.AgentID, "no credential"
+		if agent == "" {
+			agent = "(no creator)"
+		}
+		if c.HasCredential {
+			signIn = "HAS A CREDENTIAL"
+			live++
+		}
+		_, _ = fmt.Fprintf(out, "     created by %s: %d resource(s), newest %s, %s\n",
+			agent, c.Resources, c.NewestCreatedAt.UTC().Format(time.RFC3339), signIn)
+	}
+	if live > 0 {
+		_, _ = fmt.Fprintf(out, "     WARNING: %d creator(s) can still sign in and reach what they created here. "+
+			"Make sure the account is abandoned before you run with --write.\n", live)
+	}
 	_, _ = fmt.Fprintf(out, "to   %s (%s): %s is %s\n", r.AccountName, r.AccountID, r.AgentID, r.AgentRole)
 }
 

@@ -215,7 +215,7 @@ func TestCountAccountMembers(t *testing.T) {
 	if err := db.Create(authmodels.AccountMemberModelFrom("acct-kept", "agent-2", "member")).Error; err != nil {
 		t.Fatal(err)
 	}
-	counter := ProvideAccountMemberCounter(db)
+	counter := ProvideAccountUsageReader(db)
 	for account, want := range map[string]int{"acct-kept": 2, "acct-orphan": 0} {
 		got, err := counter.CountAccountMembers(t.Context(), account)
 		if err != nil || got != want {

@@ -198,16 +198,21 @@ It is not the transfer option 3 rejected, because each of the questions that mad
 larger decision has a narrow answer here:
 
 - **Who may move it.** Only the operator command `weos maintenance adopt-account`; no HTTP or MCP
-  surface records the event. It refuses unless the source account exists and has **no members**, the
+  surface records the event. It refuses unless the source account exists and has **no members** and
+  **no pending invitation** that has not expired (accepting one makes a member, wm-m0ci05), the
   target exists and is another account, and the agent named for the run is an **owner or admin** of the
-  target. A move never takes a resource out of an account somebody can still use.
+  target. The run reads the member and invitation checks again before it moves anything. A move never
+  takes a resource out of an account somebody can still use. One use the checks cannot see is the
+  creator rule: an agent keeps access to what it created with no membership. The preview therefore lists
+  each creator of the source's resources, whether it still has a credential and when it last wrote one,
+  and leaves that judgment to the operator.
 - **Its grants.** `resource_permissions` rows name an agent and a resource, not an account, so a move
   leaves them as they are. The resource's creator is unchanged too.
 - **Its knowledge-graph store.** The per-account projector removes the resource from the source
   account's graph and loads its state into the target's. The lexical index re-indexes it under the
   target.
-- **Detecting a wrong run.** The preview names both accounts, the source's member count and the
-  agent's role, and counts the resources per type, before anything is written. Every move is an event,
+- **Detecting a wrong run.** The preview names both accounts, the source's member and invitation
+  counts, the creators of its resources and the agent's role, and counts the resources per type, before anything is written. Every move is an event,
   so the stream records which resources moved, from where and to where.
 
 **Compare-and-set, everywhere.** The event applies only while the resource is in `FromAccountID`. That

@@ -18,6 +18,7 @@ package gorm
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -151,12 +152,12 @@ func derefString(s *string) string {
 	return *s
 }
 
-var _ repositories.AccountMemberCounter = (*AccountMemberDirectory)(nil)
+var _ repositories.AccountUsageReader = (*AccountMemberDirectory)(nil)
 
-// ProvideAccountMemberCounter counts an account's members over db. The
-// account adoption (wm-c7xehr) moves resources only out of an account with
-// none.
-func ProvideAccountMemberCounter(db *gorm.DB) repositories.AccountMemberCounter {
+// ProvideAccountUsageReader reads an account's members, pending invitations
+// and the creators of its resources over db. The account adoption
+// (wm-c7xehr) moves resources only out of an account nobody can use.
+func ProvideAccountUsageReader(db *gorm.DB) repositories.AccountUsageReader {
 	return &AccountMemberDirectory{db: db}
 }
 
@@ -168,4 +169,58 @@ func (d *AccountMemberDirectory) CountAccountMembers(ctx context.Context, accoun
 		return 0, fmt.Errorf("count the members of %s: %w", accountID, err)
 	}
 	return int(n), nil
+}
+
+// CountPendingInvites returns how many invitations into accountID are still
+// pending and expire after now.
+func (d *AccountMemberDirectory) CountPendingInvites(ctx context.Context, accountID string, now time.Time) (int, error) {
+	var n int64
+	if err := d.db.WithContext(ctx).Table("invites").
+		Where("account_id = ? AND status = ? AND expires_at > ?", accountID, "pending", now).
+		Count(&n).Error; err != nil {
+		return 0, fmt.Errorf("count the pending invitations of %s: %w", accountID, err)
+	}
+	return int(n), nil
+}
+
+// AccountCreators returns each agent that created a live resource of
+// accountID, with how many, the newest creation time and whether it still
+// holds an active credential.
+func (d *AccountMemberDirectory) AccountCreators(
+	ctx context.Context, accountID string,
+) ([]repositories.AccountCreator, error) {
+	db := d.db.WithContext(ctx)
+	var rows []struct {
+		AgentID   string
+		Resources int
+	}
+	// The newest creation time is read per agent below rather than with MAX:
+	// SQLite returns MAX over a timestamp column as text.
+	if err := db.Table("resources").
+		Select("created_by AS agent_id, COUNT(*) AS resources").
+		Where("account_id = ? AND deleted_at IS NULL", accountID).
+		Group("created_by").Order("created_by").Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("list the creators of the resources of %s: %w", accountID, err)
+	}
+	out := make([]repositories.AccountCreator, 0, len(rows))
+	for _, row := range rows {
+		c := repositories.AccountCreator{AgentID: row.AgentID, Resources: row.Resources}
+		var newest struct{ CreatedAt time.Time }
+		if err := db.Table("resources").Select("created_at").
+			Where("account_id = ? AND deleted_at IS NULL AND created_by = ?", accountID, row.AgentID).
+			Order("created_at DESC").Limit(1).Scan(&newest).Error; err != nil {
+			return nil, fmt.Errorf("read the newest resource %s created in %s: %w", row.AgentID, accountID, err)
+		}
+		c.NewestCreatedAt = newest.CreatedAt
+		if row.AgentID != "" {
+			var creds int64
+			if err := db.Table("credentials").Where("agent_id = ? AND active = ?", row.AgentID, true).
+				Count(&creds).Error; err != nil {
+				return nil, fmt.Errorf("read the credentials of %s: %w", row.AgentID, err)
+			}
+			c.HasCredential = creds > 0
+		}
+		out = append(out, c)
+	}
+	return out, nil
 }

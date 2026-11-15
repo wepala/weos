@@ -22,13 +22,16 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wepala/weos/v3/application"
 	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
 	gormprov "github.com/wepala/weos/v3/infrastructure/database/gorm"
 
 	"github.com/akeemphilbert/pericarp/pkg/auth"
 	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
+	authmodels "github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/models"
 	"gorm.io/gorm"
 )
 
@@ -539,5 +542,120 @@ func TestAdoptAccount_KeepsTheLabelsOfReferencesToResourcesNotMovedYet(t *testin
 	}
 	if got := env.display(t, "chore", chore, "task_display"); got != "Reconcile May statement" {
 		t.Errorf("after the move the chore's task label = %q, want %q", got, "Reconcile May statement")
+	}
+}
+
+// invite writes an invitation into account, as pericarp stores one.
+func (env *assignOwnerEnv) invite(t *testing.T, id, account, status string, expiresAt time.Time) {
+	t.Helper()
+	if err := env.db.Create(&authmodels.InviteModel{
+		ID: id, AccountID: account, Email: id + "@example.com", RoleID: authentities.RoleMember,
+		InviterAgentID: orphanWriter, InviteeAgentID: "agent-test-" + id, Status: status, ExpiresAt: expiresAt,
+		CreatedAt: time.Now(),
+	}).Error; err != nil {
+		t.Fatalf("invite %s: %v", id, err)
+	}
+}
+
+// wm-m0ci05: an account with no member but a pending, unexpired invitation
+// is still somebody's: accepting the invitation makes a member. It is refused,
+// in the preview and in a real run. An expired, accepted or revoked
+// invitation does not hold the account.
+func TestAdoptAccount_RefusesASourceWithAPendingInvite(t *testing.T) {
+	env := newAssignOwnerEnv(t)
+	f := env.seedOrphan(t)
+	ctx := context.Background()
+	env.invite(t, "inv-expired", orphanAccountID, "pending", time.Now().Add(-time.Hour))
+	env.invite(t, "inv-accepted", orphanAccountID, "accepted", time.Now().Add(time.Hour))
+	env.invite(t, "inv-revoked", orphanAccountID, "revoked", time.Now().Add(time.Hour))
+	plan, err := env.adoption.AdoptAccount(ctx, env.adoptCommand(true))
+	if err != nil {
+		t.Fatalf("preview with only spent invitations: %v", err)
+	}
+	if plan.FromInvites != 0 {
+		t.Errorf("pending invitations = %d, want 0 (expired, accepted and revoked do not count)", plan.FromInvites)
+	}
+
+	env.invite(t, "inv-pending", orphanAccountID, "pending", time.Now().Add(24*time.Hour))
+	before := env.eventCount(t)
+	for _, dryRun := range []bool{true, false} {
+		cmd := env.adoptCommand(dryRun)
+		report, err := env.adoption.AdoptAccount(ctx, cmd)
+		if !errors.Is(err, application.ErrAdoptSourceHasInvites) {
+			t.Errorf("preview %v: err = %v, want ErrAdoptSourceHasInvites", dryRun, err)
+		}
+		if report.FromInvites != 1 {
+			t.Errorf("preview %v: pending invitations = %d, want 1", dryRun, report.FromInvites)
+		}
+	}
+	if after := env.eventCount(t); after != before {
+		t.Errorf("a refused run wrote %d event(s)", after-before)
+	}
+	env.requireOwner(t, "task", f.orphanTask1, orphanAccountID, "after the refused run")
+}
+
+// wm-m0ci05: the checks are read again when the real run starts. A member or
+// a pending invitation that arrived after the preview refuses the run, and
+// nothing moves.
+func TestAdoptAccount_TheRunChecksTheSourceAgainBeforeItMovesAnything(t *testing.T) {
+	ctx := context.Background()
+	for name, arrive := range map[string]func(env *assignOwnerEnv, t *testing.T) error{
+		"a member": func(env *assignOwnerEnv, _ *testing.T) error {
+			return env.accountRepo.SaveMember(ctx, orphanAccountID, env.otherAgent, authentities.RoleMember)
+		},
+		"a pending invitation": func(env *assignOwnerEnv, t *testing.T) error {
+			env.invite(t, "inv-late", orphanAccountID, "pending", time.Now().Add(time.Hour))
+			return nil
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			env := newAssignOwnerEnv(t)
+			f := env.seedOrphan(t)
+			plan, err := env.adoption.PlanAdoptAccount(ctx, env.adoptCommand(false))
+			if err != nil {
+				t.Fatalf("plan: %v", err)
+			}
+			if err := arrive(env, t); err != nil {
+				t.Fatal(err)
+			}
+			before := env.eventCount(t)
+			_, err = env.adoption.ApplyAdoptAccount(ctx, plan)
+			if !errors.Is(err, application.ErrAdoptSourceHasMembers) && !errors.Is(err, application.ErrAdoptSourceHasInvites) {
+				t.Fatalf("apply after %s arrived: err = %v, want a refusal", name, err)
+			}
+			if after := env.eventCount(t); after != before {
+				t.Errorf("the refused run wrote %d event(s)", after-before)
+			}
+			env.requireOwner(t, "task", f.orphanTask1, orphanAccountID, "after the refused run")
+		})
+	}
+}
+
+// wm-m0ci05: an account with no member can still be in use through the
+// creator rule: whoever created its resources keeps access to them. The
+// preview names each creator, whether it can still sign in, how many of the
+// resources it wrote and when it last wrote one.
+func TestAdoptAccount_ThePreviewNamesWhoCreatedTheSourcesResources(t *testing.T) {
+	env := newAssignOwnerEnv(t)
+	env.seedOrphan(t)
+	// The owner agent also wrote into the orphaned account, and can sign in.
+	env.create(t, env.ownerAgent, orphanAccountID, "task", "Recent task")
+
+	plan, err := env.adoption.AdoptAccount(context.Background(), env.adoptCommand(true))
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	got := map[string]repositories.AccountCreator{}
+	for _, c := range plan.FromCreators {
+		got[c.AgentID] = c
+	}
+	if len(got) != 2 {
+		t.Fatalf("creators = %+v, want the orphan's writer and the owner", plan.FromCreators)
+	}
+	if c := got[orphanWriter]; c.Resources != 3 || c.HasCredential || c.NewestCreatedAt.IsZero() {
+		t.Errorf("orphan writer = %+v, want 3 resources, no credential and a newest time", c)
+	}
+	if c := got[env.ownerAgent]; c.Resources != 1 || !c.HasCredential || c.NewestCreatedAt.IsZero() {
+		t.Errorf("owner = %+v, want 1 resource, a credential and a newest time", c)
 	}
 }

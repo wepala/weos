@@ -20,8 +20,10 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wepala/weos/v3/application"
+	"github.com/wepala/weos/v3/domain/repositories"
 )
 
 func adoptReport(dryRun bool) application.AdoptAccountReport {
@@ -54,6 +56,31 @@ func TestPrintAdoptAccount_APreviewNamesBothAccountsTheMemberCheckAndCountsPerTy
 	}
 	if strings.Index(text, "project") > strings.Index(text, "task") {
 		t.Errorf("types are not in name order:\n%s", text)
+	}
+}
+
+// wm-m0ci05: the preview shows the pending invitations and who created the
+// source's resources — whether each can still sign in, how many it wrote and
+// when it last wrote one — and warns when one of them can still sign in.
+func TestPrintAdoptAccount_APreviewShowsInvitesAndWhoCreatedTheResources(t *testing.T) {
+	var out bytes.Buffer
+	r := adoptReport(true)
+	newest := time.Date(2026, 6, 30, 18, 4, 0, 0, time.UTC)
+	r.FromCreators = []repositories.AccountCreator{
+		{AgentID: "agent-old", Resources: 7077, NewestCreatedAt: newest},
+		{AgentID: "agent-live", Resources: 1, HasCredential: true, NewestCreatedAt: newest.Add(time.Hour)},
+	}
+	printAdoptAccountTarget(&out, r)
+	text := out.String()
+	for _, want := range []string{
+		"from Old local twin (acct-old): 0 members, 0 pending invitations",
+		"created by agent-old: 7077 resource(s), newest 2026-06-30T18:04:00Z, no credential",
+		"created by agent-live: 1 resource(s), newest 2026-06-30T19:04:00Z, HAS A CREDENTIAL",
+		"WARNING: 1 creator(s) can still sign in",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("preview lacks %q:\n%s", want, text)
+		}
 	}
 }
 
@@ -141,6 +168,9 @@ var adoptAccountRunRules = []string{
 	"weos worker checkpoint reset lexical-index",
 	// wm-myzy4t: an older binary's erasure of the source deletes what moved.
 	"Erase it only with this release or later",
+	// wm-m0ci05.
+	"pending invitation",
+	"still has a credential",
 }
 
 func TestMaintenanceAdoptAccount_HelpStatesTheRunRules(t *testing.T) {

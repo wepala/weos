@@ -141,7 +141,7 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		fx.Provide(gorm.ProvideFeatureGrantRepository),
 		fx.Provide(gorm.ProvideAccountMemberQuery),
 		fx.Provide(gorm.ProvideAccountMemberDirectory),
-		fx.Provide(gorm.ProvideAccountMemberCounter),
+		fx.Provide(gorm.ProvideAccountUsageReader),
 		fx.Provide(gorm.ProvideAccountMembershipAudit),
 		fx.Provide(NewFeatureResolver),
 		fx.Provide(ProvideFeatureCacheInvalidator),

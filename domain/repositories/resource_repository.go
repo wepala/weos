@@ -225,10 +225,33 @@ type AccountResourceFinder interface {
 	FindForAdoption(ctx context.Context, fromAccountID, toAccountID string) ([]AccountResource, error)
 }
 
-// AccountMemberCounter counts the members of an account. The account
-// adoption moves resources only out of an account with no members.
-type AccountMemberCounter interface {
+// AccountUsageReader reads what says an account is still in use. The account
+// adoption moves resources only out of an account nobody can use: one with
+// no members and no pending invitation (wm-m0ci05).
+type AccountUsageReader interface {
+	// CountAccountMembers returns how many account_members rows name the
+	// account.
 	CountAccountMembers(ctx context.Context, accountID string) (int, error)
+	// CountPendingInvites returns how many invitations into the account are
+	// pending and not expired at now. Accepting one makes a member.
+	CountPendingInvites(ctx context.Context, accountID string, now time.Time) (int, error)
+	// AccountCreators returns each agent that created a live resource of the
+	// account, in agent id order. An agent keeps access to what it created
+	// with no membership at all, so an account with no members can still be
+	// in use by one.
+	AccountCreators(ctx context.Context, accountID string) ([]AccountCreator, error)
+}
+
+// AccountCreator is one agent that created live resources of an account.
+type AccountCreator struct {
+	AgentID string
+	// Resources is how many live resources of the account it created.
+	Resources int
+	// HasCredential says the agent still has an active credential, so it can
+	// sign in.
+	HasCredential bool
+	// NewestCreatedAt is when it created the newest of them.
+	NewestCreatedAt time.Time
 }
 
 type ResourceRepository interface {

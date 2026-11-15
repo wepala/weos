@@ -50,6 +50,10 @@ var (
 	ErrAdoptSourceNotFound = errors.New("adopt account: the account to move from does not exist")
 	// ErrAdoptSourceHasMembers refuses an account someone can still use.
 	ErrAdoptSourceHasMembers = errors.New("adopt account: the account to move from has members")
+	// ErrAdoptSourceHasInvites refuses an account with a pending, unexpired
+	// invitation: accepting it makes a member of an account the move would
+	// have emptied (wm-m0ci05).
+	ErrAdoptSourceHasInvites = errors.New("adopt account: the account to move from has a pending invitation")
 	// ErrAdoptTargetNotFound means the account to move to does not exist.
 	ErrAdoptTargetNotFound = errors.New("adopt account: the account to move to does not exist")
 	// ErrAdoptSameAccount refuses a move into the account it comes from.
@@ -110,9 +114,18 @@ type AdoptAccountReport struct {
 	// FromMembers is the source account's member count, which the run
 	// requires to be 0.
 	FromMembers int
-	AccountID   string
-	AccountName string
-	AgentID     string
+	// FromInvites is the source account's count of pending, unexpired
+	// invitations, which the run requires to be 0.
+	FromInvites int
+	// FromCreators lists each agent that created a live resource of the
+	// source account. An agent keeps access to what it created with no
+	// membership, so one that still has a credential, or wrote recently, is a
+	// sign the account is still in use. The run does not refuse on it; the
+	// operator reads it in the preview.
+	FromCreators []repositories.AccountCreator
+	AccountID    string
+	AccountName  string
+	AgentID      string
 	// AgentRole is the agent's role in the target account.
 	AgentRole string
 	DryRun    bool
@@ -174,7 +187,7 @@ type AccountAdoptionParams struct {
 	fx.In
 	Repo       repositories.ResourceRepository
 	Accounts   authrepos.AccountRepository
-	Members    repositories.AccountMemberCounter
+	Members    repositories.AccountUsageReader
 	EventStore domain.EventStore
 	Dispatcher *domain.EventDispatcher
 	Logger     entities.Logger
@@ -187,7 +200,7 @@ type AccountAdoptionService struct {
 	projOwners repositories.ProjectionOwnerReader
 	mover      repositories.ProjectionOwnerMover
 	accounts   authrepos.AccountRepository
-	members    repositories.AccountMemberCounter
+	members    repositories.AccountUsageReader
 	eventStore domain.EventStore
 	dispatcher *domain.EventDispatcher
 	logger     entities.Logger
@@ -210,7 +223,7 @@ func ProvideAccountAdoptionService(p AccountAdoptionParams) *AccountAdoptionServ
 // read-only connection without starting the application.
 func NewAccountAdoptionPlanner(
 	finder repositories.AccountResourceFinder, accounts authrepos.AccountRepository,
-	members repositories.AccountMemberCounter,
+	members repositories.AccountUsageReader,
 ) *AccountAdoptionService {
 	return &AccountAdoptionService{finder: finder, accounts: accounts, members: members}
 }
@@ -255,15 +268,11 @@ func (s *AccountAdoptionService) PlanAdoptAccount(
 		return report, fmt.Errorf("%w: %s", ErrAdoptSourceNotFound, cmd.FromAccountID)
 	}
 	report.FromAccountName = from.Name()
-	if s.members == nil {
-		return report, errors.New("adopt account: no way to count the members of an account was wired")
+	if err := s.checkSourceUnused(ctx, &report); err != nil {
+		return report, err
 	}
-	if report.FromMembers, err = s.members.CountAccountMembers(ctx, cmd.FromAccountID); err != nil {
+	if report.FromCreators, err = s.members.AccountCreators(ctx, cmd.FromAccountID); err != nil {
 		return report, fmt.Errorf("adopt account: %w", err)
-	}
-	if report.FromMembers > 0 {
-		return report, fmt.Errorf("%w: %s has %d member(s)", ErrAdoptSourceHasMembers,
-			cmd.FromAccountID, report.FromMembers)
 	}
 	to, err := s.accounts.FindByID(ctx, cmd.AccountID)
 	if err != nil {
@@ -318,6 +327,31 @@ func (s *AccountAdoptionService) PlanAdoptAccount(
 	return report, nil
 }
 
+// checkSourceUnused refuses a source account somebody can still use: one with
+// a member, or with a pending invitation that would make one. It records both
+// counts on the report.
+func (s *AccountAdoptionService) checkSourceUnused(ctx context.Context, report *AdoptAccountReport) error {
+	if s.members == nil {
+		return errors.New("adopt account: no way to count the members of an account was wired")
+	}
+	var err error
+	if report.FromMembers, err = s.members.CountAccountMembers(ctx, report.FromAccountID); err != nil {
+		return fmt.Errorf("adopt account: %w", err)
+	}
+	if report.FromMembers > 0 {
+		return fmt.Errorf("%w: %s has %d member(s)", ErrAdoptSourceHasMembers,
+			report.FromAccountID, report.FromMembers)
+	}
+	if report.FromInvites, err = s.members.CountPendingInvites(ctx, report.FromAccountID, time.Now()); err != nil {
+		return fmt.Errorf("adopt account: %w", err)
+	}
+	if report.FromInvites > 0 {
+		return fmt.Errorf("%w: %s has %d pending invitation(s)", ErrAdoptSourceHasInvites,
+			report.FromAccountID, report.FromInvites)
+	}
+	return nil
+}
+
 // ApplyAdoptAccount moves what a plan selected. Each resource commits on its
 // own, so a run that stops part-way has moved what it reports, and a re-run
 // finishes the rest: a moved resource is no longer in the source account.
@@ -339,6 +373,12 @@ func (s *AccountAdoptionService) ApplyAdoptAccount(
 	}
 	report := plan
 	report.DryRun = false
+	// The checks are read again here: a member or an invitation can arrive
+	// between the preview and the run, and the run moves only out of an
+	// account nobody can use (wm-m0ci05).
+	if err := s.checkSourceUnused(ctx, &report); err != nil {
+		return report, err
+	}
 	report.Types = make(map[string]AdoptAccountTypeCount, len(plan.Types))
 	for slug, c := range plan.Types {
 		report.Types[slug] = AdoptAccountTypeCount{ToMove: c.ToMove, RowsToMove: c.RowsToMove, ForeignRows: c.ForeignRows}
