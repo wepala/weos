@@ -122,4 +122,33 @@ func (e ResourceAccountAssigned) EventType() string {
 	return "Resource.AccountAssigned"
 }
 
+// ResourceAccountAdopted moves a resource out of an account that nobody can
+// use any more — an account with no members — into a named account
+// (wm-c7xehr).
+//
+// It is the one event that moves a set owner. Resource.AccountAssigned only
+// fills an empty one, and that rule stands. A move is compare-and-set on
+// FromAccountID: the aggregate, the canonical record, every projection row,
+// the knowledge graph and the lexical index each apply it only while the
+// resource is still in FromAccountID, so a replay or a second run of the
+// operator command changes nothing. AccountID is the account the resource
+// moves to; it carries the same name as on every other resource event so a
+// background subscriber routes the event to the new owner.
+//
+// Once written, this event type stays readable for as long as the stream
+// does.
+type ResourceAccountAdopted struct {
+	FromAccountID string
+	AccountID     string
+	Timestamp     time.Time
+}
+
+func (e ResourceAccountAdopted) With(fromAccountID, accountID string) ResourceAccountAdopted {
+	return ResourceAccountAdopted{FromAccountID: fromAccountID, AccountID: accountID, Timestamp: time.Now()}
+}
+
+func (e ResourceAccountAdopted) EventType() string {
+	return "Resource.AccountAdopted"
+}
+
 const ResourceEventPattern = "Resource.%"
