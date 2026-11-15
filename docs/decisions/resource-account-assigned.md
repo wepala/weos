@@ -230,8 +230,15 @@ row still in the source under a record that moved stops the run, and a re-run mo
 second event, once it finds the move in the resource's history. A resource of the source account with a
 row a third account holds is listed and never moved, and the run exits non-zero.
 
-**The source account is not deleted** by the command. Removing an account is erasure's job, with its
-own checks.
+**The source account is not deleted** by the command. Removing the emptied account is erasure's job,
+with its own checks — and erasure must not take what moved. Every moved resource's
+`Resource.Created` still names the source account in its payload, and erasure used to delete the whole
+stream of every aggregate whose events named the account. From this release it leaves every resource
+whose history moved it out of the account (its latest `Resource.AccountAdopted` names another
+account): its stream, its rows, its triples, its grants and its index rows are the new account's
+(wm-myzy4t). **Never erase the source account with a binary older than this release**: that erasure
+deletes the history of every resource that moved, and the next reproject removes the resources from
+the target account.
 
 The event follows the same rule as `Resource.AccountAssigned` below: once one is in a store, every later
 release keeps the event type, its payload shape and its `ApplyEvent` case. A binary older than the

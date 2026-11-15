@@ -412,3 +412,50 @@ func TestAdoptAccount_TheCommandPreviewsThenMovesWithWrite(t *testing.T) {
 	}
 	env.requireOwner(t, "task", f.othersTask, env.otherAccount, "after the refused command")
 }
+
+func (env *assignOwnerEnv) streamLength(t *testing.T, aggregateID string) int64 {
+	t.Helper()
+	var n int64
+	if err := env.db.Table("events").Where("aggregate_id = ?", aggregateID).Count(&n).Error; err != nil {
+		t.Fatalf("count events of %s: %v", aggregateID, err)
+	}
+	return n
+}
+
+// wm-myzy4t: once the orphaned account is empty, the operator's next step is
+// to erase it. Every moved resource's Resource.Created still names that
+// account, and the erasure used to delete every stream that named it. The
+// moved resources, their whole history and a rebuild from it all survive.
+func TestAdoptAccount_ErasingTheEmptiedSourceKeepsWhatMoved(t *testing.T) {
+	env := newAssignOwnerEnv(t)
+	f := env.seedOrphan(t)
+	ctx := context.Background()
+	if _, err := env.adoption.AdoptAccount(ctx, env.adoptCommand(false)); err != nil {
+		t.Fatalf("move: %v", err)
+	}
+	moved := map[string]string{f.orphanTask1: "task", f.orphanTask2: "task", f.orphanProject: "project"}
+	streams := map[string]int64{}
+	for id := range moved {
+		streams[id] = env.streamLength(t, id)
+	}
+
+	if _, err := env.erasure.Erase(ctx, application.EraseAccountCommand{
+		AccountID: orphanAccountID, RequestedBy: env.ownerAgent, SkipDrain: true,
+	}); err != nil {
+		t.Fatalf("erase the emptied source: %v", err)
+	}
+	if a, err := env.accountRepo.FindByID(ctx, orphanAccountID); err == nil && a != nil {
+		t.Fatal("the source account is still there after its erasure")
+	}
+	for id, typeSlug := range moved {
+		if got := env.streamLength(t, id); got != streams[id] {
+			t.Errorf("%s has %d of its %d events after the source was erased", id, got, streams[id])
+		}
+		env.requireOwner(t, typeSlug, id, env.ownerAccount, "after the source was erased")
+	}
+	env.requireOwner(t, "task", f.othersTask, env.otherAccount, "after the source was erased")
+
+	env.stop()
+	env.reproject(t, "rebuild after the source was erased")
+	env.requireAdopted(t, f, "rebuild after the source was erased")
+}

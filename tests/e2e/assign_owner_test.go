@@ -58,6 +58,7 @@ type assignOwnerEnv struct {
 	resources  application.ResourceService
 	backfill   *application.OwnerBackfillService
 	adoption   *application.AccountAdoptionService
+	erasure    *application.AccountErasureService
 
 	// The backfill's own dependencies, so a test can build the service over
 	// a wrapped event store.
@@ -90,7 +91,7 @@ func newAssignOwnerEnv(t *testing.T) *assignOwnerEnv {
 	env.app = fx.New(
 		fx.NopLogger,
 		application.Module(env.cfg, presets.NewDefaultRegistry()),
-		fx.Populate(&authService, &types, &env.resources, &env.backfill, &env.adoption),
+		fx.Populate(&authService, &types, &env.resources, &env.backfill, &env.adoption, &env.erasure),
 		fx.Populate(&env.db, &env.projMgr, &env.eventStore),
 		fx.Populate(&env.resourceRepo, &env.accountRepo, &env.dispatcher, &env.logger),
 	)

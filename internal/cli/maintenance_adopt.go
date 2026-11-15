@@ -105,6 +105,13 @@ needs investigation first.
 What a run with --write changes besides the owner: every moved row's
 updated_at is set to the time of the run.
 
+Erasing the --from account afterwards ("weos account delete") leaves every
+moved resource and its history: erasure skips a resource whose history moved
+it out of the account. Erase it only with this release or later. An older
+binary's erasure deletes the history of every moved resource, because each
+one's Resource.Created still names the --from account, and the next
+"weos worker reproject" then removes them from the --account account.
+
 If a binary older than this release served during or after a run with
 --write, its background workers skipped the new event, so the knowledge graph
 and the search index still file the resources under the --from account. With

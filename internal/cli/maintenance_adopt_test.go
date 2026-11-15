@@ -139,6 +139,8 @@ var adoptAccountRunRules = []string{
 	"weos worker reproject",
 	"weos worker checkpoint reset oxigraph",
 	"weos worker checkpoint reset lexical-index",
+	// wm-myzy4t: an older binary's erasure of the source deletes what moved.
+	"Erase it only with this release or later",
 }
 
 func TestMaintenanceAdoptAccount_HelpStatesTheRunRules(t *testing.T) {

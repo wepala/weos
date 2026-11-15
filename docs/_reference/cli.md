@@ -495,6 +495,12 @@ resource. Fix the cause and run the command again: it finds the row, checks that
 holds the move, moves the row, and records no second event. The preview counts such rows apart from
 the resources to move, so the moved count matches the events a run adds.
 
+**Erasing the `--from` account afterwards.** `weos account delete` on the emptied `--from` account
+leaves every resource that moved, and its whole history: erasure skips a resource whose history moved
+it out of the account. **Erase it only with this release or later.** An older binary's erasure deletes
+the event history of every moved resource, because each one's `Resource.Created` still names the
+`--from` account, and the next `weos worker reproject` then removes them from the `--account` account.
+
 A resource of the `--from` account with a projection row that a third account holds is listed, in the
 preview and in the result, and is never moved: no write this command makes changes that row, so it
 needs investigation first. A run with `--write` that lists one exits non-zero. A resource with no row at
