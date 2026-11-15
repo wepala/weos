@@ -169,8 +169,18 @@ func reindexAssignedOwner(
 // Resource.AccountAdopted moved it to (wm-c7xehr). It is compare-and-set on
 // the move's source account: a row indexed under any other account keeps its
 // owner, and so does a resource with no row whose history before the move
-// does not show it in the source account. The text and type are rebuilt from
-// the history up to the move, as reindexAssignedOwner does.
+// does not show it in the source account.
+//
+// The text and type are rebuilt from the WHOLE history, not the part before
+// the move (Copilot review 5913504768). The worker goes on past a parked
+// event, so `worker parked replay` can run a move after the resource's later
+// events already reached the index: a later delete or an update that emptied
+// the text removed the row, and a later update wrote newer text. The state at
+// the end of the history is what those events left, so a deleted resource is
+// not indexed again, an emptied one stays out, and newer text is not replaced
+// by older. The compare-and-set stays on the row: a later move of the same
+// resource meets the row this one wrote, so two parked moves replayed in
+// order still end in the last move's account.
 func reindexAdoptedOwner(
 	ctx context.Context, eventStore domain.EventStore, index repositories.LexicalIndex,
 	logger entities.Logger, event domain.EventEnvelope[any],
@@ -197,7 +207,7 @@ func reindexAdoptedOwner(
 	if current != from {
 		return nil
 	}
-	state := buildStateFromTransaction(ctx, before, event.AggregateID, event.SequenceNo, logger)
+	state := buildStateFromTransaction(ctx, history, event.AggregateID, event.SequenceNo, logger)
 	if state.IsDelete || state.Data == nil {
 		return nil
 	}

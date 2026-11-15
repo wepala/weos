@@ -494,3 +494,102 @@ func TestProjector_AccountAdoptedRemovesTheNestedNodesFromTheSource(t *testing.T
 		t.Errorf("source graph removed %v, want the resource", source.subjectsRemoved)
 	}
 }
+
+// laterEnv is an event of the resource after the move: a delete, or an
+// update that replaces its data.
+func laterEnv(aggregateID, eventType string, seq int, account string, data map[string]any) domain.EventEnvelope[any] {
+	payload := map[string]any{"AccountID": account}
+	if data != nil {
+		payload["Data"] = data
+	}
+	return domain.EventEnvelope[any]{
+		ID: fmt.Sprintf("%s-%s-%d", aggregateID, eventType, seq), EventType: eventType,
+		AggregateID: aggregateID, SequenceNo: seq, TransactionID: fmt.Sprintf("tx-later-%d", seq),
+		Payload: payload,
+	}
+}
+
+// Copilot review 5913504768 (lexical_group.go): the worker goes on past a
+// parked event, so `worker parked replay` can run a move after later events
+// of the resource already ran. The replay must leave the index as those
+// events left it, and never bring back what they took out.
+func TestLexicalHandler_AReplayedParkedAdoptionHonorsLaterEvents(t *testing.T) {
+	t.Parallel()
+	const id = "urn:note:1"
+	adopted := adoptedEnv(id, orphanAcct, targetAcct, 3)
+
+	t.Run("a later delete leaves no search row", func(t *testing.T) {
+		t.Parallel()
+		es := &fakeEventStore{byAggregate: map[string][]domain.EventEnvelope[any]{
+			id: append(historyIn(id, "agent-a", orphanAcct), adopted,
+				laterEnv(id, "Resource.Deleted", 4, targetAcct, nil)),
+		}}
+		index := newFakeLexicalIndex(true) // the delete removed the row
+		if err := lexicalHandler(es, index, noopLogger{})(context.Background(), adopted); err != nil {
+			t.Fatalf("handler: %v", err)
+		}
+		if text, ok := index.indexed[id]; ok {
+			t.Fatalf("the replay re-created the search row of a deleted resource: %q", text)
+		}
+	})
+
+	t.Run("a later update that emptied the text leaves no search row", func(t *testing.T) {
+		t.Parallel()
+		es := &fakeEventStore{byAggregate: map[string][]domain.EventEnvelope[any]{
+			id: append(historyIn(id, "agent-a", orphanAcct), adopted,
+				laterEnv(id, "Resource.Updated", 4, targetAcct, map[string]any{"@id": id})),
+		}}
+		index := newFakeLexicalIndex(true) // the empty update removed the row
+		if err := lexicalHandler(es, index, noopLogger{})(context.Background(), adopted); err != nil {
+			t.Fatalf("handler: %v", err)
+		}
+		if text, ok := index.indexed[id]; ok {
+			t.Fatalf("the replay re-created a search row the later update removed: %q", text)
+		}
+	})
+
+	t.Run("a later update keeps its newer text", func(t *testing.T) {
+		t.Parallel()
+		es := &fakeEventStore{byAggregate: map[string][]domain.EventEnvelope[any]{
+			id: append(historyIn(id, "agent-a", orphanAcct), adopted,
+				laterEnv(id, "Resource.Updated", 4, targetAcct,
+					map[string]any{"@id": id, "name": "July statement"})),
+		}}
+		index := newFakeLexicalIndex(true)
+		// The update ran while the move was parked, so the row still has the
+		// source account and already has the newer text.
+		index.indexed[id] = "July statement"
+		index.types[id] = "note"
+		index.owners[id] = repositories.LexicalOwner{CreatedBy: "agent-a", AccountID: orphanAcct}
+		if err := lexicalHandler(es, index, noopLogger{})(context.Background(), adopted); err != nil {
+			t.Fatalf("handler: %v", err)
+		}
+		if got := index.indexed[id]; got != "July statement" {
+			t.Fatalf("search text = %q, want the later update's %q", got, "July statement")
+		}
+		if got := index.owners[id].AccountID; got != targetAcct {
+			t.Fatalf("owner = %q, want the target %q", got, targetAcct)
+		}
+	})
+
+	t.Run("two parked moves replayed in order end in the last account", func(t *testing.T) {
+		t.Parallel()
+		second := adoptedEnv(id, targetAcct, thirdAcct, 4)
+		es := &fakeEventStore{byAggregate: map[string][]domain.EventEnvelope[any]{
+			id: append(historyIn(id, "agent-a", orphanAcct), adopted, second),
+		}}
+		index := newFakeLexicalIndex(true)
+		index.indexed[id] = "June statement"
+		index.types[id] = "note"
+		index.owners[id] = repositories.LexicalOwner{CreatedBy: "agent-a", AccountID: orphanAcct}
+		handle := lexicalHandler(es, index, noopLogger{})
+		for _, e := range []domain.EventEnvelope[any]{adopted, second} {
+			if err := handle(context.Background(), e); err != nil {
+				t.Fatalf("handler: %v", err)
+			}
+		}
+		if got := index.owners[id].AccountID; got != thirdAcct {
+			t.Fatalf("owner = %q, want the last move's %q", got, thirdAcct)
+		}
+	})
+}
