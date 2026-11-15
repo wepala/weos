@@ -141,6 +141,7 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		fx.Provide(gorm.ProvideFeatureGrantRepository),
 		fx.Provide(gorm.ProvideAccountMemberQuery),
 		fx.Provide(gorm.ProvideAccountMemberDirectory),
+		fx.Provide(gorm.ProvideAccountMemberCounter),
 		fx.Provide(gorm.ProvideAccountMembershipAudit),
 		fx.Provide(NewFeatureResolver),
 		fx.Provide(ProvideFeatureCacheInvalidator),
@@ -175,6 +176,9 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		// Operator backfill of the owner on ownerless resources (wm-4kdhro),
 		// behind `weos maintenance assign-owner`.
 		fx.Provide(ProvideOwnerBackfillService),
+		// Operator move of the resources of an account with no members
+		// (wm-c7xehr), behind `weos maintenance adopt-account`.
+		fx.Provide(ProvideAccountAdoptionService),
 		// Generic notification store + inbox (#427): production and mark-read
 		// route through ResourceService, so writes hit the behavior/event
 		// pipeline and inbox reads inherit the ownership visibility scope.

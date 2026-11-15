@@ -414,6 +414,98 @@ weos worker checkpoint reset oxigraph
 weos worker checkpoint reset lexical-index
 ```
 
+## `weos maintenance adopt-account`
+
+Move every resource of an account with no members to another account. An account with no
+`account_members` row cannot be signed in to by anyone, so nobody can list, change or delete what it
+owns: account-scoped reads never match it, and a delete by anyone but the resource's creator is
+refused. This is the one command that moves a resource that already has an owner, and it moves only
+out of such an account. `weos maintenance assign-owner` still only fills an empty owner.
+
+```bash
+weos maintenance adopt-account --database-dsn <dsn> --from <account id> --account <account id> \
+  --agent <agent id> [--write]
+```
+
+**Preview by default.** Without `--write` the command names both accounts, shows the member count of
+the `--from` account and the agent's role in the `--account` account, counts the resources to move per
+type, and writes nothing. Only `--write` moves. A move cannot be undone, so a forgotten flag costs a
+preview, never a write.
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--from` | string | Yes | The account with no members whose resources are moved |
+| `--account` | string | Yes | The account to move the resources to |
+| `--agent` | string | Yes | An agent that is owner or admin of `--account`, who answers for the move |
+| `--write` | bool | No | Apply the move. Without it (the default) the command is a preview and changes nothing |
+
+**What it changes.** Every live resource whose account is `--from`, of every type, gets one
+`Resource.AccountAdopted` event, written through the same unit of work as any other write. The
+canonical record, the projection tables, the knowledge graph and the search index all follow it, and a
+rebuild from events (`weos worker reproject`) keeps it. Each consumer applies the move only while the
+resource is still in the `--from` account, so a resource that left it is skipped and a second run
+moves nothing. A resource of any other account is never touched. The `--from` account is never deleted
+by this command. **A move cannot be undone**: only a database restore reverses a run. The decision is
+recorded in [An Ownerless Resource Is Given Its Owner Through the Event Stream]({% link decisions/resource-account-assigned.md %}),
+in the section on the one case where an owner moves.
+
+A run with `--write` also sets `updated_at` on every moved row to the time of the run.
+
+**Refusals.** The command refuses to run when the `--from` account does not exist or has a member, when
+the `--account` account does not exist or is the `--from` account, when the agent is not an owner or
+admin of the `--account` account, or when no database is named.
+
+**Where the ids come from.** Read them from the same database:
+
+```sql
+-- --from: accounts with no members that still own resources
+SELECT a.id, a.name, COUNT(r.id) FROM accounts a
+  JOIN resources r ON r.account_id = a.id
+  WHERE NOT EXISTS (SELECT 1 FROM account_members m WHERE m.account_id = a.id)
+  GROUP BY a.id, a.name;
+
+-- --account and --agent: the accounts an agent is in, with its role
+SELECT a.id, a.name, m.role_id FROM account_members m
+  JOIN accounts a ON a.id = m.account_id
+  WHERE m.agent_id = '<agent id>';
+-- or one person's agent id, from an email address
+SELECT agent_id FROM credentials WHERE email = '<address>';
+```
+
+**Procedure.**
+
+1. Upgrade the instance to this release. The preview (no flag) may run while the instance serves: it
+   opens the database read-only and starts nothing, so it writes nothing.
+2. Preview first: run with no flag. Read both account names, the member count of the `--from` account
+   (it must be 0) and the counts per type.
+3. Stop the instance for the real run, and back up the database. A run with `--write` opens the store
+   directly, and a serving instance competes with it for the database (on SQLite, for the write lock).
+4. Add `--write` and run again. The command names both accounts before it writes.
+5. Start the instance.
+
+A resource is counted as moved only when its record and each of its projection rows (its own type's
+table and each ancestor's) read back in the `--account` account. A run that stops part-way has moved
+what it reports; running it again with `--write` moves the rest. A resource whose record is behind its
+event stream is skipped and listed, and the command exits non-zero: with the instance stopped, run
+`weos worker reproject` against the same database, then run this command again.
+
+The record and the rows are written one after the other, so a failed write can leave a projection row
+in the `--from` account under a record that moved. The run then stops with an error that names the
+resource. Fix the cause and run the command again: it finds the row, checks that the resource's history
+holds the move, moves the row, and records no second event. The preview counts such rows apart from
+the resources to move, so the moved count matches the events a run adds.
+
+A resource of the `--from` account with a projection row that a third account holds is listed, in the
+preview and in the result, and is never moved: no write this command makes changes that row, so it
+needs investigation first. A run with `--write` that lists one exits non-zero. A resource with no row at
+all in one of its projection tables is moved, and the move writes the row.
+
+**If an older binary served during or after a run with `--write`.** A binary built before this release
+does not know `Resource.AccountAdopted`. Its background workers skip the event, so the knowledge graph
+and the search index still file the resources under the `--from` account. With this release, run
+`weos worker checkpoint reset oxigraph` and `weos worker checkpoint reset lexical-index`, then start the
+instance; the workers replay the history.
+
 ---
 
 ## Make Targets
