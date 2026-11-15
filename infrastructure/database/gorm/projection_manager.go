@@ -128,7 +128,7 @@ func (pm *projectionManager) EnsureTable(
 	// which the ValueFlows `agent` type's projection shares by name — so
 	// without this a projection write to that table fails on the first
 	// missing base column (account_id). addMissingColumns is idempotent
-	// (HasColumn-guarded), so this is a cheap ALTER only when needed.
+	// (columnExists-guarded), so this is a cheap ALTER only when needed.
 	if err := pm.addMissingColumns(ctx, tableName, pm.baseColumnDefs()); err != nil {
 		return fmt.Errorf("failed to ensure base columns on %q: %w", tableName, err)
 	}
@@ -156,18 +156,17 @@ func (pm *projectionManager) EnsureTable(
 	// the DB — only add what the migrator confirms, so we don't claim cached
 	// presence for a link that hasn't been activated yet.
 	if pm.linkSource != nil {
-		migrator := pm.db.Migrator()
 		for _, ref := range pm.linkSource.LinkReferencesForSource(slug) {
 			colName := utils.CamelToSnake(ref.PropertyName)
 			displayCol := colName + "_display"
-			if migrator.HasColumn(tableName, colName) {
+			if columnExists(ctx, pm.db, pm.logger, tableName, colName) {
 				colSet[colName] = true
 				// A link FK is declared, just outside the type's own schema: a
 				// document carries it in its edges node exactly as it carries an
 				// x-resource-type reference, so clearing it must work the same way.
 				declaredSet[colName] = true
 			}
-			if migrator.HasColumn(tableName, displayCol) {
+			if columnExists(ctx, pm.db, pm.logger, tableName, displayCol) {
 				colSet[displayCol] = true
 			}
 		}
@@ -852,13 +851,20 @@ func (pm *projectionManager) createTableIfNotExists(ctx context.Context, tableNa
 
 func (pm *projectionManager) addMissingColumns(ctx context.Context, tableName string, columns []columnDef) error {
 	for _, col := range columns {
-		if pm.db.Migrator().HasColumn(tableName, col.Name) {
+		if columnExists(ctx, pm.db, pm.logger, tableName, col.Name) {
 			continue
 		}
 		ddl := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", tableName, col.Name, col.SQLType)
 		if err := pm.db.WithContext(ctx).Exec(ddl).Error; err != nil {
 			return err
 		}
+		// The ALTER fills no existing row: rows projected before it hold NULL
+		// in the new column until a reproject rewrites them (the boot backfill
+		// only inserts rows that are missing outright). Say so where an
+		// operator will look, once per column actually added.
+		pm.logger.Info(ctx, "projection column added; rows written before it need "+
+			"'weos worker reproject' to get a value",
+			"table", tableName, "column", col.Name)
 	}
 	return nil
 }
