@@ -380,9 +380,19 @@ func (p *AccountPurger) purgeProjections(tx *gorm.DB, facts *accountFacts, _ *re
 	if err := tx.Unscoped().Model(&models.ResourceType{}).Pluck("slug", &slugs).Error; err != nil {
 		return fmt.Errorf("account erasure: list resource types: %w", err)
 	}
+	ctx := tx.Statement.Context
 	for _, slug := range slugs {
 		table := p.projMgr.TableName(slug)
-		if !tx.Migrator().HasTable(table) || !columnExists(tx, table, "account_id") {
+		if !tx.Migrator().HasTable(table) {
+			continue
+		}
+		if !columnExists(ctx, tx, p.logger, table, "account_id") {
+			// Not an account-scoped table (a system table a type's projection
+			// shares by name, or one never reconciled), so there is nothing to
+			// delete by account. Record the skip so the purge's coverage can be
+			// audited after the fact.
+			p.logger.Info(ctx, "account erasure: skipping projection table with no account_id column",
+				"table", table, "slug", slug)
 			continue
 		}
 		if err := tx.Table(table).Where("account_id = ?", facts.accountID).Delete(map[string]any{}).Error; err != nil {

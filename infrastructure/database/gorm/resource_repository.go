@@ -606,7 +606,7 @@ func (r *ResourceRepository) lookupDisplayFromProjection(
 	// (the "no such column: account_id" failure). Treat it as a clean miss so
 	// the caller falls back to the canonical path and persists a NULL display,
 	// rather than logging a write-path error on every such reference.
-	if !columnExists(r.db, tableName, "account_id") {
+	if !columnExists(ctx, r.db, r.logger, tableName, "account_id") {
 		return "", false, nil
 	}
 	query := r.db.WithContext(ctx).Table(tableName).
@@ -930,17 +930,7 @@ func (r *ResourceRepository) findAllFromProjection(
 ) (repositories.PaginatedResponse[*entities.Resource], error) {
 	tableName := r.projMgr.TableName(typeSlug)
 	sortBy, sortOrder := normalizeSortOptions(sort)
-	colName := utils.CamelToSnake(sortBy)
-
-	// Validate that the column exists in the projection table; fall back to id.
-	// "data" is in standardColumnNames but lives in the resources table, not projection.
-	if colName == "data" {
-		colName = "id"
-	} else if colName != "id" && !standardColumnNames[colName] {
-		if !columnExists(r.db, tableName, colName) {
-			colName = "id"
-		}
-	}
+	colName := r.projectionSortColumn(ctx, tableName, sortBy)
 
 	// Join with the resources table to get the JSON-LD data (not stored in projection).
 	tbl := tableName
@@ -1127,7 +1117,7 @@ func (r *ResourceRepository) findAllByFieldFromProjection(
 	tableName := r.projMgr.TableName(typeSlug)
 	colName := utils.CamelToSnake(fieldName)
 	if colName != "id" && !standardColumnNames[colName] {
-		if !columnExists(r.db, tableName, colName) {
+		if !columnExists(ctx, r.db, r.logger, tableName, colName) {
 			return nil, fmt.Errorf("invalid field: %s", fieldName)
 		}
 	}
@@ -1345,6 +1335,27 @@ var operatorMap = map[string]string{
 	"eq": "=", "ne": "!=", "gt": ">", "gte": ">=", "lt": "<", "lte": "<=",
 }
 
+// projectionSortColumn maps a listing's sortBy to the projection column to
+// ORDER BY. "data" is in standardColumnNames but lives in the resources table,
+// so it sorts by id; so does a field with no column in the projection table,
+// and that fallback is logged at Warn, naming the table and column, because
+// the listing then comes back in an order the caller did not ask for.
+func (r *ResourceRepository) projectionSortColumn(ctx context.Context, tableName, sortBy string) string {
+	colName := utils.CamelToSnake(sortBy)
+	if colName == "data" {
+		return "id"
+	}
+	if colName == "id" || standardColumnNames[colName] {
+		return colName
+	}
+	if !columnExists(ctx, r.db, r.logger, tableName, colName) {
+		r.logger.Warn(ctx, "projection sort falls back to id: the table has no column for the field",
+			"table", tableName, "column", colName, "sortBy", sortBy)
+		return "id"
+	}
+	return colName
+}
+
 // projectionFilterClause builds the WHERE fragment for one condition on a
 // projection listing. qualifier prefixes a projection column ("" or
 // "<table>."), and dataExpr yields the stored document for a DocumentProperty
@@ -1352,7 +1363,7 @@ var operatorMap = map[string]string{
 // operator, or a field with no projection column — and the caller skips it,
 // which is what the REST listing has always done.
 func (r *ResourceRepository) projectionFilterClause(
-	typeSlug, tableName, qualifier, dataExpr string, f repositories.FilterCondition,
+	ctx context.Context, typeSlug, tableName, qualifier, dataExpr string, f repositories.FilterCondition,
 ) (clause string, args []any, ok bool) {
 	sqlOp, ok := operatorMap[f.Operator]
 	if !ok {
@@ -1363,7 +1374,12 @@ func (r *ResourceRepository) projectionFilterClause(
 		return clause, args, true
 	}
 	fc := utils.CamelToSnake(f.Field)
-	if !standardColumnNames[fc] && fc != "id" && !columnExists(r.db, tableName, fc) {
+	if !standardColumnNames[fc] && fc != "id" && !columnExists(ctx, r.db, r.logger, tableName, fc) {
+		// The listing comes back unfiltered on this condition. Log it, so a
+		// "the filter returns everything" report leads straight to the
+		// missing projection column.
+		r.logger.Warn(ctx, "projection filter dropped: the table has no column for the field",
+			"table", tableName, "column", fc, "field", f.Field)
 		return "", nil, false
 	}
 	clause, args = r.referenceFilterClause(typeSlug, qualifier, fc, sqlOp, f.Value)
@@ -1390,15 +1406,7 @@ func (r *ResourceRepository) findAllFromProjectionWithFilters(
 ) (repositories.PaginatedResponse[*entities.Resource], error) {
 	tableName := r.projMgr.TableName(typeSlug)
 	sortBy, sortOrder := normalizeSortOptions(sort)
-	colName := utils.CamelToSnake(sortBy)
-
-	if colName == "data" {
-		colName = "id"
-	} else if colName != "id" && !standardColumnNames[colName] {
-		if !columnExists(r.db, tableName, colName) {
-			colName = "id"
-		}
-	}
+	colName := r.projectionSortColumn(ctx, tableName, sortBy)
 
 	tbl := tableName
 	selectCols := fmt.Sprintf(
@@ -1415,7 +1423,7 @@ func (r *ResourceRepository) findAllFromProjectionWithFilters(
 	query = applyVisibilityScope(query, scope, tbl)
 
 	for _, f := range filters {
-		if clause, args, ok := r.projectionFilterClause(typeSlug, tableName, tbl+".", "resources.data", f); ok {
+		if clause, args, ok := r.projectionFilterClause(ctx, typeSlug, tableName, tbl+".", "resources.data", f); ok {
 			query = query.Where(clause, args...)
 		}
 	}
@@ -1561,15 +1569,7 @@ func (r *ResourceRepository) findAllFlatFromProjection(
 ) (repositories.PaginatedResponse[map[string]any], error) {
 	tableName := r.projMgr.TableName(typeSlug)
 	sortBy, sortOrder := normalizeSortOptions(sort)
-	colName := utils.CamelToSnake(sortBy)
-
-	if colName == "data" {
-		colName = "id"
-	} else if colName != "id" && !standardColumnNames[colName] {
-		if !columnExists(r.db, tableName, colName) {
-			colName = "id"
-		}
-	}
+	colName := r.projectionSortColumn(ctx, tableName, sortBy)
 
 	query := r.db.WithContext(ctx).Table(tableName)
 	query = applyVisibilityScope(query, scope, "")
@@ -1578,7 +1578,7 @@ func (r *ResourceRepository) findAllFlatFromProjection(
 	// document comes from the resources row through a scalar subquery.
 	dataExpr := "(SELECT resources.data FROM resources WHERE resources.id = " + tableName + ".id)"
 	for _, f := range filters {
-		if clause, args, ok := r.projectionFilterClause(typeSlug, tableName, "", dataExpr, f); ok {
+		if clause, args, ok := r.projectionFilterClause(ctx, typeSlug, tableName, "", dataExpr, f); ok {
 			query = query.Where(clause, args...)
 		}
 	}

@@ -15,7 +15,12 @@
 
 package gorm
 
-import "gorm.io/gorm"
+import (
+	"context"
+
+	"github.com/wepala/weos/v3/domain/entities"
+	"gorm.io/gorm"
+)
 
 // columnExists reports whether table has a column named exactly column. Use
 // it instead of db.Migrator().HasColumn everywhere in this package.
@@ -37,8 +42,11 @@ import "gorm.io/gorm"
 // check — PostgreSQL's reads information_schema.columns with an exact match.
 //
 // A query error reads as "no such column", as HasColumn did; a caller that
-// then issues an ALTER or a query on the column surfaces the real error.
-func columnExists(db *gorm.DB, table, column string) bool {
+// then issues an ALTER or a query on the column surfaces the real error. The
+// query error itself is logged at Warn on logger (when one is given), so a
+// follow-on failure such as "duplicate column name" has its cause in the same
+// log rather than reading as a schema defect.
+func columnExists(ctx context.Context, db *gorm.DB, logger entities.Logger, table, column string) bool {
 	if db.Name() != "sqlite" {
 		return db.Migrator().HasColumn(table, column)
 	}
@@ -47,6 +55,10 @@ func columnExists(db *gorm.DB, table, column string) bool {
 		"SELECT count(*) FROM pragma_table_info(?) WHERE name = ? COLLATE NOCASE",
 		table, column,
 	).Scan(&count).Error; err != nil {
+		if logger != nil {
+			logger.Warn(ctx, "column lookup failed; treating the column as missing",
+				"table", table, "column", column, "error", err)
+		}
 		return false
 	}
 	return count > 0

@@ -36,8 +36,11 @@ import (
 // statement, and every projection table's DDL holds "id TEXT PRIMARY KEY" — so
 // a column named text always read as present and the ALTER was skipped. The
 // same patterns match any name followed by a space anywhere in the DDL: "slug"
-// matches "type_slug TEXT", and "key" matches a table whose DDL has "PRIMARY
-// KEY " mid-line.
+// matches "type_slug TEXT". text and slug are the cases that fail without the
+// fix. "key" is a control case: the projection DDL writes "id TEXT PRIMARY
+// KEY," with a comma after KEY, so the old check already added it; a real key
+// false positive needs "PRIMARY KEY " followed by a space, which
+// columnExistsCases covers through "primary".
 var (
 	keywordBeforeSchema = json.RawMessage(`{"type":"object","properties":{` +
 		`"name":{"type":"string"}}}`)
@@ -175,11 +178,11 @@ const columnExistsDDL = `CREATE TABLE %s (
 func runColumnExistsCases(t *testing.T, db *gorm.DB, table string) {
 	t.Helper()
 	for _, tc := range columnExistsCases {
-		if got := columnExists(db, table, tc.column); got != tc.want {
+		if got := columnExists(context.Background(), db, &testLogger{}, table, tc.column); got != tc.want {
 			t.Errorf("columnExists(%s, %q) = %v, want %v", table, tc.column, got, tc.want)
 		}
 	}
-	if columnExists(db, table+"_missing", "id") {
+	if columnExists(context.Background(), db, &testLogger{}, table+"_missing", "id") {
 		t.Errorf("columnExists on a table that does not exist = true, want false")
 	}
 }
@@ -194,7 +197,7 @@ func TestColumnExists_ExactNameOnSQLite(t *testing.T) {
 
 	// SQLite identifiers ignore case, so a differently cased name is the same
 	// column — ADD COLUMN of it would fail as a duplicate.
-	if !columnExists(db, "widgets", "Status") {
+	if !columnExists(context.Background(), db, &testLogger{}, "widgets", "Status") {
 		t.Error(`columnExists(widgets, "Status") = false, want true (SQLite identifiers ignore case)`)
 	}
 }

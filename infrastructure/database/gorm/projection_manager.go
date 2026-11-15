@@ -159,14 +159,14 @@ func (pm *projectionManager) EnsureTable(
 		for _, ref := range pm.linkSource.LinkReferencesForSource(slug) {
 			colName := utils.CamelToSnake(ref.PropertyName)
 			displayCol := colName + "_display"
-			if columnExists(pm.db, tableName, colName) {
+			if columnExists(ctx, pm.db, pm.logger, tableName, colName) {
 				colSet[colName] = true
 				// A link FK is declared, just outside the type's own schema: a
 				// document carries it in its edges node exactly as it carries an
 				// x-resource-type reference, so clearing it must work the same way.
 				declaredSet[colName] = true
 			}
-			if columnExists(pm.db, tableName, displayCol) {
+			if columnExists(ctx, pm.db, pm.logger, tableName, displayCol) {
 				colSet[displayCol] = true
 			}
 		}
@@ -851,13 +851,20 @@ func (pm *projectionManager) createTableIfNotExists(ctx context.Context, tableNa
 
 func (pm *projectionManager) addMissingColumns(ctx context.Context, tableName string, columns []columnDef) error {
 	for _, col := range columns {
-		if columnExists(pm.db, tableName, col.Name) {
+		if columnExists(ctx, pm.db, pm.logger, tableName, col.Name) {
 			continue
 		}
 		ddl := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", tableName, col.Name, col.SQLType)
 		if err := pm.db.WithContext(ctx).Exec(ddl).Error; err != nil {
 			return err
 		}
+		// The ALTER fills no existing row: rows projected before it hold NULL
+		// in the new column until a reproject rewrites them (the boot backfill
+		// only inserts rows that are missing outright). Say so where an
+		// operator will look, once per column actually added.
+		pm.logger.Info(ctx, "projection column added; rows written before it need "+
+			"'weos worker reproject' to get a value",
+			"table", tableName, "column", col.Name)
 	}
 	return nil
 }

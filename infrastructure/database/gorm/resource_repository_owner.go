@@ -269,7 +269,7 @@ func (r *ResourceRepository) ownerProjectionTables(ctx context.Context, typeSlug
 	for slug := typeSlug; slug != "" && !visited[slug]; {
 		visited[slug] = true
 		if table := slugToTableName(slug); !isCanonicalTable(table) &&
-			migrator.HasTable(table) && columnExists(db, table, "account_id") {
+			migrator.HasTable(table) && columnExists(ctx, db, r.logger, table, "account_id") {
 			tables = append(tables, table)
 		}
 		var contexts []string
