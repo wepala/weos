@@ -338,6 +338,71 @@ func TestAdoptAccount_ARowLeftInTheSourceIsMovedByARerun(t *testing.T) {
 	env.requireAdopted(t, f, "after the re-run")
 }
 
+// Copilot 4580310679: a run interrupted after the record write leaves the
+// record in the target and each projection row as it was before the move. A
+// row that was ownerless is still ownerless, and a row that was missing is
+// still missing, so neither is in the source account any more. A re-run must
+// still find both, check that the stored history holds the move, and fill or
+// write the rows with no second event. The target's own resources with an
+// ownerless or missing row are not the run's business and are not touched.
+func TestAdoptAccount_ARerunRepairsOwnerlessAndMissingRowsAfterAnInterruptedRun(t *testing.T) {
+	env := newAssignOwnerEnv(t)
+	f := env.seedOrphan(t)
+	ctx := context.Background()
+	if _, err := env.adoption.AdoptAccount(ctx, env.adoptCommand(false)); err != nil {
+		t.Fatalf("move: %v", err)
+	}
+	// The state a run stopped right after the record write leaves, for a
+	// task whose row had no owner and one that had no row at all.
+	taskTable := env.projMgr.TableName("task")
+	if err := env.db.Table(taskTable).Where("id = ?", f.orphanTask1).Update("account_id", nil).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := env.db.Table(taskTable).Where("id = ?", f.orphanTask2).Delete(map[string]any{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	// The target's own task, ownerless and missing in turn: no move from
+	// the source is in its history.
+	ownersBlank := env.create(t, env.ownerAgent, env.ownerAccount, "task", "Owned and blank")
+	if err := env.db.Table(taskTable).Where("id = ?", ownersBlank).Update("account_id", "").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := env.db.Table(taskTable).Where("id = ?", f.ownersTask).Delete(map[string]any{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	events := env.eventCount(t)
+
+	plan, err := env.adoption.AdoptAccount(ctx, env.adoptCommand(true))
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	if got := plan.Types["task"]; got.ToMove != 0 || got.RowsToMove != 2 {
+		t.Errorf("preview task counts = %+v, want 0 to move and 2 rows to repair", got)
+	}
+	report, err := env.adoption.AdoptAccount(ctx, env.adoptCommand(false))
+	if err != nil {
+		t.Fatalf("re-run: %v", err)
+	}
+	if got := report.Types["task"]; got.RowsMoved != 2 || got.Moved != 0 || got.NeedsReproject != 0 {
+		t.Errorf("re-run task counts = %+v, want 2 rows repaired and nothing else", got)
+	}
+	if n := env.eventCount(t); n != events {
+		t.Errorf("the re-run stored %d event(s), want none", n-events)
+	}
+	env.requireOwner(t, "task", f.orphanTask1, env.ownerAccount, "the ownerless row after the re-run")
+	env.requireOwner(t, "task", f.orphanTask2, env.ownerAccount, "the missing row after the re-run")
+	if _, projection := env.owners(t, "task", ownersBlank); projection != "" {
+		t.Errorf("the target's own ownerless row was given %q", projection)
+	}
+	var n int64
+	if err := env.db.Table(taskTable).Where("id = ?", f.ownersTask).Count(&n).Error; err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Errorf("the target's own missing row was written")
+	}
+}
+
 // A projection row of a third account under a record of the orphaned
 // account is listed, never moved and never counted as moved.
 func TestAdoptAccount_ARowOfAThirdAccountIsListedAndNotMoved(t *testing.T) {

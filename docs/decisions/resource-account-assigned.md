@@ -252,8 +252,14 @@ from empty tables writes the source and then moves it. Both end where the live w
 **Read-back, as in assign-owner.** A resource is counted as moved only when its record and every
 projection row read back in the target. A record behind its event stream is listed for a reproject. A
 row still in the source under a record that moved stops the run, and a re-run moves that row with no
-second event, once it finds the move in the resource's history. A resource of the source account with a
-row a third account holds is listed and never moved, and the run exits non-zero.
+second event, once it finds the move in the resource's history. A run stopped after the record write
+leaves each row as it was before the move, so a row that had no owner, or no row at all, is not in the
+source either: a re-run's discovery also selects a resource of the target with an ownerless or missing
+row when its stored history holds a move from this source to this target, and `FinishAdoptedRows`
+fills that row, or writes it whole, with no event and no write to the record (Copilot 4580310679).
+The history condition is what keeps the target's own ownerless or missing rows out: they are
+assign-owner's or a reproject's. A resource of the source account with a row a third account holds is
+listed and never moved, and the run exits non-zero.
 
 **The source account is not deleted** by the command. Removing the emptied account is erasure's job,
 with its own checks — and erasure must not take what moved. Every moved resource's

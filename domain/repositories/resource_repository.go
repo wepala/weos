@@ -153,20 +153,23 @@ type ProjectionOwnerFiller interface {
 	FillOwnerlessProjectionRows(ctx context.Context, entity *entities.Resource) ([]string, error)
 }
 
-// ProjectionOwnerMover is implemented by a ResourceRepository that can move
-// the owner of a resource's projection rows from one account to another
-// (wm-c7xehr). Update keeps an owner a projection row already has, so a
-// Resource.AccountAdopted needs this second, narrower write. Like
-// ProjectionOwnerReader it is an interface of its own; a caller type-asserts
-// for it.
+// ProjectionOwnerMover is implemented by a ResourceRepository that can finish
+// the projection rows of a Resource.AccountAdopted whose canonical record
+// write landed and whose row writes did not (wm-c7xehr). Update keeps an
+// owner a projection row already has, so the move needs this second, narrower
+// write. Like ProjectionOwnerReader it is an interface of its own; a caller
+// type-asserts for it.
 type ProjectionOwnerMover interface {
-	// MoveProjectionRowsOwner sets accountID as the owner of each of the
-	// resource's projection rows (its own type's and each ancestor's) whose
-	// owner is fromAccountID now, and returns the tables it wrote, in write
-	// order. The check is part of the write statement itself, so a row of any
-	// other account, an ownerless row and a row already moved are left as
-	// they are. The canonical record is not written.
-	MoveProjectionRowsOwner(ctx context.Context, id, typeSlug, fromAccountID, accountID string) ([]string, error)
+	// FinishAdoptedRows writes each of entity's projection rows (its own
+	// type's and each ancestor's) as WriteAccountAdoption does: a row that
+	// does not exist is written whole, and a row whose owner is fromAccountID,
+	// or that has no owner, takes entity.AccountID() — the check being part of
+	// the statement, so a row of any other account and a row already moved
+	// are left as they are. It returns the tables whose row it created or gave
+	// an owner, in write order. The canonical record is not written, and no
+	// event is recorded: the caller has checked that the resource's history
+	// holds the move (Copilot 4580310679).
+	FinishAdoptedRows(ctx context.Context, entity *entities.Resource, fromAccountID string) ([]string, error)
 }
 
 // AccountAdoptionWriter is implemented by a ResourceRepository that can
@@ -191,7 +194,9 @@ type AccountAdoptionWriter interface {
 // AccountResource is a resource the account adoption (wm-c7xehr) selected:
 // one whose canonical record is in the source account, or one whose record
 // is already in the target account while a projection row is still in the
-// source account (a move whose projection write did not reach that row).
+// source account (a move whose projection write did not reach that row), or
+// while, with the move in its history, a projection row has no owner or does
+// not exist (a run stopped after the record write, Copilot 4580310679).
 type AccountResource struct {
 	ID        string
 	TypeSlug  string
@@ -201,8 +206,8 @@ type AccountResource struct {
 	RecordAccountID string
 	// MissingTable names the first projection table (its own type's or an
 	// ancestor's) that holds no row for the resource at all, when there is
-	// one. Neither a move nor a re-run writes a row that does not exist; only
-	// a reproject does.
+	// one. The move writes that row whole, and so does a re-run that
+	// finishes a move.
 	MissingTable string
 	// ForeignRowTable names the first projection table whose row for the
 	// resource is owned by an account that is neither the source nor the
@@ -219,9 +224,12 @@ type AccountResource struct {
 // type-asserts for it.
 type AccountResourceFinder interface {
 	// FindForAdoption returns every live resource, of every type, whose
-	// canonical record is in fromAccountID, and every live resource whose
-	// record is in toAccountID while one of its projection rows is still in
-	// fromAccountID, ordered by type and then by identifier.
+	// canonical record is in fromAccountID; every live resource whose record
+	// is in toAccountID while one of its projection rows is still in
+	// fromAccountID; and every live resource whose record is in toAccountID,
+	// whose history holds a Resource.AccountAdopted from fromAccountID to
+	// toAccountID, and one of whose projection rows has no owner or does not
+	// exist. It is ordered by type and then by identifier.
 	FindForAdoption(ctx context.Context, fromAccountID, toAccountID string) ([]AccountResource, error)
 	// CountResourcesReferencing returns how many live resources whose
 	// canonical record is in accountID hold fragment, as written, in their

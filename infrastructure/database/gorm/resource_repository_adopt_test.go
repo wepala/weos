@@ -17,6 +17,7 @@ package gorm
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -26,6 +27,7 @@ import (
 	"github.com/wepala/weos/v3/infrastructure/models"
 
 	authmodels "github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/models"
+	esinfra "github.com/akeemphilbert/pericarp/pkg/eventsourcing/infrastructure"
 )
 
 // These tests pin the reads and the one write the account adoption makes
@@ -52,6 +54,16 @@ type adoptFixture struct {
 	// Moved: the record is in the target, the ancestor row still in the
 	// source (a move whose row write failed).
 	partial string
+	// Moved, by a run interrupted after the record write (Copilot
+	// 4580310679): the ancestor row was ownerless and still is, or there was
+	// none and still is none. Both histories hold the move.
+	partialBlank, partialMissing string
+	// In the target with an ownerless ancestor row, or with none, and no move
+	// from the source in the history: the target's own, never selected.
+	targetBlank, targetMissing string
+	// In the target with an ownerless ancestor row, moved there from a third
+	// account: another run's business, never selected.
+	otherMove string
 	// Of a third account, and of the target: never selected.
 	third, target string
 }
@@ -66,10 +78,18 @@ func seedAdoptFixture(t *testing.T) adoptFixture {
 		repo: repo, healthy: "urn:loan:healthy", blankRow: "urn:loan:blank-row",
 		missingRow: "urn:loan:missing-row", foreignRow: "urn:loan:foreign-row",
 		partial: "urn:loan:partial", third: "urn:loan:third", target: "urn:loan:target",
+		partialBlank: "urn:loan:partial-blank", partialMissing: "urn:loan:partial-missing",
+		targetBlank: "urn:loan:target-blank", targetMissing: "urn:loan:target-missing",
+		otherMove: "urn:loan:other-move",
+	}
+	if err := repo.db.AutoMigrate(&esinfra.GormEventModel{}); err != nil {
+		t.Fatal(err)
 	}
 	for _, s := range []struct{ id, account string }{
 		{f.healthy, adoptFrom}, {f.blankRow, adoptFrom}, {f.missingRow, adoptFrom},
 		{f.foreignRow, adoptFrom}, {f.partial, adoptTo}, {f.third, adoptThird}, {f.target, adoptTo},
+		{f.partialBlank, adoptTo}, {f.partialMissing, adoptTo}, {f.targetBlank, adoptTo},
+		{f.targetMissing, adoptTo}, {f.otherMove, adoptTo},
 	} {
 		if err := repo.Save(ctx, makeTestResourceForAgent(t, s.id, "loan", `{"name":"x"}`, "agent-1", s.account)); err != nil {
 			t.Fatal(err)
@@ -83,8 +103,24 @@ func seedAdoptFixture(t *testing.T) adoptFixture {
 	set(f.blankRow, "")
 	set(f.foreignRow, adoptThird)
 	set(f.partial, adoptFrom)
-	if err := repo.db.Table("instruments").Where("id = ?", f.missingRow).Delete(map[string]any{}).Error; err != nil {
-		t.Fatal(err)
+	set(f.partialBlank, "")
+	set(f.targetBlank, "")
+	set(f.otherMove, "")
+	for _, id := range []string{f.missingRow, f.partialMissing, f.targetMissing} {
+		if err := repo.db.Table("instruments").Where("id = ?", id).Delete(map[string]any{}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i, m := range []struct{ id, from string }{
+		{f.partial, adoptFrom}, {f.partialBlank, adoptFrom}, {f.partialMissing, adoptFrom}, {f.otherMove, adoptThird},
+	} {
+		if err := repo.db.Create(&esinfra.GormEventModel{
+			ID: fmt.Sprintf("ev-adopted-%d", i), AggregateID: m.id, EventType: "Resource.AccountAdopted",
+			SequenceNo: 2, TransactionID: fmt.Sprintf("tx-adopted-%d", i), Position: int64(i + 1),
+			Payload: esinfra.JSONB{"FromAccountID": m.from, "AccountID": adoptTo},
+		}).Error; err != nil {
+			t.Fatal(err)
+		}
 	}
 	return f
 }
@@ -114,6 +150,8 @@ func TestFindForAdoption_ListsTheSourceAccountAndRowsLeftBehind(t *testing.T) {
 		{ID: f.healthy, TypeSlug: "loan", RecordAccountID: adoptFrom},
 		{ID: f.missingRow, TypeSlug: "loan", RecordAccountID: adoptFrom, MissingTable: "instruments"},
 		{ID: f.partial, TypeSlug: "loan", RecordAccountID: adoptTo},
+		{ID: f.partialBlank, TypeSlug: "loan", RecordAccountID: adoptTo},
+		{ID: f.partialMissing, TypeSlug: "loan", RecordAccountID: adoptTo, MissingTable: "instruments"},
 	}
 	for name, finder := range map[string]repositories.AccountResourceFinder{
 		"with a projection manager": f.repo, "without one (the preview)": ProvideAccountResourceFinder(f.repo.db),
@@ -155,43 +193,51 @@ func rowOwner(t *testing.T, f adoptFixture, table, id string) string {
 	return *owners[0]
 }
 
-func TestMoveProjectionRowsOwner_MovesOnlyRowsInTheSourceAccount(t *testing.T) {
+// movedLoan is a loan whose record is in the target, at sequence 2: the
+// shape a stored Resource.AccountAdopted leaves.
+func movedLoan(t *testing.T, id string) *entities.Resource {
+	t.Helper()
+	e := &entities.Resource{}
+	if err := e.Restore(id, "loan", "active", json.RawMessage(`{"name":"x"}`), "agent-1", adoptTo,
+		time.Now(), 2); err != nil {
+		t.Fatal(err)
+	}
+	return e
+}
+
+// Copilot 4580310679: a re-run finishes a move whose record write landed and
+// whose row write did not. A row still in the source moves, an ownerless row
+// is filled and a missing row is written whole, each compare-and-set, with
+// no event and no write to the record.
+func TestFinishAdoptedRows_MovesFillsAndRecreatesTheRowsAndNeverTheRecord(t *testing.T) {
 	t.Parallel()
 	f := seedAdoptFixture(t)
 	ctx := t.Context()
 
-	written, err := f.repo.MoveProjectionRowsOwner(ctx, f.partial, "loan", adoptFrom, adoptTo)
-	if err != nil || !reflect.DeepEqual(written, []string{"instruments"}) {
-		t.Fatalf("moved %v (err %v), want [instruments]", written, err)
-	}
-	for _, table := range []string{"loans", "instruments"} {
-		if got := rowOwner(t, f, table, f.partial); got != adoptTo {
-			t.Errorf("%s row of the partial move = %q, want %s", table, got, adoptTo)
+	for _, id := range []string{f.partial, f.partialBlank, f.partialMissing} {
+		written, err := f.repo.FinishAdoptedRows(ctx, movedLoan(t, id), adoptFrom)
+		if err != nil || !reflect.DeepEqual(written, []string{"instruments"}) {
+			t.Fatalf("%s: wrote %v (err %v), want [instruments]", id, written, err)
+		}
+		for _, table := range []string{"loans", "instruments"} {
+			if got := rowOwner(t, f, table, id); got != adoptTo {
+				t.Errorf("%s row of %s = %q, want %s", table, id, got, adoptTo)
+			}
+		}
+		// A second run finds nothing left to write.
+		if written, err := f.repo.FinishAdoptedRows(ctx, movedLoan(t, id), adoptFrom); err != nil || len(written) != 0 {
+			t.Fatalf("%s: a second run wrote %v (err %v), want nothing", id, written, err)
 		}
 	}
-	// A second run finds nothing in the source account.
-	if written, err := f.repo.MoveProjectionRowsOwner(ctx, f.partial, "loan", adoptFrom, adoptTo); err != nil ||
-		len(written) != 0 {
-		t.Fatalf("a second move wrote %v (err %v), want nothing", written, err)
-	}
-	// A row of a third account and an ownerless row are not the source's.
-	for _, c := range []struct{ id, table, want string }{
-		{f.third, "loans", adoptThird}, {f.third, "instruments", adoptThird},
-		{f.foreignRow, "instruments", adoptThird}, {f.blankRow, "instruments", ""},
-	} {
-		if _, err := f.repo.MoveProjectionRowsOwner(ctx, c.id, "loan", adoptFrom, adoptTo); err != nil {
-			t.Fatal(err)
-		}
-		if got := rowOwner(t, f, c.table, c.id); got != c.want {
-			t.Errorf("%s row of %s = %q, want %q kept", c.table, c.id, got, c.want)
-		}
-	}
-	// The canonical record is never written.
-	var record models.Resource
-	if err := f.repo.db.Where("id = ?", f.healthy).First(&record).Error; err != nil {
+	// A row of a third account keeps its owner.
+	if _, err := f.repo.FinishAdoptedRows(ctx, movedLoan(t, f.foreignRow), adoptFrom); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.repo.MoveProjectionRowsOwner(ctx, f.healthy, "loan", adoptFrom, adoptTo); err != nil {
+	if got := rowOwner(t, f, "instruments", f.foreignRow); got != adoptThird {
+		t.Errorf("instruments row of %s = %q, want %s kept", f.foreignRow, got, adoptThird)
+	}
+	// The canonical record is never written.
+	if _, err := f.repo.FinishAdoptedRows(ctx, movedLoan(t, f.healthy), adoptFrom); err != nil {
 		t.Fatal(err)
 	}
 	var after models.Resource
@@ -199,7 +245,7 @@ func TestMoveProjectionRowsOwner_MovesOnlyRowsInTheSourceAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 	if after.AccountID != adoptFrom {
-		t.Errorf("the record moved to %q; the row move must not write it", after.AccountID)
+		t.Errorf("the record moved to %q; finishing the rows must not write it", after.AccountID)
 	}
 }
 

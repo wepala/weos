@@ -30,10 +30,12 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// The account adoption's reads and its one projection write (wm-c7xehr).
+// The account adoption's reads and its projection writes (wm-c7xehr).
 // Update keeps an owner a projection row already has, so a
-// Resource.AccountAdopted reaches the rows through MoveProjectionRowsOwner,
-// which moves a row only while it is still in the move's source account.
+// Resource.AccountAdopted reaches the record and the rows through
+// WriteAccountAdoption, and a re-run finishes the rows of a move whose record
+// write landed through FinishAdoptedRows. Both move a row only while it is in
+// the move's source account or has no owner.
 
 var (
 	_ repositories.AccountResourceFinder = (*ResourceRepository)(nil)
@@ -56,8 +58,12 @@ const adoptionColumns = "resources.id AS id, resources.type_slug AS type_slug, "
 // FindForAdoption lists every live resource whose record is in from, with
 // the first projection table that has no row for it and the first whose row
 // a third account holds, and every live resource whose record is already in
-// to while a projection row is still in from. It is ordered by type and then
-// by identifier.
+// to while a projection row is still in from. It also lists every live
+// resource whose record is in to, whose history holds a move from from to to,
+// and which has a projection row with no owner or no row at all: a run
+// stopped after the record write leaves a row that had no owner, or none,
+// as it was (Copilot 4580310679). It is ordered by type and then by
+// identifier.
 func (r *ResourceRepository) FindForAdoption(
 	ctx context.Context, from, to string,
 ) ([]repositories.AccountResource, error) {
@@ -135,8 +141,15 @@ func (r *ResourceRepository) FindForAdoption(
 				Order("resources.id").Scan(&behind).Error; err != nil {
 				return nil, fmt.Errorf("find the rows in %s still in %s: %w", table, from, err)
 			}
-			for _, b := range behind {
-				if _, ok := listed[b.ID]; ok {
+			unfinished, err := unfinishedAdoptedRows(db, table, slug, from, to)
+			if err != nil {
+				return nil, err
+			}
+			for _, b := range append(behind, unfinished...) {
+				if i, ok := listed[b.ID]; ok {
+					if out[i].MissingTable == "" {
+						out[i].MissingTable = b.MissingTable
+					}
 					continue
 				}
 				listed[b.ID] = len(out)
@@ -151,6 +164,39 @@ func (r *ResourceRepository) FindForAdoption(
 		return out[i].ID < out[j].ID
 	})
 	return out, nil
+}
+
+// unfinishedAdoptedRows lists the live resources of slug whose record is in
+// to and whose row in table has no owner or does not exist, when the
+// resource's history holds a Resource.AccountAdopted from from to to. The
+// history check keeps out a resource of to that no move from from explains:
+// its row is assign-owner's or a reproject's to repair, not this run's.
+func unfinishedAdoptedRows(db *gorm.DB, table, slug, from, to string) ([]repositories.AccountResource, error) {
+	moved := db.Table("events").Select("aggregate_id").
+		Where("event_type = ? AND "+payloadField(db, "FromAccountID")+" = ? AND "+payloadField(db, "AccountID")+" = ?",
+			adoptedEventType, from, to)
+	inTo := func() *gorm.DB {
+		return db.Table("resources").
+			Where("resources.account_id = ? AND resources.deleted_at IS NULL AND resources.type_slug = ?", to, slug).
+			Where("resources.id IN (?)", moved).Order("resources.id")
+	}
+	var ownerless []repositories.AccountResource
+	if err := inTo().Select(adoptionColumns).
+		Joins(fmt.Sprintf("JOIN %s ON %s.id = resources.id", table, table)).
+		Where(fmt.Sprintf("(%s.account_id IS NULL OR %s.account_id = '')", table, table)).
+		Scan(&ownerless).Error; err != nil {
+		return nil, fmt.Errorf("find the moved resources with an ownerless row in %s: %w", table, err)
+	}
+	var missing []repositories.AccountResource
+	if err := inTo().Select(adoptionColumns).
+		Where(fmt.Sprintf("NOT EXISTS (SELECT 1 FROM %s WHERE %s.id = resources.id)", table, table)).
+		Scan(&missing).Error; err != nil {
+		return nil, fmt.Errorf("find the moved resources with no row in %s: %w", table, err)
+	}
+	for i := range missing {
+		missing[i].MissingTable = table
+	}
+	return append(ownerless, missing...), nil
 }
 
 // likeEscaper escapes the LIKE wildcards and the escape character itself, so
@@ -187,31 +233,23 @@ func liveTypeSlugs(db *gorm.DB, account string) ([]string, error) {
 	return slugs, nil
 }
 
-// MoveProjectionRowsOwner sets to as the owner of each projection row of id
-// whose owner is from, in the statement's own WHERE, and returns the tables
-// it wrote. The canonical table is never one of them.
-func (r *ResourceRepository) MoveProjectionRowsOwner(
-	ctx context.Context, id, typeSlug, from, to string,
+// FinishAdoptedRows writes the projection rows of a move whose record write
+// landed (Copilot 4580310679): a missing row whole, and on each row the
+// sequence number, the update time and — compare-and-set in the statement —
+// entity.AccountID() as the owner of a row that is in fromAccountID or has
+// none. It returns the tables whose row it created or gave an owner. The
+// canonical record is not written and no event is recorded.
+func (r *ResourceRepository) FinishAdoptedRows(
+	ctx context.Context, entity *entities.Resource, fromAccountID string,
 ) ([]string, error) {
-	if from == "" || to == "" {
-		return nil, errors.New("move the owner of the projection rows: the source and the target account must both be given")
+	if r.projMgr == nil {
+		return nil, errors.New("finish an account adoption: the repository has no projection manager")
 	}
-	tables, err := r.ownerProjectionTables(ctx, typeSlug)
-	if err != nil {
-		return nil, err
+	if fromAccountID == "" || entity.AccountID() == "" {
+		return nil, fmt.Errorf("finish the move of %s: the source and the target account must both be given",
+			entity.GetID())
 	}
-	var written []string
-	for _, table := range tables {
-		res := r.writeDB(ctx).Table(table).Where("id = ? AND account_id = ?", id, from).
-			Updates(map[string]any{"account_id": to})
-		if res.Error != nil {
-			return written, fmt.Errorf("move the owner of %s in %s: %w", id, table, res.Error)
-		}
-		if res.RowsAffected > 0 {
-			written = append(written, table)
-		}
-	}
-	return written, nil
+	return r.writeAdoptedRows(ctx, entity, fromAccountID, true, time.Now())
 }
 
 // WriteAccountAdoption writes one Resource.AccountAdopted to the read model
@@ -231,12 +269,26 @@ func (r *ResourceRepository) WriteAccountAdoption(
 		return fmt.Errorf("write the move of %s: the source and the target account must both be given", id)
 	}
 	now := time.Now()
-	db := r.writeDB(ctx)
-	if err := db.Table("resources").Where("id = ?", id).Updates(map[string]any{
+	if err := r.writeDB(ctx).Table("resources").Where("id = ?", id).Updates(map[string]any{
 		"account_id": to, "sequence_no": entity.GetSequenceNo(), "updated_at": now,
 	}).Error; err != nil {
 		return fmt.Errorf("write the owner of %s: %w", id, err)
 	}
+	_, err := r.writeAdoptedRows(ctx, entity, fromAccountID, move, now)
+	return err
+}
+
+// writeAdoptedRows writes the projection rows of one adoption, its own
+// type's and each ancestor's: a missing row whole, then the version, then
+// the owner compare-and-set — when move is true on a row in fromAccountID or
+// with no owner, otherwise only on a row with no owner. It returns the tables
+// whose row it created or gave an owner, in write order.
+func (r *ResourceRepository) writeAdoptedRows(
+	ctx context.Context, entity *entities.Resource, fromAccountID string, move bool, now time.Time,
+) ([]string, error) {
+	id, to := entity.GetID(), entity.AccountID()
+	db := r.writeDB(ctx)
+	var written []string
 	for _, slug := range append([]string{entity.TypeSlug()}, r.projMgr.AncestorSlugs(entity.TypeSlug())...) {
 		if !r.projMgr.HasProjectionTable(slug) {
 			continue
@@ -245,14 +297,15 @@ func (r *ResourceRepository) WriteAccountAdoption(
 		if isCanonicalTable(table) {
 			continue
 		}
-		if err := r.insertMissingAdoptedRow(ctx, entity, slug, table, fromAccountID, move); err != nil {
-			return err
+		inserted, err := r.insertMissingAdoptedRow(ctx, entity, slug, table, fromAccountID, move)
+		if err != nil {
+			return written, err
 		}
 		version := map[string]any{"sequence_no": entity.GetSequenceNo(), "updated_at": now}
 		r.dropMissingColumns(slug, version)
 		if len(version) > 0 {
 			if err := db.Table(table).Where("id = ?", id).Updates(version).Error; err != nil {
-				return fmt.Errorf("write the version of %s in %s: %w", id, table, err)
+				return written, fmt.Errorf("write the version of %s in %s: %w", id, table, err)
 			}
 		}
 		owner := db.Table(table).Where("id = ?", id)
@@ -261,27 +314,31 @@ func (r *ResourceRepository) WriteAccountAdoption(
 		} else {
 			owner = owner.Where("(account_id IS NULL OR account_id = '')")
 		}
-		if err := owner.Updates(map[string]any{"account_id": to}).Error; err != nil {
-			return fmt.Errorf("write the owner of %s in %s: %w", id, table, err)
+		res := owner.Updates(map[string]any{"account_id": to})
+		if res.Error != nil {
+			return written, fmt.Errorf("write the owner of %s in %s: %w", id, table, res.Error)
+		}
+		if inserted || res.RowsAffected > 0 {
+			written = append(written, table)
 		}
 	}
-	return nil
+	return written, nil
 }
 
 // insertMissingAdoptedRow writes the whole projection row of entity in table
-// when it has none. Its reference labels are read in the entity's account
+// when it has none, and reports whether it wrote one. Its reference labels are read in the entity's account
 // and, for a move, in the source account for each one that resolves only
 // there: the run moves resources one at a time, so a resource this one names
 // may not have moved yet.
 func (r *ResourceRepository) insertMissingAdoptedRow(
 	ctx context.Context, entity *entities.Resource, slug, table, fromAccountID string, move bool,
-) error {
+) (bool, error) {
 	var n int64
 	if err := r.writeDB(ctx).Table(table).Where("id = ?", entity.GetID()).Count(&n).Error; err != nil {
-		return fmt.Errorf("read the row of %s in %s: %w", entity.GetID(), table, err)
+		return false, fmt.Errorf("read the row of %s in %s: %w", entity.GetID(), table, err)
 	}
 	if n > 0 {
-		return nil
+		return false, nil
 	}
 	row := r.projectionRow(ctx, entity, slug)
 	if move {
@@ -299,8 +356,9 @@ func (r *ResourceRepository) insertMissingAdoptedRow(
 			}
 		}
 	}
-	if err := r.writeDB(ctx).Table(table).Clauses(clause.OnConflict{DoNothing: true}).Create(row).Error; err != nil {
-		return fmt.Errorf("write the missing row of %s in %s: %w", entity.GetID(), table, err)
+	res := r.writeDB(ctx).Table(table).Clauses(clause.OnConflict{DoNothing: true}).Create(row)
+	if res.Error != nil {
+		return false, fmt.Errorf("write the missing row of %s in %s: %w", entity.GetID(), table, res.Error)
 	}
-	return nil
+	return res.RowsAffected > 0, nil
 }

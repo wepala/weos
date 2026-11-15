@@ -522,9 +522,14 @@ event stream is skipped and listed, and the command exits non-zero: with the ins
 
 The record and the rows are written one after the other, so a failed write can leave a projection row
 in the `--from` account under a record that moved. The run then stops with an error that names the
-resource. Fix the cause and run the command again: it finds the row, checks that the resource's history
-holds the move, moves the row, and records no second event. The preview counts such rows apart from
-the resources to move, so the moved count matches the events a run adds.
+resource. A run stopped after the record write (killed, or the machine lost) leaves each row as it was
+before the move: one that was in the `--from` account, one that had no owner, or none at all. Fix the
+cause and run the command again: it finds each such row — a row still in the `--from` account, and a
+row with no owner or no row at all under a record whose stored history holds the move — checks that
+the resource's history holds the move, moves or fills the row or writes it whole, and records no second
+event. A resource of the `--account` account whose history holds no move from the `--from` account is
+never touched, however its rows look. The preview counts such rows apart from the resources to move,
+so the moved count matches the events a run adds.
 
 **Erasing the `--from` account afterwards.** `weos account delete` on the emptied `--from` account
 leaves every resource that moved, and its whole history: erasure skips a resource whose history moved

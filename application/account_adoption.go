@@ -95,10 +95,11 @@ type AdoptAccountResource struct {
 	ID        string
 	TypeSlug  string
 	CreatedAt time.Time
-	// RecordMoved says the resource's record is already in the target and
-	// only a projection row is still in the source: an earlier move stored
-	// its event and the projection write did not reach that row. A run moves
-	// the row and records no second event.
+	// RecordMoved says the resource's record is already in the target and a
+	// projection row is not: still in the source, with no owner, or missing.
+	// An earlier move stored its event and the projection write did not reach
+	// that row, or the run stopped after the record write. A run finishes the
+	// row and records no second event.
 	RecordMoved bool
 	// MissingTable names a projection table with no row for the resource.
 	// The move writes it; the read-back checks that it did.
@@ -360,7 +361,7 @@ func (s *AccountAdoptionService) PlanAdoptAccount(
 			c.ForeignRows++
 		case r.RecordAccountID == cmd.AccountID:
 			report.Resources = append(report.Resources, AdoptAccountResource{
-				ID: r.ID, TypeSlug: r.TypeSlug, CreatedAt: r.CreatedAt, RecordMoved: true,
+				ID: r.ID, TypeSlug: r.TypeSlug, CreatedAt: r.CreatedAt, RecordMoved: true, MissingTable: r.MissingTable,
 			})
 			c.RowsToMove++
 		default:
@@ -644,11 +645,12 @@ func (s *AccountAdoptionService) grantRead(ctx context.Context, id, agent, accou
 }
 
 // moveRows finishes a move whose event is stored and whose record is in the
-// target, but a projection row of which is still in the source. It moves the
-// row compare-and-set and records no event. It does so only when the
-// resource's history holds a move from this source to this target, so a row
-// of the source under a record of the target that no move explains is
-// listed, never moved.
+// target, but a projection row of which is not: still in the source, with no
+// owner, or missing (Copilot 4580310679). It moves or fills the row
+// compare-and-set, or writes a missing one whole, and records no event. It
+// does so only when the resource's history holds a move from this source to
+// this target, so a row of the source under a record of the target that no
+// move explains is listed, never moved.
 func (s *AccountAdoptionService) moveRows(
 	ctx context.Context, r AdoptAccountResource, plan AdoptAccountReport,
 ) (assignOutcome, assignNote, bool, error) {
@@ -683,7 +685,7 @@ func (s *AccountAdoptionService) moveRows(
 	if err != nil {
 		return 0, assignNote{}, false, err
 	}
-	if _, err := s.mover.MoveProjectionRowsOwner(ctx, r.ID, entity.TypeSlug(), from, to); err != nil {
+	if _, err := s.mover.FinishAdoptedRows(ctx, entity, from); err != nil {
 		return 0, assignNote{}, granted, fmt.Errorf("move the projection rows: %w (%w)", err, errAdoptRowDidNotMove)
 	}
 	outcome, note, err := s.readBackRows(ctx, r.ID, entity.TypeSlug(), from, to)

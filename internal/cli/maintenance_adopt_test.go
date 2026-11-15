@@ -93,7 +93,7 @@ func TestPrintAdoptAccount_ARealRunSaysWhatLanded(t *testing.T) {
 	text := out.String()
 	for _, want := range []string{
 		"moving resources through the event stream. A move cannot be undone.",
-		"task                     3 to move, moved 2; 1 row(s) left in the source, moved 1, " +
+		"task                     3 to move, moved 2; 1 row(s) an earlier move left unfinished, finished 1, " +
 			"skipped 1 that left the source account during the run",
 		"total: 2 of 3 resource(s) moved",
 	} {

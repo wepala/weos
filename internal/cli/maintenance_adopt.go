@@ -117,10 +117,12 @@ projection rows read back in the --account account. A run that stops part-way
 has moved what it reports; running it again with --write moves the rest. A
 resource whose record is behind its event stream is skipped and listed, and
 the command exits non-zero: stop the instance, run "weos worker reproject"
-against the same database, then run this command again. A failed write can
-leave a projection row in the --from account under a record that moved; the
-run then stops and names the resource. Fix the cause and run again: the run
-moves the row and records no second event. A resource of the --from account
+against the same database, then run this command again. A failed write, or a run
+stopped after a record write, can leave a projection row of a moved record in
+the --from account, with no owner, or missing; a failed write stops the run
+and names the resource. Fix the cause and run again: the run finds the row,
+checks that the resource's history holds the move, moves, fills or writes the
+row, and records no second event. A resource of the --from account
 with a projection row a third account holds is listed and never moved, and
 the run exits non-zero: no write this command makes repairs that row, so it
 needs investigation first.
@@ -375,7 +377,7 @@ func printAdoptAccountReport(out io.Writer, r application.AdoptAccountReport) {
 	_, _ = fmt.Fprintln(out)
 	missing := 0
 	for _, res := range r.Resources {
-		if res.MissingTable != "" {
+		if res.MissingTable != "" && !res.RecordMoved {
 			missing++
 		}
 	}
@@ -384,12 +386,12 @@ func printAdoptAccountReport(out io.Writer, r application.AdoptAccountReport) {
 		if r.DryRun {
 			_, _ = fmt.Fprintf(out, "  %-24s %d to move", slug, c.ToMove)
 			if c.RowsToMove > 0 {
-				_, _ = fmt.Fprintf(out, "; %d row(s) left in the source by an earlier move", c.RowsToMove)
+				_, _ = fmt.Fprintf(out, "; %d row(s) an earlier move left unfinished", c.RowsToMove)
 			}
 		} else {
 			_, _ = fmt.Fprintf(out, "  %-24s %d to move, moved %d", slug, c.ToMove, c.Moved)
 			if c.RowsToMove > 0 {
-				_, _ = fmt.Fprintf(out, "; %d row(s) left in the source, moved %d", c.RowsToMove, c.RowsMoved)
+				_, _ = fmt.Fprintf(out, "; %d row(s) an earlier move left unfinished, finished %d", c.RowsToMove, c.RowsMoved)
 			}
 			if c.Skipped > 0 {
 				_, _ = fmt.Fprintf(out, ", skipped %d that left the source account during the run", c.Skipped)
@@ -406,7 +408,8 @@ func printAdoptAccountReport(out io.Writer, r application.AdoptAccountReport) {
 	if r.DryRun {
 		_, _ = fmt.Fprintf(out, "\ntotal: %d resource(s) would be moved (%s)\n", r.ToMove(), adoptOneEventEach)
 		if n := r.RowsToMove(); n > 0 {
-			_, _ = fmt.Fprintf(out, "       %d resource(s) with a projection row still in the source to move (no event)\n", n)
+			_, _ = fmt.Fprintf(out, "       %d resource(s) whose move left a projection row in the source, ownerless "+
+				"or missing, to finish (no event)\n", n)
 		}
 		if missing > 0 {
 			_, _ = fmt.Fprintf(out, "       %d of them have no row in one of their projection tables; the move writes it\n",
@@ -419,7 +422,7 @@ func printAdoptAccountReport(out io.Writer, r application.AdoptAccountReport) {
 		}
 		_, _ = fmt.Fprintf(out, " (%s)\n", adoptOneEventEach)
 		if n := r.RowsToMove(); n > 0 {
-			_, _ = fmt.Fprintf(out, "       %d of %d projection row(s) left in the source moved (no event)\n",
+			_, _ = fmt.Fprintf(out, "       %d of %d resource(s) with an unfinished projection row finished (no event)\n",
 				r.RowsMoved(), n)
 		}
 		printAdoptAccountNext(out, r)
