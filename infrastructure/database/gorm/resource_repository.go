@@ -606,7 +606,7 @@ func (r *ResourceRepository) lookupDisplayFromProjection(
 	// (the "no such column: account_id" failure). Treat it as a clean miss so
 	// the caller falls back to the canonical path and persists a NULL display,
 	// rather than logging a write-path error on every such reference.
-	if !r.db.Migrator().HasColumn(tableName, "account_id") {
+	if !columnExists(r.db, tableName, "account_id") {
 		return "", false, nil
 	}
 	query := r.db.WithContext(ctx).Table(tableName).
@@ -937,7 +937,7 @@ func (r *ResourceRepository) findAllFromProjection(
 	if colName == "data" {
 		colName = "id"
 	} else if colName != "id" && !standardColumnNames[colName] {
-		if !r.db.Migrator().HasColumn(tableName, colName) {
+		if !columnExists(r.db, tableName, colName) {
 			colName = "id"
 		}
 	}
@@ -1127,7 +1127,7 @@ func (r *ResourceRepository) findAllByFieldFromProjection(
 	tableName := r.projMgr.TableName(typeSlug)
 	colName := utils.CamelToSnake(fieldName)
 	if colName != "id" && !standardColumnNames[colName] {
-		if !r.db.Migrator().HasColumn(tableName, colName) {
+		if !columnExists(r.db, tableName, colName) {
 			return nil, fmt.Errorf("invalid field: %s", fieldName)
 		}
 	}
@@ -1363,7 +1363,7 @@ func (r *ResourceRepository) projectionFilterClause(
 		return clause, args, true
 	}
 	fc := utils.CamelToSnake(f.Field)
-	if !standardColumnNames[fc] && fc != "id" && !r.db.Migrator().HasColumn(tableName, fc) {
+	if !standardColumnNames[fc] && fc != "id" && !columnExists(r.db, tableName, fc) {
 		return "", nil, false
 	}
 	clause, args = r.referenceFilterClause(typeSlug, qualifier, fc, sqlOp, f.Value)
@@ -1395,7 +1395,7 @@ func (r *ResourceRepository) findAllFromProjectionWithFilters(
 	if colName == "data" {
 		colName = "id"
 	} else if colName != "id" && !standardColumnNames[colName] {
-		if !r.db.Migrator().HasColumn(tableName, colName) {
+		if !columnExists(r.db, tableName, colName) {
 			colName = "id"
 		}
 	}
@@ -1566,7 +1566,7 @@ func (r *ResourceRepository) findAllFlatFromProjection(
 	if colName == "data" {
 		colName = "id"
 	} else if colName != "id" && !standardColumnNames[colName] {
-		if !r.db.Migrator().HasColumn(tableName, colName) {
+		if !columnExists(r.db, tableName, colName) {
 			colName = "id"
 		}
 	}

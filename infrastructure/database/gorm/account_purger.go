@@ -382,7 +382,7 @@ func (p *AccountPurger) purgeProjections(tx *gorm.DB, facts *accountFacts, _ *re
 	}
 	for _, slug := range slugs {
 		table := p.projMgr.TableName(slug)
-		if !tx.Migrator().HasTable(table) || !tx.Migrator().HasColumn(table, "account_id") {
+		if !tx.Migrator().HasTable(table) || !columnExists(tx, table, "account_id") {
 			continue
 		}
 		if err := tx.Table(table).Where("account_id = ?", facts.accountID).Delete(map[string]any{}).Error; err != nil {
