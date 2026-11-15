@@ -593,3 +593,106 @@ func TestLexicalHandler_AReplayedParkedAdoptionHonorsLaterEvents(t *testing.T) {
 		}
 	})
 }
+
+// Copilot review 5913504768 (peripheral_groups.go): `worker parked replay`
+// can run a move after the resource's later events already reached the
+// graphs. The replay still takes the resource out of the source graph, but
+// it never restores in the target graph what a later delete or a later move
+// took out of it, and it never loads data older than a later update.
+func TestProjector_AReplayedParkedAdoptionHonorsLaterEvents(t *testing.T) {
+	t.Parallel()
+	const id = "urn:note:1"
+	adopted := adoptedEnv(id, orphanAcct, targetAcct, 3)
+	replay := func(t *testing.T, later ...domain.EventEnvelope[any]) *accountStores {
+		t.Helper()
+		history := append(append(historyIn(id, "agent-a", orphanAcct), adopted), later...)
+		es := &fakeEventStore{byAggregate: map[string][]domain.EventEnvelope[any]{id: history}}
+		stores := newAccountStores()
+		if err := newOxigraphProjector(es, stores, noteType(), noopLogger{}).handle(context.Background(), adopted); err != nil {
+			t.Fatalf("handle: %v", err)
+		}
+		if removed := stores.store(orphanAcct).subjectsRemoved; len(removed) != 1 || removed[0] != id {
+			t.Errorf("source graph removed %v, want the resource", removed)
+		}
+		return stores
+	}
+
+	t.Run("a later delete leaves the resource out of the target graph", func(t *testing.T) {
+		t.Parallel()
+		stores := replay(t, laterEnv(id, "Resource.Deleted", 4, targetAcct, nil))
+		if docs := stores.store(targetAcct).loadedDocs; len(docs) != 0 {
+			t.Fatalf("the replay restored a deleted resource in the target graph: %v", docs)
+		}
+	})
+
+	t.Run("a later move leaves the resource out of the target graph", func(t *testing.T) {
+		t.Parallel()
+		stores := replay(t, adoptedEnv(id, targetAcct, thirdAcct, 4))
+		if docs := stores.store(targetAcct).loadedDocs; len(docs) != 0 {
+			t.Fatalf("the replay restored in the target graph a resource a later move took out: %v", docs)
+		}
+	})
+
+	t.Run("a later update is the data the target graph gets", func(t *testing.T) {
+		t.Parallel()
+		stores := replay(t, laterEnv(id, "Resource.Updated", 4, targetAcct,
+			map[string]any{"@id": id, "name": "July statement"}))
+		docs := stores.store(targetAcct).loadedDocs
+		if len(docs) == 0 {
+			t.Fatalf("the target graph got nothing, want the resource")
+		}
+		last := docs[len(docs)-1]
+		if !strings.Contains(last, "July statement") || strings.Contains(last, "June statement") {
+			t.Fatalf("the target graph got %s, want the later update's data", last)
+		}
+	})
+}
+
+// The graph handler's compare-and-set reads the history, not the graph, so
+// two moves processed in order end with the resource in the last account's
+// graph only, and a move replayed after a later move brought the resource
+// back to the source leaves the source graph alone.
+func TestProjector_TwoAdoptionsInOrderEndInTheLastAccount(t *testing.T) {
+	t.Parallel()
+	const id = "urn:note:1"
+	first := adoptedEnv(id, orphanAcct, targetAcct, 3)
+
+	t.Run("on to a third account", func(t *testing.T) {
+		t.Parallel()
+		second := adoptedEnv(id, targetAcct, thirdAcct, 4)
+		es := &fakeEventStore{byAggregate: map[string][]domain.EventEnvelope[any]{
+			id: append(historyIn(id, "agent-a", orphanAcct), first, second),
+		}}
+		stores := newAccountStores()
+		proj := newOxigraphProjector(es, stores, noteType(), noopLogger{})
+		for _, e := range []domain.EventEnvelope[any]{first, second} {
+			if err := proj.handle(context.Background(), e); err != nil {
+				t.Fatalf("handle: %v", err)
+			}
+		}
+		if docs := stores.store(targetAcct).loadedDocs; len(docs) != 0 {
+			t.Errorf("the target graph got %v, want nothing: the resource moved on", docs)
+		}
+		if docs := stores.store(thirdAcct).loadedDocs; len(docs) == 0 {
+			t.Errorf("the third account's graph got nothing, want the resource")
+		}
+	})
+
+	t.Run("back to the source", func(t *testing.T) {
+		t.Parallel()
+		back := adoptedEnv(id, targetAcct, orphanAcct, 4)
+		es := &fakeEventStore{byAggregate: map[string][]domain.EventEnvelope[any]{
+			id: append(historyIn(id, "agent-a", orphanAcct), first, back),
+		}}
+		stores := newAccountStores()
+		if err := newOxigraphProjector(es, stores, noteType(), noopLogger{}).handle(context.Background(), first); err != nil {
+			t.Fatalf("handle: %v", err)
+		}
+		for account, s := range stores.stores {
+			if len(s.subjectsRemoved) != 0 || len(s.loadedDocs) != 0 || len(s.updates) != 0 {
+				t.Errorf("graph of %s changed: removed %v, loaded %v, updates %v", account,
+					s.subjectsRemoved, s.loadedDocs, s.updates)
+			}
+		}
+	})
+}

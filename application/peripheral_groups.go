@@ -248,6 +248,16 @@ func (p *oxigraphProjector) projectAccountAssigned(
 // where it is. A rebuild replays the move in order, after the events that put
 // the resource in the source graph, so it ends with the resource in the
 // target graph. In single-tenant mode there is one graph, so nothing moves.
+//
+// What the target graph gets is read from the WHOLE history (Copilot review
+// 5913504768). The worker goes on past a parked event, so `worker parked
+// replay` can run a move after the resource's later events already reached
+// the graphs. The compare-and-set stays on the history before the move, but
+// the target graph is given the resource only while the history ends with
+// it there: a resource deleted later, or moved on to another account later,
+// is not restored, and a later update's data is not replaced by older data.
+// The resource still leaves the source graph, unless a later move brought
+// it back there.
 func (p *oxigraphProjector) projectAccountAdopted(
 	ctx context.Context, event domain.EventEnvelope[any],
 ) error {
@@ -270,6 +280,13 @@ func (p *oxigraphProjector) projectAccountAdopted(
 			"nothing to move", "aggregateID", event.AggregateID, "owner", owner, "from", from)
 		return nil
 	}
+	now, _ := ownerFromEvents(history)
+	state := buildStateFromTransaction(ctx, history, event.AggregateID, event.SequenceNo, p.logger)
+	if now == from && !state.IsDelete {
+		p.logger.Info(ctx, "kg Resource.AccountAdopted for a resource a later move brought back to the source; "+
+			"nothing to move", "aggregateID", event.AggregateID, "from", from)
+		return nil
+	}
 	source, err := p.stores.ForAccount(ctx, from)
 	if err != nil {
 		return err
@@ -283,8 +300,12 @@ func (p *oxigraphProjector) projectAccountAdopted(
 	if err := source.RemoveSubject(ctx, event.AggregateID); err != nil {
 		return fmt.Errorf("kg: remove %s from the graph of %s: %w", event.AggregateID, from, err)
 	}
-	state := buildStateFromTransaction(ctx, before, event.AggregateID, event.SequenceNo, p.logger)
 	if state.IsDelete || state.Data == nil {
+		return nil
+	}
+	if now != to {
+		p.logger.Info(ctx, "kg Resource.AccountAdopted for a resource a later move took out of the target; "+
+			"leaving it to that move", "aggregateID", event.AggregateID, "to", to, "owner", now)
 		return nil
 	}
 	target, err := p.stores.ForAccount(ctx, to)
@@ -301,7 +322,7 @@ func (p *oxigraphProjector) projectAccountAdopted(
 	// graph with the rest of it, and they are not part of its data. They are
 	// carried over from the history (wm-ebgqob): each Triple.Created that no
 	// later Triple.Deleted undid.
-	if relations := relationsFromEvents(before); len(relations) > 0 {
+	if relations := relationsFromEvents(history); len(relations) > 0 {
 		if err := target.AddTriples(ctx, relations); err != nil {
 			return fmt.Errorf("kg: carry the relations of %s into the graph of %s: %w", event.AggregateID, to, err)
 		}
