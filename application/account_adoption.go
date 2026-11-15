@@ -84,7 +84,7 @@ type AdoptAccountResource struct {
 	// the row and records no second event.
 	RecordMoved bool
 	// MissingTable names a projection table with no row for the resource.
-	// The move's upsert writes it; the read-back checks that it did.
+	// The move writes it; the read-back checks that it did.
 	MissingTable string
 }
 

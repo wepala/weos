@@ -218,8 +218,13 @@ which compare with the owner the resource's history shows before the event. So a
 a second run moves nothing, and a resource of a third account is never touched.
 
 **The projection contract does not change.** The upsert still keeps an owner a row already has; it is
-still fill-only. The move writes the rows with a second, narrower statement
-(`MoveProjectionRowsOwner`), so no other write gains the power to move an owner. A rebuild over
+still fill-only. The move does not go through the upsert at all: it writes the record and each row with
+narrow statements (`WriteAccountAdoption`) that set the owner, the sequence number and the update time
+and nothing else, the row's owner only while it is in the source or empty, so no other write gains the
+power to move an owner. A full rewrite of the row would recompute its reference labels in the target,
+and the run moves one resource at a time, so a reference to a resource not moved yet would lose its
+label (wm-xuskm9). A row that does not exist is written whole, its labels read in the target and, where
+they resolve only there, in the source. A rebuild over
 existing rows replays `Resource.Created` first, which writes the source account back over the record
 while the rows keep the target; the replayed move then puts the record in the target again. A rebuild
 from empty tables writes the source and then moves it. Both end where the live write ended.

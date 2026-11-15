@@ -299,9 +299,11 @@ func TestLexicalHandler_AccountAdoptedLeavesARowOfAnotherAccount(t *testing.T) {
 }
 
 // adoptRepo is a ResourceRepository with a canonical record and one type
-// projection row per resource. Update writes the whole record and a
-// fill-only owner on the type row, as the gorm repository does; the mover
-// moves the type row's owner compare-and-set.
+// projection row per resource. WriteAccountAdoption writes the record's
+// owner and version and moves the type row's owner compare-and-set, as the
+// gorm repository does. Update fails: the adoption must never rebuild a
+// whole row, which recomputes its reference labels in the target account
+// (wm-xuskm9).
 type adoptRepo struct {
 	repositories.ResourceRepository
 	record     map[string]string // id → record owner
@@ -332,24 +334,23 @@ func (r *adoptRepo) FindByID(_ context.Context, id string) (*entities.Resource, 
 }
 
 func (r *adoptRepo) Update(_ context.Context, e *entities.Resource) error {
-	r.record[e.GetID()] = e.AccountID()
-	r.seq[e.GetID()] = e.GetSequenceNo()
-	r.updateSeqs = append(r.updateSeqs, e.GetSequenceNo())
-	if r.typeRow[e.GetID()] == "" {
-		r.typeRow[e.GetID()] = e.AccountID()
-	}
-	return nil
+	return fmt.Errorf("Update(%s) called: the adoption must write only the owner and the version", e.GetID())
 }
 
-func (r *adoptRepo) MoveProjectionRowsOwner(
-	_ context.Context, id, _, from, to string,
-) ([]string, error) {
-	r.moveCalls++
-	if r.typeRow[id] != from {
-		return nil, nil
+func (r *adoptRepo) WriteAccountAdoption(
+	_ context.Context, e *entities.Resource, from string, move bool,
+) error {
+	id := e.GetID()
+	r.record[id] = e.AccountID()
+	r.seq[id] = e.GetSequenceNo()
+	r.updateSeqs = append(r.updateSeqs, e.GetSequenceNo())
+	if move {
+		r.moveCalls++
 	}
-	r.typeRow[id] = to
-	return []string{"notes"}, nil
+	if row := r.typeRow[id]; row == "" || (move && row == from) {
+		r.typeRow[id] = e.AccountID()
+	}
+	return nil
 }
 
 func adoptedTyped(id, from, to string, seq int) domain.EventEnvelope[entities.ResourceAccountAdopted] {

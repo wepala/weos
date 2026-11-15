@@ -267,9 +267,11 @@ func handleResourceAccountAssigned(
 // the rows' target; the replayed move then puts the record back in the
 // target, so the rebuild ends where the live write ended.
 //
-// The record is written first and the rows after it, and Update keeps an
-// owner a row already has, so the rows are moved by a second write that
-// itself checks each row is still in the source account.
+// The move is written with narrow statements (wm-xuskm9): the owner, the
+// sequence number and the update time, and nothing else. A full Update would
+// rebuild each projection row, reference labels included, in the target
+// account, and a reference to a resource the run has not moved yet would
+// lose its label.
 //
 // The version is written in every case, as in handleResourceAccountAssigned:
 // the next write loads the resource from this record and appends after its
@@ -281,6 +283,11 @@ func handleResourceAccountAdopted(
 	logger entities.Logger,
 ) error {
 	from, to := env.Payload.FromAccountID, env.Payload.AccountID
+	writer, ok := repo.(repositories.AccountAdoptionWriter)
+	if !ok {
+		return fmt.Errorf("projecting Resource.AccountAdopted for %s: the resource repository %T cannot write "+
+			"an account adoption", env.AggregateID, repo)
+	}
 	existing, err := repo.FindByID(ctx, env.AggregateID)
 	if err != nil {
 		if errors.Is(err, repositories.ErrNotFound) {
@@ -311,18 +318,7 @@ func handleResourceAccountAdopted(
 	}
 	logger.Info(ctx, "projecting Resource.AccountAdopted",
 		"id", env.AggregateID, "account", account, "sequenceNo", sequenceNo)
-	if err := repo.Update(ctx, existing); err != nil {
-		return err
-	}
-	if !moves {
-		return nil
-	}
-	mover, ok := repo.(repositories.ProjectionOwnerMover)
-	if !ok {
-		return fmt.Errorf("projecting Resource.AccountAdopted for %s: the resource repository %T cannot move "+
-			"the owner of its projection rows", env.AggregateID, repo)
-	}
-	if _, err := mover.MoveProjectionRowsOwner(ctx, env.AggregateID, existing.TypeSlug(), from, to); err != nil {
+	if err := writer.WriteAccountAdoption(ctx, existing, from, moves); err != nil {
 		return fmt.Errorf("projecting Resource.AccountAdopted for %s: %w", env.AggregateID, err)
 	}
 	return nil

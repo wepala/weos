@@ -17,7 +17,9 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -458,4 +460,84 @@ func TestAdoptAccount_ErasingTheEmptiedSourceKeepsWhatMoved(t *testing.T) {
 	env.stop()
 	env.reproject(t, "rebuild after the source was erased")
 	env.requireAdopted(t, f, "rebuild after the source was erased")
+}
+
+// display reads the display column of a reference on a resource's row in its
+// type's projection table.
+func (env *assignOwnerEnv) display(t *testing.T, typeSlug, id, column string) string {
+	t.Helper()
+	var row struct{ Label *string }
+	if err := env.db.Table(env.projMgr.TableName(typeSlug)).Select(column+" AS label").
+		Where("id = ?", id).Scan(&row).Error; err != nil {
+		t.Fatalf("read %s of %s: %v", column, id, err)
+	}
+	if row.Label == nil {
+		return ""
+	}
+	return *row.Label
+}
+
+// wm-xuskm9: the run moves resources in type and id order, so a resource
+// often moves while a resource it references is still in the source
+// account — a note whose parent note has a higher id, a chore whose task's
+// type sorts later. The move must keep the label of that reference, and so
+// must every move after it.
+func TestAdoptAccount_KeepsTheLabelsOfReferencesToResourcesNotMovedYet(t *testing.T) {
+	env := newAssignOwnerEnv(t)
+	f := env.seedOrphan(t)
+	ctx := context.Background()
+	for slug, schema := range map[string]string{
+		"note": `{"type":"object","properties":{"name":{"type":"string"},` +
+			`"parent":{"type":"string","x-resource-type":"note","x-display-property":"name"}},"required":["name"]}`,
+		"chore": `{"type":"object","properties":{"name":{"type":"string"},` +
+			`"task":{"type":"string","x-resource-type":"task","x-display-property":"name"}},"required":["name"]}`,
+	} {
+		if _, err := env.types.Create(ctx, application.CreateResourceTypeCommand{
+			Name: slug, Slug: slug, Description: "A type with a reference, for the adoption",
+			Context: json.RawMessage(`{"@vocab":"https://schema.org/"}`), Schema: json.RawMessage(schema),
+		}); err != nil {
+			t.Fatalf("create type %s: %v", slug, err)
+		}
+	}
+	// Two notes; the one with the lower id names the other as its parent.
+	a := env.create(t, orphanWriter, orphanAccountID, "note", "Statement notes")
+	b := env.create(t, orphanWriter, orphanAccountID, "note", "Banking notes")
+	lo, hi := a, b
+	if hi < lo {
+		lo, hi = hi, lo
+	}
+	writer := auth.ContextWithAgent(ctx, &auth.Identity{
+		AgentID: orphanWriter, AccountIDs: []string{orphanAccountID}, ActiveAccountID: orphanAccountID,
+	})
+	hiName := map[string]string{a: "Statement notes", b: "Banking notes"}[hi]
+	loName := map[string]string{a: "Statement notes", b: "Banking notes"}[lo]
+	if _, err := env.resources.Update(writer, application.UpdateResourceCommand{
+		ID: lo, Data: json.RawMessage(fmt.Sprintf(`{"name":%q,"parent":%q}`, loName, hi)),
+	}); err != nil {
+		t.Fatalf("give the note a parent: %v", err)
+	}
+	chore := env.create(t, orphanWriter, orphanAccountID, "chore", "File the May statement")
+	if _, err := env.resources.Update(writer, application.UpdateResourceCommand{
+		ID: chore, Data: json.RawMessage(fmt.Sprintf(`{"name":"File the May statement","task":%q}`, f.orphanTask1)),
+	}); err != nil {
+		t.Fatalf("give the chore a task: %v", err)
+	}
+	if got := env.display(t, "note", lo, "parent_display"); got != hiName {
+		t.Fatalf("before the move the note's parent label = %q, want %q", got, hiName)
+	}
+	if got := env.display(t, "chore", chore, "task_display"); got != "Reconcile May statement" {
+		t.Fatalf("before the move the chore's task label = %q", got)
+	}
+
+	if _, err := env.adoption.AdoptAccount(ctx, env.adoptCommand(false)); err != nil {
+		t.Fatalf("move: %v", err)
+	}
+	env.requireOwner(t, "note", lo, env.ownerAccount, "after the move")
+	env.requireOwner(t, "chore", chore, env.ownerAccount, "after the move")
+	if got := env.display(t, "note", lo, "parent_display"); got != hiName {
+		t.Errorf("after the move the note's parent label = %q, want %q", got, hiName)
+	}
+	if got := env.display(t, "chore", chore, "task_display"); got != "Reconcile May statement" {
+		t.Errorf("after the move the chore's task label = %q, want %q", got, "Reconcile May statement")
+	}
 }

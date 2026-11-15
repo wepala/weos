@@ -16,9 +16,12 @@
 package gorm
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
+	"time"
 
+	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
 	"github.com/wepala/weos/v3/infrastructure/models"
 
@@ -39,8 +42,8 @@ type adoptFixture struct {
 	repo *ResourceRepository
 	// In the source account, every row with it.
 	healthy string
-	// In the source account, with an ownerless ancestor row (the move's
-	// upsert fills it).
+	// In the source account, with an ownerless ancestor row (the move fills
+	// it).
 	blankRow string
 	// In the source account, with no ancestor row at all.
 	missingRow string
@@ -217,6 +220,72 @@ func TestCountAccountMembers(t *testing.T) {
 		got, err := counter.CountAccountMembers(t.Context(), account)
 		if err != nil || got != want {
 			t.Errorf("%s: %d members (err %v), want %d", account, got, err, want)
+		}
+	}
+}
+
+// wm-xuskm9: the adoption writes the owner and the version and nothing else,
+// so the label of a reference to a resource still in the source account
+// survives the move. A missing row is written whole, with the label read in
+// the source account when it does not resolve in the target. A row of a
+// third account keeps its owner.
+func TestWriteAccountAdoption_KeepsReferenceLabelsAndWritesOnlyTheOwner(t *testing.T) {
+	t.Parallel()
+	repo, ctx := setupReferenceProjectionTest(t)
+	save := func(id, slug, data, account string) {
+		t.Helper()
+		if err := repo.Save(ctx, makeTestResourceForAgent(t, id, slug, data, "agent-1", account)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	save("urn:course:1", "course", `{"name":"Coding"}`, adoptFrom)
+	for _, id := range []string{"urn:course-instance:row", "urn:course-instance:missing", "urn:course-instance:third"} {
+		save(id, "course-instance", `{"name":"Easter Camp","courseId":"urn:course:1"}`, adoptFrom)
+	}
+	if err := repo.db.Table("course_instances").Where("id = ?", "urn:course-instance:missing").
+		Delete(map[string]any{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.db.Table("course_instances").Where("id = ?", "urn:course-instance:third").
+		Update("account_id", adoptThird).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	for _, id := range []string{"urn:course-instance:row", "urn:course-instance:missing", "urn:course-instance:third"} {
+		moved := &entities.Resource{}
+		if err := moved.Restore(id, "course-instance", "active",
+			json.RawMessage(`{"name":"Easter Camp","courseId":"urn:course:1"}`), "agent-1", adoptTo, time.Now(), 2); err != nil {
+			t.Fatal(err)
+		}
+		if err := repo.WriteAccountAdoption(ctx, moved, adoptFrom, true); err != nil {
+			t.Fatalf("WriteAccountAdoption(%s): %v", id, err)
+		}
+	}
+
+	for id, wantOwner := range map[string]string{
+		"urn:course-instance:row": adoptTo, "urn:course-instance:missing": adoptTo, "urn:course-instance:third": adoptThird,
+	} {
+		var row struct {
+			AccountID       string
+			SequenceNo      int
+			CourseIDDisplay *string
+		}
+		if err := repo.db.Table("course_instances").Select("account_id, sequence_no, course_id_display").
+			Where("id = ?", id).Take(&row).Error; err != nil {
+			t.Fatalf("read the row of %s: %v", id, err)
+		}
+		if row.AccountID != wantOwner || row.SequenceNo != 2 {
+			t.Errorf("%s row = owner %q, sequence %d; want %q, 2", id, row.AccountID, row.SequenceNo, wantOwner)
+		}
+		if row.CourseIDDisplay == nil || *row.CourseIDDisplay != "Coding" {
+			t.Errorf("%s course label = %v, want Coding (the course has not moved yet)", id, row.CourseIDDisplay)
+		}
+		var record models.Resource
+		if err := repo.db.Where("id = ?", id).Take(&record).Error; err != nil {
+			t.Fatal(err)
+		}
+		if record.AccountID != adoptTo || record.SequenceNo != 2 {
+			t.Errorf("%s record = owner %q, sequence %d; want %q, 2", id, record.AccountID, record.SequenceNo, adoptTo)
 		}
 	}
 }

@@ -169,6 +169,25 @@ type ProjectionOwnerMover interface {
 	MoveProjectionRowsOwner(ctx context.Context, id, typeSlug, fromAccountID, accountID string) ([]string, error)
 }
 
+// AccountAdoptionWriter is implemented by a ResourceRepository that can
+// write the outcome of one Resource.AccountAdopted and nothing else
+// (wm-xuskm9). A full Update rebuilds each projection row, display columns
+// included, in the resource's new account; a reference to a resource that has
+// not moved yet then resolves to nothing and its label is written as NULL.
+// This write leaves every other column of an existing row as it is.
+type AccountAdoptionWriter interface {
+	// WriteAccountAdoption writes entity's owner and sequence number to its
+	// canonical record, and on each of its projection rows (its own type's
+	// and each ancestor's) the sequence number and the time of the write.
+	// When move is true, a row whose owner is fromAccountID, or that has no
+	// owner, takes entity.AccountID() as its owner, the check being part of
+	// the statement; when it is false only an ownerless row takes it. A
+	// projection row that does not exist is written whole, its reference
+	// labels read in entity's account and, for a move, in fromAccountID for
+	// any that resolve only there.
+	WriteAccountAdoption(ctx context.Context, entity *entities.Resource, fromAccountID string, move bool) error
+}
+
 // AccountResource is a resource the account adoption (wm-c7xehr) selected:
 // one whose canonical record is in the source account, or one whose record
 // is already in the target account while a projection row is still in the
@@ -189,7 +208,7 @@ type AccountResource struct {
 	// resource is owned by an account that is neither the source nor the
 	// target, when there is one, and ForeignRowAccountID is the account that
 	// row holds. No move writes such a row. An ownerless row is not listed:
-	// the move's upsert fills it.
+	// the move fills it.
 	ForeignRowTable     string
 	ForeignRowAccountID string
 }

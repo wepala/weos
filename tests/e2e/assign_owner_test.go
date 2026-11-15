@@ -59,6 +59,7 @@ type assignOwnerEnv struct {
 	backfill   *application.OwnerBackfillService
 	adoption   *application.AccountAdoptionService
 	erasure    *application.AccountErasureService
+	types      application.ResourceTypeService
 
 	// The backfill's own dependencies, so a test can build the service over
 	// a wrapped event store.
@@ -87,11 +88,10 @@ func newAssignOwnerEnv(t *testing.T) *assignOwnerEnv {
 	env.cfg.LogLevel = "error"
 
 	var authService authapp.AuthenticationService
-	var types application.ResourceTypeService
 	env.app = fx.New(
 		fx.NopLogger,
 		application.Module(env.cfg, presets.NewDefaultRegistry()),
-		fx.Populate(&authService, &types, &env.resources, &env.backfill, &env.adoption, &env.erasure),
+		fx.Populate(&authService, &env.types, &env.resources, &env.backfill, &env.adoption, &env.erasure),
 		fx.Populate(&env.db, &env.projMgr, &env.eventStore),
 		fx.Populate(&env.resourceRepo, &env.accountRepo, &env.dispatcher, &env.logger),
 	)
@@ -118,7 +118,7 @@ func newAssignOwnerEnv(t *testing.T) *assignOwnerEnv {
 	env.ownerAgent, env.ownerAccount = owner.GetID(), ownerAccount.GetID()
 	env.otherAgent, env.otherAccount = other.GetID(), otherAccount.GetID()
 
-	if _, err := types.InstallPreset(bg, "tasks", true); err != nil {
+	if _, err := env.types.InstallPreset(bg, "tasks", true); err != nil {
 		t.Fatalf("install tasks preset: %v", err)
 	}
 	return env
