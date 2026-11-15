@@ -190,6 +190,14 @@ func subscribeResourceHandlers(
 		return err
 	}
 
+	if err := domain.Subscribe(d, "Resource.AccountAdopted",
+		func(ctx context.Context, env domain.EventEnvelope[entities.ResourceAccountAdopted]) error {
+			return handleResourceAccountAdopted(ctx, env, repo, logger)
+		},
+	); err != nil {
+		return err
+	}
+
 	return domain.Subscribe(d, "Resource.Deleted",
 		func(ctx context.Context, env domain.EventEnvelope[entities.ResourceDeleted]) error {
 			logger.Info(ctx, "projecting Resource.Deleted", "id", env.AggregateID)
@@ -245,6 +253,79 @@ func handleResourceAccountAssigned(
 	logger.Info(ctx, "projecting Resource.AccountAssigned",
 		"id", env.AggregateID, "account", account, "sequenceNo", sequenceNo)
 	return repo.Update(ctx, existing)
+}
+
+// handleResourceAccountAdopted moves a resource's canonical record and every
+// projection row from the event's FromAccountID to its AccountID (wm-c7xehr).
+//
+// It is compare-and-set on FromAccountID, as the event is on the aggregate.
+// A record still in the source account takes the target. A record already in
+// the target (a move that reached the record and not a row) is finished. A
+// record of any other account keeps its owner, and its rows are not touched.
+// A rebuild over existing rows replays Resource.Created first, which writes
+// the source account back over the record while the fill-only upsert keeps
+// the rows' target; the replayed move then puts the record back in the
+// target, so the rebuild ends where the live write ended.
+//
+// The record is written first and the rows after it, and Update keeps an
+// owner a row already has, so the rows are moved by a second write that
+// itself checks each row is still in the source account.
+//
+// The version is written in every case, as in handleResourceAccountAssigned:
+// the next write loads the resource from this record and appends after its
+// sequence number.
+func handleResourceAccountAdopted(
+	ctx context.Context,
+	env domain.EventEnvelope[entities.ResourceAccountAdopted],
+	repo repositories.ResourceRepository,
+	logger entities.Logger,
+) error {
+	from, to := env.Payload.FromAccountID, env.Payload.AccountID
+	existing, err := repo.FindByID(ctx, env.AggregateID)
+	if err != nil {
+		if errors.Is(err, repositories.ErrNotFound) {
+			logger.Info(ctx, "Resource.AccountAdopted for a resource with no record, skipping",
+				"id", env.AggregateID)
+			return nil
+		}
+		return fmt.Errorf("projection read failed: %w", err)
+	}
+	account := existing.AccountID()
+	moves := from != "" && to != "" && (account == from || account == to)
+	if moves {
+		account = to
+	} else {
+		logger.Warn(ctx, "Resource.AccountAdopted for a resource in another account than the move's source; "+
+			"keeping the owner", "id", env.AggregateID, "owner", account, "from", from, "to", to)
+	}
+	sequenceNo := existing.GetSequenceNo()
+	if env.SequenceNo > sequenceNo {
+		sequenceNo = env.SequenceNo
+	}
+	if err := existing.Restore(
+		env.AggregateID, existing.TypeSlug(), existing.Status(),
+		existing.Data(), existing.CreatedBy(), account,
+		existing.CreatedAt(), sequenceNo,
+	); err != nil {
+		return err
+	}
+	logger.Info(ctx, "projecting Resource.AccountAdopted",
+		"id", env.AggregateID, "account", account, "sequenceNo", sequenceNo)
+	if err := repo.Update(ctx, existing); err != nil {
+		return err
+	}
+	if !moves {
+		return nil
+	}
+	mover, ok := repo.(repositories.ProjectionOwnerMover)
+	if !ok {
+		return fmt.Errorf("projecting Resource.AccountAdopted for %s: the resource repository %T cannot move "+
+			"the owner of its projection rows", env.AggregateID, repo)
+	}
+	if _, err := mover.MoveProjectionRowsOwner(ctx, env.AggregateID, existing.TypeSlug(), from, to); err != nil {
+		return fmt.Errorf("projecting Resource.AccountAdopted for %s: %w", env.AggregateID, err)
+	}
+	return nil
 }
 
 // txResourceState holds the resource state built from transaction events.

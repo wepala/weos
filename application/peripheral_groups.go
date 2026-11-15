@@ -142,6 +142,8 @@ func (p *oxigraphProjector) dispatch(ctx context.Context, event domain.EventEnve
 		return p.projectDeleted(ctx, event)
 	case "Resource.AccountAssigned":
 		return p.projectAccountAssigned(ctx, event)
+	case "Resource.AccountAdopted":
+		return p.projectAccountAdopted(ctx, event)
 	case "ResourceType.Created", "ResourceType.Updated":
 		return p.projectType(ctx, event)
 	default:
@@ -236,6 +238,57 @@ func (p *oxigraphProjector) projectAccountAssigned(
 		}
 	}
 	return loadResourceState(ctx, event.AggregateID, state.Data, store, p.logger)
+}
+
+// projectAccountAdopted moves a resource from its source account's graph to
+// its target account's graph (wm-c7xehr). It is compare-and-set on the
+// event's FromAccountID, read from the resource's own history before the
+// event: a resource the stream shows in any other account at that point —
+// a third account, or the target after an earlier copy of the move — is left
+// where it is. A rebuild replays the move in order, after the events that put
+// the resource in the source graph, so it ends with the resource in the
+// target graph. In single-tenant mode there is one graph, so nothing moves.
+func (p *oxigraphProjector) projectAccountAdopted(
+	ctx context.Context, event domain.EventEnvelope[any],
+) error {
+	if !p.stores.PerAccount() {
+		return nil
+	}
+	from, to := adoptedAccounts(event.Payload)
+	if from == "" || to == "" {
+		p.logger.Error(ctx, "kg dropping Resource.AccountAdopted without both accounts",
+			"aggregateID", event.AggregateID, "from", from, "to", to)
+		return nil
+	}
+	history, err := p.eventStore.GetEvents(ctx, event.AggregateID)
+	if err != nil {
+		return fmt.Errorf("kg: load history for %s: %w", event.AggregateID, err)
+	}
+	before := eventsBefore(history, event.SequenceNo)
+	if owner, _ := ownerFromEvents(before); owner != from {
+		p.logger.Info(ctx, "kg Resource.AccountAdopted for a resource not in the move's source account; "+
+			"nothing to move", "aggregateID", event.AggregateID, "owner", owner, "from", from)
+		return nil
+	}
+	source, err := p.stores.ForAccount(ctx, from)
+	if err != nil {
+		return err
+	}
+	if err := source.RemoveSubject(ctx, event.AggregateID); err != nil {
+		return fmt.Errorf("kg: remove %s from the graph of %s: %w", event.AggregateID, from, err)
+	}
+	state := buildStateFromTransaction(ctx, before, event.AggregateID, event.SequenceNo, p.logger)
+	if state.IsDelete || state.Data == nil {
+		return nil
+	}
+	target, err := p.stores.ForAccount(ctx, to)
+	if err != nil {
+		return err
+	}
+	if err := p.ensureAccountOntology(ctx, target, to, event.AggregateID); err != nil {
+		return err
+	}
+	return loadResourceState(ctx, event.AggregateID, state.Data, target, p.logger)
 }
 
 func (p *oxigraphProjector) projectDeleted(
@@ -342,9 +395,10 @@ func (p *oxigraphProjector) ownerFromHistory(
 // resourceOwnerFromHistory reads a resource's owning account and creator from
 // its history. Resource.Created has always carried both. A resource created
 // with an empty account can be given one later by Resource.AccountAssigned,
-// which fills an empty owner only, so the first owner in the history wins.
-// Empty values with a nil error mean the aggregate has no such event (or an
-// ownerless one).
+// which fills an empty owner only, and moved out of an account nobody can use
+// by Resource.AccountAdopted, which applies only while the resource is in the
+// move's source account. Empty values with a nil error mean the aggregate has
+// no such event (or an ownerless one).
 func resourceOwnerFromHistory(
 	ctx context.Context, eventStore domain.EventStore, aggregateID string,
 ) (accountID, createdBy string, err error) {
@@ -352,6 +406,13 @@ func resourceOwnerFromHistory(
 	if err != nil {
 		return "", "", fmt.Errorf("load history for %q: %w", aggregateID, err)
 	}
+	accountID, createdBy = ownerFromEvents(events)
+	return accountID, createdBy, nil
+}
+
+// ownerFromEvents folds a resource's owner and creator out of its events, in
+// order, the way Resource.ApplyEvent does.
+func ownerFromEvents(events []domain.EventEnvelope[any]) (accountID, createdBy string) {
 	for _, e := range events {
 		switch e.EventType {
 		case "Resource.Created":
@@ -363,9 +424,40 @@ func resourceOwnerFromHistory(
 			if accountID == "" {
 				accountID = accountFromPayload(e.Payload)
 			}
+		case "Resource.AccountAdopted":
+			if from, to := adoptedAccounts(e.Payload); from != "" && accountID == from {
+				accountID = to
+			}
 		}
 	}
-	return accountID, createdBy, nil
+	return accountID, createdBy
+}
+
+// eventsBefore returns the events of a history that come before sequence
+// number seq: the state a move is compared with.
+func eventsBefore(history []domain.EventEnvelope[any], seq int) []domain.EventEnvelope[any] {
+	out := make([]domain.EventEnvelope[any], 0, len(history))
+	for _, e := range history {
+		if e.SequenceNo < seq {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// adoptedAccounts reads the source and the target account of a
+// Resource.AccountAdopted payload, deserialized or typed.
+func adoptedAccounts(payload any) (from, to string) {
+	switch p := payload.(type) {
+	case map[string]any:
+		from, _ = p["FromAccountID"].(string)
+		to, _ = p["AccountID"].(string)
+		return from, to
+	case entities.ResourceAccountAdopted:
+		return p.FromAccountID, p.AccountID
+	default:
+		return "", ""
+	}
 }
 
 // ensureAccountOntology projects a type's ontology into an account store the
@@ -419,6 +511,8 @@ func accountFromPayload(payload any) string {
 	case entities.ResourceDeleted:
 		return p.AccountID
 	case entities.ResourceAccountAssigned:
+		return p.AccountID
+	case entities.ResourceAccountAdopted:
 		return p.AccountID
 	case entities.TripleCreated:
 		return p.AccountID

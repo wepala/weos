@@ -153,6 +153,65 @@ type ProjectionOwnerFiller interface {
 	FillOwnerlessProjectionRows(ctx context.Context, entity *entities.Resource) ([]string, error)
 }
 
+// ProjectionOwnerMover is implemented by a ResourceRepository that can move
+// the owner of a resource's projection rows from one account to another
+// (wm-c7xehr). Update keeps an owner a projection row already has, so a
+// Resource.AccountAdopted needs this second, narrower write. Like
+// ProjectionOwnerReader it is an interface of its own; a caller type-asserts
+// for it.
+type ProjectionOwnerMover interface {
+	// MoveProjectionRowsOwner sets accountID as the owner of each of the
+	// resource's projection rows (its own type's and each ancestor's) whose
+	// owner is fromAccountID now, and returns the tables it wrote, in write
+	// order. The check is part of the write statement itself, so a row of any
+	// other account, an ownerless row and a row already moved are left as
+	// they are. The canonical record is not written.
+	MoveProjectionRowsOwner(ctx context.Context, id, typeSlug, fromAccountID, accountID string) ([]string, error)
+}
+
+// AccountResource is a resource the account adoption (wm-c7xehr) selected:
+// one whose canonical record is in the source account, or one whose record
+// is already in the target account while a projection row is still in the
+// source account (a move whose projection write did not reach that row).
+type AccountResource struct {
+	ID        string
+	TypeSlug  string
+	CreatedAt time.Time
+	// RecordAccountID is the owner the canonical record carries: the source
+	// account, or the target account for a row left behind by a move.
+	RecordAccountID string
+	// MissingTable names the first projection table (its own type's or an
+	// ancestor's) that holds no row for the resource at all, when there is
+	// one. Neither a move nor a re-run writes a row that does not exist; only
+	// a reproject does.
+	MissingTable string
+	// ForeignRowTable names the first projection table whose row for the
+	// resource is owned by an account that is neither the source nor the
+	// target, when there is one, and ForeignRowAccountID is the account that
+	// row holds. No move writes such a row. An ownerless row is not listed:
+	// the move's upsert fills it.
+	ForeignRowTable     string
+	ForeignRowAccountID string
+}
+
+// AccountResourceFinder is implemented by a ResourceRepository that can list
+// the resources of one account for the account adoption. Like
+// OwnerlessResourceFinder it is an interface of its own; a caller
+// type-asserts for it.
+type AccountResourceFinder interface {
+	// FindForAdoption returns every live resource, of every type, whose
+	// canonical record is in fromAccountID, and every live resource whose
+	// record is in toAccountID while one of its projection rows is still in
+	// fromAccountID, ordered by type and then by identifier.
+	FindForAdoption(ctx context.Context, fromAccountID, toAccountID string) ([]AccountResource, error)
+}
+
+// AccountMemberCounter counts the members of an account. The account
+// adoption moves resources only out of an account with no members.
+type AccountMemberCounter interface {
+	CountAccountMembers(ctx context.Context, accountID string) (int, error)
+}
+
 type ResourceRepository interface {
 	Save(ctx context.Context, entity *entities.Resource) error
 	FindByID(ctx context.Context, id string) (*entities.Resource, error)

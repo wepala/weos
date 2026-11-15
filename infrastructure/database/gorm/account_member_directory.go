@@ -150,3 +150,22 @@ func derefString(s *string) string {
 	}
 	return *s
 }
+
+var _ repositories.AccountMemberCounter = (*AccountMemberDirectory)(nil)
+
+// ProvideAccountMemberCounter counts an account's members over db. The
+// account adoption (wm-c7xehr) moves resources only out of an account with
+// none.
+func ProvideAccountMemberCounter(db *gorm.DB) repositories.AccountMemberCounter {
+	return &AccountMemberDirectory{db: db}
+}
+
+// CountAccountMembers returns how many account_members rows name accountID.
+func (d *AccountMemberDirectory) CountAccountMembers(ctx context.Context, accountID string) (int, error) {
+	var n int64
+	if err := d.db.WithContext(ctx).Table("account_members").Where("account_id = ?", accountID).
+		Count(&n).Error; err != nil {
+		return 0, fmt.Errorf("count the members of %s: %w", accountID, err)
+	}
+	return int(n), nil
+}
