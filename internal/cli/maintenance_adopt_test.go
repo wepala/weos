@@ -171,6 +171,12 @@ var adoptAccountRunRules = []string{
 	// wm-m0ci05.
 	"pending invitation",
 	"still has a credential",
+	// wm-ebgqob.
+	"unknown event type",
+	"read grant",
+	"memory_search",
+	"safe to re-run",
+	"relations",
 }
 
 func TestMaintenanceAdoptAccount_HelpStatesTheRunRules(t *testing.T) {
@@ -200,6 +206,61 @@ func TestMaintenanceAdoptAccount_DocsStateTheRunRules(t *testing.T) {
 	for _, rule := range append(adoptAccountRunRules, "--from", "--account", "--agent", "--write") {
 		if !strings.Contains(section, strings.ToLower(rule)) {
 			t.Errorf("the cli.md section does not state %q", rule)
+		}
+	}
+}
+
+// wm-ebgqob (2): a real run on thousands of resources prints a line every
+// 100 resources and when each type is done, and each line says a stopped run
+// is safe to re-run.
+func TestAdoptAccountProgress_PrintsEveryHundredAndAtTheEndOfEachType(t *testing.T) {
+	var out bytes.Buffer
+	progress := adoptAccountProgressPrinter(&out)
+	total := 250
+	done := 0
+	for _, typ := range []struct {
+		slug  string
+		count int
+	}{{"project", 130}, {"task", 120}} {
+		for i := 1; i <= typ.count; i++ {
+			done++
+			progress(application.AdoptAccountProgress{
+				Done: done, Total: total, TypeSlug: typ.slug, TypeDone: i, TypeTotal: typ.count,
+			})
+		}
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	// 100 and 200 overall, and the end of each type (130 and 250).
+	if len(lines) != 4 {
+		t.Fatalf("printed %d line(s), want 4:\n%s", len(lines), out.String())
+	}
+	for _, want := range []string{"100 of 250", "project 130 of 130", "200 of 250", "task 120 of 120"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("progress lacks %q:\n%s", want, out.String())
+		}
+	}
+	for _, line := range lines {
+		if !strings.Contains(line, "safe to re-run") {
+			t.Errorf("progress line does not say a stopped run is safe to re-run: %q", line)
+		}
+	}
+}
+
+// wm-ebgqob (1, 7): a real run says it granted the agent read on what moved,
+// and that every moved row's updated_at is now the time of the run.
+func TestPrintAdoptAccount_ARealRunSaysWhatHappensNext(t *testing.T) {
+	var out bytes.Buffer
+	r := adoptReport(false)
+	r.Types["task"] = application.AdoptAccountTypeCount{ToMove: 2, Moved: 2, Granted: 2}
+	printAdoptAccountReport(&out, r)
+	text := out.String()
+	for _, want := range []string{
+		"granted agent-1 read on 2 resource(s)",
+		"updated_at of every moved row is now the time of this run",
+		"memory_search",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("real run output lacks %q:\n%s", want, text)
 		}
 	}
 }

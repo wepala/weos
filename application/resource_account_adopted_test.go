@@ -421,3 +421,42 @@ func TestHandleResourceAccountAdopted_ARemovedRecordIsSkipped(t *testing.T) {
 		t.Fatalf("handle: %v", err)
 	}
 }
+
+// wm-ebgqob (5): RemoveSubject takes the resource's relation triples out of
+// the source graph with the rest of it, so the move carries the relations
+// its history still holds (each Triple.Created not undone by a later
+// Triple.Deleted) into the target graph.
+func TestProjector_AccountAdoptedCarriesTheRelationsToTheTarget(t *testing.T) {
+	t.Parallel()
+	triple := func(seq int, eventType, object string) domain.EventEnvelope[any] {
+		return domain.EventEnvelope[any]{
+			ID: fmt.Sprintf("urn:note:1-triple-%d", seq), EventType: eventType, AggregateID: "urn:note:1",
+			SequenceNo: seq, TransactionID: fmt.Sprintf("tx-%d", seq),
+			Payload: map[string]any{"subject": "urn:note:1", "predicate": "https://schema.org/about",
+				"object": object, "AccountID": orphanAcct},
+		}
+	}
+	history := append(historyIn("urn:note:1", "agent-a", orphanAcct),
+		triple(3, "Triple.Created", "urn:project:kept"),
+		triple(4, "Triple.Created", "urn:project:dropped"),
+		triple(5, "Triple.Deleted", "urn:project:dropped"))
+	adopted := adoptedEnv("urn:note:1", orphanAcct, targetAcct, 6)
+	es := &fakeEventStore{byAggregate: map[string][]domain.EventEnvelope[any]{"urn:note:1": append(history, adopted)}}
+	stores := newAccountStores()
+	proj := newOxigraphProjector(es, stores, noteType(), noopLogger{})
+	if err := proj.handle(context.Background(), adopted); err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	var added []repositories.Triple
+	for _, call := range stores.store(targetAcct).addCalls {
+		for _, tr := range call {
+			if tr.Subject == "urn:note:1" { // the ontology's own triples are not relations
+				added = append(added, tr)
+			}
+		}
+	}
+	want := repositories.Triple{Subject: "urn:note:1", Predicate: "https://schema.org/about", Object: "urn:project:kept"}
+	if len(added) != 1 || added[0] != want {
+		t.Fatalf("target graph got relations %+v, want only %+v", added, want)
+	}
+}

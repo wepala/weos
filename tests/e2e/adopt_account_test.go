@@ -155,6 +155,9 @@ func TestAdoptAccount_MovesEveryResourceOfTheOrphanedAccountAndNothingElse(t *te
 	if n := env.adoptedEvents(t); n != 3 {
 		t.Errorf("stored %d Resource.AccountAdopted event(s), want 3", n)
 	}
+	if report.Granted() != 3 {
+		t.Errorf("granted read on %d resource(s), want 3", report.Granted())
+	}
 	env.requireAdopted(t, f, "after the move")
 	// The source account is not deleted.
 	if a, err := env.accountRepo.FindByID(context.Background(), orphanAccountID); err != nil || a == nil {
@@ -404,8 +407,11 @@ func TestAdoptAccount_TheCommandPreviewsThenMovesWithWrite(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("real run exited %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}
-	if !strings.Contains(stdout, "total: 3 of 3 resource(s) moved") {
-		t.Errorf("real run output lacks the total:\n%s", stdout)
+	for _, want := range []string{"total: 3 of 3 resource(s) moved", "safe to re-run", "project 1 of 1",
+		"task 2 of 2", "granted " + env.ownerAgent + " read on 3 resource(s)", "updated_at"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("real run output lacks %q:\n%s", want, stdout)
+		}
 	}
 	env.requireAdopted(t, f, "after the command")
 
@@ -657,5 +663,139 @@ func TestAdoptAccount_ThePreviewNamesWhoCreatedTheSourcesResources(t *testing.T)
 	}
 	if c := got[env.ownerAgent]; c.Resources != 1 || !c.HasCredential || c.NewestCreatedAt.IsZero() {
 		t.Errorf("owner = %+v, want 1 resource, a credential and a newest time", c)
+	}
+}
+
+// wm-ebgqob (1): the move is only worth anything if the target account's
+// owner then finds the moved resources — in a list and in memory_search —
+// and not only by id. Lists and the lexical index scope by the creator or a
+// read grant, and a moved resource keeps the orphan's creator.
+func TestAdoptAccount_TheTargetsOwnerListsAndSearchesWhatMoved(t *testing.T) {
+	env := newAssignOwnerEnvWithWorkers(t)
+	f := env.seedOrphan(t)
+	ctx := context.Background()
+	if _, err := env.adoption.AdoptAccount(ctx, env.adoptCommand(false)); err != nil {
+		t.Fatalf("move: %v", err)
+	}
+	if err := waitForSubscriber(ctx, env.workers, lexicalSubscriber); err != nil {
+		t.Fatal(err)
+	}
+	owner := auth.ContextWithAgent(ctx, &auth.Identity{
+		AgentID: env.ownerAgent, AccountIDs: []string{env.ownerAccount}, ActiveAccountID: env.ownerAccount,
+	})
+
+	listed := map[string]bool{}
+	for _, typeSlug := range []string{"task", "project"} {
+		page, err := env.resources.List(owner, typeSlug, "", 100, repositories.SortOptions{})
+		if err != nil {
+			t.Fatalf("list %s: %v", typeSlug, err)
+		}
+		for _, r := range page.Data {
+			listed[r.GetID()] = true
+		}
+	}
+	for _, id := range []string{f.orphanTask1, f.orphanTask2, f.orphanProject} {
+		if !listed[id] {
+			t.Errorf("the target's owner does not list moved resource %s", id)
+		}
+	}
+	if listed[f.othersTask] {
+		t.Errorf("the target's owner lists another account's resource %s", f.othersTask)
+	}
+
+	hits, _, err := env.search.Search(owner, repositories.LexicalQuery{Text: "Reconcile statement", Limit: 10})
+	if err != nil {
+		t.Fatalf("memory_search: %v", err)
+	}
+	found := map[string]bool{}
+	for _, h := range hits {
+		found[h.ID] = true
+	}
+	for _, id := range []string{f.orphanTask1, f.orphanTask2} {
+		if !found[id] {
+			t.Errorf("memory_search by the target's owner does not find moved resource %s (hits %+v)", id, hits)
+		}
+	}
+
+	// A re-run changes nothing, grants included.
+	var grants int64
+	if err := env.db.Table("resource_permissions").Count(&grants).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.adoption.AdoptAccount(ctx, env.adoptCommand(false)); err != nil {
+		t.Fatalf("re-run: %v", err)
+	}
+	var again int64
+	if err := env.db.Table("resource_permissions").Count(&again).Error; err != nil {
+		t.Fatal(err)
+	}
+	if again != grants {
+		t.Errorf("a re-run changed the grants: %d before, %d after", grants, again)
+	}
+}
+
+// wm-ebgqob (2): the run reports its progress per resource, with the totals
+// a printer needs to say how far it is, overall and per type.
+func TestAdoptAccount_TheRunReportsItsProgress(t *testing.T) {
+	env := newAssignOwnerEnv(t)
+	env.seedOrphan(t)
+	ctx := context.Background()
+	plan, err := env.adoption.PlanAdoptAccount(ctx, env.adoptCommand(false))
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	var seen []application.AdoptAccountProgress
+	if _, err := env.adoption.ApplyAdoptAccountWithProgress(ctx, plan, func(p application.AdoptAccountProgress) {
+		seen = append(seen, p)
+	}); err != nil {
+		t.Fatalf("move: %v", err)
+	}
+	want := []application.AdoptAccountProgress{
+		{Done: 1, Total: 3, TypeSlug: "project", TypeDone: 1, TypeTotal: 1},
+		{Done: 2, Total: 3, TypeSlug: "task", TypeDone: 1, TypeTotal: 2},
+		{Done: 3, Total: 3, TypeSlug: "task", TypeDone: 2, TypeTotal: 2},
+	}
+	if len(seen) != len(want) {
+		t.Fatalf("progress = %+v, want %+v", seen, want)
+	}
+	for i := range want {
+		if seen[i] != want[i] {
+			t.Errorf("progress[%d] = %+v, want %+v", i, seen[i], want[i])
+		}
+	}
+}
+
+// wm-ebgqob (1): a grant the agent already holds without read keeps its
+// actions and gains read; one with read is left as it is.
+func TestAdoptAccount_AnExistingGrantKeepsItsActions(t *testing.T) {
+	env := newAssignOwnerEnv(t)
+	f := env.seedOrphan(t)
+	ctx := context.Background()
+	for id, actions := range map[string]string{f.orphanTask1: `["modify"]`, f.orphanTask2: `["read","delete"]`} {
+		if err := env.db.Exec("INSERT INTO resource_permissions (id, resource_id, agent_id, actions, granted_by, granted_at) "+
+			"VALUES (?, ?, ?, ?, ?, ?)", "perm-"+id, id, env.ownerAgent, actions, "agent-test-someone", time.Now()).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	report, err := env.adoption.AdoptAccount(ctx, env.adoptCommand(false))
+	if err != nil {
+		t.Fatalf("move: %v", err)
+	}
+	if report.Granted() != 2 {
+		t.Errorf("granted %d, want 2 (the project, and read added to the modify grant)", report.Granted())
+	}
+	read := func(id string) string {
+		var row struct{ Actions string }
+		if err := env.db.Table("resource_permissions").Select("actions").
+			Where("resource_id = ? AND agent_id = ?", id, env.ownerAgent).Scan(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+		return row.Actions
+	}
+	if got := read(f.orphanTask1); !strings.Contains(got, "modify") || !strings.Contains(got, "read") {
+		t.Errorf("grant on %s = %s, want modify kept and read added", f.orphanTask1, got)
+	}
+	if got := read(f.orphanTask2); !strings.Contains(got, "delete") {
+		t.Errorf("grant on %s = %s, want it left as it was", f.orphanTask2, got)
 	}
 }

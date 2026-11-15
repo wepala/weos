@@ -288,7 +288,51 @@ func (p *oxigraphProjector) projectAccountAdopted(
 	if err := p.ensureAccountOntology(ctx, target, to, event.AggregateID); err != nil {
 		return err
 	}
-	return loadResourceState(ctx, event.AggregateID, state.Data, target, p.logger)
+	if err := loadResourceState(ctx, event.AggregateID, state.Data, target, p.logger); err != nil {
+		return err
+	}
+	// RemoveSubject took the resource's relation triples out of the source
+	// graph with the rest of it, and they are not part of its data. They are
+	// carried over from the history (wm-ebgqob): each Triple.Created that no
+	// later Triple.Deleted undid.
+	if relations := relationsFromEvents(before); len(relations) > 0 {
+		if err := target.AddTriples(ctx, relations); err != nil {
+			return fmt.Errorf("kg: carry the relations of %s into the graph of %s: %w", event.AggregateID, to, err)
+		}
+	}
+	return nil
+}
+
+// relationsFromEvents returns the relation triples a resource's history
+// holds at its end — each Triple.Created not undone by a later
+// Triple.Deleted — in the order they were first created.
+func relationsFromEvents(history []domain.EventEnvelope[any]) []repositories.Triple {
+	var order []repositories.Triple
+	held := map[repositories.Triple]bool{}
+	for _, e := range history {
+		if e.EventType != "Triple.Created" && e.EventType != "Triple.Deleted" {
+			continue
+		}
+		tr, ok := tripleFromPayload(e.Payload)
+		if !ok {
+			continue
+		}
+		if e.EventType == "Triple.Deleted" {
+			held[tr] = false
+			continue
+		}
+		if _, seen := held[tr]; !seen {
+			order = append(order, tr)
+		}
+		held[tr] = true
+	}
+	out := make([]repositories.Triple, 0, len(order))
+	for _, tr := range order {
+		if held[tr] {
+			out = append(out, tr)
+		}
+	}
+	return out
 }
 
 func (p *oxigraphProjector) projectDeleted(

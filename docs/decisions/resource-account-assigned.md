@@ -207,10 +207,16 @@ larger decision has a narrow answer here:
   each creator of the source's resources, whether it still has a credential and when it last wrote one,
   and leaves that judgment to the operator.
 - **Its grants.** `resource_permissions` rows name an agent and a resource, not an account, so a move
-  leaves them as they are. The resource's creator is unchanged too.
+  leaves them as they are. The resource's creator is unchanged too. Lists and `memory_search` show a
+  caller what it created or holds a read grant on, so the run gives the agent named for it a read grant
+  on each resource it moves, through the resource permission service and before the move (wm-ebgqob).
+  A grant the agent holds is kept, so a re-run grants nothing twice. Widening the list and search
+  scope to the account is a separate decision (wm-o71nrb); until it is made, other members of the
+  target do not see the moved resources in lists or search.
 - **Its knowledge-graph store.** The per-account projector removes the resource from the source
-  account's graph and loads its state into the target's. The lexical index re-indexes it under the
-  target.
+  account's graph and loads its state into the target's, with the relations its history still holds
+  (each `Triple.Created` not undone by a `Triple.Deleted`): `RemoveSubject` takes them out of the
+  source with the rest of the resource. The lexical index re-indexes it under the target.
 - **Detecting a wrong run.** The preview names both accounts, the source's member and invitation
   counts, the creators of its resources and the agent's role, and counts the resources per type, before anything is written. Every move is an event,
   so the stream records which resources moved, from where and to where.
@@ -252,8 +258,10 @@ the target account.
 
 The event follows the same rule as `Resource.AccountAssigned` below: once one is in a store, every later
 release keeps the event type, its payload shape and its `ApplyEvent` case. A binary older than the
-release that added it skips the event in its background workers, and the repair is the same two
-checkpoint resets.
+release that added it **fails** to load the aggregate of every moved resource (`unknown event type`), so
+a write to one, an import removal over one and a reproject all fail; its background workers skip the
+event. Never serve an older binary after a real run. If one served, the repair for the background
+workers is the same two checkpoint resets, with this release.
 
 ## Consequences
 

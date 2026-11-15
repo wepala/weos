@@ -84,7 +84,11 @@ Procedure:
   3. Stop the instance for the real run, and back up the database. A run
      with --write opens the store directly, and a serving instance competes
      with it for the database (on SQLite, for the write lock).
-  4. Run again with --write.
+  4. Run again with --write. It prints its progress every 100 resources and
+     when each type is done; a run stopped part-way is safe to re-run.
+  5. Start the instance. The search index and the knowledge graph catch up
+     with the moves in the background at start: wait until memory_search
+     stops reporting that its index is behind before you judge the result.
 
 Where the ids come from. Run these against the same database:
 
@@ -113,7 +117,14 @@ the run exits non-zero: no write this command makes repairs that row, so it
 needs investigation first.
 
 What a run with --write changes besides the owner: every moved row's
-updated_at is set to the time of the run.
+updated_at is set to the time of the run, so lists sorted by last update lead
+with the moved resources. The --agent agent gets a read grant on each moved
+resource: lists and memory_search show a caller what it created or holds a
+grant on, and a moved resource keeps its creator. Other members of the
+--account account still do not see the moved resources in lists or search.
+A grant the agent already holds is kept, so a re-run grants nothing twice.
+The knowledge graph carries each moved resource's relations into the
+--account account's graph.
 
 Erasing the --from account afterwards ("weos account delete") leaves every
 moved resource and its history: erasure skips a resource whose history moved
@@ -122,10 +133,14 @@ binary's erasure deletes the history of every moved resource, because each
 one's Resource.Created still names the --from account, and the next
 "weos worker reproject" then removes them from the --account account.
 
-If a binary older than this release served during or after a run with
---write, its background workers skipped the new event, so the knowledge graph
-and the search index still file the resources under the --from account. With
-this release, run "weos worker checkpoint reset oxigraph" and
+Never serve a binary older than this release after a run with --write. Such
+a binary does not know Resource.AccountAdopted, and it fails to load a moved
+resource's history with "unknown event type: ...": updating or deleting a
+moved resource, removing an import that holds one, and "weos worker
+reproject" all fail. Its background workers also skip the event, so the
+knowledge graph and the search index keep the resources under the --from
+account. If one served, upgrade to this release, run
+"weos worker checkpoint reset oxigraph" and
 "weos worker checkpoint reset lexical-index", then start the instance; the
 workers replay the history.
 
@@ -206,7 +221,9 @@ func runMaintenanceAdoptAccount(cmd *cobra.Command, _ []string) error {
 		printAdoptAccountReport(out, plan)
 		return nil
 	}
-	report, err := svc.ApplyAdoptAccount(cmd.Context(), plan)
+	_, _ = fmt.Fprintf(out, "progress is printed every %d resources and when each type is done. "+
+		"A run stopped part-way is safe to re-run: each resource commits on its own.\n", adoptProgressEvery)
+	report, err := svc.ApplyAdoptAccountWithProgress(cmd.Context(), plan, adoptAccountProgressPrinter(out))
 	// Printed even when the run stopped part-way: each resource commits on
 	// its own, so the operator needs to know what already landed.
 	printAdoptAccountReport(out, report)
@@ -260,6 +277,19 @@ func adoptAccountOutcome(r application.AdoptAccountReport, err error) error {
 	return nil
 }
 
+// printAdoptAccountNext says what a real run changed besides the owner, and
+// what to do next (wm-ebgqob).
+func printAdoptAccountNext(out io.Writer, r application.AdoptAccountReport) {
+	_, _ = fmt.Fprintf(out, "       granted %s read on %d resource(s): lists and memory_search show a caller what\n"+
+		"       it created or holds a grant on, and a moved resource keeps its creator. Other members of\n"+
+		"       %s do not see the moved resources in lists or search.\n", r.AgentID, r.Granted(), r.AccountName)
+	_, _ = fmt.Fprintln(out, "\nThe updated_at of every moved row is now the time of this run, so lists sorted by")
+	_, _ = fmt.Fprintln(out, "last update lead with the moved resources.")
+	_, _ = fmt.Fprintln(out, "Next: start the instance. The search index and the knowledge graph catch up with the")
+	_, _ = fmt.Fprintln(out, "moves in the background at start; until memory_search stops reporting that its index")
+	_, _ = fmt.Fprintln(out, "is behind, search can still show the moved resources under the old account or miss them.")
+}
+
 // printAdoptAccountTarget names both accounts and the checks before
 // anything is written.
 func printAdoptAccountTarget(out io.Writer, r application.AdoptAccountReport) {
@@ -290,6 +320,23 @@ func printAdoptAccountTarget(out io.Writer, r application.AdoptAccountReport) {
 			"Make sure the account is abandoned before you run with --write.\n", live)
 	}
 	_, _ = fmt.Fprintf(out, "to   %s (%s): %s is %s\n", r.AccountName, r.AccountID, r.AgentID, r.AgentRole)
+}
+
+// adoptProgressEvery is how many resources a real run handles between two
+// progress lines; a line is also printed when each type is done.
+const adoptProgressEvery = 100
+
+// adoptAccountProgressPrinter prints a real run's progress, so an operator
+// watching a run of thousands of resources can tell working from stuck
+// (wm-ebgqob). Each line says a stopped run is safe to re-run.
+func adoptAccountProgressPrinter(out io.Writer) func(application.AdoptAccountProgress) {
+	return func(p application.AdoptAccountProgress) {
+		if p.Done%adoptProgressEvery != 0 && p.TypeDone != p.TypeTotal {
+			return
+		}
+		_, _ = fmt.Fprintf(out, "  progress: %d of %d resource(s) handled; %s %d of %d "+
+			"(safe to re-run if stopped)\n", p.Done, p.Total, p.TypeSlug, p.TypeDone, p.TypeTotal)
+	}
 }
 
 // adoptOneEventEach says what a move stores, beside the count of them.
@@ -352,6 +399,7 @@ func printAdoptAccountReport(out io.Writer, r application.AdoptAccountReport) {
 			_, _ = fmt.Fprintf(out, "       %d of %d projection row(s) left in the source moved (no event)\n",
 				r.RowsMoved(), n)
 		}
+		printAdoptAccountNext(out, r)
 	}
 	if len(r.NeedsReproject) > 0 {
 		_, _ = fmt.Fprintln(out, "\nThese resources are left for a reproject. Some may already have a stored move: a run")

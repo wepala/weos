@@ -449,7 +449,16 @@ by this command. **A move cannot be undone**: only a database restore reverses a
 recorded in [An Ownerless Resource Is Given Its Owner Through the Event Stream]({% link decisions/resource-account-assigned.md %}),
 in the section on the one case where an owner moves.
 
-A run with `--write` also sets `updated_at` on every moved row to the time of the run.
+A run with `--write` also sets `updated_at` on every moved row to the time of the run, so lists sorted by
+last update lead with the moved resources. The run says so when it ends.
+
+**What the target's owner sees.** Lists and `memory_search` show a caller the resources it created or
+holds a read grant on, and a moved resource keeps its creator. So the run gives the `--agent` agent a
+read grant on each resource it moves, through the resource permission service, just before the move. A
+grant the agent already holds is kept as it is (one without read gains read), so a re-run grants
+nothing twice. Other members of the `--account` account still do not see the moved resources in lists
+or search; the scope rule itself is unchanged. In the knowledge graph, the move carries each resource's
+relations (each `Triple.Created` its history still holds) into the `--account` account's graph.
 
 **Refusals.** The command refuses to run when the `--from` account does not exist, has a member, or has
 a pending invitation that has not expired (accepting it would make a member), when the `--account`
@@ -488,8 +497,12 @@ SELECT agent_id FROM credentials WHERE email = '<address>';
    `--from` account (both must be 0), the creators of its resources and the counts per type.
 3. Stop the instance for the real run, and back up the database. A run with `--write` opens the store
    directly, and a serving instance competes with it for the database (on SQLite, for the write lock).
-4. Add `--write` and run again. The command names both accounts before it writes.
-5. Start the instance.
+4. Add `--write` and run again. The command names both accounts before it writes, and prints its
+   progress every 100 resources and when each type is done. A run stopped part-way is safe to re-run.
+5. Start the instance. The search index and the knowledge graph catch up with the moves in the
+   background at start, one history load per moved resource. Wait until `memory_search` stops
+   reporting that its index is behind before judging the result; until then search can still show a
+   moved resource under the old account, or miss it.
 
 A resource is counted as moved only when its record and each of its projection rows (its own type's
 table and each ancestor's) read back in the `--account` account. A run that stops part-way has moved
@@ -514,11 +527,13 @@ preview and in the result, and is never moved: no write this command makes chang
 needs investigation first. A run with `--write` that lists one exits non-zero. A resource with no row at
 all in one of its projection tables is moved, and the move writes the row.
 
-**If an older binary served during or after a run with `--write`.** A binary built before this release
-does not know `Resource.AccountAdopted`. Its background workers skip the event, so the knowledge graph
-and the search index still file the resources under the `--from` account. With this release, run
-`weos worker checkpoint reset oxigraph` and `weos worker checkpoint reset lexical-index`, then start the
-instance; the workers replay the history.
+**Never serve an older binary after a run with `--write`.** A binary built before this release does not
+know `Resource.AccountAdopted`, and it **fails** to load a moved resource's history with
+`unknown event type: ...`: updating or deleting a moved resource, removing an import that holds one, and
+`weos worker reproject` all fail. Its background workers also skip the event, so the knowledge graph and
+the search index keep the resources under the `--from` account. If one served, upgrade to this release,
+run `weos worker checkpoint reset oxigraph` and `weos worker checkpoint reset lexical-index`, then start
+the instance; the workers replay the history.
 
 ---
 

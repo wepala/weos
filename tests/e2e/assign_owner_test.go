@@ -60,6 +60,8 @@ type assignOwnerEnv struct {
 	adoption   *application.AccountAdoptionService
 	erasure    *application.AccountErasureService
 	types      application.ResourceTypeService
+	search     application.LexicalSearch
+	workers    *application.Manager
 
 	// The backfill's own dependencies, so a test can build the service over
 	// a wrapped event store.
@@ -74,7 +76,24 @@ type assignOwnerEnv struct {
 
 func newAssignOwnerEnv(t *testing.T) *assignOwnerEnv {
 	t.Helper()
+	return newAssignOwnerEnvWith(t, false)
+}
+
+// newAssignOwnerEnvWithWorkers boots the env with the background subscribers
+// running in process, as a serving instance runs them, so the lexical index
+// follows the event stream.
+func newAssignOwnerEnvWithWorkers(t *testing.T) *assignOwnerEnv {
+	t.Helper()
+	return newAssignOwnerEnvWith(t, true)
+}
+
+func newAssignOwnerEnvWith(t *testing.T, runWorkers bool) *assignOwnerEnv {
+	t.Helper()
 	env := &assignOwnerEnv{cfg: config.Default()}
+	if runWorkers {
+		env.cfg.Worker.RunInProcess = true
+		env.cfg.Oxigraph = config.OxigraphConfig{}
+	}
 	env.cfg.DatabaseDSN = filepath.Join(t.TempDir(), "assign_owner.db")
 	// The owner upsert is dialect-specific SQL, so the same tests run on
 	// PostgreSQL when a server is named.
@@ -94,6 +113,7 @@ func newAssignOwnerEnv(t *testing.T) *assignOwnerEnv {
 		fx.Populate(&authService, &env.types, &env.resources, &env.backfill, &env.adoption, &env.erasure),
 		fx.Populate(&env.db, &env.projMgr, &env.eventStore),
 		fx.Populate(&env.resourceRepo, &env.accountRepo, &env.dispatcher, &env.logger),
+		fx.Populate(&env.search, &env.workers),
 	)
 	ctx, cancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
 	defer cancel()

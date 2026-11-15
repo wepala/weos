@@ -17,8 +17,10 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -26,6 +28,7 @@ import (
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
 
+	"github.com/akeemphilbert/pericarp/pkg/auth"
 	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
 	esapp "github.com/akeemphilbert/pericarp/pkg/eventsourcing/application"
@@ -105,6 +108,21 @@ type AdoptAccountTypeCount struct {
 	Skipped        int
 	NeedsReproject int
 	ForeignRows    int
+	// Granted counts the read grants the run gave the agent on resources of
+	// this type. A resource on which the agent already held read is not
+	// counted, so a re-run grants nothing twice.
+	Granted int
+}
+
+// AdoptAccountProgress is reported after each resource a real run handles.
+// Done of Total counts every selected resource; TypeDone of TypeTotal counts
+// those of TypeSlug.
+type AdoptAccountProgress struct {
+	Done      int
+	Total     int
+	TypeSlug  string
+	TypeDone  int
+	TypeTotal int
 }
 
 // AdoptAccountReport says what a run found and did, per resource type.
@@ -169,6 +187,11 @@ func (r AdoptAccountReport) RowsToMove() int {
 	return r.sum(func(c AdoptAccountTypeCount) int { return c.RowsToMove })
 }
 
+// Granted is how many read grants this run gave the agent.
+func (r AdoptAccountReport) Granted() int {
+	return r.sum(func(c AdoptAccountTypeCount) int { return c.Granted })
+}
+
 // RowsMoved is how many of those this run finished, with no event.
 func (r AdoptAccountReport) RowsMoved() int {
 	return r.sum(func(c AdoptAccountTypeCount) int { return c.RowsMoved })
@@ -185,25 +208,27 @@ func (r AdoptAccountReport) sum(count func(AdoptAccountTypeCount) int) int {
 // AccountAdoptionParams bundles the service's dependencies.
 type AccountAdoptionParams struct {
 	fx.In
-	Repo       repositories.ResourceRepository
-	Accounts   authrepos.AccountRepository
-	Members    repositories.AccountUsageReader
-	EventStore domain.EventStore
-	Dispatcher *domain.EventDispatcher
-	Logger     entities.Logger
+	Repo        repositories.ResourceRepository
+	Accounts    authrepos.AccountRepository
+	Members     repositories.AccountUsageReader
+	Permissions ResourcePermissionService
+	EventStore  domain.EventStore
+	Dispatcher  *domain.EventDispatcher
+	Logger      entities.Logger
 }
 
 // AccountAdoptionService moves the resources of an account nobody can use.
 type AccountAdoptionService struct {
-	repo       repositories.ResourceRepository
-	finder     repositories.AccountResourceFinder
-	projOwners repositories.ProjectionOwnerReader
-	mover      repositories.ProjectionOwnerMover
-	accounts   authrepos.AccountRepository
-	members    repositories.AccountUsageReader
-	eventStore domain.EventStore
-	dispatcher *domain.EventDispatcher
-	logger     entities.Logger
+	repo        repositories.ResourceRepository
+	finder      repositories.AccountResourceFinder
+	projOwners  repositories.ProjectionOwnerReader
+	mover       repositories.ProjectionOwnerMover
+	accounts    authrepos.AccountRepository
+	members     repositories.AccountUsageReader
+	permissions ResourcePermissionService
+	eventStore  domain.EventStore
+	dispatcher  *domain.EventDispatcher
+	logger      entities.Logger
 }
 
 // ProvideAccountAdoptionService wires the service from the container.
@@ -213,7 +238,7 @@ func ProvideAccountAdoptionService(p AccountAdoptionParams) *AccountAdoptionServ
 	mover, _ := p.Repo.(repositories.ProjectionOwnerMover)
 	return &AccountAdoptionService{
 		repo: p.Repo, finder: finder, projOwners: projOwners, mover: mover,
-		accounts: p.Accounts, members: p.Members,
+		accounts: p.Accounts, members: p.Members, permissions: p.Permissions,
 		eventStore: p.EventStore, dispatcher: p.Dispatcher, logger: p.Logger,
 	}
 }
@@ -361,11 +386,29 @@ func (s *AccountAdoptionService) checkSourceUnused(ctx context.Context, report *
 // listed for a reproject and the run goes on. A row still in the source
 // account after the move stops the run with an error naming the resource: a
 // re-run moves that row from the record, with no second event.
+//
+// The agent named for the run is given a read grant on each resource it
+// moves, before the move (wm-ebgqob). Lists and the search index show a
+// caller what it created or holds a grant on, and a moved resource keeps the
+// creator it had, so without the grant the owner of the target could open a
+// moved resource by id and never find it. A grant the agent already holds is
+// left alone, so a re-run grants nothing twice.
 func (s *AccountAdoptionService) ApplyAdoptAccount(
 	ctx context.Context, plan AdoptAccountReport,
 ) (AdoptAccountReport, error) {
+	return s.ApplyAdoptAccountWithProgress(ctx, plan, nil)
+}
+
+// ApplyAdoptAccountWithProgress is ApplyAdoptAccount, calling progress, when
+// it is not nil, after each resource it handles.
+func (s *AccountAdoptionService) ApplyAdoptAccountWithProgress(
+	ctx context.Context, plan AdoptAccountReport, progress func(AdoptAccountProgress),
+) (AdoptAccountReport, error) {
 	if s.eventStore == nil || s.dispatcher == nil {
 		return plan, ErrAdoptReadOnly
+	}
+	if s.permissions == nil {
+		return plan, errors.New("adopt account: no way to grant the agent read on the resources it moves was wired")
 	}
 	if s.projOwners == nil || s.mover == nil {
 		return plan, fmt.Errorf("adopt account: the resource repository %T cannot read or move the owner of its "+
@@ -385,17 +428,26 @@ func (s *AccountAdoptionService) ApplyAdoptAccount(
 	}
 	report.NeedsReproject = append([]AssignOwnerSkip(nil), plan.NeedsReproject...)
 	report.ForeignRows = append([]AssignOwnerForeignRow(nil), plan.ForeignRows...)
+	typeTotal := map[string]int{}
 	for _, r := range plan.Resources {
+		typeTotal[r.TypeSlug]++
+	}
+	typeDone := map[string]int{}
+	for i, r := range plan.Resources {
 		move := s.adoptOne
 		if r.RecordMoved {
 			move = s.moveRows
 		}
-		outcome, note, err := move(ctx, r, plan.FromAccountID, plan.AccountID)
+		outcome, note, granted, err := move(ctx, r, plan)
+		c := report.Types[r.TypeSlug]
+		if granted {
+			c.Granted++
+			report.Types[r.TypeSlug] = c
+		}
 		if err != nil {
 			s.logger.Error(ctx, "adopt account stopped", "id", r.ID, "type", r.TypeSlug, "error", err)
 			return report, fmt.Errorf("adopt account: %s (%s): %w", r.ID, r.TypeSlug, err)
 		}
-		c := report.Types[r.TypeSlug]
 		switch outcome {
 		case assignedOwner:
 			if r.RecordMoved {
@@ -421,10 +473,17 @@ func (s *AccountAdoptionService) ApplyAdoptAccount(
 				"id", r.ID, "type", r.TypeSlug, "reason", note.reason)
 		}
 		report.Types[r.TypeSlug] = c
+		typeDone[r.TypeSlug]++
+		if progress != nil {
+			progress(AdoptAccountProgress{
+				Done: i + 1, Total: len(plan.Resources),
+				TypeSlug: r.TypeSlug, TypeDone: typeDone[r.TypeSlug], TypeTotal: typeTotal[r.TypeSlug],
+			})
+		}
 	}
 	s.logger.Info(ctx, "moved the resources of an account with no members",
 		"from", plan.FromAccountID, "to", plan.AccountID, "agent", plan.AgentID, "moved", report.Moved(),
-		"rowsMoved", report.RowsMoved(), "needsReproject", len(report.NeedsReproject),
+		"rowsMoved", report.RowsMoved(), "granted", report.Granted(), "needsReproject", len(report.NeedsReproject),
 		"foreignRows", len(report.ForeignRows))
 	return report, nil
 }
@@ -443,46 +502,89 @@ var errAdoptRowDidNotMove = errors.New("the resource's record moved, " +
 
 // adoptOne moves one resource. It reads the resource again first, so one
 // that left the source account since the plan is skipped, never moved.
+//
+// It grants the agent read on the resource just before the move, so a run
+// that stops between the two leaves a grant on a resource a re-run moves,
+// never a moved resource its new owner cannot find. granted says whether
+// this call wrote a grant.
 func (s *AccountAdoptionService) adoptOne(
-	ctx context.Context, r AdoptAccountResource, from, to string,
-) (assignOutcome, assignNote, error) {
+	ctx context.Context, r AdoptAccountResource, plan AdoptAccountReport,
+) (outcome assignOutcome, note assignNote, granted bool, err error) {
+	from, to := plan.FromAccountID, plan.AccountID
 	entity, err := s.repo.FindByID(ctx, r.ID)
 	if err != nil {
-		return 0, assignNote{}, err
+		return 0, assignNote{}, false, err
 	}
 	if entity.AccountID() != from {
-		return gainedOwner, assignNote{}, nil
+		return gainedOwner, assignNote{}, false, nil
 	}
 	recordSeq := entity.GetSequenceNo()
 	if reason, behind, err := storeAheadOfRecord(ctx, s.eventStore, r.ID, recordSeq); err != nil {
-		return 0, assignNote{}, err
+		return 0, assignNote{}, false, err
 	} else if behind {
-		return readModelBehind, assignNote{reason: reason}, nil
+		return readModelBehind, assignNote{reason: reason}, false, nil
+	}
+	if granted, err = s.grantRead(ctx, r.ID, plan.AgentID, to); err != nil {
+		return 0, assignNote{}, false, err
 	}
 	if err := entity.AdoptAccount(from, to); err != nil {
-		return 0, assignNote{}, err
+		return 0, assignNote{}, granted, err
 	}
 	uow := esapp.NewSimpleUnitOfWork(s.eventStore, s.dispatcher)
 	if err := uow.Track(entity); err != nil {
-		return 0, assignNote{}, fmt.Errorf("track resource: %w", err)
+		return 0, assignNote{}, granted, fmt.Errorf("track resource: %w", err)
 	}
 	if err := uow.Commit(ctx); err != nil {
 		if errors.Is(err, domain.ErrConcurrencyConflict) {
 			return readModelBehind, assignNote{reason: fmt.Sprintf(
-				"version conflict on the append from sequence %d: %v", recordSeq, err)}, nil
+				"version conflict on the append from sequence %d: %v", recordSeq, err)}, granted, nil
 		}
-		return 0, assignNote{}, fmt.Errorf("commit the move: %w", err)
+		return 0, assignNote{}, granted, fmt.Errorf("commit the move: %w", err)
 	}
 	// The unit of work drops the projection's error; only a read-back shows
 	// whether the record moved.
 	after, err := s.repo.FindByID(ctx, r.ID)
 	if err != nil {
-		return 0, assignNote{}, fmt.Errorf("read the record back: %w (%w)", err, errAdoptRecordDidNotMove)
+		return 0, assignNote{}, granted, fmt.Errorf("read the record back: %w (%w)", err, errAdoptRecordDidNotMove)
 	}
 	if after.AccountID() != to {
-		return 0, assignNote{}, errAdoptRecordDidNotMove
+		return 0, assignNote{}, granted, errAdoptRecordDidNotMove
 	}
-	return s.readBackRows(ctx, r.ID, after.TypeSlug(), from, to)
+	outcome, note, err = s.readBackRows(ctx, r.ID, after.TypeSlug(), from, to)
+	return outcome, note, granted, err
+}
+
+// grantRead gives agent a read grant on the resource id, through the
+// permission service as the agent itself, an owner or admin of account. An
+// agent that already holds read keeps its grant as it is, and one that holds
+// a grant without read keeps its actions and gains read. It reports whether
+// it wrote a grant.
+func (s *AccountAdoptionService) grantRead(ctx context.Context, id, agent, account string) (bool, error) {
+	actx := auth.ContextWithAgent(ctx, &auth.Identity{
+		AgentID: agent, AccountIDs: []string{account}, ActiveAccountID: account,
+	})
+	held, err := s.permissions.ListForResource(actx, id)
+	if err != nil {
+		return false, fmt.Errorf("read the grants on the resource: %w", err)
+	}
+	actions := []string{"read"}
+	for _, p := range held {
+		if p.AgentID != agent {
+			continue
+		}
+		if slices.Contains(p.Actions, "read") {
+			return false, nil
+		}
+		actions = append(slices.Clone(p.Actions), "read")
+	}
+	raw, err := json.Marshal(actions)
+	if err != nil {
+		return false, err
+	}
+	if err := s.permissions.Grant(actx, GrantPermissionCommand{ResourceID: id, AgentID: agent, Actions: raw}); err != nil {
+		return false, fmt.Errorf("grant %s read on the resource: %w", agent, err)
+	}
+	return true, nil
 }
 
 // moveRows finishes a move whose event is stored and whose record is in the
@@ -492,18 +594,19 @@ func (s *AccountAdoptionService) adoptOne(
 // of the source under a record of the target that no move explains is
 // listed, never moved.
 func (s *AccountAdoptionService) moveRows(
-	ctx context.Context, r AdoptAccountResource, from, to string,
-) (assignOutcome, assignNote, error) {
+	ctx context.Context, r AdoptAccountResource, plan AdoptAccountReport,
+) (assignOutcome, assignNote, bool, error) {
+	from, to := plan.FromAccountID, plan.AccountID
 	entity, err := s.repo.FindByID(ctx, r.ID)
 	if err != nil {
-		return 0, assignNote{}, err
+		return 0, assignNote{}, false, err
 	}
 	if entity.AccountID() != to {
-		return gainedOwner, assignNote{}, nil
+		return gainedOwner, assignNote{}, false, nil
 	}
 	history, err := s.eventStore.GetEvents(ctx, r.ID)
 	if err != nil {
-		return 0, assignNote{}, fmt.Errorf("read the resource's history: %w", err)
+		return 0, assignNote{}, false, fmt.Errorf("read the resource's history: %w", err)
 	}
 	if !historyMoved(history, from, to) {
 		row := repositories.ProjectionRowOwner{AccountID: from}
@@ -516,12 +619,19 @@ func (s *AccountAdoptionService) moveRows(
 			}
 		}
 		return rowOwnedElsewhere, assignNote{row: row, reason: fmt.Sprintf("the record is in %s and the row in %s "+
-			"is in %s, and no move from %s is in its history", to, row.Table, from, from)}, nil
+			"is in %s, and no move from %s is in its history", to, row.Table, from, from)}, false, nil
+	}
+	// A move whose run stopped before its grant would otherwise never get
+	// one: the resource is no longer in the source account.
+	granted, err := s.grantRead(ctx, r.ID, plan.AgentID, to)
+	if err != nil {
+		return 0, assignNote{}, false, err
 	}
 	if _, err := s.mover.MoveProjectionRowsOwner(ctx, r.ID, entity.TypeSlug(), from, to); err != nil {
-		return 0, assignNote{}, fmt.Errorf("move the projection rows: %w (%w)", err, errAdoptRowDidNotMove)
+		return 0, assignNote{}, granted, fmt.Errorf("move the projection rows: %w (%w)", err, errAdoptRowDidNotMove)
 	}
-	return s.readBackRows(ctx, r.ID, entity.TypeSlug(), from, to)
+	outcome, note, err := s.readBackRows(ctx, r.ID, entity.TypeSlug(), from, to)
+	return outcome, note, granted, err
 }
 
 // historyMoved reports whether a resource's history holds a move from one
