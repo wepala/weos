@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
+	"sort"
 	"testing"
 	"time"
 
@@ -562,5 +564,41 @@ func TestAccountPurger_LeavesTheHistoryOfAResourceThatMovedOut(t *testing.T) {
 	}
 	if _, err := purger.Purge(context.Background(), "acct-orphaned"); !errors.Is(err, repositories.ErrNothingToPurge) {
 		t.Errorf("second Purge = %v, want ErrNothingToPurge", err)
+	}
+}
+
+// Copilot 4580547756: Enumerate lists the resource URNs whose graph data the
+// erasure deletes, so it leaves out a resource whose history moved it out of
+// the account even while its canonical record still names the account (a
+// reproject is due). A resource moved out and back is the account's again.
+func TestAccountPurger_EnumerateLeavesOutAResourceThatMovedOut(t *testing.T) {
+	f := newPurgeFixture(t)
+	f.account("acct-orphaned")
+	f.account("acct-target")
+
+	f.recipe("urn:recipe:stale", "acct-orphaned", "writer")
+	f.typedEvent("ev-stale-1", "urn:recipe:stale", "Resource.Created", esinfra.JSONB{"AccountID": "acct-orphaned"})
+	f.typedEvent("ev-stale-2", "urn:recipe:stale", "Resource.AccountAdopted",
+		esinfra.JSONB{"FromAccountID": "acct-orphaned", "AccountID": "acct-target"})
+
+	f.recipe("urn:recipe:back", "acct-orphaned", "writer")
+	f.typedEvent("ev-back-1", "urn:recipe:back", "Resource.Created", esinfra.JSONB{"AccountID": "acct-orphaned"})
+	f.typedEvent("ev-back-2", "urn:recipe:back", "Resource.AccountAdopted",
+		esinfra.JSONB{"FromAccountID": "acct-orphaned", "AccountID": "acct-target"})
+	f.typedEvent("ev-back-3", "urn:recipe:back", "Resource.AccountAdopted",
+		esinfra.JSONB{"FromAccountID": "acct-target", "AccountID": "acct-orphaned"})
+
+	f.recipe("urn:recipe:stays", "acct-orphaned", "writer")
+	f.typedEvent("ev-stays-1", "urn:recipe:stays", "Resource.Created", esinfra.JSONB{"AccountID": "acct-orphaned"})
+
+	purger := NewAccountPurgerForTest(f.db, f.pm, &testLogger{})
+	got, err := purger.Enumerate(context.Background(), "acct-orphaned")
+	if err != nil {
+		t.Fatalf("Enumerate: %v", err)
+	}
+	urns := append([]string(nil), got.ResourceURNs...)
+	sort.Strings(urns)
+	if want := []string{"urn:recipe:back", "urn:recipe:stays"}; !reflect.DeepEqual(urns, want) {
+		t.Errorf("Enumerate resource URNs = %v, want %v — a moved resource's graph data is not the account's", urns, want)
 	}
 }

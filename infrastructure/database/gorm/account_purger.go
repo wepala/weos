@@ -111,7 +111,11 @@ func (p *AccountPurger) Enumerate(ctx context.Context, accountID string) (*repos
 		return nil, errors.New("account erasure: account id must not be empty")
 	}
 	db := p.db.WithContext(ctx)
-	urns, err := resourceURNsOf(db, accountID)
+	movedOut, err := movedOutOf(db, accountID)
+	if err != nil {
+		return nil, err
+	}
+	urns, err := ownResourceURNs(db, accountID, movedOut)
 	if err != nil {
 		return nil, err
 	}
@@ -236,18 +240,11 @@ func (p *AccountPurger) gather(tx *gorm.DB, accountID string) (*accountFacts, er
 		return nil, err
 	}
 
-	urns, err := resourceURNsOf(tx, accountID)
+	urns, err := ownResourceURNs(tx, accountID, movedOut)
 	if err != nil {
 		return nil, err
 	}
 	for _, urn := range urns {
-		if movedOut[urn] {
-			// The record has not caught up with the move (a reproject is
-			// due). The rows the purge deletes by account below are read
-			// model a reproject rebuilds in the new account; what is keyed
-			// by the URN, and the events, stay.
-			continue
-		}
 		facts.resourceURNs = append(facts.resourceURNs, urn)
 		aggregates[urn] = true
 	}
@@ -667,6 +664,28 @@ func movedOutOf(db *gorm.DB, accountID string) (map[string]bool, error) {
 
 // adoptedEventType is entities.ResourceAccountAdopted's stored type name.
 var adoptedEventType = entities.ResourceAccountAdopted{}.EventType()
+
+// ownResourceURNs lists the account's resources that are still its own:
+// every record naming the account except one whose history moved it out
+// (movedOut, from movedOutOf). Such a record has not caught up with the move
+// (a reproject is due); the rows the purge deletes by account are read model
+// a reproject rebuilds in the new account, but what is keyed by the URN — its
+// events, its triples, its graph data — belongs to the account it moved to.
+// Enumerate and the purge both read this list, so the graph drop and the row
+// purge agree on what is the account's (Copilot 4580547756).
+func ownResourceURNs(db *gorm.DB, accountID string, movedOut map[string]bool) ([]string, error) {
+	urns, err := resourceURNsOf(db, accountID)
+	if err != nil {
+		return nil, err
+	}
+	own := urns[:0]
+	for _, urn := range urns {
+		if !movedOut[urn] {
+			own = append(own, urn)
+		}
+	}
+	return own, nil
+}
 
 func resourceURNsOf(db *gorm.DB, accountID string) ([]string, error) {
 	var urns []string

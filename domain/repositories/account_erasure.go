@@ -51,7 +51,10 @@ type AccountErasureLocks interface {
 // same facts the SQL purge will.
 type AccountEnumeration struct {
 	// ResourceURNs are the ids of every resource row the account owns. They
-	// are the graph subjects to drop and the triple subjects to delete.
+	// are the graph subjects to drop and the triple subjects to delete. A
+	// resource whose history moved it to another account
+	// (Resource.AccountAdopted) is not listed, even while its row still
+	// names this account: its graph data is the other account's.
 	ResourceURNs []string
 	// Members is how many people belong to the account — what the answer to
 	// a deletion reports as the number who lost it.
