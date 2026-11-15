@@ -642,10 +642,13 @@ func (r *ResourceRepository) lookupDisplayFromProjection(
 // When scope is non-nil, the canonical entity is post-checked against the
 // same boundary the projection path enforces:
 //   - account_id must match (when both sides have one);
-//   - the writing agent must be the entity's creator (the explicit-permission
-//     half of applyVisibilityScope is approximated here by accepting matches
-//     on created_by only — the canonical fallback is rare enough that the
-//     extra resource_permissions query is not justified).
+//   - the writing agent must be the entity's creator or hold an explicit
+//     "read" grant on it in resource_permissions — the same two halves
+//     applyVisibilityScope gives the projection lookup. The grant query runs
+//     only when the creator does not match. It used to be skipped as too rare
+//     to pay for, but a reproject after an account adoption reaches this path
+//     for every reference whose projection row has already moved, and a
+//     label shared by a grant was then written NULL (Copilot 4580547776).
 //
 // Resources with no account_id and no created_by (legacy/system data) are
 // allowed through, matching the pre-migration backward-compat path in
@@ -674,7 +677,11 @@ func (r *ResourceRepository) lookupDisplayFromCanonical(
 	if entity.TypeSlug() != ref.TargetTypeSlug {
 		return "", false, nil
 	}
-	if !canonicalLookupVisible(entity, scope) {
+	visible, err := r.canonicalLookupVisible(ctx, entity, scope)
+	if err != nil {
+		return "", false, err
+	}
+	if !visible {
 		return "", false, nil
 	}
 	var doc map[string]any
@@ -696,26 +703,38 @@ func (r *ResourceRepository) lookupDisplayFromCanonical(
 }
 
 // canonicalLookupVisible reports whether the writer (described by scope) can
-// read the referenced entity, using a conservative subset of the rules in
-// checkInstanceAccess: account match AND created_by match. Legacy resources
-// with no creator/account are allowed through. A nil scope (system context)
-// always passes.
-func canonicalLookupVisible(entity *entities.Resource, scope *repositories.VisibilityScope) bool {
+// read the referenced entity: account match AND (created_by match OR an
+// explicit "read" grant), the boundary applyVisibilityScope draws for the
+// projection lookup. Legacy resources with no creator are allowed through. A
+// nil scope (system context) always passes. A failed grant query is an
+// error, never a pass.
+func (r *ResourceRepository) canonicalLookupVisible(
+	ctx context.Context, entity *entities.Resource, scope *repositories.VisibilityScope,
+) (bool, error) {
 	if scope == nil {
-		return true
+		return true, nil
 	}
 	if scope.AccountID != "" && entity.AccountID() != "" && entity.AccountID() != scope.AccountID {
-		return false
+		return false, nil
 	}
 	// Pre-migration / system rows with no creator are visible (matching
 	// checkInstanceAccess's backward-compat clause).
 	if entity.CreatedBy() == "" {
-		return true
+		return true, nil
 	}
-	// The strict per-agent path: writer must be the entity's creator.
-	// Explicit resource_permissions grants are not honored here — that case
-	// would require a second query and the canonical fallback is rare.
-	return scope.AgentID != "" && entity.CreatedBy() == scope.AgentID
+	if scope.AgentID == "" {
+		return false, nil
+	}
+	if entity.CreatedBy() == scope.AgentID {
+		return true, nil
+	}
+	var grants int64
+	if err := r.db.WithContext(ctx).Table("resource_permissions").
+		Where("resource_id = ? AND agent_id = ? AND actions LIKE ?", entity.GetID(), scope.AgentID, `%"read"%`).
+		Count(&grants).Error; err != nil {
+		return false, fmt.Errorf("read the grants on %s for %s: %w", entity.GetID(), scope.AgentID, err)
+	}
+	return grants > 0, nil
 }
 
 func (r *ResourceRepository) FindByID(

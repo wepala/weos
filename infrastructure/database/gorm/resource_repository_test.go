@@ -1359,3 +1359,56 @@ func TestLoadRowOwnerScope_DBError_FailsClosed(t *testing.T) {
 		t.Errorf("error = %v, want wrap from load row owner scope", err)
 	}
 }
+
+// Copilot 4580547776: the canonical fallback of a reference label follows the
+// same boundary as the projection lookup — the writer's own resources and
+// the ones a read grant shares with the writer. A writer with no grant still
+// gets no label.
+func TestSaveToProjection_CanonicalFallbackHonorsAReadGrant(t *testing.T) {
+	t.Parallel()
+	repo, ctx := setupReferenceProjectionTest(t)
+	if err := repo.Save(ctx, makeTestResourceForAgent(t, "urn:course:shared", "course",
+		`{"name":"Coding"}`, "agent-teacher", "acct-school")); err != nil {
+		t.Fatal(err)
+	}
+	// Only the canonical record answers, as on a replay that reaches the
+	// instance before the course's row is in the writer's account.
+	if err := repo.db.Table("courses").Where("id = ?", "urn:course:shared").Delete(map[string]any{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.db.Create(&models.ResourcePermission{
+		ID: "perm-planner", ResourceID: "urn:course:shared", AgentID: "agent-planner",
+		Actions: `["read"]`, GrantedBy: "agent-teacher", GrantedAt: time.Now(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	for id, c := range map[string]struct {
+		agent string
+		want  *string
+	}{
+		"urn:course-instance:granted":   {"agent-planner", ptr("Coding")},
+		"urn:course-instance:ungranted": {"agent-stranger", nil},
+	} {
+		if err := repo.Save(ctx, makeTestResourceForAgent(t, id, "course-instance",
+			`{"name":"Easter Camp","courseId":"urn:course:shared"}`, c.agent, "acct-school")); err != nil {
+			t.Fatal(err)
+		}
+		var label *string
+		if err := repo.db.Table("course_instances").Select("course_id_display").
+			Where("id = ?", id).Scan(&label).Error; err != nil {
+			t.Fatal(err)
+		}
+		if (label == nil) != (c.want == nil) || (label != nil && *label != *c.want) {
+			t.Errorf("%s (written by %s) course label = %v, want %v", id, c.agent, deref(label), deref(c.want))
+		}
+	}
+}
+
+func ptr(s string) *string { return &s }
+
+func deref(s *string) string {
+	if s == nil {
+		return "<nil>"
+	}
+	return *s
+}
