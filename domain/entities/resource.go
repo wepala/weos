@@ -107,6 +107,35 @@ func (e *Resource) AssignAccount(accountID string) error {
 	return nil
 }
 
+// ErrResourceNotInAccount refuses a move of a resource that is not in the
+// account the move names as its source.
+var ErrResourceNotInAccount = errors.New("resource is not in the account to move it from")
+
+// AdoptAccount moves the resource from the account fromAccountID into
+// accountID and records ResourceAccountAdopted. It refuses unless the
+// resource is in fromAccountID now, so it never takes a resource out of any
+// other account, and a second move of the same resource is refused rather
+// than recorded twice. Whether fromAccountID may be emptied (it has no
+// members) is the caller's check: the aggregate cannot see memberships.
+func (e *Resource) AdoptAccount(fromAccountID, accountID string) error {
+	if fromAccountID == "" || accountID == "" {
+		return fmt.Errorf("move %s: the source and the target account must both be given", e.GetID())
+	}
+	if fromAccountID == accountID {
+		return fmt.Errorf("move %s: the source and the target account are the same (%s)", e.GetID(), accountID)
+	}
+	if e.accountID != fromAccountID {
+		return fmt.Errorf("move %s from %s to %s: %w (owner %q)",
+			e.GetID(), fromAccountID, accountID, ErrResourceNotInAccount, e.accountID)
+	}
+	event := ResourceAccountAdopted{}.With(fromAccountID, accountID)
+	if err := e.RecordEvent(event, event.EventType()); err != nil {
+		return fmt.Errorf("failed to record ResourceAccountAdopted event: %w", err)
+	}
+	e.accountID = accountID
+	return nil
+}
+
 func (e *Resource) TypeSlug() string      { return e.typeSlug }
 func (e *Resource) Data() json.RawMessage { return e.data }
 func (e *Resource) Status() string        { return e.status }
@@ -158,6 +187,13 @@ func (e *Resource) ApplyEvent(
 	case ResourceAccountAssigned:
 		// Fills an empty owner only; the first owner always stands.
 		if e.accountID == "" {
+			e.accountID = payload.AccountID
+		}
+		return nil
+	case ResourceAccountAdopted:
+		// Compare-and-set: moves only a resource still in the source account,
+		// so a replay over a moved resource changes nothing.
+		if payload.FromAccountID != "" && e.accountID == payload.FromAccountID {
 			e.accountID = payload.AccountID
 		}
 		return nil

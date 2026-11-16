@@ -31,6 +31,15 @@ type capturingFileService struct {
 
 	deletedAccount string
 	deleteErr      error
+
+	files          int
+	countErr       error
+	countedAccount string
+}
+
+func (m *capturingFileService) CountAccountFiles(_ context.Context, accountID string) (int, error) {
+	m.countedAccount = accountID
+	return m.files, m.countErr
 }
 
 func (m *capturingFileService) DeleteAccountFolder(_ context.Context, accountID string) error {
@@ -259,5 +268,51 @@ func TestComposite_DeleteAccountFolderJoinsEveryFailure(t *testing.T) {
 	}
 	if second.deletedAccount != "acct_1" {
 		t.Errorf("the backend after a failure was not asked: got %q", second.deletedAccount)
+	}
+}
+
+// uncountedFileService is a backend that cannot count an account's files.
+type uncountedFileService struct{}
+
+func (uncountedFileService) Upload(context.Context, services.UploadParams, io.Reader) (*services.UploadResult, error) {
+	return nil, errors.New("not used")
+}
+
+func (uncountedFileService) DeleteAccountFolder(context.Context, string) error { return nil }
+
+// The account adoption (wm-c7xehr) refuses a source with stored files. The
+// backends hold copies of the same files, so the count is the largest any
+// backend reports, and a backend that cannot answer fails the count rather
+// than passing it.
+func TestComposite_CountAccountFilesIsTheLargestOfEveryBackend(t *testing.T) {
+	primary := &capturingFileService{files: 0}
+	first := &capturingFileService{files: 3}
+	second := &capturingFileService{files: 1}
+
+	svc := storage.NewComposite(primary, []services.FileService{first, second}, nopLogger{})
+	counter, ok := svc.(services.AccountFileCounter)
+	if !ok {
+		t.Fatalf("%T does not count an account's files", svc)
+	}
+	got, err := counter.CountAccountFiles(context.Background(), "acct_1")
+	if err != nil || got != 3 {
+		t.Fatalf("CountAccountFiles() = %d, %v; want 3, nil", got, err)
+	}
+	for name, backend := range map[string]*capturingFileService{"primary": primary, "first secondary": first, "second secondary": second} {
+		if backend.countedAccount != "acct_1" {
+			t.Errorf("%s was asked to count %q, want acct_1", name, backend.countedAccount)
+		}
+	}
+}
+
+func TestComposite_CountAccountFilesFailsWhenABackendCannotAnswer(t *testing.T) {
+	for name, secondary := range map[string]services.FileService{
+		"a failed count":          &capturingFileService{countErr: errors.New("bucket refused")},
+		"a backend with no count": uncountedFileService{},
+	} {
+		svc := storage.NewComposite(&capturingFileService{}, []services.FileService{secondary}, nopLogger{})
+		if _, err := svc.(services.AccountFileCounter).CountAccountFiles(context.Background(), "acct_1"); err == nil {
+			t.Errorf("%s: CountAccountFiles() returned nil, want an error", name)
+		}
 	}
 }

@@ -142,6 +142,8 @@ func (p *oxigraphProjector) dispatch(ctx context.Context, event domain.EventEnve
 		return p.projectDeleted(ctx, event)
 	case "Resource.AccountAssigned":
 		return p.projectAccountAssigned(ctx, event)
+	case "Resource.AccountAdopted":
+		return p.projectAccountAdopted(ctx, event)
 	case "ResourceType.Created", "ResourceType.Updated":
 		return p.projectType(ctx, event)
 	default:
@@ -236,6 +238,136 @@ func (p *oxigraphProjector) projectAccountAssigned(
 		}
 	}
 	return loadResourceState(ctx, event.AggregateID, state.Data, store, p.logger)
+}
+
+// projectAccountAdopted moves a resource from its source account's graph to
+// its target account's graph (wm-c7xehr). It is compare-and-set on the
+// event's FromAccountID, read from the resource's own history before the
+// event: a resource the stream shows in any other account at that point —
+// a third account, or the target after an earlier copy of the move — is left
+// where it is. A rebuild replays the move in order, after the events that put
+// the resource in the source graph, so it ends with the resource in the
+// target graph. In single-tenant mode there is one graph, so nothing moves.
+//
+// What the target graph gets is read from the WHOLE history (Copilot review
+// 5913504768). The worker goes on past a parked event, so `worker parked
+// replay` can run a move after the resource's later events already reached
+// the graphs. The compare-and-set stays on the history before the move, but
+// the target graph is given the resource only while the history ends with
+// it there: a resource deleted later, or moved on to another account later,
+// is not restored, and a later update's data is not replaced by older data.
+// The resource still leaves the source graph, unless a later move brought
+// it back there.
+func (p *oxigraphProjector) projectAccountAdopted(
+	ctx context.Context, event domain.EventEnvelope[any],
+) error {
+	if !p.stores.PerAccount() {
+		return nil
+	}
+	from, to := adoptedAccounts(event.Payload)
+	if from == "" || to == "" {
+		p.logger.Error(ctx, "kg dropping Resource.AccountAdopted without both accounts",
+			"aggregateID", event.AggregateID, "from", from, "to", to)
+		return nil
+	}
+	history, err := p.eventStore.GetEvents(ctx, event.AggregateID)
+	if err != nil {
+		return fmt.Errorf("kg: load history for %s: %w", event.AggregateID, err)
+	}
+	before := eventsBefore(history, event.SequenceNo)
+	if owner, _ := ownerFromEvents(before); owner != from {
+		p.logger.Info(ctx, "kg Resource.AccountAdopted for a resource not in the move's source account; "+
+			"nothing to move", "aggregateID", event.AggregateID, "owner", owner, "from", from)
+		return nil
+	}
+	now, _ := ownerFromEvents(history)
+	state := buildStateFromTransaction(ctx, history, event.AggregateID, event.SequenceNo, p.logger)
+	if now == from && !state.IsDelete {
+		p.logger.Info(ctx, "kg Resource.AccountAdopted for a resource a later move brought back to the source; "+
+			"nothing to move", "aggregateID", event.AggregateID, "from", from)
+		return nil
+	}
+	source, err := p.stores.ForAccount(ctx, from)
+	if err != nil {
+		return err
+	}
+	// The resource's nested objects are blank nodes only it reaches; they go
+	// first, while the resource still reaches them (Copilot 4580547731). The
+	// target gets them back from the document loaded below.
+	if err := repositories.RemoveNestedNodes(ctx, source, event.AggregateID); err != nil {
+		return fmt.Errorf("kg: remove the nested nodes of %s from the graph of %s: %w", event.AggregateID, from, err)
+	}
+	if err := source.RemoveSubject(ctx, event.AggregateID); err != nil {
+		return fmt.Errorf("kg: remove %s from the graph of %s: %w", event.AggregateID, from, err)
+	}
+	if state.IsDelete || state.Data == nil {
+		return nil
+	}
+	if now != to {
+		p.logger.Info(ctx, "kg Resource.AccountAdopted for a resource a later move took out of the target; "+
+			"leaving it to that move", "aggregateID", event.AggregateID, "to", to, "owner", now)
+		return nil
+	}
+	target, err := p.stores.ForAccount(ctx, to)
+	if err != nil {
+		return err
+	}
+	if err := p.ensureAccountOntology(ctx, target, to, event.AggregateID); err != nil {
+		return err
+	}
+	// loadResourceState clears only the resource's own subject. When this
+	// move runs again — a retry after a later step failed, or a replayed
+	// checkpoint — the target already holds the nested nodes the first load
+	// wrote, so they go first, or the reload would add a second copy beside
+	// them (Copilot review 5913504768).
+	if err := repositories.RemoveNestedNodes(ctx, target, event.AggregateID); err != nil {
+		return fmt.Errorf("kg: remove the nested nodes of %s from the graph of %s: %w", event.AggregateID, to, err)
+	}
+	if err := loadResourceState(ctx, event.AggregateID, state.Data, target, p.logger); err != nil {
+		return err
+	}
+	// RemoveSubject took the resource's relation triples out of the source
+	// graph with the rest of it, and they are not part of its data. They are
+	// carried over from the history (wm-ebgqob): each Triple.Created that no
+	// later Triple.Deleted undid.
+	if relations := relationsFromEvents(history); len(relations) > 0 {
+		if err := target.AddTriples(ctx, relations); err != nil {
+			return fmt.Errorf("kg: carry the relations of %s into the graph of %s: %w", event.AggregateID, to, err)
+		}
+	}
+	return nil
+}
+
+// relationsFromEvents returns the relation triples a resource's history
+// holds at its end — each Triple.Created not undone by a later
+// Triple.Deleted — in the order they were first created.
+func relationsFromEvents(history []domain.EventEnvelope[any]) []repositories.Triple {
+	var order []repositories.Triple
+	held := map[repositories.Triple]bool{}
+	for _, e := range history {
+		if e.EventType != "Triple.Created" && e.EventType != "Triple.Deleted" {
+			continue
+		}
+		tr, ok := tripleFromPayload(e.Payload)
+		if !ok {
+			continue
+		}
+		if e.EventType == "Triple.Deleted" {
+			held[tr] = false
+			continue
+		}
+		if _, seen := held[tr]; !seen {
+			order = append(order, tr)
+		}
+		held[tr] = true
+	}
+	out := make([]repositories.Triple, 0, len(order))
+	for _, tr := range order {
+		if held[tr] {
+			out = append(out, tr)
+		}
+	}
+	return out
 }
 
 func (p *oxigraphProjector) projectDeleted(
@@ -342,9 +474,10 @@ func (p *oxigraphProjector) ownerFromHistory(
 // resourceOwnerFromHistory reads a resource's owning account and creator from
 // its history. Resource.Created has always carried both. A resource created
 // with an empty account can be given one later by Resource.AccountAssigned,
-// which fills an empty owner only, so the first owner in the history wins.
-// Empty values with a nil error mean the aggregate has no such event (or an
-// ownerless one).
+// which fills an empty owner only, and moved out of an account nobody can use
+// by Resource.AccountAdopted, which applies only while the resource is in the
+// move's source account. Empty values with a nil error mean the aggregate has
+// no such event (or an ownerless one).
 func resourceOwnerFromHistory(
 	ctx context.Context, eventStore domain.EventStore, aggregateID string,
 ) (accountID, createdBy string, err error) {
@@ -352,6 +485,13 @@ func resourceOwnerFromHistory(
 	if err != nil {
 		return "", "", fmt.Errorf("load history for %q: %w", aggregateID, err)
 	}
+	accountID, createdBy = ownerFromEvents(events)
+	return accountID, createdBy, nil
+}
+
+// ownerFromEvents folds a resource's owner and creator out of its events, in
+// order, the way Resource.ApplyEvent does.
+func ownerFromEvents(events []domain.EventEnvelope[any]) (accountID, createdBy string) {
 	for _, e := range events {
 		switch e.EventType {
 		case "Resource.Created":
@@ -363,9 +503,40 @@ func resourceOwnerFromHistory(
 			if accountID == "" {
 				accountID = accountFromPayload(e.Payload)
 			}
+		case "Resource.AccountAdopted":
+			if from, to := adoptedAccounts(e.Payload); from != "" && accountID == from {
+				accountID = to
+			}
 		}
 	}
-	return accountID, createdBy, nil
+	return accountID, createdBy
+}
+
+// eventsBefore returns the events of a history that come before sequence
+// number seq: the state a move is compared with.
+func eventsBefore(history []domain.EventEnvelope[any], seq int) []domain.EventEnvelope[any] {
+	out := make([]domain.EventEnvelope[any], 0, len(history))
+	for _, e := range history {
+		if e.SequenceNo < seq {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// adoptedAccounts reads the source and the target account of a
+// Resource.AccountAdopted payload, deserialized or typed.
+func adoptedAccounts(payload any) (from, to string) {
+	switch p := payload.(type) {
+	case map[string]any:
+		from, _ = p["FromAccountID"].(string)
+		to, _ = p["AccountID"].(string)
+		return from, to
+	case entities.ResourceAccountAdopted:
+		return p.FromAccountID, p.AccountID
+	default:
+		return "", ""
+	}
 }
 
 // ensureAccountOntology projects a type's ontology into an account store the
@@ -419,6 +590,8 @@ func accountFromPayload(payload any) string {
 	case entities.ResourceDeleted:
 		return p.AccountID
 	case entities.ResourceAccountAssigned:
+		return p.AccountID
+	case entities.ResourceAccountAdopted:
 		return p.AccountID
 	case entities.TripleCreated:
 		return p.AccountID

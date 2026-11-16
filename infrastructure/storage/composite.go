@@ -149,3 +149,28 @@ func (c *compositeFileService) DeleteAccountFolder(ctx context.Context, accountI
 	}
 	return errors.Join(errs...)
 }
+
+// CountAccountFiles asks every backend to count the account's files and
+// returns the largest count: the backends hold copies of the same files, so a
+// sum would count each file once per copy. A backend that cannot count, or
+// whose count fails, fails the call — a count that skipped one would say a
+// folder is empty when it may not be.
+func (c *compositeFileService) CountAccountFiles(ctx context.Context, accountID string) (int, error) {
+	most := 0
+	for i, backend := range append([]services.FileService{c.primary}, c.secondaries...) {
+		name := "primary"
+		if i > 0 {
+			name = fmt.Sprintf("secondary %d", i-1)
+		}
+		counter, ok := backend.(services.AccountFileCounter)
+		if !ok {
+			return 0, fmt.Errorf("%s: the storage backend %T cannot count an account's files", name, backend)
+		}
+		n, err := counter.CountAccountFiles(ctx, accountID)
+		if err != nil {
+			return 0, fmt.Errorf("%s: %w", name, err)
+		}
+		most = max(most, n)
+	}
+	return most, nil
+}

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
+	"sort"
 	"testing"
 	"time"
 
@@ -466,5 +468,137 @@ func TestAccountPurger_TakesInvitesFromOtherAccountsThatNameADeletedPerson(t *te
 	}
 	if n := f.count("events", "aggregate_id = ?", "inv-unrelated"); n != 1 {
 		t.Errorf("the events of an invite naming nobody deleted were removed")
+	}
+}
+
+// typedEvent stores one event of the given type on aggregate with payload,
+// at the next sequence number of that aggregate.
+func (f *purgeFixture) typedEvent(id, aggregate, eventType string, payload esinfra.JSONB) {
+	var position, seq int64
+	f.must(f.db.Model(&esinfra.GormEventModel{}).Select("COALESCE(MAX(position), 0) + 1").Scan(&position).Error)
+	f.must(f.db.Model(&esinfra.GormEventModel{}).Where("aggregate_id = ?", aggregate).
+		Select("COALESCE(MAX(sequence_no), 0) + 1").Scan(&seq).Error)
+	f.must(f.db.Create(&esinfra.GormEventModel{ID: id, AggregateID: aggregate, EventType: eventType,
+		SequenceNo: int(seq), TransactionID: "tx-" + id, Position: position, Payload: payload}).Error)
+}
+
+// wm-myzy4t: a resource moved out of an account by Resource.AccountAdopted
+// still has its Resource.Created naming that account. Erasing the emptied
+// account afterwards must leave the moved resource's whole stream, its rows
+// and its indexes alone: it belongs to the account it moved to. Only what is
+// still the erased account's goes.
+func TestAccountPurger_LeavesTheHistoryOfAResourceThatMovedOut(t *testing.T) {
+	f := newPurgeFixture(t)
+	f.account("acct-orphaned")
+	f.account("acct-target")
+	f.person("owner", "acct-target")
+
+	// Moved: created in the orphaned account, now in the target.
+	f.recipe("urn:recipe:moved", "acct-target", "writer")
+	f.typedEvent("ev-moved-1", "urn:recipe:moved", "Resource.Created", esinfra.JSONB{"AccountID": "acct-orphaned"})
+	f.typedEvent("ev-moved-2", "urn:recipe:moved", "Triple.Created", esinfra.JSONB{"AccountID": "acct-orphaned"})
+	f.typedEvent("ev-moved-3", "urn:recipe:moved", "Resource.AccountAdopted",
+		esinfra.JSONB{"FromAccountID": "acct-orphaned", "AccountID": "acct-target"})
+	f.typedEvent("ev-moved-4", "urn:recipe:moved", "Resource.Updated", esinfra.JSONB{"AccountID": "acct-target"})
+
+	// Moved, but its canonical record never caught up (left for a reproject):
+	// the history decides, so its events stay.
+	f.recipe("urn:recipe:stale", "acct-orphaned", "writer")
+	f.typedEvent("ev-stale-1", "urn:recipe:stale", "Resource.Created", esinfra.JSONB{"AccountID": "acct-orphaned"})
+	f.typedEvent("ev-stale-2", "urn:recipe:stale", "Resource.AccountAdopted",
+		esinfra.JSONB{"FromAccountID": "acct-orphaned", "AccountID": "acct-target"})
+
+	// Moved out and back again: it is the orphaned account's, and goes.
+	f.recipe("urn:recipe:back", "acct-orphaned", "writer")
+	f.typedEvent("ev-back-1", "urn:recipe:back", "Resource.Created", esinfra.JSONB{"AccountID": "acct-orphaned"})
+	f.typedEvent("ev-back-2", "urn:recipe:back", "Resource.AccountAdopted",
+		esinfra.JSONB{"FromAccountID": "acct-orphaned", "AccountID": "acct-target"})
+	f.typedEvent("ev-back-3", "urn:recipe:back", "Resource.AccountAdopted",
+		esinfra.JSONB{"FromAccountID": "acct-target", "AccountID": "acct-orphaned"})
+
+	// Still the orphaned account's, and a deleted one whose rows are gone:
+	// both go, as before.
+	f.recipe("urn:recipe:stays", "acct-orphaned", "writer")
+	f.typedEvent("ev-stays-1", "urn:recipe:stays", "Resource.Created", esinfra.JSONB{"AccountID": "acct-orphaned"})
+	f.typedEvent("ev-gone-1", "urn:recipe:gone", "Resource.Created", esinfra.JSONB{"AccountID": "acct-orphaned"})
+
+	purger := NewAccountPurgerForTest(f.db, f.pm, &testLogger{})
+	if _, err := purger.Purge(context.Background(), "acct-orphaned"); err != nil {
+		t.Fatalf("Purge: %v", err)
+	}
+
+	if n := f.count("events", "aggregate_id = ?", "urn:recipe:moved"); n != 4 {
+		t.Errorf("the moved resource keeps %d of its 4 events", n)
+	}
+	if n := f.count("events", "aggregate_id = ?", "urn:recipe:stale"); n != 2 {
+		t.Errorf("the moved resource with a stale record keeps %d of its 2 events", n)
+	}
+	if n := f.count("resources", "id = ? AND account_id = ?", "urn:recipe:moved", "acct-target"); n != 1 {
+		t.Error("the moved resource's canonical record is gone")
+	}
+	if n := f.count("recipes", "id = ?", "urn:recipe:moved"); n != 1 {
+		t.Error("the moved resource's projection row is gone")
+	}
+	for _, table := range []string{"triples", "resource_permissions"} {
+		col := "subject"
+		if table == "resource_permissions" {
+			col = "resource_id"
+		}
+		for _, urn := range []string{"urn:recipe:moved", "urn:recipe:stale"} {
+			if n := f.count(table, col+" = ?", urn); n != 1 {
+				t.Errorf("%s of %s: %d row(s) left, want 1", table, urn, n)
+			}
+		}
+	}
+	for _, urn := range []string{"urn:recipe:back", "urn:recipe:stays", "urn:recipe:gone"} {
+		if n := f.count("events", "aggregate_id = ?", urn); n != 0 {
+			t.Errorf("%s still has %d event(s); it was the erased account's", urn, n)
+		}
+	}
+	if n := f.count("resources", "id IN ?", []string{"urn:recipe:back", "urn:recipe:stays"}); n != 0 {
+		t.Errorf("%d canonical record(s) of the erased account remain", n)
+	}
+	left, err := purger.Remains(context.Background(), "acct-orphaned")
+	if err != nil || left {
+		t.Fatalf("Remains after the purge = %v, %v; want false — the moved resources are not the account's", left, err)
+	}
+	if _, err := purger.Purge(context.Background(), "acct-orphaned"); !errors.Is(err, repositories.ErrNothingToPurge) {
+		t.Errorf("second Purge = %v, want ErrNothingToPurge", err)
+	}
+}
+
+// Copilot 4580547756: Enumerate lists the resource URNs whose graph data the
+// erasure deletes, so it leaves out a resource whose history moved it out of
+// the account even while its canonical record still names the account (a
+// reproject is due). A resource moved out and back is the account's again.
+func TestAccountPurger_EnumerateLeavesOutAResourceThatMovedOut(t *testing.T) {
+	f := newPurgeFixture(t)
+	f.account("acct-orphaned")
+	f.account("acct-target")
+
+	f.recipe("urn:recipe:stale", "acct-orphaned", "writer")
+	f.typedEvent("ev-stale-1", "urn:recipe:stale", "Resource.Created", esinfra.JSONB{"AccountID": "acct-orphaned"})
+	f.typedEvent("ev-stale-2", "urn:recipe:stale", "Resource.AccountAdopted",
+		esinfra.JSONB{"FromAccountID": "acct-orphaned", "AccountID": "acct-target"})
+
+	f.recipe("urn:recipe:back", "acct-orphaned", "writer")
+	f.typedEvent("ev-back-1", "urn:recipe:back", "Resource.Created", esinfra.JSONB{"AccountID": "acct-orphaned"})
+	f.typedEvent("ev-back-2", "urn:recipe:back", "Resource.AccountAdopted",
+		esinfra.JSONB{"FromAccountID": "acct-orphaned", "AccountID": "acct-target"})
+	f.typedEvent("ev-back-3", "urn:recipe:back", "Resource.AccountAdopted",
+		esinfra.JSONB{"FromAccountID": "acct-target", "AccountID": "acct-orphaned"})
+
+	f.recipe("urn:recipe:stays", "acct-orphaned", "writer")
+	f.typedEvent("ev-stays-1", "urn:recipe:stays", "Resource.Created", esinfra.JSONB{"AccountID": "acct-orphaned"})
+
+	purger := NewAccountPurgerForTest(f.db, f.pm, &testLogger{})
+	got, err := purger.Enumerate(context.Background(), "acct-orphaned")
+	if err != nil {
+		t.Fatalf("Enumerate: %v", err)
+	}
+	urns := append([]string(nil), got.ResourceURNs...)
+	sort.Strings(urns)
+	if want := []string{"urn:recipe:back", "urn:recipe:stays"}; !reflect.DeepEqual(urns, want) {
+		t.Errorf("Enumerate resource URNs = %v, want %v — a moved resource's graph data is not the account's", urns, want)
 	}
 }

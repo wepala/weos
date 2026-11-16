@@ -21,6 +21,7 @@ type fakeKGStore struct {
 	removeCalls     [][]repositories.Triple
 	subjectsRemoved []string
 	loadedFormats   []string
+	loadedDocs      []string
 	updates         []string
 	clearCalls      int
 	emptyResp       bool
@@ -65,13 +66,14 @@ func (f *fakeKGStore) Update(_ context.Context, q string) error {
 	return nil
 }
 
-func (f *fakeKGStore) LoadOntology(_ context.Context, format string, _ []byte) error {
+func (f *fakeKGStore) LoadOntology(_ context.Context, format string, doc []byte) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.loadErr != nil {
 		return f.loadErr
 	}
 	f.loadedFormats = append(f.loadedFormats, format)
+	f.loadedDocs = append(f.loadedDocs, string(doc))
 	return nil
 }
 

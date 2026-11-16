@@ -111,7 +111,11 @@ func (p *AccountPurger) Enumerate(ctx context.Context, accountID string) (*repos
 		return nil, errors.New("account erasure: account id must not be empty")
 	}
 	db := p.db.WithContext(ctx)
-	urns, err := resourceURNsOf(db, accountID)
+	movedOut, err := movedOutOf(db, accountID)
+	if err != nil {
+		return nil, err
+	}
+	urns, err := ownResourceURNs(db, accountID, movedOut)
 	if err != nil {
 		return nil, err
 	}
@@ -226,12 +230,22 @@ func (p *AccountPurger) gather(tx *gorm.DB, accountID string) (*accountFacts, er
 		}
 	}
 
-	urns, err := resourceURNsOf(tx, accountID)
+	// A resource whose history moved it out of the account
+	// (Resource.AccountAdopted, wm-c7xehr) is another account's now, even
+	// though its Resource.Created still names this one. Its stream, its
+	// triples, its grants and its index rows are never the erased account's
+	// to delete (wm-myzy4t).
+	movedOut, err := movedOutOf(tx, accountID)
 	if err != nil {
 		return nil, err
 	}
-	facts.resourceURNs = urns
+
+	urns, err := ownResourceURNs(tx, accountID, movedOut)
+	if err != nil {
+		return nil, err
+	}
 	for _, urn := range urns {
+		facts.resourceURNs = append(facts.resourceURNs, urn)
 		aggregates[urn] = true
 	}
 
@@ -244,6 +258,9 @@ func (p *AccountPurger) gather(tx *gorm.DB, accountID string) (*accountFacts, er
 		return nil, fmt.Errorf("account erasure: enumerate events naming %q: %w", accountID, err)
 	}
 	for _, id := range named {
+		if movedOut[id] {
+			continue
+		}
 		aggregates[id] = true
 	}
 
@@ -581,11 +598,93 @@ func remains(db *gorm.DB, accountID string) (bool, error) {
 		}
 	}
 	var n int64
-	err := db.Table("events").Where("aggregate_id = ? OR "+payloadAccountClause(db), accountID, accountID).Count(&n).Error
-	if err != nil {
-		return false, fmt.Errorf("account erasure: count events naming %q: %w", accountID, err)
+	if err := db.Table("events").Where("aggregate_id = ?", accountID).Count(&n).Error; err != nil {
+		return false, fmt.Errorf("account erasure: count events of %q: %w", accountID, err)
 	}
-	return n > 0, nil
+	if n > 0 {
+		return true, nil
+	}
+	// An event naming the account in its payload is left over unless its
+	// aggregate moved out of the account: that stream is another account's
+	// now, and the purge leaves it (wm-myzy4t).
+	var named []string
+	if err := db.Table("events").Where(payloadAccountClause(db), accountID).
+		Distinct().Pluck("aggregate_id", &named).Error; err != nil {
+		return false, fmt.Errorf("account erasure: list events naming %q: %w", accountID, err)
+	}
+	if len(named) == 0 {
+		return false, nil
+	}
+	movedOut, err := movedOutOf(db, accountID)
+	if err != nil {
+		return false, err
+	}
+	for _, id := range named {
+		if !movedOut[id] {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// movedOutOf returns the aggregates whose history moved them out of the
+// account and not back: every aggregate with a Resource.AccountAdopted from
+// the account whose latest Resource.AccountAdopted names another account as
+// the owner. A move is only ever recorded on a resource in its source
+// account, and nothing after a move empties the owner, so the latest move's
+// target is the resource's owner.
+func movedOutOf(db *gorm.DB, accountID string) (map[string]bool, error) {
+	var rows []struct {
+		AggregateID string
+		SequenceNo  int
+		Owner       string
+	}
+	err := db.Table("events").
+		Select("aggregate_id, sequence_no, "+payloadField(db, "AccountID")+" AS owner").
+		Where("event_type = ? AND aggregate_id IN (?)", adoptedEventType,
+			db.Table("events").Select("aggregate_id").
+				Where("event_type = ? AND "+payloadField(db, "FromAccountID")+" = ?", adoptedEventType, accountID)).
+		Order("aggregate_id, sequence_no").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("account erasure: list resources moved out of %q: %w", accountID, err)
+	}
+	latest := map[string]string{}
+	for _, row := range rows {
+		latest[row.AggregateID] = row.Owner // ordered by sequence: the last one wins
+	}
+	movedOut := map[string]bool{}
+	for id, owner := range latest {
+		if owner != accountID {
+			movedOut[id] = true
+		}
+	}
+	return movedOut, nil
+}
+
+// adoptedEventType is entities.ResourceAccountAdopted's stored type name.
+var adoptedEventType = entities.ResourceAccountAdopted{}.EventType()
+
+// ownResourceURNs lists the account's resources that are still its own:
+// every record naming the account except one whose history moved it out
+// (movedOut, from movedOutOf). Such a record has not caught up with the move
+// (a reproject is due); the rows the purge deletes by account are read model
+// a reproject rebuilds in the new account, but what is keyed by the URN — its
+// events, its triples, its graph data — belongs to the account it moved to.
+// Enumerate and the purge both read this list, so the graph drop and the row
+// purge agree on what is the account's (Copilot 4580547756).
+func ownResourceURNs(db *gorm.DB, accountID string, movedOut map[string]bool) ([]string, error) {
+	urns, err := resourceURNsOf(db, accountID)
+	if err != nil {
+		return nil, err
+	}
+	own := urns[:0]
+	for _, urn := range urns {
+		if !movedOut[urn] {
+			own = append(own, urn)
+		}
+	}
+	return own, nil
 }
 
 func resourceURNsOf(db *gorm.DB, accountID string) ([]string, error) {
@@ -603,10 +702,16 @@ func resourceURNsOf(db *gorm.DB, accountID string) ([]string, error) {
 // event payload, per dialect: PostgreSQL stores the payload as jsonb and
 // SQLite as JSON text.
 func payloadAccountClause(db *gorm.DB) string {
+	return payloadField(db, "AccountID") + " = ?"
+}
+
+// payloadField is the SQL expression that reads one top-level field out of
+// an event payload as text, per dialect. field is always a constant here.
+func payloadField(db *gorm.DB, field string) string {
 	if db.Name() == "postgres" {
-		return "payload ->> 'AccountID' = ?"
+		return "payload ->> '" + field + "'"
 	}
-	return "json_extract(payload, '$.AccountID') = ?"
+	return "json_extract(payload, '$." + field + "')"
 }
 
 // pluckByChunk reads column from table for every row whose keyColumn is in

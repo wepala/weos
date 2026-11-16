@@ -57,6 +57,11 @@ type assignOwnerEnv struct {
 	eventStore domain.EventStore
 	resources  application.ResourceService
 	backfill   *application.OwnerBackfillService
+	adoption   *application.AccountAdoptionService
+	erasure    *application.AccountErasureService
+	types      application.ResourceTypeService
+	search     application.LexicalSearch
+	workers    *application.Manager
 
 	// The backfill's own dependencies, so a test can build the service over
 	// a wrapped event store.
@@ -71,8 +76,28 @@ type assignOwnerEnv struct {
 
 func newAssignOwnerEnv(t *testing.T) *assignOwnerEnv {
 	t.Helper()
+	return newAssignOwnerEnvWith(t, false)
+}
+
+// newAssignOwnerEnvWithWorkers boots the env with the background subscribers
+// running in process, as a serving instance runs them, so the lexical index
+// follows the event stream.
+func newAssignOwnerEnvWithWorkers(t *testing.T) *assignOwnerEnv {
+	t.Helper()
+	return newAssignOwnerEnvWith(t, true)
+}
+
+func newAssignOwnerEnvWith(t *testing.T, runWorkers bool) *assignOwnerEnv {
+	t.Helper()
 	env := &assignOwnerEnv{cfg: config.Default()}
+	if runWorkers {
+		env.cfg.Worker.RunInProcess = true
+		env.cfg.Oxigraph = config.OxigraphConfig{}
+	}
 	env.cfg.DatabaseDSN = filepath.Join(t.TempDir(), "assign_owner.db")
+	// Each test's uploads in a folder of its own: the account adoption
+	// counts the files in an account's folder (wm-c7xehr).
+	env.cfg.Storage.LocalPath = filepath.Join(t.TempDir(), "uploads")
 	// The owner upsert is dialect-specific SQL, so the same tests run on
 	// PostgreSQL when a server is named.
 	if admin := os.Getenv("TEST_POSTGRES_DSN"); admin != "" {
@@ -85,13 +110,13 @@ func newAssignOwnerEnv(t *testing.T) *assignOwnerEnv {
 	env.cfg.LogLevel = "error"
 
 	var authService authapp.AuthenticationService
-	var types application.ResourceTypeService
 	env.app = fx.New(
 		fx.NopLogger,
 		application.Module(env.cfg, presets.NewDefaultRegistry()),
-		fx.Populate(&authService, &types, &env.resources, &env.backfill),
+		fx.Populate(&authService, &env.types, &env.resources, &env.backfill, &env.adoption, &env.erasure),
 		fx.Populate(&env.db, &env.projMgr, &env.eventStore),
 		fx.Populate(&env.resourceRepo, &env.accountRepo, &env.dispatcher, &env.logger),
+		fx.Populate(&env.search, &env.workers),
 	)
 	ctx, cancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
 	defer cancel()
@@ -116,7 +141,7 @@ func newAssignOwnerEnv(t *testing.T) *assignOwnerEnv {
 	env.ownerAgent, env.ownerAccount = owner.GetID(), ownerAccount.GetID()
 	env.otherAgent, env.otherAccount = other.GetID(), otherAccount.GetID()
 
-	if _, err := types.InstallPreset(bg, "tasks", true); err != nil {
+	if _, err := env.types.InstallPreset(bg, "tasks", true); err != nil {
 		t.Fatalf("install tasks preset: %v", err)
 	}
 	return env
@@ -389,7 +414,8 @@ func (env *assignOwnerEnv) runWeos(t *testing.T, args ...string) (stdout, stderr
 		t.Fatalf("build weos: %v", err)
 	}
 	cmd := exec.Command(binary, args...)
-	cmd.Env = append(os.Environ(), "DATABASE_DSN="+env.cfg.DatabaseDSN, "LOG_LEVEL=error")
+	cmd.Env = append(os.Environ(), "DATABASE_DSN="+env.cfg.DatabaseDSN, "LOG_LEVEL=error",
+		"STORAGE_LOCAL_PATH="+env.cfg.Storage.LocalPath)
 	var out, errOut strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &errOut
 	if runErr := cmd.Run(); runErr != nil {

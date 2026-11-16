@@ -8,7 +8,7 @@ nav_order: 16
 # ADR: An Ownerless Resource Is Given Its Owner Through the Event Stream
 
 **Status:** Accepted — Implemented
-**Date:** 2026-11-13
+**Date:** 2026-11-13 (decision 5, the move out of an account with no members: 2026-11-15)
 **Story:** wm-4kdhro — backfill the owner on rows written with an empty account during the pericarp
 session bug
 
@@ -37,7 +37,8 @@ So a hand `UPDATE` of `account_id` lasts only until the next rebuild. `weos work
   has to be in the stream.
 - **A repair must never move a resource between accounts.** Moving a resource raises questions this
   repair does not need to answer: who may move it, what happens to its grants, and which account's
-  knowledge-graph store holds it.
+  knowledge-graph store holds it. Decision 5 answers those questions for one case only — a move out of
+  an account with no members — with its own event and its own command; this repair still never moves.
 - **The stream is append-only.** History is not rewritten.
 - **Every consumer that routes by account must see the owner.** These are the projection tables, the
   canonical record, the per-account knowledge graph and the lexical index.
@@ -180,9 +181,108 @@ This is a read-model write, which option 1 rejects. Option 1 is rejected because
 be in the stream. Here the `Resource.AccountAssigned` event is already in the stream, so a rebuild
 writes the same owner, and the write only makes the read model agree with the stream sooner.
 
+### 5. The one case where an owner moves: out of an account nobody can use
+
+**Date:** 2026-11-15 — wm-c7xehr
+
+Option 3 rejected a general transfer, and that rejection stands. One case needs a move all the same.
+An account with no `account_members` row cannot be signed in to by anyone. Every resource it owns is
+out of reach of every account-scoped path, and `checkInstanceAccess` refuses a delete by everyone but
+the resource's creator. A production instance was found with an account like that, created by a
+pre-cutover twin whose agent has no credential: its resources could not be listed, and a statement
+import could not be removed, because each transaction delete was refused. `assign-owner` cannot help:
+it only fills an empty owner.
+
+`Resource.AccountAdopted{FromAccountID, AccountID, Timestamp}` moves a resource out of such an account.
+It is not the transfer option 3 rejected, because each of the questions that made the transfer a
+larger decision has a narrow answer here:
+
+- **Who may move it.** Only the operator command `weos maintenance adopt-account`; no HTTP or MCP
+  surface records the event. It refuses unless the source account exists and has **no members** and
+  **no pending invitation** that has not expired (accepting one makes a member, wm-m0ci05), the
+  target exists and is another account, and the agent named for the run is an **owner or admin** of the
+  target. The run reads the member and invitation checks again before it moves anything. A move never
+  takes a resource out of an account somebody can still use. One use the checks cannot see is the
+  creator rule: an agent keeps access to what it created with no membership. The preview therefore lists
+  each creator of the source's resources, whether it still has a credential and when it last wrote one,
+  and leaves that judgment to the operator.
+- **Its files.** The command moves resources, not files. An upload is stored under
+  `accounts/<account>/` and its URL names that folder; the file route serves it only to that account,
+  and erasure deletes the folder. A moved resource that names one would point at a file its new account
+  can never read, and erasing the emptied source would delete the file. So the command refuses, in the
+  preview and again when the real run starts, a source account with any file in its folder (counted in
+  every configured storage backend through `services.AccountFileCounter`) or any live resource whose
+  stored data names a URL in that folder, and the refusal gives both counts. Moving the files with
+  their resources, and rewriting the URLs through events, is a separate decision (wm-lhc55a); until it
+  is made, moving uploads is not supported yet.
+- **Its grants.** `resource_permissions` rows name an agent and a resource, not an account, so a move
+  leaves them as they are. The resource's creator is unchanged too. Lists and `memory_search` show a
+  caller what it created or holds a read grant on, so the run gives the agent named for it a read grant
+  on each resource it moves, through the resource permission service and before the move (wm-ebgqob).
+  A grant the agent holds is kept, so a re-run grants nothing twice. Widening the list and search
+  scope to the account is a separate decision (wm-o71nrb); until it is made, other members of the
+  target do not see the moved resources in lists or search.
+- **Its knowledge-graph store.** The per-account projector removes the resource from the source
+  account's graph and loads its state into the target's, with the relations its history still holds
+  (each `Triple.Created` not undone by a `Triple.Deleted`): `RemoveSubject` takes them out of the
+  source with the rest of the resource. The lexical index re-indexes it under the target.
+- **Detecting a wrong run.** The preview names both accounts, the source's member and invitation
+  counts, the creators of its resources and the agent's role, and counts the resources per type, before anything is written. Every move is an event,
+  so the stream records which resources moved, from where and to where.
+
+**Compare-and-set, everywhere.** The event applies only while the resource is in `FromAccountID`. That
+holds in `Resource.AdoptAccount`, which refuses a resource of any other account; in `ApplyEvent`; in the
+synchronous projection, which moves the canonical record and then each projection row with a write
+whose own `WHERE` checks the row is still in the source; in the graph projector and the lexical index,
+which compare with the owner the resource's history shows before the event. So a replay changes nothing,
+a second run moves nothing, and a resource of a third account is never touched.
+
+**The projection contract does not change.** The upsert still keeps an owner a row already has; it is
+still fill-only. The move does not go through the upsert at all: it writes the record and each row with
+narrow statements (`WriteAccountAdoption`) that set the owner, the sequence number and the update time
+and nothing else, the row's owner only while it is in the source or empty, so no other write gains the
+power to move an owner. A full rewrite of the row would recompute its reference labels in the target,
+and the run moves one resource at a time, so a reference to a resource not moved yet would lose its
+label (wm-xuskm9). A row that does not exist is written whole, its labels read in the target and, where
+they resolve only there, in the source. A rebuild over
+existing rows replays `Resource.Created` first, which writes the source account back over the record
+while the rows keep the target; the replayed move then puts the record in the target again. A rebuild
+from empty tables writes the source and then moves it. Both end where the live write ended.
+
+**Read-back, as in assign-owner.** A resource is counted as moved only when its record and every
+projection row read back in the target. A record behind its event stream is listed for a reproject. A
+row still in the source under a record that moved stops the run, and a re-run moves that row with no
+second event, once it finds the move in the resource's history. A run stopped after the record write
+leaves each row as it was before the move, so a row that had no owner, or no row at all, is not in the
+source either: a re-run's discovery also selects a resource of the target with an ownerless or missing
+row when its stored history holds a move from this source to this target, and `FinishAdoptedRows`
+fills that row, or writes it whole, with no event and no write to the record (Copilot 4580310679).
+The history condition is what keeps the target's own ownerless or missing rows out: they are
+assign-owner's or a reproject's. A resource of the source account with a row a third account holds is
+listed and never moved, and the run exits non-zero.
+
+**The source account is not deleted** by the command. Removing the emptied account is erasure's job,
+with its own checks — and erasure must not take what moved. Every moved resource's
+`Resource.Created` still names the source account in its payload, and erasure used to delete the whole
+stream of every aggregate whose events named the account. From this release it leaves every resource
+whose history moved it out of the account (its latest `Resource.AccountAdopted` names another
+account): its stream, its rows, its triples, its grants and its index rows are the new account's
+(wm-myzy4t). **Never erase the source account with a binary older than this release**: that erasure
+deletes the history of every resource that moved, and the next reproject removes the resources from
+the target account.
+
+The event follows the same rule as `Resource.AccountAssigned` below: once one is in a store, every later
+release keeps the event type, its payload shape and its `ApplyEvent` case. A binary older than the
+release that added it **fails** to load the aggregate of every moved resource (`unknown event type`), so
+a write to one, an import removal over one and a reproject all fail; its background workers skip the
+event. Never serve an older binary after a real run. If one served, the repair for the background
+workers is the same two checkpoint resets, with this release.
+
 ## Consequences
 
 ### The event must never be removed
+
+This applies to `Resource.AccountAdopted` (decision 5) in the same words.
 
 **Once one `Resource.AccountAssigned` is in a store, every later release must keep the event type,
 its payload shape and its `ApplyEvent` case for as long as that stream exists.**

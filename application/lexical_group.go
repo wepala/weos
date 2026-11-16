@@ -90,6 +90,8 @@ func lexicalHandler(
 				})
 		case "Resource.AccountAssigned":
 			return reindexAssignedOwner(ctx, eventStore, index, logger, event)
+		case "Resource.AccountAdopted":
+			return reindexAdoptedOwner(ctx, eventStore, index, logger, event)
 		default:
 			return nil
 		}
@@ -163,10 +165,72 @@ func reindexAssignedOwner(
 		})
 }
 
+// reindexAdoptedOwner re-indexes a resource under the account a
+// Resource.AccountAdopted moved it to (wm-c7xehr). It is compare-and-set on
+// the move's source account: a row indexed under any other account keeps its
+// owner, and so does a resource with no row whose history before the move
+// does not show it in the source account.
+//
+// The text and type are rebuilt from the WHOLE history, not the part before
+// the move (Copilot review 5913504768). The worker goes on past a parked
+// event, so `worker parked replay` can run a move after the resource's later
+// events already reached the index: a later delete or an update that emptied
+// the text removed the row, and a later update wrote newer text. The state at
+// the end of the history is what those events left, so a deleted resource is
+// not indexed again, an emptied one stays out, and newer text is not replaced
+// by older. The compare-and-set stays on the row: a later move of the same
+// resource meets the row this one wrote, so two parked moves replayed in
+// order still end in the last move's account.
+func reindexAdoptedOwner(
+	ctx context.Context, eventStore domain.EventStore, index repositories.LexicalIndex,
+	logger entities.Logger, event domain.EventEnvelope[any],
+) error {
+	from, to := adoptedAccounts(event.Payload)
+	if from == "" || to == "" {
+		logger.Error(ctx, "lexical index: Resource.AccountAdopted without both accounts, skipping",
+			"resource", event.AggregateID, "from", from, "to", to)
+		return nil
+	}
+	history, err := eventStore.GetEvents(ctx, event.AggregateID)
+	if err != nil {
+		return fmt.Errorf("lexical index: history of %s: %w", event.AggregateID, err)
+	}
+	before := eventsBefore(history, event.SequenceNo)
+	indexed, found, err := index.Owner(ctx, event.AggregateID)
+	if err != nil {
+		return fmt.Errorf("lexical index: owner of %s: %w", event.AggregateID, err)
+	}
+	current := indexed.AccountID
+	if !found {
+		current, _ = ownerFromEvents(before)
+	}
+	if current != from {
+		return nil
+	}
+	state := buildStateFromTransaction(ctx, history, event.AggregateID, event.SequenceNo, logger)
+	if state.IsDelete || state.Data == nil {
+		return nil
+	}
+	typeSlug := state.TypeSlug
+	if typeSlug == "" {
+		typeSlug = identity.ExtractResourceTypeSlug(event.AggregateID)
+	}
+	createdBy := state.CreatedBy
+	if found && indexed.CreatedBy != "" {
+		createdBy = indexed.CreatedBy
+	}
+	return indexResource(ctx, index, logger, event.AggregateID, typeSlug, state.Data,
+		func() (repositories.LexicalOwner, error) {
+			return repositories.LexicalOwner{CreatedBy: createdBy, AccountID: to}, nil
+		})
+}
+
 // lexicalOwner reads who owns the published resource from its events — never
 // from ctx, which during a rebuild belongs to no caller at all. A create
 // carries the owner in its own transaction. An update does not, and an owner
-// never changes, so it is read from the resource's existing index row; only a
+// changes only through an event this handler applies to the row itself
+// (Resource.AccountAssigned, Resource.AccountAdopted), so it is read from the
+// resource's existing index row; only a
 // resource with no row yet (a refill that starts mid-history, a row removed
 // when its text emptied) costs a load of the aggregate's history, to read its
 // Resource.Created. A rebuild replays the create before any update, so the

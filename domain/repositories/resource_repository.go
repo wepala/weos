@@ -153,6 +153,122 @@ type ProjectionOwnerFiller interface {
 	FillOwnerlessProjectionRows(ctx context.Context, entity *entities.Resource) ([]string, error)
 }
 
+// ProjectionOwnerMover is implemented by a ResourceRepository that can finish
+// the projection rows of a Resource.AccountAdopted whose canonical record
+// write landed and whose row writes did not (wm-c7xehr). Update keeps an
+// owner a projection row already has, so the move needs this second, narrower
+// write. Like ProjectionOwnerReader it is an interface of its own; a caller
+// type-asserts for it.
+type ProjectionOwnerMover interface {
+	// FinishAdoptedRows writes each of entity's projection rows (its own
+	// type's and each ancestor's) as WriteAccountAdoption does: a row that
+	// does not exist is written whole, and a row whose owner is fromAccountID,
+	// or that has no owner, takes entity.AccountID() — the check being part of
+	// the statement, so a row of any other account and a row already moved
+	// are left as they are. It returns the tables whose row it created or gave
+	// an owner, in write order. The canonical record is not written, and no
+	// event is recorded: the caller has checked that the resource's history
+	// holds the move (Copilot 4580310679).
+	FinishAdoptedRows(ctx context.Context, entity *entities.Resource, fromAccountID string) ([]string, error)
+}
+
+// AccountAdoptionWriter is implemented by a ResourceRepository that can
+// write the outcome of one Resource.AccountAdopted and nothing else
+// (wm-xuskm9). A full Update rebuilds each projection row, display columns
+// included, in the resource's new account; a reference to a resource that has
+// not moved yet then resolves to nothing and its label is written as NULL.
+// This write leaves every other column of an existing row as it is.
+type AccountAdoptionWriter interface {
+	// WriteAccountAdoption writes entity's owner and sequence number to its
+	// canonical record, and on each of its projection rows (its own type's
+	// and each ancestor's) the sequence number and the time of the write.
+	// When move is true, a row whose owner is fromAccountID, or that has no
+	// owner, takes entity.AccountID() as its owner, the check being part of
+	// the statement; when it is false only an ownerless row takes it. A
+	// projection row that does not exist is written whole, its reference
+	// labels read in entity's account and, for a move, in fromAccountID for
+	// any that resolve only there.
+	WriteAccountAdoption(ctx context.Context, entity *entities.Resource, fromAccountID string, move bool) error
+}
+
+// AccountResource is a resource the account adoption (wm-c7xehr) selected:
+// one whose canonical record is in the source account, or one whose record
+// is already in the target account while a projection row is still in the
+// source account (a move whose projection write did not reach that row), or
+// while, with the move in its history, a projection row has no owner or does
+// not exist (a run stopped after the record write, Copilot 4580310679).
+type AccountResource struct {
+	ID        string
+	TypeSlug  string
+	CreatedAt time.Time
+	// RecordAccountID is the owner the canonical record carries: the source
+	// account, or the target account for a row left behind by a move.
+	RecordAccountID string
+	// MissingTable names the first projection table (its own type's or an
+	// ancestor's) that holds no row for the resource at all, when there is
+	// one. The move writes that row whole, and so does a re-run that
+	// finishes a move.
+	MissingTable string
+	// ForeignRowTable names the first projection table whose row for the
+	// resource is owned by an account that is neither the source nor the
+	// target, when there is one, and ForeignRowAccountID is the account that
+	// row holds. No move writes such a row. An ownerless row is not listed:
+	// the move fills it.
+	ForeignRowTable     string
+	ForeignRowAccountID string
+}
+
+// AccountResourceFinder is implemented by a ResourceRepository that can list
+// the resources of one account for the account adoption. Like
+// OwnerlessResourceFinder it is an interface of its own; a caller
+// type-asserts for it.
+type AccountResourceFinder interface {
+	// FindForAdoption returns every live resource, of every type, whose
+	// canonical record is in fromAccountID; every live resource whose record
+	// is in toAccountID while one of its projection rows is still in
+	// fromAccountID; and every live resource whose record is in toAccountID,
+	// whose history holds a Resource.AccountAdopted from fromAccountID to
+	// toAccountID, and one of whose projection rows has no owner or does not
+	// exist. It is ordered by type and then by identifier.
+	FindForAdoption(ctx context.Context, fromAccountID, toAccountID string) ([]AccountResource, error)
+	// CountResourcesReferencing returns how many live resources whose
+	// canonical record is in accountID hold fragment, as written, in their
+	// stored data. The adoption uses it to find a resource that names a file
+	// in the account's upload folder (wm-c7xehr): a move would leave that
+	// file where the resource's new account cannot read it. An empty fragment
+	// is refused, since it would match every resource.
+	CountResourcesReferencing(ctx context.Context, accountID, fragment string) (int, error)
+}
+
+// AccountUsageReader reads what says an account is still in use. The account
+// adoption moves resources only out of an account nobody can use: one with
+// no members and no pending invitation (wm-m0ci05).
+type AccountUsageReader interface {
+	// CountAccountMembers returns how many account_members rows name the
+	// account.
+	CountAccountMembers(ctx context.Context, accountID string) (int, error)
+	// CountPendingInvites returns how many invitations into the account are
+	// pending and not expired at now. Accepting one makes a member.
+	CountPendingInvites(ctx context.Context, accountID string, now time.Time) (int, error)
+	// AccountCreators returns each agent that created a live resource of the
+	// account, in agent id order. An agent keeps access to what it created
+	// with no membership at all, so an account with no members can still be
+	// in use by one.
+	AccountCreators(ctx context.Context, accountID string) ([]AccountCreator, error)
+}
+
+// AccountCreator is one agent that created live resources of an account.
+type AccountCreator struct {
+	AgentID string
+	// Resources is how many live resources of the account it created.
+	Resources int
+	// HasCredential says the agent still has an active credential, so it can
+	// sign in.
+	HasCredential bool
+	// NewestCreatedAt is when it created the newest of them.
+	NewestCreatedAt time.Time
+}
+
 type ResourceRepository interface {
 	Save(ctx context.Context, entity *entities.Resource) error
 	FindByID(ctx context.Context, id string) (*entities.Resource, error)

@@ -17,8 +17,10 @@ package local
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -119,4 +121,31 @@ func (s *localFileService) DeleteAccountFolder(ctx context.Context, accountID st
 	}
 	s.logger.Info(ctx, "account folder removed from local storage", "path", folder)
 	return nil
+}
+
+// CountAccountFiles counts every file below <basePath>/accounts/<accountID>.
+// A folder that is not there holds none. Anything that is not a directory
+// counts, a symlink included: it is something stored in the account's folder.
+func (s *localFileService) CountAccountFiles(_ context.Context, accountID string) (int, error) {
+	if err := storage.ValidateAccountID(accountID); err != nil {
+		return 0, fmt.Errorf("invalid account ID: %w", err)
+	}
+	folder := filepath.Join(s.basePath, filepath.FromSlash(storage.AccountFolder(accountID)))
+	n := 0
+	err := filepath.WalkDir(folder, func(_ string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			n++
+		}
+		return nil
+	})
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("count the files in %s: %w", folder, err)
+	}
+	return n, nil
 }

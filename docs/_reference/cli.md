@@ -414,6 +414,142 @@ weos worker checkpoint reset oxigraph
 weos worker checkpoint reset lexical-index
 ```
 
+## `weos maintenance adopt-account`
+
+Move every resource of an account with no members to another account. An account with no
+`account_members` row cannot be signed in to by anyone, so nobody can list, change or delete what it
+owns: account-scoped reads never match it, and a delete by anyone but the resource's creator is
+refused. This is the one command that moves a resource that already has an owner, and it moves only
+out of such an account. `weos maintenance assign-owner` still only fills an empty owner.
+
+```bash
+weos maintenance adopt-account --database-dsn <dsn> --from <account id> --account <account id> \
+  --agent <agent id> [--write]
+```
+
+**Preview by default.** Without `--write` the command names both accounts, shows the member count,
+the pending invitations and the uploads of the `--from` account and the agent's role in the `--account` account, counts
+the resources to move per type, and writes nothing. Only `--write` moves. A move cannot be undone, so a forgotten flag costs a
+preview, never a write.
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--from` | string | Yes | The account with no members whose resources are moved |
+| `--account` | string | Yes | The account to move the resources to |
+| `--agent` | string | Yes | An agent that is owner or admin of `--account`, who answers for the move |
+| `--write` | bool | No | Apply the move. Without it (the default) the command is a preview and changes nothing |
+
+**What it changes.** Every live resource whose account is `--from`, of every type, gets one
+`Resource.AccountAdopted` event, written through the same unit of work as any other write. The
+canonical record, the projection tables, the knowledge graph and the search index all follow it, and a
+rebuild from events (`weos worker reproject`) keeps it. Each consumer applies the move only while the
+resource is still in the `--from` account, so a resource that left it is skipped and a second run
+moves nothing. A resource of any other account is never touched. The `--from` account is never deleted
+by this command. **A move cannot be undone**: only a database restore reverses a run. The decision is
+recorded in [An Ownerless Resource Is Given Its Owner Through the Event Stream]({% link decisions/resource-account-assigned.md %}),
+in the section on the one case where an owner moves.
+
+A run with `--write` also sets `updated_at` on every moved row to the time of the run, so lists sorted by
+last update lead with the moved resources. The run says so when it ends.
+
+**What the target's owner sees.** Lists and `memory_search` show a caller the resources it created or
+holds a read grant on, and a moved resource keeps its creator. So the run gives the `--agent` agent a
+read grant on each resource it moves, through the resource permission service, just before the move. A
+grant the agent already holds is kept as it is (one without read gains read), so a re-run grants
+nothing twice. Other members of the `--account` account still do not see the moved resources in lists
+or search; the scope rule itself is unchanged. In the knowledge graph, the move carries each resource's
+relations (each `Triple.Created` its history still holds) into the `--account` account's graph.
+
+**Refusals.** The command refuses to run when the `--from` account does not exist, has a member, or has
+a pending invitation that has not expired (accepting it would make a member), when the `--account`
+account does not exist or is the `--from` account, when the agent is not an owner or admin of the
+`--account` account, when the `--from` account has an uploaded file, or when no database is named. A
+run with `--write` reads the member, invitation and upload checks again before it moves anything, so
+one that arrived after the preview still refuses the run.
+
+**Uploads are refused, not moved.** The command moves resources, not files. A file the storage
+backend holds in `accounts/<--from>/` is served only to the `--from` account, and erasing that account
+deletes the folder, so a moved resource that names one would point at a file its new account can never
+read. The command therefore refuses, in the preview and again with `--write`, when the `--from`
+account has any uploaded file in its folder (every configured backend is counted: local, S3 or GCS) or
+any live resource whose data names a URL in that folder, and the refusal names both counts. Moving
+uploads with their resources is not supported yet. The preview reads the file storage but creates
+nothing in it.
+
+**Who still uses the account.** An agent keeps access to the resources it created with no membership at
+all, so an account with no members can still be in use. The preview lists each agent that created the
+`--from` account's resources, with how many, when it last wrote one, and whether it still has a
+credential (an active one), and warns when one can still sign in. The command does not refuse on this; read it before
+adding `--write`.
+
+**Where the ids come from.** Read them from the same database:
+
+```sql
+-- --from: accounts with no members that still own resources
+SELECT a.id, a.name, COUNT(r.id) FROM accounts a
+  JOIN resources r ON r.account_id = a.id
+  WHERE NOT EXISTS (SELECT 1 FROM account_members m WHERE m.account_id = a.id)
+  GROUP BY a.id, a.name;
+
+-- --account and --agent: the accounts an agent is in, with its role
+SELECT a.id, a.name, m.role_id FROM account_members m
+  JOIN accounts a ON a.id = m.account_id
+  WHERE m.agent_id = '<agent id>';
+-- or one person's agent id, from an email address
+SELECT agent_id FROM credentials WHERE email = '<address>';
+```
+
+**Procedure.**
+
+1. Upgrade the instance to this release. The preview (no flag) may run while the instance serves: it
+   opens the database read-only and starts nothing, so it writes nothing.
+2. Preview first: run with no flag. Read both account names, the member, invitation and upload counts
+   of the `--from` account (all must be 0), the creators of its resources and the counts per type.
+3. Stop the instance for the real run, and back up the database. A run with `--write` opens the store
+   directly, and a serving instance competes with it for the database (on SQLite, for the write lock).
+4. Add `--write` and run again. The command names both accounts before it writes, and prints its
+   progress every 100 resources and when each type is done. A run stopped part-way is safe to re-run.
+5. Start the instance. The search index and the knowledge graph catch up with the moves in the
+   background at start, one history load per moved resource. Wait until `memory_search` stops
+   reporting that its index is behind before judging the result; until then search can still show a
+   moved resource under the old account, or miss it.
+
+A resource is counted as moved only when its record and each of its projection rows (its own type's
+table and each ancestor's) read back in the `--account` account. A run that stops part-way has moved
+what it reports; running it again with `--write` moves the rest. A resource whose record is behind its
+event stream is skipped and listed, and the command exits non-zero: with the instance stopped, run
+`weos worker reproject` against the same database, then run this command again.
+
+The record and the rows are written one after the other, so a failed write can leave a projection row
+in the `--from` account under a record that moved. The run then stops with an error that names the
+resource. A run stopped after the record write (killed, or the machine lost) leaves each row as it was
+before the move: one that was in the `--from` account, one that had no owner, or none at all. Fix the
+cause and run the command again: it finds each such row — a row still in the `--from` account, and a
+row with no owner or no row at all under a record whose stored history holds the move — checks that
+the resource's history holds the move, moves or fills the row or writes it whole, and records no second
+event. A resource of the `--account` account whose history holds no move from the `--from` account is
+never touched, however its rows look. The preview counts such rows apart from the resources to move,
+so the moved count matches the events a run adds.
+
+**Erasing the `--from` account afterwards.** `weos account delete` on the emptied `--from` account
+leaves every resource that moved, and its whole history: erasure skips a resource whose history moved
+it out of the account. **Erase it only with this release or later.** An older binary's erasure deletes
+the event history of every moved resource, because each one's `Resource.Created` still names the
+`--from` account, and the next `weos worker reproject` then removes them from the `--account` account.
+
+A resource of the `--from` account with a projection row that a third account holds is listed, in the
+preview and in the result, and is never moved: no write this command makes changes that row, so it
+needs investigation first. A run with `--write` that lists one exits non-zero. A resource with no row at
+all in one of its projection tables is moved, and the move writes the row.
+
+**Never serve an older binary after a run with `--write`.** A binary built before this release does not
+know `Resource.AccountAdopted`, and it **fails** to load a moved resource's history with
+`unknown event type: ...`: updating or deleting a moved resource, removing an import that holds one, and
+`weos worker reproject` all fail. Its background workers also skip the event, so the knowledge graph and
+the search index keep the resources under the `--from` account. If one served, upgrade to this release,
+run `weos worker checkpoint reset oxigraph` and `weos worker checkpoint reset lexical-index`, then start
+the instance; the workers replay the history.
+
 ---
 
 ## Make Targets
@@ -428,7 +564,7 @@ For convenience, the Makefile provides shortcuts:
 | `make test-unit` | `go test -v -race -short ./tests/unit/...` | Unit tests |
 | `make test-integration` | `go test -v -race ./tests/integration/...` | Integration tests |
 | `make test-e2e` | `go test -v ./tests/e2e/...` | E2E tests |
-| `make test-graph-embedded` | `CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go test -race -tags oxigraph_embedded ./infrastructure/graph/...` then `CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go test -race -tags oxigraph_embedded ./application/ -run 'EmbeddedLabelSearch'` then `CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go test -race -tags oxigraph_embedded ./tests/e2e/ -run 'KnowledgeGraph'` then `CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go test -race -tags oxigraph_embedded ./tests/e2e/ -run 'TestAccountDeletion'` | Embedded oxigraph backend tests, including the embedded label search and the account deletion suite (fetches the vendored static lib first) |
+| `make test-graph-embedded` | `CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go test -race -tags oxigraph_embedded ./infrastructure/graph/...` then `CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go test -race -tags oxigraph_embedded ./application/ -run 'EmbeddedLabelSearch'` then `CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go test -race -tags oxigraph_embedded ./application/ -run 'EmbeddedAccountAdopted'` then `CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go test -race -tags oxigraph_embedded ./tests/e2e/ -run 'KnowledgeGraph'` then `CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go test -race -tags oxigraph_embedded ./tests/e2e/ -run 'TestAccountDeletion'` | Embedded oxigraph backend tests, including the embedded label search, the account move between graphs and the account deletion suite (fetches the vendored static lib first) |
 | `make lint` | `golangci-lint run ./...` | Lint |
 | `make fmt` | `go fmt` + `goimports` | Format code |
 | `make deps` | `go mod download && go mod tidy` | Install dependencies |

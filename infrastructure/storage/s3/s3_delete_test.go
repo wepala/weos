@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
 	weoss3 "github.com/wepala/weos/v3/infrastructure/storage/s3"
@@ -17,12 +18,15 @@ import (
 // fakeListing answers ListObjectsV2 from a fixed key set, one page per call
 // of pageSize keys, and records every DeleteObjects input. A key named in
 // refuse comes back in the per-key Errors of the delete that carries it,
-// which is how S3 reports a partial failure — with a 200.
+// which is how S3 reports a partial failure — with a 200. DeleteAccountFolder
+// sends its delete batches at the same time, so mu guards the recorded calls
+// (wm-xrv0xl); the tests read them only after the call has returned.
 type fakeListing struct {
 	keys     []string
 	pageSize int
 	refuse   string
 
+	mu      sync.Mutex
 	lists   []*s3sdk.ListObjectsV2Input
 	deletes []*s3sdk.DeleteObjectsInput
 }
@@ -34,10 +38,14 @@ func (f *fakeListing) client() *s3sdk.Client {
 		) {
 			switch params := in.Parameters.(type) {
 			case *s3sdk.ListObjectsV2Input:
+				f.mu.Lock()
 				f.lists = append(f.lists, params)
+				f.mu.Unlock()
 				return middleware.InitializeOutput{Result: f.page(params)}, middleware.Metadata{}, nil
 			case *s3sdk.DeleteObjectsInput:
+				f.mu.Lock()
 				f.deletes = append(f.deletes, params)
+				f.mu.Unlock()
 				out := &s3sdk.DeleteObjectsOutput{}
 				for _, key := range params.Delete.Objects {
 					if aws.ToString(key.Key) == f.refuse {
